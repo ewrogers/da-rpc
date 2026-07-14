@@ -11,6 +11,7 @@ create-missing = false
 
 [output.html]
 default-theme = "ayu"
+preferred-dark-theme = "ayu"
 edit-url-template = "https://github.com/ewrogers/da-rpc/edit/main/docs/{path}"
 git-repository-url = "https://github.com/ewrogers/da-rpc"
 site-url = "/da-rpc/"

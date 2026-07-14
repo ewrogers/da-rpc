@@ -1,0 +1,16 @@
+[book]
+authors = ["Erik Rogers"]
+description = "Architecture and development documentation for daRPC"
+language = "en"
+src = "src"
+title = "daRPC Book"
+
+[build]
+build-dir = "book"
+create-missing = false
+
+[output.html]
+default-theme = "ayu"
+edit-url-template = "https://github.com/ewrogers/da-rpc/edit/main/docs/{path}"
+git-repository-url = "https://github.com/ewrogers/da-rpc"
+site-url = "/da-rpc/"

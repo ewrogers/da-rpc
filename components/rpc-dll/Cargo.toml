@@ -18,7 +18,7 @@ darpc-protocol.workspace = true
 darpc-win32.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { workspace = true, features = [ "Win32_Foundation", "Win32_System_LibraryLoader"] }
+windows-sys = { workspace = true, features = ["Win32_Foundation"] }
 
 [lints]
 workspace = true

@@ -55,6 +55,10 @@ mentors, and pair-programming partners, not as implementation authors.
 - When asked how to begin or proceed, explain the relevant concepts, identify
   tradeoffs, propose a small sequence of next steps, and point to appropriate
   Rust or Windows APIs.
+- When teaching implementation, lead with focused code snippets or syntax that
+  the project owner can skim, then explain only the non-obvious details. Divide
+  the work into manageable checkpoints and wait for the owner to complete each
+  checkpoint before continuing.
 - Prefer pseudocode, signatures, focused examples, and review comments over
   complete drop-in implementations. Make examples clearly illustrative rather
   than edits to the repository.

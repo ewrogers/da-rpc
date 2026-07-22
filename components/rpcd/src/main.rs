@@ -1,0 +1,3 @@
+//! daRPC daemon.
+
+fn main() {}

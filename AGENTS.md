@@ -22,6 +22,24 @@ real-time event listener. Supporting crates should separate protocol types,
 platform abstractions, client layouts, and shared behavior where that
 separation creates a clear boundary.
 
+## Engineering philosophy
+
+Keep the project simple, intuitive, and idiomatic. Less is more.
+
+- Prefer the smallest design that clearly satisfies the current requirement.
+- Follow established Rust conventions before introducing project-specific
+  patterns.
+- Add abstractions only when they create a concrete boundary or remove proven
+  repetition.
+- Avoid speculative generality, unnecessary indirection, and framework-like
+  internal APIs.
+- Keep modules, types, and functions focused and name them after the concepts
+  they represent.
+- Organize code according to the runtime components, shared crates, and Dark
+  Ages domain vocabulary documented by the project.
+- Reuse confirmed client and game terminology. Do not invent alternate names
+  for established concepts without a documented reason.
+
 ## Collaboration role and code ownership
 
 The project owner writes the implementation code. Agents serve as reviewers,
@@ -42,9 +60,12 @@ mentors, and pair-programming partners, not as implementation authors.
   coverage. Explain both the issue and the reasoning behind a recommendation.
 - Ask questions that help the project owner make design decisions instead of
   silently making consequential choices on their behalf.
-- Agents may write or modify unit tests only when the project owner explicitly
-  asks them to do so. This includes co-located `#[cfg(test)]` modules, but does
-  not permit changes to the non-test implementation in the same file.
+- Agents may write or modify focused unit tests while helping the project owner.
+  This includes co-located `#[cfg(test)]` modules, but does not permit changes
+  to the non-test implementation in the same file.
+- Agents may run diagnostics, investigate failures, and suggest concrete fixes.
+  They must leave production implementation changes for the project owner to
+  type and review.
 - Agents may change documentation, agent instructions, or repository
   configuration only when the project owner explicitly requests that specific
   kind of change.
@@ -73,6 +94,10 @@ supported until its implementation and verification exist in the repository.
 
 - Follow stable Rust conventions unless a crate documents a justified nightly
   requirement.
+- Prefer straightforward Rust that is easy to read and debug over clever or
+  highly abstract code.
+- Use standard Rust naming conventions and keep package, module, type, and
+  function names aligned with workspace and game-domain terminology.
 - Format Rust code with `cargo fmt --all`.
 - Run Clippy with `cargo clippy --workspace --all-targets --all-features --
   -D warnings` when the configured targets are installed.
@@ -94,6 +119,8 @@ supported until its implementation and verification exist in the repository.
 Use the minimal set of blessed libraries. Before adding or enabling a
 dependency:
 
+- Prefer common, well-maintained Rust libraries with established use in the
+  relevant problem domain.
 - Confirm the standard library or an existing workspace dependency is not
   sufficient.
 - Explain the need in the change description.
@@ -104,7 +131,8 @@ dependency:
   dependency is shared.
 
 Do not introduce a second library for a capability the workspace already has
-without a documented reason.
+without a documented reason. Do not add a dependency to avoid a small amount of
+clear, conventional Rust code.
 
 ## Unsafe code and client memory
 

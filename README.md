@@ -3,53 +3,95 @@
 [![Documentation](https://github.com/ewrogers/da-rpc/actions/workflows/docs.yml/badge.svg)](https://github.com/ewrogers/da-rpc/actions/workflows/docs.yml)
 
 daRPC, short for Dark Ages Remote Procedure Call, is a Rust workspace for
-directly integrating tools with the Windows client of *Dark Ages*. It replaces
-the traditional network-proxy approach with an injected client library and a
-portable web API.
+integrating developer tools with the 32-bit Windows client of *Dark Ages*.
+The project is in early development and does not yet provide a working client
+integration.
 
-The project is in early development.
-
-## Why daRPC exists
-
-Network proxies must decode and re-encode traffic, add another failure point,
-cannot attach to an existing client, and cannot observe client-only state.
-daRPC instead works at the client's internal event boundary. This allows it to
-observe and inject events while leaving network serialization and encryption
-to the client.
-
-Working inside the client also makes it possible to track both game-world state
-and local user interface state, including panes, dialogs, selections, and focus
-that may never be represented by a network packet.
+daRPC is designed around an injected library instead of a network proxy. The
+library can attach to an existing client, observe internal events, maintain a
+separate state model, and submit actions through the client's native paths. A
+daemon discovers and manages connected clients and exposes their state through
+portable web APIs.
 
 ## Components
 
-| Component | Target | Purpose |
+| Component | Target | Responsibility |
 | --- | --- | --- |
-| `rpc.dll` | 32-bit Windows x86 | Integrates with the client and maintains local game and UI state. |
-| `loader.exe` | 32-bit Windows x86 | Launches a client with daRPC or injects `rpc.dll` into a compatible running client. |
-| `rpcd.exe` | 64-bit Windows x86-64 | Discovers clients, aggregates state and real-time events, and exposes REST, Server-Sent Events, and WebSocket APIs. |
+| `rpc.dll` | 32-bit Windows x86 | Integrates with one client, maintains local state, and hosts its named-pipe endpoint. |
+| `loader.exe` | 32-bit Windows x86 | Launches a compatible client or injects `rpc.dll` into an existing one. |
+| `rpcd.exe` | 64-bit Windows x86-64 | Discovers clients, aggregates state and events, and exposes web APIs. |
+
+The DLL remains independent of the daemon. If `rpcd.exe` is stopped or
+restarted, an injected client must continue operating normally and accept a new
+daemon connection later.
+
+## Workspace
+
+```text
+components/
+  loader/       32-bit launcher and injector
+  rpc-dll/      32-bit injected library
+  rpcd/         64-bit daemon and web API
+
+crates/
+  client-741/   Dark Ages 7.41 layouts, addresses, and client ABI boundaries
+  model/        shared domain state, actions, and updates
+  protocol/     versioned binary IPC framing and codecs
+  win32/        shared Windows platform boundaries
+
+docs/           architecture and developer documentation
+```
+
+Reusable library packages use the `darpc-` prefix. Component packages use the
+names of their produced artifacts.
+
+## Design priorities
+
+- Preserve the stability and normal behavior of the game client.
+- Keep hooks bounded, nonblocking, and fail-open.
+- Keep client memory and native calls on validated, version-specific boundaries.
+- Keep IPC independent from game loops and native client locks.
+- Prefer simple, idiomatic Rust over premature abstractions.
+- Use a minimal set of common, well-maintained dependencies.
+
+## Development
+
+The workspace uses Rust 2024. The two injected-process components target
+32-bit Windows, while the daemon targets 64-bit Windows:
+
+```text
+rpc-dll, loader: i686-pc-windows-msvc
+rpcd:            x86_64-pc-windows-msvc
+```
+
+The shared crates can be checked together on a supported development host:
+
+```text
+cargo check -p darpc-model -p darpc-protocol
+```
+
+Platform component checks should specify their intended Windows target. Build
+and test instructions will grow alongside the implementation.
+
+The project owner writes implementation code. Coding agents act as reviewers,
+debugging partners, and mentors, and may help with tests when requested. See
+[AGENTS.md](AGENTS.md) for the complete collaboration and engineering rules.
+
+All commits should follow the [Conventional Commits](https://www.conventionalcommits.org/)
+format with a focused, imperative summary.
 
 ## Documentation
 
-The full architecture and development documentation is available in the
-[daRPC Book](https://ewrogers.github.io/da-rpc/).
+The [daRPC Book](https://ewrogers.github.io/da-rpc/) contains the detailed
+architecture, state model, discovery design, safety requirements, IPC protocol,
+and planned HTTP, Server-Sent Events, and WebSocket interfaces.
 
-To build and serve the book locally:
+Build and serve it locally with the pinned mdBook version:
 
 ```text
 cargo install mdbook --version 0.5.4 --locked
 mdbook serve docs --open
 ```
-
-The documentation is built for pull requests and deployed to GitHub Pages from
-`main`.
-
-## Development
-
-Build instructions will be added as the Rust workspace is introduced. Changes
-must follow Rust conventions and use Conventional Commits. See
-[AGENTS.md](AGENTS.md) for repository-wide engineering and collaboration
-guidance.
 
 ## License
 

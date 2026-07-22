@@ -1,0 +1,26 @@
+[workspace]
+resolver = "3"
+members = [
+    "components/loader",
+    "components/rpc-dll",
+    "components/rpcd",
+    "crates/client-741",
+    "crates/model",
+    "crates/protocol",
+    "crates/win32",
+]
+
+[workspace.package]
+authors = ["Erik 'SiLo' Rogers"]
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/ewrogers/da-rpc"
+
+[workspace.dependencies]
+darpc-client-741 = { path = "crates/client-741" }
+darpc-model = { path = "crates/model" }
+darpc-protocol = { path = "crates/protocol" }
+darpc-win32 = { path = "crates/win32" }
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"

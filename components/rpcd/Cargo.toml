@@ -1,0 +1,16 @@
+[package]
+name = "rpcd"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+darpc-model.workspace = true
+darpc-protocol.workspace = true
+darpc-win32.workspace = true
+
+[lints]
+workspace = true

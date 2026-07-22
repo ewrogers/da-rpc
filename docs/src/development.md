@@ -1,15 +1,34 @@
 # Development
 
-The Rust workspace has not yet been introduced. Build and test instructions
-will be added when there is an implementation to build.
+The Rust workspace is scaffolded, but it does not yet contain an implementation.
+Its packages establish the intended component and library boundaries:
+
+| Package | Role |
+| --- | --- |
+| `darpc-model` | Shared domain state, actions, and updates. |
+| `darpc-protocol` | Versioned binary interprocess communication framing and codecs. |
+| `darpc-win32` | Shared Windows platform boundaries. |
+| `darpc-client-741` | Version-specific client layouts and application binary interface boundaries. |
+| `rpc-dll` | Injected client component. |
+| `loader` | Client launcher and injector. |
+| `rpcd` | Client aggregator and web API daemon. |
 
 The planned runtime targets are:
 
-| Component | Rust target class |
+| Component | Rust target |
 | --- | --- |
-| `rpc.dll` | 32-bit Windows x86 |
-| `loader.exe` | 32-bit Windows x86 |
-| `rpcd.exe` | 64-bit Windows x86-64 |
+| `rpc.dll` | `i686-pc-windows-msvc` |
+| `loader.exe` | `i686-pc-windows-msvc` |
+| `rpcd.exe` | `x86_64-pc-windows-msvc` |
+
+The shared crates can be checked independently of the Windows components:
+
+```text
+cargo check -p darpc-model -p darpc-protocol
+```
+
+Component builds and checks should specify their intended target. Detailed
+commands will be added as platform-specific implementation is introduced.
 
 ## Documentation
 
@@ -28,8 +47,9 @@ Pages.
 ## Collaboration
 
 The project owner writes implementation code. Agents act as reviewers,
-mentors, and pair-programming partners. Agents may write unit tests only when
-explicitly requested. See the repository's
+mentors, debugging partners, and pair-programming partners. Agents may write
+focused unit tests, but production implementation remains with the project
+owner. See the repository's
 [AGENTS.md](https://github.com/ewrogers/da-rpc/blob/main/AGENTS.md) for the full
 guidance.
 

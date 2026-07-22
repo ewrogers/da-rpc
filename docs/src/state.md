@@ -1,13 +1,13 @@
 # Client state
 
 Local state is one of the main advantages of direct client integration.
-`rpc.dll` maintains the authoritative daRPC view for its process and exposes
-that view to `rpcd.exe` without exposing raw pointers.
+`darpc.dll` maintains the authoritative daRPC view for its process and exposes
+that view to `darpcd.exe` without exposing raw pointers.
 
 ## Initial snapshot
 
 Attaching to an existing process requires more than observing future events.
-`rpc.dll` first reconstructs current state from validated pointers, relative
+`darpc.dll` first reconstructs current state from validated pointers, relative
 virtual addresses, and version-specific data structures.
 
 Snapshot results must represent partial, unavailable, and unknown state
@@ -32,13 +32,13 @@ need to be obtained from both memory structures and local input events.
 
 ## Snapshot and stream boundary
 
-Every new `rpcd.exe` connection receives a fresh complete snapshot followed by
-later updates. `rpc.dll` must establish an ordered boundary so an update cannot
+Every new `darpcd.exe` connection receives a fresh complete snapshot followed by
+later updates. `darpc.dll` must establish an ordered boundary so an update cannot
 be lost between capturing the snapshot and subscribing the daemon to events.
 The implementation may use a state revision, sequence number, or synchronized
 queue, but the protocol-visible ordering guarantee must be explicit.
 
-Events produced while `rpcd.exe` is down do not require an unbounded replay
+Events produced while `darpcd.exe` is down do not require an unbounded replay
 log. A new snapshot restores current durable state, and real-time delivery
 resumes from its boundary. Transient event history during the outage is not
 recovered unless a later requirement introduces a deliberately bounded log.

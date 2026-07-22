@@ -33,19 +33,27 @@ dependencies = [
 ]
 
 [[package]]
-name = "rpc-dll"
+name = "rpc-client"
 version = "0.1.0"
 dependencies = [
- "darpc-client-741",
+ "darpc-protocol",
+ "darpc-win32",
+]
+
+[[package]]
+name = "rpc-daemon"
+version = "0.1.0"
+dependencies = [
  "darpc-model",
  "darpc-protocol",
  "darpc-win32",
 ]
 
 [[package]]
-name = "rpcd"
+name = "rpc-dll"
 version = "0.1.0"
 dependencies = [
+ "darpc-client-741",
  "darpc-model",
  "darpc-protocol",
  "darpc-win32",

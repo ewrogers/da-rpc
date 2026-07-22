@@ -1,11 +1,15 @@
 [package]
-name = "rpcd"
+name = "rpc-daemon"
 version = "0.1.0"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
+
+[[bin]]
+name = "darpcd"
+path = "src/main.rs"
 
 [dependencies]
 darpc-model.workspace = true

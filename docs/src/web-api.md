@@ -1,6 +1,6 @@
 # Web API
 
-`rpcd.exe` exposes standard web interfaces so applications do not need to
+`darpcd.exe` exposes standard web interfaces so applications do not need to
 implement Windows injection, named-pipe IPC, or client-specific data layouts.
 
 The planned interfaces have distinct roles:

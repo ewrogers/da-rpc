@@ -17,11 +17,12 @@ portable web APIs.
 
 | Component | Target | Responsibility |
 | --- | --- | --- |
-| `rpc.dll` | 32-bit Windows x86 | Integrates with one client, maintains local state, and hosts its named-pipe endpoint. |
-| `loader.exe` | 32-bit Windows x86 | Launches a compatible client or injects `rpc.dll` into an existing one. |
-| `rpcd.exe` | 64-bit Windows x86-64 | Discovers clients, aggregates state and events, and exposes web APIs. |
+| `darpc.dll` | 32-bit Windows x86 | Integrates with one client, maintains local state, and hosts its named-pipe endpoint. |
+| `loader.exe` | 32-bit Windows x86 | Launches a compatible client or injects `darpc.dll` into an existing one. |
+| `darpc.exe` | 64-bit Windows x86-64 | Provides direct IPC diagnostics and a user-facing daemon client. |
+| `darpcd.exe` | 64-bit Windows x86-64 | Discovers clients, aggregates state and events, and exposes web APIs. |
 
-The DLL remains independent of the daemon. If `rpcd.exe` is stopped or
+The DLL remains independent of the daemon. If `darpcd.exe` is stopped or
 restarted, an injected client must continue operating normally and accept a new
 daemon connection later.
 
@@ -29,9 +30,10 @@ daemon connection later.
 
 ```text
 components/
+  rpc-client/   64-bit command-line client
   loader/       32-bit launcher and injector
   rpc-dll/      32-bit injected library
-  rpcd/         64-bit daemon and web API
+  rpc-daemon/   64-bit daemon and web API
 
 crates/
   client-741/   Dark Ages 7.41 layouts, addresses, and client ABI boundaries
@@ -42,8 +44,8 @@ crates/
 docs/           architecture and developer documentation
 ```
 
-Reusable library packages use the `darpc-` prefix. Component packages use the
-names of their produced artifacts.
+Reusable library packages use the `darpc-` prefix. Component packages use
+concise role names, while their manifests define the intended artifact names.
 
 ## Design priorities
 
@@ -56,12 +58,12 @@ names of their produced artifacts.
 
 ## Development
 
-The workspace uses Rust 2024. The two injected-process components target
-32-bit Windows, while the daemon targets 64-bit Windows:
+The workspace uses Rust 2024. The injected-process components target 32-bit
+Windows, while the daemon and command-line client target 64-bit Windows:
 
 ```text
-rpc-dll, loader: i686-pc-windows-msvc
-rpcd:            x86_64-pc-windows-msvc
+rpc-dll, loader:  i686-pc-windows-msvc
+rpc-client, rpc-daemon: x86_64-pc-windows-msvc
 ```
 
 The shared crates can be checked together on a supported development host:
@@ -85,6 +87,11 @@ format with a focused, imperative summary.
 The [daRPC Book](https://ewrogers.github.io/da-rpc/) contains the detailed
 architecture, state model, discovery design, safety requirements, IPC protocol,
 and planned HTTP, Server-Sent Events, and WebSocket interfaces.
+
+The [development roadmap](docs/src/roadmap.md) divides the work into small
+increments with a visible demonstration and exit checks for each milestone.
+The [tentative command-line interface](docs/src/cli.md) describes the planned
+`darpc.exe` command hierarchy, client selection, typed actions, and JSON output.
 
 Build and serve it locally with the pinned mdBook version:
 

@@ -1,12 +1,12 @@
 # Discovery and recovery
 
-Discovery is owned by `rpcd.exe`. The daemon periodically reconciles candidate
-game clients with available daRPC endpoints. `rpc.dll` does not need to locate
+Discovery is owned by `darpcd.exe`. The daemon periodically reconciles candidate
+game clients with available daRPC endpoints. `darpc.dll` does not need to locate
 or notify the daemon.
 
 ## Deterministic pipe names
 
-Once initialized, each `rpc.dll` creates a named pipe derived from its process
+Once initialized, each `darpc.dll` creates a named pipe derived from its process
 identifier (PID):
 
 ```text
@@ -14,12 +14,12 @@ identifier (PID):
 ```
 
 The DLL keeps this endpoint available and accepts a replacement connection
-after `rpcd.exe` disconnects or restarts. Pipe access should be local-only and
+after `darpcd.exe` disconnects or restarts. Pipe access should be local-only and
 restricted to the intended Windows user.
 
 ## Reconciliation loop
 
-`rpcd.exe` reconciles once at startup and then at a short fixed interval. An
+`darpcd.exe` reconciles once at startup and then at a short fixed interval. An
 initial interval around two seconds is simple and responsive enough to start;
 it can become configurable only if a real need appears.
 
@@ -41,20 +41,20 @@ The pipe result determines the next step:
 
 | Result | Meaning | Action |
 | --- | --- | --- |
-| Connection and handshake succeed | A compatible `rpc.dll` is available. | Request a snapshot and begin listening for updates. |
+| Connection and handshake succeed | A compatible `darpc.dll` is available. | Request a snapshot and begin listening for updates. |
 | Pipe is busy | An endpoint exists but cannot accept this connection yet. | Retry without injecting. |
 | Pipe is missing during a short grace period | The DLL may still be initializing. | Wait for the next reconciliation. |
 | Pipe remains missing | The process may not be injected. | Present it as a possible `loader.exe` candidate. |
 | Handshake fails | An endpoint exists but is incompatible or invalid. | Report the error and do not inject automatically. |
 
 `loader.exe` must repeat its own compatibility and already-loaded checks before
-injection, even when `rpcd.exe` reports a candidate.
+injection, even when `darpcd.exe` reports a candidate.
 
 ## Daemon recovery
 
-While the daemon is unavailable, `rpc.dll` continues updating local state. The
+While the daemon is unavailable, `darpc.dll` continues updating local state. The
 pipe server detects the broken connection and returns to its listening state.
-After restart, `rpcd.exe` performs its normal startup reconciliation, connects,
+After restart, `darpcd.exe` performs its normal startup reconciliation, connects,
 requests a new snapshot, and resumes event delivery from the snapshot boundary.
 
 This restores current state without requiring a registry entry, shared file,

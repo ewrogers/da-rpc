@@ -1,9 +1,10 @@
 [workspace]
 resolver = "3"
 members = [
+    "components/rpc-client",
     "components/loader",
     "components/rpc-dll",
-    "components/rpcd",
+    "components/rpc-daemon",
     "crates/client-741",
     "crates/model",
     "crates/protocol",

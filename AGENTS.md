@@ -10,14 +10,16 @@ precedence.
 daRPC is a Rust workspace for integrating with the 32-bit Windows client of
 *Dark Ages*. Its primary runtime components are:
 
-- `rpc.dll`, a 32-bit x86 library injected into the game client.
+- `darpc.dll`, a 32-bit x86 library injected into the game client.
 - `loader.exe`, a 32-bit x86 executable that launches or injects the library.
-- `rpcd.exe`, a 64-bit x86-64 daemon that aggregates client state and real-time
+- `darpc.exe`, a 64-bit x86-64 command-line client for diagnostics and the
+  daemon API.
+- `darpcd.exe`, a 64-bit x86-64 daemon that aggregates client state and real-time
   events and presents REST, SSE, and WebSocket APIs.
 
-`rpc.dll` communicates with `rpcd.exe` through a versioned binary protocol over
-process-specific Windows named pipes. `rpc.dll` owns the initial and updating
-local state for its process. `rpcd.exe` is a query layer, aggregator, and
+`darpc.dll` communicates with `darpcd.exe` through a versioned binary protocol over
+process-specific Windows named pipes. `darpc.dll` owns the initial and updating
+local state for its process. `darpcd.exe` is a query layer, aggregator, and
 real-time event listener. Supporting crates should separate protocol types,
 platform abstractions, client layouts, and shared behavior where that
 separation creates a clear boundary.
@@ -189,8 +191,8 @@ memory boundaries. Treat those boundaries as small audited interfaces.
 
 ## State model
 
-- Keep `rpc.dll` state tracking independent of the presence or health of
-  `rpcd.exe`.
+- Keep `darpc.dll` state tracking independent of the presence or health of
+  `darpcd.exe`.
 - Treat local UI state as part of the client state model. Keep client-only UI
   changes separate from server-backed world and character state where their
   consistency rules differ.
@@ -209,7 +211,7 @@ memory boundaries. Treat those boundaries as small audited interfaces.
 
 ## Daemon and web API
 
-- Make `rpcd.exe` the owner of discovery. `rpc.dll` must expose its deterministic
+- Make `darpcd.exe` the owner of discovery. `darpc.dll` must expose its deterministic
   PID-based pipe and remain ready to accept a replacement daemon connection.
 - Reconcile clients at daemon startup and periodically thereafter by mapping
   supported game window classes to process identifiers and probing their

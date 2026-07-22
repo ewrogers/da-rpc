@@ -1,10 +1,10 @@
 # daRPC protocol
 
-`rpc.dll` and `rpcd.exe` communicate using a purpose-built binary protocol over
+`darpc.dll` and `darpcd.exe` communicate using a purpose-built binary protocol over
 a process-specific Windows named pipe. The detailed wire format has not yet
 been finalized.
 
-`rpc.dll` is the pipe server and `rpcd.exe` is the pipe client. This ownership
+`darpc.dll` is the pipe server and `darpcd.exe` is the pipe client. This ownership
 lets the injected library remain discoverable even when the daemon is absent.
 
 ## Message roles
@@ -37,5 +37,5 @@ These are roles, not a commitment to specific message names or encodings.
 - Associate the pipe and handshake with the expected process identity.
 
 The handshake must establish enough identity and compatibility information for
-`rpcd.exe` to reject a stale, unrelated, or unsupported endpoint before
+`darpcd.exe` to reject a stale, unrelated, or unsupported endpoint before
 accepting its state.

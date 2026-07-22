@@ -1,6 +1,6 @@
-# `rpc.dll`
+# `darpc.dll`
 
-`rpc.dll` is a 32-bit x86 dynamic-link library injected into one compatible
+`darpc.dll` is a 32-bit x86 dynamic-link library injected into one compatible
 game client. It provides the bridge between the client's internal event system
 and the daRPC named-pipe protocol.
 
@@ -20,12 +20,12 @@ interface state and are not completed by sending a network packet alone.
 
 ## State ownership
 
-When attached to a running client, `rpc.dll` reconstructs an initial state from
+When attached to a running client, `darpc.dll` reconstructs an initial state from
 known pointers, relative virtual addresses, and reverse-engineered client
 layouts. It then applies relevant events and packet changes to keep local game,
 world, character, and user interface state synchronized.
 
-This state tracking is independent of `rpcd.exe`. If the daemon stops, the DLL
+This state tracking is independent of `darpcd.exe`. If the daemon stops, the DLL
 continues to update its state and keeps its named-pipe server ready for a new
 connection.
 

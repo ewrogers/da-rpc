@@ -9,17 +9,19 @@ Its packages establish the intended component and library boundaries:
 | `darpc-protocol` | Versioned binary interprocess communication framing and codecs. |
 | `darpc-win32` | Shared Windows platform boundaries. |
 | `darpc-client-741` | Version-specific client layouts and application binary interface boundaries. |
+| `rpc-client` | Command-line IPC diagnostic and daemon API client. |
 | `rpc-dll` | Injected client component. |
 | `loader` | Client launcher and injector. |
-| `rpcd` | Client aggregator and web API daemon. |
+| `rpc-daemon` | Client aggregator and web API daemon. |
 
 The planned runtime targets are:
 
 | Component | Rust target |
 | --- | --- |
-| `rpc.dll` | `i686-pc-windows-msvc` |
+| `darpc.dll` | `i686-pc-windows-msvc` |
 | `loader.exe` | `i686-pc-windows-msvc` |
-| `rpcd.exe` | `x86_64-pc-windows-msvc` |
+| `darpc.exe` | `x86_64-pc-windows-msvc` |
+| `darpcd.exe` | `x86_64-pc-windows-msvc` |
 
 The shared crates can be checked independently of the Windows components:
 

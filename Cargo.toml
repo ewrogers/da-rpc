@@ -9,6 +9,7 @@ members = [
     "crates/model",
     "crates/protocol",
     "crates/win32",
+    "tools/lifecycle-host",
 ]
 
 [workspace.package]
@@ -22,6 +23,7 @@ darpc-client-741 = { path = "crates/client-741" }
 darpc-model = { path = "crates/model" }
 darpc-protocol = { path = "crates/protocol" }
 darpc-win32 = { path = "crates/win32" }
+windows-sys = { version = "0.61", default-features = false }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

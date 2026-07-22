@@ -56,6 +56,32 @@ concise role names, while their manifests define the intended artifact names.
 - Prefer simple, idiomatic Rust over premature abstractions.
 - Use a minimal set of common, well-maintained dependencies.
 
+## Requirements
+
+Install Rust with `rustup`. Windows builds also require the current
+[Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/)
+with the **Desktop development with C++** workload. Ensure the installer
+includes the MSVC C++ x64/x86 build tools and a current Windows 11 SDK. The
+full Visual Studio IDE is not required.
+
+Install the Rust targets used by the runtime components from a Windows shell:
+
+```text
+rustup target add i686-pc-windows-msvc x86_64-pc-windows-msvc
+```
+
+On Apple silicon, Windows 11 Arm in a virtual machine can build and run the x86
+artifacts. Perform MSVC builds and executable tests inside Windows rather than
+cross-compiling them from macOS.
+
+When the source tree is mounted through a Parallels shared folder, keep Cargo's
+generated files on the Windows-local filesystem. For example, set this in
+PowerShell before building:
+
+```powershell
+$env:CARGO_TARGET_DIR = "C:\cargo-target\da-rpc"
+```
+
 ## Development
 
 The workspace uses Rust 2024. The injected-process components target 32-bit

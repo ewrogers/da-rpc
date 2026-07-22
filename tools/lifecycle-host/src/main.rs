@@ -3,7 +3,9 @@
 use std::process::ExitCode;
 
 #[cfg(windows)]
-use std::{env, fs, io};
+use std::{env, fs, io, os::windows::ffi::OsStrExt};
+#[cfg(windows)]
+use windows_sys::Win32::{Foundation::FreeLibrary, System::LibraryLoader::LoadLibraryW};
 
 #[cfg(not(windows))]
 fn main() -> ExitCode {
@@ -49,7 +51,28 @@ fn run() -> io::Result<()> {
         ));
     }
 
-    println!("DLL: {}", dll_path.display());
+    let mut dll_path_wide: Vec<u16> = dll_path.as_os_str().encode_wide().collect();
+    dll_path_wide.push(0);
+
+    debug_assert_eq!(dll_path_wide.last(), Some(&0));
+
+    // SAFETY: `dll_path_wide` is a live, null-terminated UTF-16
+    // buffer whose pointer remains valid for the duration of the call.
+    let module = unsafe { LoadLibraryW(dll_path_wide.as_ptr()) };
+
+    if module.is_null() {
+        return Err(io::Error::last_os_error());
+    }
+    println!("Loaded module: {module:p}");
+
+    // SAFETY: `module` is a non-null handle returned by a successful
+    // `LoadLibraryW` call, and its owned reference has not been released.
+    let unloaded = unsafe { FreeLibrary(module) };
+
+    if unloaded == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    println!("Unloaded module");
 
     Ok(())
 }

@@ -1,6 +1,9 @@
 //! Injected daRPC client component.
 
 #[cfg(windows)]
+mod lifecycle;
+
+#[cfg(windows)]
 use windows_sys::{
     Win32::Foundation::{HINSTANCE, TRUE},
     core::BOOL,
@@ -27,6 +30,10 @@ pub extern "system" fn darpc_initialize(abi_version: u32) -> Status {
             return Status::UNSUPPORTED_ABI_VERSION;
         }
 
+        if lifecycle::initialize().is_err() {
+            return Status::INTERNAL_ERROR;
+        }
+
         Status::OK
     })
     .unwrap_or(Status::INTERNAL_ERROR)
@@ -38,6 +45,10 @@ pub extern "system" fn darpc_shutdown(reserved: u32) -> Status {
     std::panic::catch_unwind(|| {
         if reserved != 0 {
             return Status::INVALID_ARGUMENT;
+        }
+
+        if lifecycle::shutdown().is_err() {
+            return Status::INTERNAL_ERROR;
         }
 
         Status::OK

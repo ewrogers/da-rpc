@@ -7,11 +7,11 @@ use darpc_win32::lifecycle::{
     ABI_VERSION, INITIALIZE_EXPORT, InitializeFn, SHUTDOWN_EXPORT, ShutdownFn, Status,
 };
 #[cfg(windows)]
-use std::{env, fs, io, mem, os::windows::ffi::OsStrExt};
+use std::{env, fs, io, mem, os::windows::ffi::OsStrExt, path::Path};
 #[cfg(windows)]
 use windows_sys::Win32::{
     Foundation::FreeLibrary,
-    System::LibraryLoader::{GetProcAddress, LoadLibraryW},
+    System::LibraryLoader::{GetModuleHandleW, GetProcAddress, LoadLibraryW},
 };
 
 #[cfg(not(windows))]
@@ -58,10 +58,31 @@ fn run() -> io::Result<()> {
         ));
     }
 
+    const CYCLE_COUNT: usize = 3;
+
+    for cycle in 1..=CYCLE_COUNT {
+        println!("Cycle {cycle}/{CYCLE_COUNT}");
+        run_cycle(&dll_path)?;
+    }
+
+    Ok(())
+}
+
+#[cfg(windows)]
+fn run_cycle(dll_path: &Path) -> io::Result<()> {
+    let dll_name = dll_path
+        .file_name()
+        .ok_or_else(|| io::Error::other("DLL path has no file name"))?;
+
     let mut dll_path_wide: Vec<u16> = dll_path.as_os_str().encode_wide().collect();
     dll_path_wide.push(0);
 
     debug_assert_eq!(dll_path_wide.last(), Some(&0));
+
+    let mut dll_name_wide: Vec<u16> = dll_name.encode_wide().collect();
+    dll_name_wide.push(0);
+
+    debug_assert_eq!(dll_name_wide.last(), Some(&0));
 
     // SAFETY: `dll_path_wide` is a live, null-terminated UTF-16
     // buffer whose pointer remains valid for the duration of the call.
@@ -73,6 +94,18 @@ fn run() -> io::Result<()> {
     println!("Loaded module: {module:p}");
 
     let resolve_result = (|| -> io::Result<()> {
+        // SAFETY: `dll_name_wide` is a live, null-terminated UTF-16
+        // module name, and this call does not increase the reference count.
+        let observed_module = unsafe { GetModuleHandleW(dll_name_wide.as_ptr()) };
+
+        if observed_module != module {
+            return Err(io::Error::other(
+                "loaded DLL was not found in the module list",
+            ));
+        }
+
+        println!("Verified module is loaded");
+
         // SAFETY: `module` is a valid loaded-module handle and
         // `INITIALIZE_EXPORT` is a null-terminated ASCII name.
         let initialize = unsafe { GetProcAddress(module, INITIALIZE_EXPORT.as_ptr()) }
@@ -188,6 +221,16 @@ fn run() -> io::Result<()> {
         return Err(io::Error::last_os_error());
     }
     println!("Unloaded module");
+
+    // SAFETY: `dll_name_wide` remains a live, null-terminated UTF-16
+    // module name, and this call does not increase the reference count.
+    let observed_module = unsafe { GetModuleHandleW(dll_name_wide.as_ptr()) };
+
+    if !observed_module.is_null() {
+        return Err(io::Error::other("DLL remains loaded after FreeLibrary"));
+    }
+
+    println!("Verified module is unloaded");
 
     resolve_result?;
     Ok(())

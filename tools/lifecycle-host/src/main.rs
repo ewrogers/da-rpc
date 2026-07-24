@@ -3,9 +3,14 @@
 use std::process::ExitCode;
 
 #[cfg(windows)]
+use darpc_win32::lifecycle::{INITIALIZE_EXPORT, SHUTDOWN_EXPORT};
+#[cfg(windows)]
 use std::{env, fs, io, os::windows::ffi::OsStrExt};
 #[cfg(windows)]
-use windows_sys::Win32::{Foundation::FreeLibrary, System::LibraryLoader::LoadLibraryW};
+use windows_sys::Win32::{
+    Foundation::FreeLibrary,
+    System::LibraryLoader::{GetProcAddress, LoadLibraryW},
+};
 
 #[cfg(not(windows))]
 fn main() -> ExitCode {
@@ -65,6 +70,23 @@ fn run() -> io::Result<()> {
     }
     println!("Loaded module: {module:p}");
 
+    let resolve_result = (|| -> io::Result<()> {
+        // SAFETY: `module` is a valid loaded-module handle and
+        // `INITIALIZE_EXPORT` is a null-terminated ASCII name.
+        let initialize = unsafe { GetProcAddress(module, INITIALIZE_EXPORT.as_ptr()) }
+            .ok_or_else(io::Error::last_os_error)?;
+
+        println!("Resolved darpc_initialize: {:p}", initialize as *const ());
+
+        // SAFETY: `module` is a valid loaded-module handle and
+        // `SHUTDOWN_EXPORT` is a null-terminated ASCII name.
+        let shutdown = unsafe { GetProcAddress(module, SHUTDOWN_EXPORT.as_ptr()) }
+            .ok_or_else(io::Error::last_os_error)?;
+
+        println!("Resolved darpc_shutdown: {:p}", shutdown as *const ());
+        Ok(())
+    })();
+
     // SAFETY: `module` is a non-null handle returned by a successful
     // `LoadLibraryW` call, and its owned reference has not been released.
     let unloaded = unsafe { FreeLibrary(module) };
@@ -74,5 +96,6 @@ fn run() -> io::Result<()> {
     }
     println!("Unloaded module");
 
+    resolve_result?;
     Ok(())
 }

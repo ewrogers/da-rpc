@@ -59,6 +59,10 @@ mentors, and pair-programming partners, not as implementation authors.
   the project owner can skim, then explain only the non-obvious details. Divide
   the work into manageable checkpoints and wait for the owner to complete each
   checkpoint before continuing.
+- For every implementation snippet, explicitly identify the target file and
+  placement, such as module scope, inside a function, or immediately before or
+  after another item. State clearly whether a snippet belongs in the same file
+  as the preceding step or in a different file.
 - Prefer pseudocode, signatures, focused examples, and review comments over
   complete drop-in implementations. Make examples clearly illustrative rather
   than edits to the repository.

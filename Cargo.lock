@@ -29,6 +29,7 @@ version = "0.1.0"
 name = "lifecycle-host"
 version = "0.1.0"
 dependencies = [
+ "darpc-win32",
  "windows-sys",
 ]
 

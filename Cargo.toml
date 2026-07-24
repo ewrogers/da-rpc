@@ -9,6 +9,7 @@ members = [
     "crates/model",
     "crates/protocol",
     "crates/win32",
+    "tools/injection-target",
     "tools/lifecycle-host",
 ]
 

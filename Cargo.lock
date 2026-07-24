@@ -26,6 +26,10 @@ name = "darpc-win32"
 version = "0.1.0"
 
 [[package]]
+name = "injection-target"
+version = "0.1.0"
+
+[[package]]
 name = "lifecycle-host"
 version = "0.1.0"
 dependencies = [

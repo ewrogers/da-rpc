@@ -3,9 +3,11 @@
 use std::process::ExitCode;
 
 #[cfg(windows)]
-use darpc_win32::lifecycle::{INITIALIZE_EXPORT, SHUTDOWN_EXPORT};
+use darpc_win32::lifecycle::{
+    ABI_VERSION, INITIALIZE_EXPORT, InitializeFn, SHUTDOWN_EXPORT, ShutdownFn, Status,
+};
 #[cfg(windows)]
-use std::{env, fs, io, os::windows::ffi::OsStrExt};
+use std::{env, fs, io, mem, os::windows::ffi::OsStrExt};
 #[cfg(windows)]
 use windows_sys::Win32::{
     Foundation::FreeLibrary,
@@ -84,6 +86,41 @@ fn run() -> io::Result<()> {
             .ok_or_else(io::Error::last_os_error)?;
 
         println!("Resolved darpc_shutdown: {:p}", shutdown as *const ());
+
+        // SAFETY: `initialize` was resolved from the expected export name,
+        // and `InitializeFn` is the shared definition of that export's ABI.
+        let initialize: InitializeFn = unsafe { mem::transmute(initialize) };
+
+        // SAFETY: `shutdown` was resolved from the expected export name,
+        // and `ShutdownFn` is the shared definition of that export's ABI.
+        let shutdown: ShutdownFn = unsafe { mem::transmute(shutdown) };
+
+        // SAFETY: the function pointer was resolved from the loaded module,
+        // the module remains loaded, and `ABI_VERSION` is a valid argument.
+        let status = unsafe { initialize(ABI_VERSION) };
+
+        if status != Status::OK {
+            return Err(io::Error::other(format!(
+                "darpc_initialize returned status {}",
+                status.as_u32()
+            )));
+        }
+
+        println!("Initialized");
+
+        // SAFETY: the function pointer was resolved from the loaded module,
+        // the module remains loaded, and zero is the required reserved value.
+        let status = unsafe { shutdown(0) };
+
+        if status != Status::OK {
+            return Err(io::Error::other(format!(
+                "darpc_shutdown returned status {}",
+                status.as_u32()
+            )));
+        }
+
+        println!("Shut down");
+
         Ok(())
     })();
 

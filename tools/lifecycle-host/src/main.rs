@@ -95,6 +95,22 @@ fn run() -> io::Result<()> {
         // and `ShutdownFn` is the shared definition of that export's ABI.
         let shutdown: ShutdownFn = unsafe { mem::transmute(shutdown) };
 
+        let unsupported_version = ABI_VERSION + 1;
+
+        // SAFETY: the function pointer was resolved from the loaded module,
+        // and the module remains loaded for this call.
+        let status = unsafe { initialize(unsupported_version) };
+
+        if status != Status::UNSUPPORTED_ABI_VERSION {
+            return Err(io::Error::other(format!(
+                "darpc_initialize({unsupported_version}) returns status {}, expected {}",
+                status.as_u32(),
+                Status::UNSUPPORTED_ABI_VERSION.as_u32()
+            )));
+        }
+
+        println!("Rejected unsupported ABI version");
+
         // SAFETY: the function pointer was resolved from the loaded module,
         // the module remains loaded, and `ABI_VERSION` is a valid argument.
         let status = unsafe { initialize(ABI_VERSION) };
@@ -109,6 +125,33 @@ fn run() -> io::Result<()> {
         println!("Initialized");
 
         // SAFETY: the function pointer was resolved from the loaded module,
+        // the module remains loaded, and initialization is safe to repeat.
+        let status = unsafe { initialize(ABI_VERSION) };
+
+        if status != Status::OK {
+            return Err(io::Error::other(format!(
+                "repeated darpc_initialize returned status {}",
+                status.as_u32()
+            )));
+        }
+
+        println!("Repeated initialization succeeded");
+
+        // SAFETY: the function pointer was resolved from the loaded module,
+        // and the module remains loaded for this call.
+        let status = unsafe { shutdown(1) };
+
+        if status != Status::INVALID_ARGUMENT {
+            return Err(io::Error::other(format!(
+                "darpc_shutdown(1) returned status {}, expected {}",
+                status.as_u32(),
+                Status::INVALID_ARGUMENT.as_u32()
+            )));
+        }
+
+        println!("Rejected invalid shutdown argument");
+
+        // SAFETY: the function pointer was resolved from the loaded module,
         // the module remains loaded, and zero is the required reserved value.
         let status = unsafe { shutdown(0) };
 
@@ -120,6 +163,19 @@ fn run() -> io::Result<()> {
         }
 
         println!("Shut down");
+
+        // SAFETY: the function pointer was resolved from the loaded module,
+        // the module remains loaded, and zero is the required reserved value.
+        let status = unsafe { shutdown(0) };
+
+        if status != Status::OK {
+            return Err(io::Error::other(format!(
+                "repeated darpc_shutdown returned status {}",
+                status.as_u32()
+            )));
+        }
+
+        println!("Repeated shutdown succeeded");
 
         Ok(())
     })();

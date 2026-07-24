@@ -1,8 +1,17 @@
-use std::{env, io, path::PathBuf, process, sync::Mutex};
+use std::{
+    env,
+    fs::{self, File, OpenOptions},
+    io::{self, Write},
+    path::PathBuf,
+    process,
+    sync::Mutex,
+};
 
 static LIFECYCLE: Mutex<Option<Lifecycle>> = Mutex::new(None);
 
-struct Lifecycle;
+struct Lifecycle {
+    log: File,
+}
 
 pub(crate) fn initialize() -> io::Result<()> {
     let mut lifecycle = LIFECYCLE
@@ -13,8 +22,26 @@ pub(crate) fn initialize() -> io::Result<()> {
         return Ok(());
     }
 
-    let _log_path = log_path()?;
-    *lifecycle = Some(Lifecycle);
+    let log_path = log_path()?;
+    let log_directory = log_path
+        .parent()
+        .ok_or_else(|| io::Error::other("log path has no parent directory"))?;
+
+    fs::create_dir_all(log_directory)?;
+
+    let mut log = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(log_path)?;
+
+    writeln!(
+        log,
+        "event=initialized pid={} version={}",
+        process::id(),
+        env!("CARGO_PKG_VERSION")
+    )?;
+
+    *lifecycle = Some(Lifecycle { log });
 
     Ok(())
 }
@@ -24,7 +51,17 @@ pub(crate) fn shutdown() -> io::Result<()> {
         .lock()
         .map_err(|_| io::Error::other("lifecycle lock is poisoned"))?;
 
-    lifecycle.take();
+    let Some(mut lifecycle) = lifecycle.take() else {
+        return Ok(());
+    };
+
+    writeln!(
+        lifecycle.log,
+        "event=shutdown pid={} version={}",
+        process::id(),
+        env!("CARGO_PKG_VERSION")
+    )?;
+
     Ok(())
 }
 

@@ -59,6 +59,9 @@ mentors, and pair-programming partners, not as implementation authors.
   the project owner can skim, then explain only the non-obvious details. Divide
   the work into manageable checkpoints and wait for the owner to complete each
   checkpoint before continuing.
+- Focused unified-diff snippets are also welcome when they make small changes
+  easier to scan visually. Prefer ordinary snippets or another focused format
+  when a diff would be large or obscure the surrounding structure.
 - For every implementation snippet, explicitly identify the target file and
   placement, such as module scope, inside a function, or immediately before or
   after another item. State clearly whether a snippet belongs in the same file

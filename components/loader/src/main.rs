@@ -9,9 +9,14 @@ use std::{
 };
 
 #[cfg(windows)]
-use windows_sys::Win32::System::{
-    SystemInformation::{IMAGE_FILE_MACHINE_I386, IMAGE_FILE_MACHINE_UNKNOWN},
-    Threading::{IsWow64Process2, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION},
+use windows_sys::Win32::{
+    Foundation::FILETIME,
+    System::{
+        SystemInformation::{IMAGE_FILE_MACHINE_I386, IMAGE_FILE_MACHINE_UNKNOWN},
+        Threading::{
+            GetProcessTimes, IsWow64Process2, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+        },
+    },
 };
 
 const USAGE: &str = "usage: loader inspect <pid>";
@@ -104,6 +109,33 @@ fn inspect(pid: u32) -> Result<(), String> {
     }
 
     println!("Target architecture: x86");
+
+    let mut creation_time = FILETIME::default();
+    let mut exit_time = FILETIME::default();
+    let mut kernel_time = FILETIME::default();
+    let mut user_time = FILETIME::default();
+
+    let succeeded = unsafe {
+        GetProcessTimes(
+            process.as_raw_handle(),
+            &mut creation_time,
+            &mut exit_time,
+            &mut kernel_time,
+            &mut user_time,
+        )
+    };
+
+    if succeeded == 0 {
+        return Err(format!(
+            "failed to inspect process {pid} creation time: {}",
+            io::Error::last_os_error()
+        ));
+    }
+
+    let creation_time =
+        (u64::from(creation_time.dwHighDateTime) << 32) | u64::from(creation_time.dwLowDateTime);
+
+    println!("Process identity: pid={pid} creation_time={creation_time}");
 
     Ok(())
 }

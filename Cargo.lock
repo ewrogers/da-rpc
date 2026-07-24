@@ -42,6 +42,7 @@ name = "loader"
 version = "0.1.0"
 dependencies = [
  "darpc-win32",
+ "windows-sys",
 ]
 
 [[package]]

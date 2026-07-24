@@ -26,6 +26,16 @@ The DLL remains independent of the daemon. If `darpcd.exe` is stopped or
 restarted, an injected client must continue operating normally and accept a new
 daemon connection later.
 
+## Developer harnesses
+
+| Harness | Target | Purpose |
+| --- | --- | --- |
+| `lifecycle-host.exe` | 32-bit Windows x86 | Loads `darpc.dll` locally, exercises its lifecycle contract, and verifies repeated loading and unloading. |
+| `injection-target.exe` | 32-bit Windows x86 | Provides an inert, persistent process for safe loader attach and detach testing. |
+
+These harnesses support local development and integration testing. They are not
+runtime components distributed to end users.
+
 ## Workspace
 
 ```text
@@ -40,6 +50,10 @@ crates/
   model/        shared domain state, actions, and updates
   protocol/     versioned binary IPC framing and codecs
   win32/        shared Windows platform boundaries
+
+tools/
+  injection-target/ inert process for loader integration testing
+  lifecycle-host/   local DLL lifecycle integration harness
 
 docs/           architecture and developer documentation
 ```
@@ -88,8 +102,8 @@ The workspace uses Rust 2024. The injected-process components target 32-bit
 Windows, while the daemon and command-line client target 64-bit Windows:
 
 ```text
-rpc-dll, loader:  i686-pc-windows-msvc
-rpc-client, rpc-daemon: x86_64-pc-windows-msvc
+rpc-dll, loader, lifecycle-host, injection-target: i686-pc-windows-msvc
+rpc-client, rpc-daemon:                          x86_64-pc-windows-msvc
 ```
 
 The shared crates can be checked together on a supported development host:

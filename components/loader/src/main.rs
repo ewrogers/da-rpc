@@ -1,6 +1,6 @@
 //! daRPC client launcher and injector.
 
-use std::{env, ffi::OsString, path::PathBuf, process::ExitCode};
+use std::{env, ffi::OsString, fs, path::PathBuf, process::ExitCode};
 
 #[cfg(windows)]
 use std::{
@@ -34,6 +34,11 @@ enum Command {
     Attach { pid: u32, dll_path: PathBuf },
 }
 
+struct ProcessInspection {
+    creation_time: u64,
+    darpc_loaded: bool,
+}
+
 fn main() -> ExitCode {
     match run() {
         Ok(()) => ExitCode::SUCCESS,
@@ -46,11 +51,11 @@ fn main() -> ExitCode {
 
 fn run() -> Result<(), String> {
     match parse_command()? {
-        Command::Inspect { pid } => inspect(pid),
-        Command::Attach { pid, dll_path } => Err(format!(
-            "attach is not implemented yet: pid={pid}, dll={}",
-            dll_path.display()
-        )),
+        Command::Inspect { pid } => {
+            inspect(pid)?;
+            Ok(())
+        }
+        Command::Attach { pid, dll_path } => attach(pid, dll_path),
     }
 }
 
@@ -101,8 +106,43 @@ fn parse_pid(argument: Option<OsString>) -> Result<u32, String> {
     Ok(pid)
 }
 
+fn attach(pid: u32, dll_path: PathBuf) -> Result<(), String> {
+    let dll_path = fs::canonicalize(&dll_path).map_err(|error| {
+        format!(
+            "failed to resolve DLL path `{}`: {error}",
+            dll_path.display()
+        )
+    })?;
+
+    let metadata = fs::metadata(&dll_path).map_err(|error| {
+        format!(
+            "failed to inspect DLL path `{}`: {error}",
+            dll_path.display()
+        )
+    })?;
+
+    if !metadata.is_file() {
+        return Err(format!("DLL path is not a file: `{}`", dll_path.display()));
+    }
+
+    println!("Validated DLL: {}", dll_path.display());
+
+    let inspection = inspect(pid)?;
+
+    if inspection.darpc_loaded {
+        return Err(format!("darpc.dll is already loaded in process {pid}"));
+    }
+
+    println!(
+        "Attach preflight complete: pid={pid} creation_time={}",
+        inspection.creation_time
+    );
+
+    Ok(())
+}
+
 #[cfg(windows)]
-fn inspect(pid: u32) -> Result<(), String> {
+fn inspect(pid: u32) -> Result<ProcessInspection, String> {
     // SAFETY: `OpenProcess` accepts any `u32` process ID. Access is
     // query-only, and handle inheritance is disabled.
     let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
@@ -190,7 +230,10 @@ fn inspect(pid: u32) -> Result<(), String> {
         if darpc_loaded { "loaded" } else { "not loaded" }
     );
 
-    Ok(())
+    Ok(ProcessInspection {
+        creation_time,
+        darpc_loaded,
+    })
 }
 
 #[cfg(windows)]
@@ -263,6 +306,6 @@ fn decode_module_name(module: &MODULEENTRY32W) -> String {
 }
 
 #[cfg(not(windows))]
-fn inspect(_pid: u32) -> Result<(), String> {
+fn inspect(_pid: u32) -> Result<ProcessInspection, String> {
     Err("loader requires Windows".to_owned())
 }

@@ -1,6 +1,6 @@
 //! daRPC client launcher and injector.
 
-use std::{env, process::ExitCode};
+use std::{env, ffi::OsString, path::PathBuf, process::ExitCode};
 
 #[cfg(windows)]
 use std::{
@@ -24,7 +24,15 @@ use windows_sys::Win32::{
     },
 };
 
-const USAGE: &str = "usage: loader inspect <pid>";
+const USAGE: &str = "\
+usage:
+    loader inspect <pid>
+    loader attach <pid> <dll-path>";
+
+enum Command {
+    Inspect { pid: u32 },
+    Attach { pid: u32, dll_path: PathBuf },
+}
 
 fn main() -> ExitCode {
     match run() {
@@ -37,29 +45,60 @@ fn main() -> ExitCode {
 }
 
 fn run() -> Result<(), String> {
-    let mut arguments = env::args().skip(1);
+    match parse_command()? {
+        Command::Inspect { pid } => inspect(pid),
+        Command::Attach { pid, dll_path } => Err(format!(
+            "attach is not implemented yet: pid={pid}, dll={}",
+            dll_path.display()
+        )),
+    }
+}
+
+fn parse_command() -> Result<Command, String> {
+    let mut arguments = env::args_os().skip(1);
 
     let command = arguments.next().ok_or_else(|| USAGE.to_owned())?;
 
-    if command != "inspect" {
-        return Err(format!("unknown command `{command}`\n{USAGE}"));
-    }
-
-    let pid = arguments
-        .next()
-        .ok_or_else(|| USAGE.to_owned())?
-        .parse::<u32>()
-        .map_err(|_| "PID must be an unsigned 32-bit integer".to_owned())?;
+    let command = match command.to_str() {
+        Some("inspect") => Command::Inspect {
+            pid: parse_pid(arguments.next())?,
+        },
+        Some("attach") => Command::Attach {
+            pid: parse_pid(arguments.next())?,
+            dll_path: arguments
+                .next()
+                .map(PathBuf::from)
+                .ok_or_else(|| USAGE.to_owned())?,
+        },
+        Some(command) => return Err(format!("unknown command: `{command}`\n{USAGE}")),
+        None => {
+            return Err(format!("command must be valid Unicode\n{USAGE}"));
+        }
+    };
 
     if arguments.next().is_some() {
         return Err(format!("too many arguments\n{USAGE}"));
     }
 
+    Ok(command)
+}
+
+fn parse_pid(argument: Option<OsString>) -> Result<u32, String> {
+    let argument = argument.ok_or_else(|| USAGE.to_owned())?;
+
+    let argument = argument
+        .to_str()
+        .ok_or_else(|| "PID must be valid Unicode".to_owned())?;
+
+    let pid = argument
+        .parse::<u32>()
+        .map_err(|_| "PID must be an unsigned 32-bit integer".to_owned())?;
+
     if pid == 0 {
         return Err("PID must be greater than zero".to_owned());
     }
 
-    inspect(pid)
+    Ok(pid)
 }
 
 #[cfg(windows)]

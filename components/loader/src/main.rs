@@ -4,7 +4,7 @@ mod inject;
 mod pe;
 mod process;
 
-use pe::validate_x86_dll;
+use pe::inspect_x86_dll;
 use process::inspect;
 
 use std::{env, ffi::OsString, fs, path::PathBuf, process::ExitCode};
@@ -105,9 +105,14 @@ fn attach(pid: u32, dll_path: PathBuf) -> Result<(), String> {
         return Err(format!("DLL path is not a file: `{}`", dll_path.display()));
     }
 
-    validate_x86_dll(&dll_path)?;
+    let exports = inspect_x86_dll(&dll_path)?;
 
-    println!("Validated x86 DLL: {}", dll_path.display());
+    println!(
+        "Validated x86 DLL: {} initialize_rva=0x{:08X} shutdown_rva=0x{:08X}",
+        dll_path.display(),
+        exports.initialize_rva,
+        exports.shutdown_rva
+    );
 
     inject::attach(pid, &dll_path)
 }

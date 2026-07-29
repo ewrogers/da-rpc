@@ -29,6 +29,12 @@ pub(crate) struct LifecycleExports {
     pub(crate) shutdown_rva: u32,
 }
 
+struct PeHeaders<'a> {
+    section_table: &'a [u8],
+    export_directory_rva: u32,
+    export_directory_size: u32,
+}
+
 fn checked_offset(base: usize, delta: usize, field: &str) -> Result<usize, String> {
     base.checked_add(delta)
         .ok_or_else(|| format!("{field} offset overflow"))
@@ -141,7 +147,7 @@ fn export_name_at_rva(
     Err(format!("export name exceeds {MAX_EXPORT_NAME_SIZE} bytes"))
 }
 
-pub(crate) fn inspect_x86_dll(path: &Path) -> Result<LifecycleExports, String> {
+fn read_dll(path: &Path) -> Result<Vec<u8>, String> {
     let metadata = fs::metadata(path)
         .map_err(|error| format!("failed to inspect `{}`: {error}", path.display()))?;
 
@@ -149,23 +155,24 @@ pub(crate) fn inspect_x86_dll(path: &Path) -> Result<LifecycleExports, String> {
         return Err(format!("DLL exceeds {MAX_DLL_SIZE} bytes"));
     }
 
-    let image =
-        fs::read(path).map_err(|error| format!("failed to read `{}`: {error}", path.display()))?;
+    fs::read(path).map_err(|error| format!("failed to read `{}`: {error}", path.display()))
+}
 
-    if bytes_at::<2>(&image, 0, "DOS signature")? != *b"MZ" {
+fn parse_headers(image: &[u8]) -> Result<PeHeaders<'_>, String> {
+    if bytes_at::<2>(image, 0, "DOS signature")? != *b"MZ" {
         return Err("file does not have an MZ header".to_owned());
     }
 
-    let pe_offset = usize::try_from(u32_at(&image, 0x3C, "PE offset")?)
+    let pe_offset = usize::try_from(u32_at(image, 0x3C, "PE offset")?)
         .map_err(|_| "PE offset does not fit usize".to_owned())?;
 
-    if bytes_at::<4>(&image, pe_offset, "PE signature")? != *b"PE\0\0" {
+    if bytes_at::<4>(image, pe_offset, "PE signature")? != *b"PE\0\0" {
         return Err("file does not have a PE signature".to_owned());
     }
 
-    let machine = u16_at(&image, checked_offset(pe_offset, 4, "machine")?, "machine")?;
+    let machine = u16_at(image, checked_offset(pe_offset, 4, "machine")?, "machine")?;
     let characteristics = u16_at(
-        &image,
+        image,
         checked_offset(pe_offset, 22, "characteristics")?,
         "characteristics",
     )?;
@@ -181,7 +188,7 @@ pub(crate) fn inspect_x86_dll(path: &Path) -> Result<LifecycleExports, String> {
     let coff_offset = checked_offset(pe_offset, 4, "COFF header")?;
 
     let number_of_sections = usize::from(u16_at(
-        &image,
+        image,
         checked_offset(coff_offset, 2, "section count")?,
         "section_count",
     )?);
@@ -191,7 +198,7 @@ pub(crate) fn inspect_x86_dll(path: &Path) -> Result<LifecycleExports, String> {
     }
 
     let optional_header_size = usize::from(u16_at(
-        &image,
+        image,
         checked_offset(coff_offset, 16, "optional header size")?,
         "optional header size",
     )?);
@@ -205,7 +212,7 @@ pub(crate) fn inspect_x86_dll(path: &Path) -> Result<LifecycleExports, String> {
     let optional_header_offset = checked_offset(coff_offset, COFF_HEADER_SIZE, "optional header")?;
 
     let optional_header = slice_at(
-        &image,
+        image,
         optional_header_offset,
         optional_header_size,
         "optional header",
@@ -249,10 +256,6 @@ pub(crate) fn inspect_x86_dll(path: &Path) -> Result<LifecycleExports, String> {
         ));
     }
 
-    let export_directory_end_rva = export_directory_rva
-        .checked_add(export_directory_size)
-        .ok_or_else(|| "export directory RVA range overflow".to_owned())?;
-
     let section_table_offset = checked_offset(
         optional_header_offset,
         optional_header_size,
@@ -264,20 +267,39 @@ pub(crate) fn inspect_x86_dll(path: &Path) -> Result<LifecycleExports, String> {
         .ok_or_else(|| "section table size overflow".to_owned())?;
 
     let section_table = slice_at(
-        &image,
+        image,
         section_table_offset,
         section_table_size,
         "section table",
     )?;
 
+    Ok(PeHeaders {
+        section_table,
+        export_directory_rva,
+        export_directory_size,
+    })
+}
+
+fn find_lifecycle_exports(
+    image: &[u8],
+    headers: &PeHeaders<'_>,
+) -> Result<LifecycleExports, String> {
+    let section_table = headers.section_table;
+    let export_directory_rva = headers.export_directory_rva;
+    let export_directory_size = headers.export_directory_size;
+
+    let export_directory_end_rva = export_directory_rva
+        .checked_add(export_directory_size)
+        .ok_or_else(|| "export directory RVA range overflow".to_owned())?;
+
     let export_directory_offset = rva_range_to_file_offset(
-        &image,
+        image,
         section_table,
         export_directory_rva,
         EXPORT_DIRECTORY_HEADER_SIZE,
     )?;
 
-    let export_directory = bytes_at::<40>(&image, export_directory_offset, "export directory")?;
+    let export_directory = bytes_at::<40>(image, export_directory_offset, "export directory")?;
 
     let function_count = u32_at(
         &export_directory,
@@ -321,12 +343,12 @@ pub(crate) fn inspect_x86_dll(path: &Path) -> Result<LifecycleExports, String> {
         .ok_or_else(|| "export ordinal table size overflow".to_owned())?;
 
     let name_table_offset =
-        rva_range_to_file_offset(&image, section_table, name_table_rva, name_table_size)?;
+        rva_range_to_file_offset(image, section_table, name_table_rva, name_table_size)?;
     let name_table_length = usize::try_from(name_table_size)
         .map_err(|_| "export name table size does not fit usize".to_owned())?;
 
     let name_table = slice_at(
-        &image,
+        image,
         name_table_offset,
         name_table_length,
         "export name table",
@@ -336,16 +358,16 @@ pub(crate) fn inspect_x86_dll(path: &Path) -> Result<LifecycleExports, String> {
         .map_err(|_| "export name count does not fit usize".to_owned())?;
 
     let function_table_offset = rva_range_to_file_offset(
-        &image,
+        image,
         section_table,
         function_table_rva,
         function_table_size,
     )?;
     let ordinal_table_offset =
-        rva_range_to_file_offset(&image, section_table, ordinal_table_rva, ordinal_table_size)?;
+        rva_range_to_file_offset(image, section_table, ordinal_table_rva, ordinal_table_size)?;
 
     let function_table = slice_at(
-        &image,
+        image,
         function_table_offset,
         usize::try_from(function_table_size)
             .map_err(|_| "function table size does not fit usize".to_owned())?,
@@ -353,7 +375,7 @@ pub(crate) fn inspect_x86_dll(path: &Path) -> Result<LifecycleExports, String> {
     )?;
 
     let ordinal_table = slice_at(
-        &image,
+        image,
         ordinal_table_offset,
         usize::try_from(ordinal_table_size)
             .map_err(|_| "ordinal table size does not fit usize".to_owned())?,
@@ -373,7 +395,7 @@ pub(crate) fn inspect_x86_dll(path: &Path) -> Result<LifecycleExports, String> {
 
         let name_rva = u32_at(name_table, entry_offset, "export name RVA")?;
 
-        let name = export_name_at_rva(&image, section_table, name_rva)?;
+        let name = export_name_at_rva(image, section_table, name_rva)?;
 
         let destination = if name.as_slice() == INITIALIZE_EXPORT {
             &mut initialize_rva
@@ -414,4 +436,10 @@ pub(crate) fn inspect_x86_dll(path: &Path) -> Result<LifecycleExports, String> {
         shutdown_rva: shutdown_rva
             .ok_or_else(|| "DLL does not export darpc_shutdown".to_owned())?,
     })
+}
+
+pub(crate) fn inspect_x86_dll(path: &Path) -> Result<LifecycleExports, String> {
+    let image = read_dll(path)?;
+    let headers = parse_headers(&image)?;
+    find_lifecycle_exports(&image, &headers)
 }

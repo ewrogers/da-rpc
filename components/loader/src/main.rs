@@ -114,5 +114,5 @@ fn attach(pid: u32, dll_path: PathBuf) -> Result<(), String> {
         exports.shutdown_rva
     );
 
-    inject::attach(pid, &dll_path)
+    inject::attach(pid, &dll_path, exports.initialize_rva)
 }

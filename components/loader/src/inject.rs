@@ -35,6 +35,12 @@ use windows_sys::Win32::{
 use crate::process;
 
 #[cfg(windows)]
+use darpc_win32::lifecycle::{ABI_VERSION, Status};
+
+#[cfg(windows)]
+type ThreadStart = unsafe extern "system" fn(*mut c_void) -> u32;
+
+#[cfg(windows)]
 struct RemoteAllocation<'a> {
     process: &'a OwnedHandle,
     address: *mut c_void,
@@ -214,7 +220,76 @@ fn local_load_library() -> Result<(String, usize), String> {
 }
 
 #[cfg(windows)]
-pub(crate) fn attach(pid: u32, dll_path: &Path) -> Result<(), String> {
+fn run_remote_thread(
+    process: &OwnedHandle,
+    address: usize,
+    argument: *mut c_void,
+    operation: &str,
+) -> Result<u32, String> {
+    // SAFETY: the loader and validated target are x86, so `usize` and the
+    // remote thread entry address have matching widths. The caller resolved
+    // `address` as a compatible target entry point.
+    let start_routine = unsafe { transmute::<usize, ThreadStart>(address) };
+
+    // SAFETY: `process` has the required thread access. `start_routine` is
+    // the validated target entry point, and `argument` has the representation
+    // expected by that entry point.
+    let thread = unsafe {
+        CreateRemoteThread(
+            process.as_raw_handle(),
+            null(),
+            0,
+            Some(start_routine),
+            argument,
+            0,
+            null_mut(),
+        )
+    };
+
+    if thread.is_null() {
+        return Err(format!(
+            "failed to create remote {operation} thread: {}",
+            io::Error::last_os_error()
+        ));
+    }
+
+    // SAFETY: `thread` is a non-null owned handle returned by
+    // `CreateRemoteThread`, and ownership is transferred exactly once.
+    let thread = unsafe { OwnedHandle::from_raw_handle(thread) };
+
+    // SAFETY: `thread` references a valid thread handle.
+    let wait_result = unsafe { WaitForSingleObject(thread.as_raw_handle(), INFINITE) };
+
+    if wait_result == WAIT_FAILED {
+        return Err(format!(
+            "failed waiting for remote {operation} thread: {}",
+            io::Error::last_os_error()
+        ));
+    }
+
+    if wait_result != WAIT_OBJECT_0 {
+        return Err(format!(
+            "unexpected remote {operation} wait result: 0x{wait_result:08X}"
+        ));
+    }
+
+    let mut exit_code: u32 = 0;
+
+    // SAFETY: the thread has completed and `exit_code` is writable.
+    let succeeded = unsafe { GetExitCodeThread(thread.as_raw_handle(), &mut exit_code) };
+
+    if succeeded == 0 {
+        return Err(format!(
+            "failed to read remote {operation} result: {}",
+            io::Error::last_os_error()
+        ));
+    }
+
+    Ok(exit_code)
+}
+
+#[cfg(windows)]
+pub(crate) fn attach(pid: u32, dll_path: &Path, initialize_rva: u32) -> Result<(), String> {
     let dll_path_wide = encode_dll_path(dll_path)?;
 
     println!(
@@ -264,68 +339,18 @@ pub(crate) fn attach(pid: u32, dll_path: &Path) -> Result<(), String> {
 
     println!("Wrote remote DLL path buffer: {dll_path_size} bytes");
 
-    type ThreadStart = unsafe extern "system" fn(*mut c_void) -> u32;
-
-    // SAFETY: the loader and validated target are x86, so `usize` and the
-    // remote thread entry address have matching widths. The address was
-    // resolved as the target's `LoadLibraryW`.
-    let start_routine = unsafe { transmute::<usize, ThreadStart>(remote_load_library) };
-
-    // SAFETY: `process` has the required thread and VM access. The start
-    // address is the target's `LoadLibraryW`, and `remote_path` contains a
-    // live NUL-terminated UTF-16 path that remains allocated through wait.
-    let thread = unsafe {
-        CreateRemoteThread(
-            process.as_raw_handle(),
-            null(),
-            0,
-            Some(start_routine),
-            remote_path.address(),
-            0,
-            null_mut(),
-        )
+    let exit_code = match run_remote_thread(
+        &process,
+        remote_load_library,
+        remote_path.address(),
+        "LoadLibraryW",
+    ) {
+        Ok(exit_code) => exit_code,
+        Err(error) => {
+            forget(remote_path);
+            return Err(error);
+        }
     };
-
-    if thread.is_null() {
-        return Err(format!(
-            "failed to create remote loader thread: {}",
-            io::Error::last_os_error()
-        ));
-    }
-
-    // SAFETY: `thread` is a non-null owned handle returned by
-    // `CreateRemoteThread`, and ownership is transferred exactly once.
-    let thread = unsafe { OwnedHandle::from_raw_handle(thread) };
-
-    // SAFETY: `thread` references a valid thread handle.
-    let wait_result = unsafe { WaitForSingleObject(thread.as_raw_handle(), INFINITE) };
-
-    if wait_result == WAIT_FAILED {
-        forget(remote_path);
-        return Err(format!(
-            "failed waiting for remote loader thread: {}",
-            io::Error::last_os_error()
-        ));
-    }
-
-    if wait_result != WAIT_OBJECT_0 {
-        forget(remote_path);
-        return Err(format!(
-            "unexpected remote loader wait result: 0x{wait_result:08X}"
-        ));
-    }
-
-    let mut exit_code: u32 = 0;
-
-    // SAFETY: the thread has completed and `exit_code` is writable.
-    let succeeded = unsafe { GetExitCodeThread(thread.as_raw_handle(), &mut exit_code) };
-
-    if succeeded == 0 {
-        return Err(format!(
-            "failed to read remote loader result: {}",
-            io::Error::last_os_error()
-        ));
-    }
 
     if exit_code == 0 {
         return Err("remote LoadLibraryW failed".to_owned());
@@ -344,10 +369,39 @@ pub(crate) fn attach(pid: u32, dll_path: &Path) -> Result<(), String> {
 
     println!("Verified loaded module: 0x{loaded_module:08X}");
 
+    let initialize_offset = usize::try_from(initialize_rva)
+        .map_err(|_| "darpc_initialize RVA does not fit usize".to_owned())?;
+
+    let remote_initialize = loaded_module
+        .checked_add(initialize_offset)
+        .ok_or_else(|| "target darpc_initialize address overflow".to_owned())?;
+
+    println!(
+        "Target darpc_initialize: module=0x{loaded_module:08X} \
+        rva=0x{initialize_rva:08X} address=0x{remote_initialize:08X}"
+    );
+
+    let initialize_argument =
+        usize::try_from(ABI_VERSION).map_err(|_| "ABI version does not fit usize".to_owned())?;
+
+    let initialize_status = run_remote_thread(
+        &process,
+        remote_initialize,
+        initialize_argument as *mut c_void,
+        "darpc_initialize",
+    )?;
+
+    if initialize_status != Status::OK.as_u32() {
+        return Err(format!(
+            "darpc_initialize failed: status={initialize_status}"
+        ));
+    }
+
+    println!("darpc_initialize succeeded: status={initialize_status}");
     Ok(())
 }
 
 #[cfg(not(windows))]
-pub(crate) fn attach(_pid: u32, _dll_path: &Path) -> Result<(), String> {
+pub(crate) fn attach(_pid: u32, _dll_path: &Path, _initialize_rva: u32) -> Result<(), String> {
     Err("loader requires Windows".to_owned())
 }

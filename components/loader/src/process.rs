@@ -22,6 +22,7 @@ use windows_sys::Win32::{
     },
 };
 
+#[cfg(windows)]
 pub(crate) struct ProcessInspection {
     pub(crate) creation_time: u64,
     pub(crate) darpc_loaded: bool,
@@ -57,7 +58,7 @@ pub(crate) fn open_for_injection(pid: u32) -> Result<OwnedHandle, String> {
 }
 
 #[cfg(windows)]
-fn is_module_loaded(pid: u32, expected_name: &str) -> Result<bool, String> {
+pub(crate) fn module_base(pid: u32, expected_name: &str) -> Result<Option<usize>, String> {
     // SAFETY: the validated PID identifies the target process, and the
     // requested snapshot contains read-only module information.
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, pid) };
@@ -92,7 +93,7 @@ fn is_module_loaded(pid: u32, expected_name: &str) -> Result<bool, String> {
         let module_name = decode_module_name(&module);
 
         if module_name.eq_ignore_ascii_case(expected_name) {
-            return Ok(true);
+            return Ok(Some(module.modBaseAddr as usize));
         }
 
         // SAFETY: the snapshot and writable entry remain valid.
@@ -105,7 +106,7 @@ fn is_module_loaded(pid: u32, expected_name: &str) -> Result<bool, String> {
         let error = io::Error::last_os_error();
 
         if error.raw_os_error() == Some(ERROR_NO_MORE_FILES as i32) {
-            return Ok(false);
+            return Ok(None);
         }
 
         return Err(format!(
@@ -201,7 +202,7 @@ pub(crate) fn inspect_process(
 
     println!("Process identity: pid={pid} creation_time={creation_time}");
 
-    let darpc_loaded = is_module_loaded(pid, "darpc.dll")?;
+    let darpc_loaded = module_base(pid, "darpc.dll")?.is_some();
 
     println!(
         "daRPC module: {}",
@@ -215,6 +216,6 @@ pub(crate) fn inspect_process(
 }
 
 #[cfg(not(windows))]
-pub(crate) fn inspect(_pid: u32) -> Result<ProcessInspection, String> {
+pub(crate) fn inspect(_pid: u32) -> Result<(), String> {
     Err("loader requires Windows".to_owned())
 }

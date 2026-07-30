@@ -5,7 +5,7 @@ use std::path::Path;
 
 #[cfg(windows)]
 use std::{
-    ffi::c_void,
+    ffi::{CStr, c_void},
     io,
     mem::{forget, size_of, transmute},
     os::windows::{
@@ -153,7 +153,7 @@ fn encode_dll_path(path: &Path) -> Result<Vec<u16>, String> {
 }
 
 #[cfg(windows)]
-fn local_load_library() -> Result<(String, usize), String> {
+fn local_kernel_export(export_name: &CStr) -> Result<(String, usize), String> {
     let kernel32: Vec<u16> = "kernel32.dll".encode_utf16().chain([0]).collect();
 
     // SAFETY: `kernel32` is a live, NUL-terminated UTF-16 string.
@@ -166,26 +166,28 @@ fn local_load_library() -> Result<(String, usize), String> {
         ));
     }
 
+    let function_name = export_name.to_string_lossy();
+
     // SAFETY: `kernel32` is a valid loaded module and the export name
     // is a live, NUL-terminated byte string.
-    let load_library = unsafe { GetProcAddress(kernel32, b"LoadLibraryW\0".as_ptr()) }
-        .ok_or_else(|| "failed to resolve local LoadLibraryW".to_owned())?;
+    let function = unsafe { GetProcAddress(kernel32, export_name.as_ptr().cast()) }
+        .ok_or_else(|| format!("failed to resolve local {function_name}"))?;
 
     let mut containing_module = null_mut();
 
     // SAFETY: with FROM_ADDRESS, the second parameter is interpreted as
-    // an address. `load_library` is valid and the output is writable.
+    // an address. `function` is valid and the output is writable.
     let succeeded = unsafe {
         GetModuleHandleExW(
             GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-            load_library as *const () as *const u16,
+            function as *const () as *const u16,
             &mut containing_module,
         )
     };
 
     if succeeded == 0 {
         return Err(format!(
-            "failed to locate module containing LoadLibraryW: {}",
+            "failed to locate module containing `{function_name}`: {}",
             io::Error::last_os_error()
         ));
     }
@@ -202,7 +204,7 @@ fn local_load_library() -> Result<(String, usize), String> {
         .map_err(|_| "module path length does not fit in usize".to_owned())?;
 
     if length == 0 || length >= module_path.len() {
-        return Err("failed to read module containing LoadLibraryW".to_owned());
+        return Err(format!("failed to read module containing {function_name}"));
     }
 
     let path = String::from_utf16_lossy(&module_path[..length]);
@@ -212,9 +214,9 @@ fn local_load_library() -> Result<(String, usize), String> {
         .ok_or_else(|| "resolved module path has no file name".to_owned())?
         .to_owned();
 
-    let offset = (load_library as usize)
+    let offset = (function as usize)
         .checked_sub(containing_module as usize)
-        .ok_or_else(|| "LoadLibraryW address precedes its module base".to_owned())?;
+        .ok_or_else(|| format!("{function_name} address precedes its module base"))?;
 
     Ok((module_name, offset))
 }
@@ -309,7 +311,7 @@ pub(crate) fn attach(pid: u32, dll_path: &Path, initialize_rva: u32) -> Result<(
         inspection.creation_time
     );
 
-    let (module_name, offset) = local_load_library()?;
+    let (module_name, offset) = local_kernel_export(c"LoadLibraryW")?;
 
     println!("Local LoadLibraryW: module={module_name} offset=0x{offset:X}");
 

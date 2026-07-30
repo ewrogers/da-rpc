@@ -25,6 +25,33 @@ Original client behavior should be preserved unless a valid request explicitly
 blocks an event. Injected code must not retain daemon-owned resources after a
 disconnect or unload.
 
+`DllMain` does not provide a process-wide pause. The Windows loader lock
+serializes loader activity, but unrelated client threads may continue executing.
+Hook installation must therefore remain outside `DllMain` and occur through
+explicit initialization.
+
+Prepare and validate the complete hook plan before changing client code. Decode
+the replaced instructions, allocate and populate every trampoline, and prepare
+rollback data while client threads remain runnable. The commit phase should then
+be as short as possible:
+
+1. Suspend or enlist the affected threads.
+2. Reject or safely redirect instruction pointers within a replaced range.
+3. Change page protections and apply the complete patch set.
+4. Flush the instruction cache and restore page protections.
+5. Roll back every changed entry point if any commit step fails.
+6. Resume every thread suspended by the transaction.
+
+Do not suspend client threads across general allocation, logging, IPC, or other
+unbounded initialization. A suspended thread may own a heap or synchronization
+lock needed by the initialization thread. A hook-enabled launch should keep the
+new process's primary thread suspended until the hook transaction commits. A
+late attach requires the short transactional commit above.
+
+Hook removal follows the same rules in reverse. Shutdown must prevent new hook
+entries, drain in-flight callbacks, restore original code transactionally, and
+prove that no thread can return through DLL-owned code before `FreeLibrary`.
+
 Substantial allocation, logging, IPC, or cleanup must not occur inside
 time-sensitive hooks or under the Windows loader lock. A daemon, consumer, or
 protocol failure must not terminate the game process.

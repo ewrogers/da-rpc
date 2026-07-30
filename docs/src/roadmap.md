@@ -45,6 +45,10 @@ sources of truth. This page describes implementation order.
 hooks, wait for threads, or perform other substantial work while the Windows
 loader lock is held.
 
+The loader lock serializes loader activity but does not suspend the other
+process threads. Installing hooks from `DllMain` could therefore still race a
+thread executing the code being patched.
+
 The initial DLL can instead expose narrow `extern "system"` initialization and
 shutdown functions. A local test host or `loader.exe` calls initialization after
 `LoadLibraryW` completes and calls shutdown before `FreeLibrary`. Those exported
@@ -382,6 +386,8 @@ Build:
 - A known x86 function in the owned test host with deterministic inputs and
   outputs.
 - Transactional detour installation, original-call preservation, and rollback.
+- Preparation of complete trampolines before a short thread-enlisted commit
+  that changes executable code and flushes the instruction cache.
 - Tests for repeated installation, failed installation, recursion, concurrent
   calls, and shutdown.
 
@@ -394,6 +400,8 @@ Done:
 
 - Every trampoline used by the harness has reviewed instruction relocation.
 - Partial installation rolls back completely.
+- Concurrent threads cannot observe a partially written hook, and instruction
+  pointers inside a replaced range are safely rejected or redirected.
 - No panic or unwind crosses the native boundary.
 - Shutdown proves no thread can call the detour after unload.
 

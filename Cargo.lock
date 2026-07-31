@@ -28,6 +28,9 @@ version = "0.1.0"
 [[package]]
 name = "injection-target"
 version = "0.1.0"
+dependencies = [
+ "windows-sys",
+]
 
 [[package]]
 name = "lifecycle-host"

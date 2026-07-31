@@ -7,5 +7,12 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+  "Win32_Foundation",
+  "Win32_System_Console",
+  "Win32_System_LibraryLoader",
+] }
+
 [lints]
 workspace = true

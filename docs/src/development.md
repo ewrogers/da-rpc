@@ -1,18 +1,23 @@
 # Development
 
-The Rust workspace is scaffolded, but it does not yet contain an implementation.
-Its packages establish the intended component and library boundaries:
+The Rust workspace separates runtime components from shared domain and platform
+boundaries:
 
 | Package | Role |
 | --- | --- |
 | `darpc-model` | Shared domain state, actions, and updates. |
 | `darpc-protocol` | Versioned binary interprocess communication framing and codecs. |
 | `darpc-win32` | Shared Windows platform boundaries. |
-| `darpc-client-741` | Version-specific client layouts and application binary interface boundaries. |
+| `darpc-game-client` | Supported game-client layouts and application binary interface boundaries. |
 | `rpc-client` | Command-line IPC diagnostic and daemon API client. |
 | `rpc-dll` | Injected client component. |
 | `loader` | Client launcher and injector. |
 | `rpc-daemon` | Client aggregator and web API daemon. |
+
+The project supports one exact game-client build at a time. `darpc-game-client`
+keeps its verified fingerprint, layouts, addresses, and application binary
+interface assumptions together. Supporting another build requires updating or
+forking that contract rather than adding parallel version-named crates.
 
 The planned runtime targets are:
 

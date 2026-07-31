@@ -11,7 +11,7 @@ mod process;
 mod remote;
 mod remote_dll;
 
-use darpc_client_741::{CLIENT_VERSION, ClientExecutable, executable_sha256};
+use darpc_game_client::{CLIENT_VERSION, ClientExecutable, executable_sha256};
 use endpoint::ServerEndpoint;
 use error::{ErrorKind, LoaderError, Result};
 use output::{CommandResult, OutputFormat, render_error};

@@ -5,7 +5,7 @@ members = [
     "components/loader",
     "components/rpc-dll",
     "components/rpc-daemon",
-    "crates/client-741",
+    "crates/game-client",
     "crates/model",
     "crates/protocol",
     "crates/win32",
@@ -21,7 +21,7 @@ license = "MIT"
 repository = "https://github.com/ewrogers/da-rpc"
 
 [workspace.dependencies]
-darpc-client-741 = { path = "crates/client-741" }
+darpc-game-client = { path = "crates/game-client" }
 darpc-model = { path = "crates/model" }
 darpc-protocol = { path = "crates/protocol" }
 darpc-win32 = { path = "crates/win32" }

@@ -1,4 +1,4 @@
-//! Version-specific integration boundary for Dark Ages client version 7.41.
+//! Integration boundary for the supported Dark Ages 7.41 game client.
 
 use sha2::{Digest, Sha256};
 use std::{
@@ -201,8 +201,10 @@ mod tests {
 
     #[test]
     fn rejects_an_executable_with_the_wrong_size() {
-        let path =
-            std::env::temp_dir().join(format!("darpc-client-741-wrong-size-{}.exe", process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "darpc-game-client-wrong-size-{}.exe",
+            process::id()
+        ));
         fs::write(&path, b"not the supported client").expect("failed to write test executable");
 
         let error = ClientExecutable::validate(&path)
@@ -214,8 +216,10 @@ mod tests {
 
     #[test]
     fn rejects_an_executable_with_the_wrong_hash() {
-        let path =
-            std::env::temp_dir().join(format!("darpc-client-741-wrong-hash-{}.exe", process::id()));
+        let path = std::env::temp_dir().join(format!(
+            "darpc-game-client-wrong-hash-{}.exe",
+            process::id()
+        ));
         let file = fs::File::create(&path).expect("failed to create test executable");
         file.set_len(EXECUTABLE_SIZE)
             .expect("failed to size test executable");

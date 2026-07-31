@@ -135,7 +135,7 @@ modules:
   relative virtual addresses (RVAs).
 - `process.rs` owns target process handles, architecture inspection, process
   identity, executable-path discovery, and loaded-module discovery.
-- `darpc-client-741` owns the exact supported executable fingerprint,
+- `darpc-game-client` owns the exact supported executable fingerprint,
   canonical-path validation, and version-specific launch patch contracts.
 - `launch.rs` owns suspended process creation, Windows argument quoting,
   primary-thread resumption, and child-only failure cleanup.
@@ -274,7 +274,7 @@ or record game data. Build the x86 artifacts, close every running client, and
 run:
 
 ```powershell
-./tools/test-client-741.ps1 `
+./tools/test-game-client.ps1 `
   -ClientPath "C:\path\to\Darkages.exe" `
   -TargetDir ./target/i686-pc-windows-msvc/debug
 ```

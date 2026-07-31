@@ -22,7 +22,7 @@ windows-sys = { workspace = true, features = [
 ] }
 
 [dependencies]
-darpc-client-741.workspace = true
+darpc-game-client.workspace = true
 darpc-win32.workspace = true
 
 [lints]

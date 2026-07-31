@@ -22,6 +22,11 @@ portable web APIs.
 | `darpc.exe` | 64-bit Windows x86-64 | Provides direct IPC diagnostics and a user-facing daemon client. |
 | `darpcd.exe` | 64-bit Windows x86-64 | Discovers clients, aggregates state and events, and exposes web APIs. |
 
+daRPC supports one exact game-client build at a time. The `darpc-game-client`
+crate owns that build's fingerprint, layouts, addresses, and application binary
+interface boundaries. Supporting a different client is a fork-level change, not
+an in-tree matrix of versioned layout crates.
+
 The DLL remains independent of the daemon. If `darpcd.exe` is stopped or
 restarted, an injected client must continue operating normally and accept a new
 daemon connection later.
@@ -46,7 +51,7 @@ components/
   rpc-daemon/   64-bit daemon and web API
 
 crates/
-  client-741/   Dark Ages 7.41 layouts, addresses, and client ABI boundaries
+  game-client/  Supported game layouts, addresses, and client ABI boundaries
   model/        shared domain state, actions, and updates
   protocol/     versioned binary IPC framing and codecs
   win32/        shared Windows platform boundaries

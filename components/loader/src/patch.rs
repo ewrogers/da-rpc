@@ -1,5 +1,5 @@
 #[cfg(any(windows, test))]
-use darpc_client_741::{
+use darpc_game_client::{
     ALLOW_MULTIPLE_PATCHES, COMMAND_LINE_ENDPOINT_PATCHES, DISABLE_ENDPOINT_FALLBACK_PATCHES,
     LaunchPatch, SKIP_INTRO_PATCHES, SKIP_NOTICE_PATCHES,
 };

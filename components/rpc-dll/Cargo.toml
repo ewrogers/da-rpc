@@ -12,7 +12,7 @@ name = "darpc"
 crate-type = ["cdylib"]
 
 [dependencies]
-darpc-client-741.workspace = true
+darpc-game-client.workspace = true
 darpc-model.workspace = true
 darpc-protocol.workspace = true
 darpc-win32.workspace = true

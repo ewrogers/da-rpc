@@ -36,7 +36,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "darpc-client-741"
+name = "darpc-game-client"
 version = "0.1.0"
 dependencies = [
  "darpc-model",
@@ -103,7 +103,7 @@ dependencies = [
 name = "loader"
 version = "0.1.0"
 dependencies = [
- "darpc-client-741",
+ "darpc-game-client",
  "darpc-win32",
  "windows-sys",
 ]
@@ -136,7 +136,7 @@ dependencies = [
 name = "rpc-dll"
 version = "0.1.0"
 dependencies = [
- "darpc-client-741",
+ "darpc-game-client",
  "darpc-model",
  "darpc-protocol",
  "darpc-win32",

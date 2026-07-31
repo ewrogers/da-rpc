@@ -156,7 +156,7 @@ milestone is M9, the daemon-backed CLI.
 - [x] Expose each observed PID, exact decimal process `created_time`, DLL
   `instance_id`, and connection compatibility metadata.
 - [x] Generate an OpenAPI 3.1 document at `/openapi.json` and serve vendored,
-  offline Swagger UI assets at `/docs`.
+  offline Swagger UI assets with an Ayu-inspired dark theme at `/docs`.
 - [x] Reject request bodies, invalid port options, duplicate port options, and
   occupied listeners with bounded, explicit failures.
 - [x] Verify the default and overridden ports, two controlled targets, daemon

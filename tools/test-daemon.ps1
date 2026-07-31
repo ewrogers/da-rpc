@@ -162,12 +162,12 @@ function Wait-ForConnectedClients {
 
 function Assert-ApiContract {
     param(
-        [object] $ClientsResponse,
+        [object] $ClientList,
         [int[]] $ProcessIds,
         [int] $Port
     )
 
-    $Clients = @($ClientsResponse.clients)
+    $Clients = @($ClientList.clients)
     Assert-True ($Clients.Count -eq $ProcessIds.Count) "HTTP client count was incorrect"
     foreach ($ProcessId in $ProcessIds) {
         $Client = @($Clients | Where-Object { $_.pid -eq $ProcessId })[0]
@@ -188,6 +188,18 @@ function Assert-ApiContract {
     $Paths = @($OpenApi.paths.PSObject.Properties.Name)
     Assert-True ($Paths -contains "/health") "OpenAPI omitted /health"
     Assert-True ($Paths -contains "/clients") "OpenAPI omitted /clients"
+    $Schemas = @($OpenApi.components.schemas.PSObject.Properties.Name)
+    foreach ($Schema in @(
+        "ClientIdentity",
+        "ClientList",
+        "ClientState",
+        "ClientStatus",
+        "ConnectionMetadata",
+        "HealthState",
+        "HealthStatus"
+    )) {
+        Assert-True ($Schemas -contains $Schema) "OpenAPI omitted $Schema"
+    }
 
     $Docs = Invoke-WebRequest `
         -Uri "http://127.0.0.1:$Port/docs/" `
@@ -195,10 +207,16 @@ function Assert-ApiContract {
         -TimeoutSec 2
     Assert-True ($Docs.StatusCode -eq 200) "Swagger UI was unavailable"
     $Asset = Invoke-WebRequest `
-        -Uri "http://127.0.0.1:$Port/docs/swagger-ui-bundle.js" `
+        -Uri "http://127.0.0.1:$Port/docs/assets/swagger-ui-bundle.js" `
         -UseBasicParsing `
         -TimeoutSec 5
     Assert-True ($Asset.StatusCode -eq 200) "vendored Swagger UI asset was unavailable"
+
+    $Theme = Invoke-WebRequest `
+        -Uri "http://127.0.0.1:$Port/docs/ayu.css" `
+        -UseBasicParsing `
+        -TimeoutSec 2
+    Assert-True ($Theme.StatusCode -eq 200) "Swagger UI theme was unavailable"
 }
 
 function Stop-Daemon {

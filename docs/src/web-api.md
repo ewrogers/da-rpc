@@ -23,21 +23,22 @@ different port. It exposes one current API without a URL version prefix:
 | `GET /docs` | Open the self-hosted interactive Swagger UI. |
 
 With the default port, the interactive documentation is available at
-`http://127.0.0.1:2626/docs`.
+`http://127.0.0.1:2626/docs`. Its vendored assets and Ayu-inspired dark theme
+work without an internet connection.
 
 The JSON response shapes are:
 
 ```text
-HealthResponse {
+HealthState {
     status: "ok",
     version: string,
 }
 
-ClientsResponse {
-    clients: Client[],
+ClientList {
+    clients: ClientState[],
 }
 
-Client {
+ClientState {
     pid: u32,
     status: "connecting" | "not_loaded" | "connected" | "busy" |
             "disconnected" | "incompatible",

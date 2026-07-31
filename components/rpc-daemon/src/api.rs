@@ -1,5 +1,6 @@
 use crate::registry::{
-    ClientIdentity, ClientSnapshot, ClientSnapshotStatus, RegistrySnapshot, architecture, hex,
+    ClientIdentity as RegistryClientIdentity, ClientSnapshot, ClientSnapshotStatus,
+    RegistrySnapshot, architecture, hex,
 };
 use axum::{
     Json, Router,
@@ -7,7 +8,7 @@ use axum::{
     extract::State,
     http::{Request, StatusCode, header},
     middleware::{Next, from_fn},
-    response::{IntoResponse, Response},
+    response::{Html, IntoResponse, Redirect, Response},
     routing::get,
 };
 use darpc_protocol::{Hello, protocol_version_major, protocol_version_minor};
@@ -20,6 +21,9 @@ use std::{
 };
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
+
+const SWAGGER_INDEX: &str = include_str!("../assets/swagger.html");
+const SWAGGER_THEME: &str = include_str!("../assets/swagger-ayu.css");
 
 #[derive(Clone)]
 pub(crate) struct ApiState {
@@ -79,9 +83,27 @@ fn router(state: ApiState) -> Router {
     Router::<ApiState>::new()
         .route("/health", get(health))
         .route("/clients", get(clients))
-        .merge(SwaggerUi::new("/docs").url("/openapi.json", openapi()))
+        .route("/docs", get(swagger_redirect))
+        .route("/docs/", get(swagger_index))
+        .route("/docs/ayu.css", get(swagger_theme))
+        .merge(SwaggerUi::new("/docs/assets").url("/openapi.json", openapi()))
         .layer(from_fn(reject_request_body))
         .with_state(state)
+}
+
+async fn swagger_redirect() -> Redirect {
+    Redirect::to("/docs/")
+}
+
+async fn swagger_index() -> Html<&'static str> {
+    Html(SWAGGER_INDEX)
+}
+
+async fn swagger_theme() -> impl IntoResponse {
+    (
+        [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
+        SWAGGER_THEME,
+    )
 }
 
 async fn reject_request_body(request: Request<Body>, next: Next) -> Response {
@@ -112,10 +134,10 @@ fn openapi() -> utoipa::openapi::OpenApi {
 #[utoipa::path(
     get,
     path = "/health",
-    responses((status = 200, description = "The daemon HTTP server is available", body = HealthResponse))
+    responses((status = 200, description = "The daemon HTTP server is available", body = HealthState))
 )]
-async fn health() -> Json<HealthResponse> {
-    Json(HealthResponse {
+async fn health() -> Json<HealthState> {
+    Json(HealthState {
         status: HealthStatus::Ok,
         version: env!("CARGO_PKG_VERSION"),
     })
@@ -124,30 +146,30 @@ async fn health() -> Json<HealthResponse> {
 #[utoipa::path(
     get,
     path = "/clients",
-    responses((status = 200, description = "Configured client targets and their current connection state", body = ClientsResponse))
+    responses((status = 200, description = "Configured client targets and their current connection state", body = ClientList))
 )]
-async fn clients(State(state): State<ApiState>) -> Json<ClientsResponse> {
+async fn clients(State(state): State<ApiState>) -> Json<ClientList> {
     let snapshot = state.snapshot();
-    Json(ClientsResponse::from(snapshot.as_ref()))
+    Json(ClientList::from(snapshot.as_ref()))
 }
 
 #[derive(OpenApi)]
 #[openapi(
     paths(health, clients),
     components(schemas(
-        HealthResponse,
+        HealthState,
         HealthStatus,
-        ClientsResponse,
-        ClientResponse,
+        ClientList,
+        ClientState,
         ClientStatus,
-        ClientIdentityResponse,
-        ConnectionMetadataResponse
+        ClientIdentity,
+        ConnectionMetadata
     ))
 )]
 struct ApiDoc;
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
-struct HealthResponse {
+struct HealthState {
     status: HealthStatus,
     version: &'static str,
 }
@@ -159,43 +181,42 @@ enum HealthStatus {
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
-struct ClientsResponse {
-    clients: Vec<ClientResponse>,
+struct ClientList {
+    clients: Vec<ClientState>,
 }
 
-impl From<&RegistrySnapshot> for ClientsResponse {
+impl From<&RegistrySnapshot> for ClientList {
     fn from(snapshot: &RegistrySnapshot) -> Self {
         Self {
-            clients: snapshot.clients.iter().map(ClientResponse::from).collect(),
+            clients: snapshot.clients.iter().map(ClientState::from).collect(),
         }
     }
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
-struct ClientResponse {
+struct ClientState {
     /// Configured operating-system process identifier.
     pid: u32,
     /// Current daemon connection state for this target.
     status: ClientStatus,
     /// Stable process and DLL identity, once observed.
-    identity: Option<ClientIdentityResponse>,
+    identity: Option<ClientIdentity>,
     /// Last accepted connection metadata, when available.
-    connection: Option<ConnectionMetadataResponse>,
+    connection: Option<ConnectionMetadata>,
     /// Human-readable detail for disconnected or incompatible targets.
     reason: Option<String>,
 }
 
-impl From<&ClientSnapshot> for ClientResponse {
+impl From<&ClientSnapshot> for ClientState {
     fn from(client: &ClientSnapshot) -> Self {
         Self {
             pid: client.pid,
             status: ClientStatus::from(client.status),
-            identity: client.identity.map(ClientIdentityResponse::from),
-            connection: client.hello.zip(client.selected_version).map(
-                |(hello, selected_version)| {
-                    ConnectionMetadataResponse::new(hello, selected_version)
-                },
-            ),
+            identity: client.identity.map(ClientIdentity::from),
+            connection: client
+                .hello
+                .zip(client.selected_version)
+                .map(|(hello, selected_version)| ConnectionMetadata::new(hello, selected_version)),
             reason: client.reason.clone(),
         }
     }
@@ -226,15 +247,15 @@ impl From<ClientSnapshotStatus> for ClientStatus {
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
-struct ClientIdentityResponse {
+struct ClientIdentity {
     /// Unsigned 64-bit Windows process creation time encoded in decimal.
     created_time: String,
     /// Per-load DLL instance identifier encoded as 32 uppercase hexadecimal digits.
     instance_id: String,
 }
 
-impl From<ClientIdentity> for ClientIdentityResponse {
-    fn from(identity: ClientIdentity) -> Self {
+impl From<RegistryClientIdentity> for ClientIdentity {
+    fn from(identity: RegistryClientIdentity) -> Self {
         Self {
             created_time: identity.process_creation_time.to_string(),
             instance_id: hex(&identity.dll_instance_id),
@@ -243,7 +264,7 @@ impl From<ClientIdentity> for ClientIdentityResponse {
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
-struct ConnectionMetadataResponse {
+struct ConnectionMetadata {
     /// Negotiated daRPC binary protocol version.
     protocol_version: String,
     /// Architecture reported by the injected DLL.
@@ -256,7 +277,7 @@ struct ConnectionMetadataResponse {
     layout_id: u32,
 }
 
-impl ConnectionMetadataResponse {
+impl ConnectionMetadata {
     fn new(hello: Hello, selected_version: u16) -> Self {
         Self {
             protocol_version: format!(
@@ -277,7 +298,7 @@ impl ConnectionMetadataResponse {
 
 #[cfg(test)]
 mod tests {
-    use super::{ApiState, ClientsResponse, router};
+    use super::{ApiState, ClientList, router};
     use crate::registry::{ConnectionEvent, Registry};
     use axum::{
         body::{Body, to_bytes},
@@ -342,6 +363,21 @@ mod tests {
             })
     }
 
+    fn text(path: &str) -> String {
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let response = router(state())
+                    .oneshot(Request::get(path).body(Body::empty()).unwrap())
+                    .await
+                    .unwrap();
+                assert_eq!(response.status(), StatusCode::OK);
+                let bytes = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+                String::from_utf8(bytes.to_vec()).unwrap()
+            })
+    }
+
     #[test]
     fn serves_health_and_client_snapshots() {
         assert_eq!(json("/health")["status"], "ok");
@@ -389,7 +425,7 @@ mod tests {
             reason: "unsupported".into(),
         });
 
-        let value = serde_json::to_value(ClientsResponse::from(&registry.snapshot())).unwrap();
+        let value = serde_json::to_value(ClientList::from(&registry.snapshot())).unwrap();
         let statuses = value["clients"]
             .as_array()
             .unwrap()
@@ -416,11 +452,29 @@ mod tests {
         assert_eq!(openapi["info"]["title"], "daRPC API");
         assert!(openapi["paths"]["/health"].is_object());
         assert!(openapi["paths"]["/clients"].is_object());
+        let schemas = openapi["components"]["schemas"].as_object().unwrap();
+        for name in [
+            "HealthState",
+            "HealthStatus",
+            "ClientList",
+            "ClientState",
+            "ClientStatus",
+            "ClientIdentity",
+            "ConnectionMetadata",
+        ] {
+            assert!(schemas.contains_key(name), "OpenAPI omitted {name}");
+        }
 
         let docs = response("/docs/");
         assert_eq!(docs.status(), StatusCode::OK);
-        let asset = response("/docs/swagger-ui-bundle.js");
+        assert!(text("/docs/").contains("/docs/ayu.css"));
+        let asset = response("/docs/assets/swagger-ui-bundle.js");
         assert_eq!(asset.status(), StatusCode::OK);
+        let theme = text("/docs/ayu.css");
+        assert!(theme.contains("--ayu-bg: #0b0e14"));
+        assert!(theme.contains("--ayu-orange: #ffb454"));
+        assert!(theme.contains(".swagger-ui .info .title small pre.version"));
+        assert!(theme.contains(".swagger-ui button.model-box-control"));
     }
 
     #[test]

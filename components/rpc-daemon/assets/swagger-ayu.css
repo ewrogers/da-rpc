@@ -1,0 +1,231 @@
+:root {
+  color-scheme: dark;
+  --ayu-bg: #0b0e14;
+  --ayu-panel: #0f1419;
+  --ayu-panel-raised: #151a22;
+  --ayu-border: #2d3640;
+  --ayu-text: #bfbdb6;
+  --ayu-muted: #6c7680;
+  --ayu-orange: #ffb454;
+  --ayu-orange-strong: #ff8f40;
+  --ayu-blue: #59c2ff;
+  --ayu-green: #aad94c;
+  --ayu-red: #f07178;
+}
+
+html,
+body {
+  background: var(--ayu-bg);
+  color: var(--ayu-text);
+}
+
+body {
+  margin: 0;
+}
+
+.swagger-ui,
+.swagger-ui .info .title,
+.swagger-ui .info p,
+.swagger-ui .info li,
+.swagger-ui .info table,
+.swagger-ui .opblock-tag,
+.swagger-ui .opblock .opblock-summary-description,
+.swagger-ui .opblock-description-wrapper,
+.swagger-ui .opblock-external-docs-wrapper,
+.swagger-ui .opblock-title_normal,
+.swagger-ui .parameter__name,
+.swagger-ui .parameter__type,
+.swagger-ui .response-col_status,
+.swagger-ui .response-col_description,
+.swagger-ui .responses-inner h4,
+.swagger-ui .responses-inner h5,
+.swagger-ui .model,
+.swagger-ui .model-title,
+.swagger-ui section.models h4,
+.swagger-ui table thead tr td,
+.swagger-ui table thead tr th {
+  color: var(--ayu-text);
+}
+
+.swagger-ui .topbar {
+  background: var(--ayu-panel);
+  border-bottom: 1px solid var(--ayu-border);
+}
+
+.swagger-ui .topbar .download-url-wrapper .select-label {
+  color: var(--ayu-text);
+}
+
+.swagger-ui .topbar .download-url-wrapper input[type="text"],
+.swagger-ui input[type="email"],
+.swagger-ui input[type="file"],
+.swagger-ui input[type="password"],
+.swagger-ui input[type="search"],
+.swagger-ui input[type="text"],
+.swagger-ui textarea,
+.swagger-ui select {
+  background: var(--ayu-bg);
+  border-color: var(--ayu-border);
+  color: var(--ayu-text);
+}
+
+.swagger-ui .info a,
+.swagger-ui .link,
+.swagger-ui .model-toggle,
+.swagger-ui .opblock-summary-control:focus-visible {
+  color: var(--ayu-orange);
+}
+
+.swagger-ui .info .title small {
+  background: var(--ayu-orange-strong);
+  color: var(--ayu-bg);
+}
+
+.swagger-ui .info .title small.version-stamp {
+  background: var(--ayu-green);
+}
+
+.swagger-ui .info .title small pre.version {
+  background: transparent !important;
+  color: var(--ayu-bg) !important;
+}
+
+.swagger-ui .scheme-container,
+.swagger-ui section.models,
+.swagger-ui .model-box,
+.swagger-ui .model-container,
+.swagger-ui .opblock .opblock-section-header,
+.swagger-ui .responses-inner,
+.swagger-ui .parameters-container {
+  background: var(--ayu-panel);
+  box-shadow: none;
+}
+
+.swagger-ui .scheme-container,
+.swagger-ui section.models,
+.swagger-ui .model-container {
+  border: 1px solid var(--ayu-border);
+}
+
+.swagger-ui section.models.is-open h4,
+.swagger-ui section.models h4 {
+  border-color: var(--ayu-border);
+}
+
+.swagger-ui .opblock-tag {
+  border-bottom-color: var(--ayu-border);
+}
+
+.swagger-ui .opblock-tag small,
+.swagger-ui .parameter__deprecated,
+.swagger-ui .parameter__in,
+.swagger-ui .model .property.primitive,
+.swagger-ui .prop-format,
+.swagger-ui .response-col_links {
+  color: var(--ayu-muted);
+}
+
+.swagger-ui .opblock .opblock-summary-path,
+.swagger-ui .opblock .opblock-summary-path__deprecated,
+.swagger-ui .model-title,
+.swagger-ui .model-title__text,
+.swagger-ui button.model-box-control,
+.swagger-ui button.models-control {
+  color: var(--ayu-text);
+}
+
+.swagger-ui button.model-box-control,
+.swagger-ui button.models-control {
+  background: transparent;
+  border: 0;
+}
+
+.swagger-ui button.model-box-control:focus-visible,
+.swagger-ui button.models-control:focus-visible {
+  outline: 1px solid var(--ayu-orange);
+  outline-offset: 3px;
+}
+
+.swagger-ui .prop-type,
+.swagger-ui .prop-enum {
+  color: var(--ayu-blue);
+}
+
+.swagger-ui .opblock.opblock-get {
+  background: rgb(255 180 84 / 8%);
+  border-color: var(--ayu-orange);
+}
+
+.swagger-ui .opblock.opblock-get .opblock-summary {
+  border-color: var(--ayu-orange);
+}
+
+.swagger-ui .opblock.opblock-get .opblock-summary-method {
+  background: var(--ayu-orange-strong);
+  color: var(--ayu-bg);
+}
+
+.swagger-ui .opblock.opblock-get .tab-header .tab-item.active h4 span::after {
+  background: var(--ayu-orange);
+}
+
+.swagger-ui .btn {
+  background: var(--ayu-panel-raised);
+  border-color: var(--ayu-orange);
+  color: var(--ayu-orange);
+}
+
+.swagger-ui .btn:hover,
+.swagger-ui .btn:focus-visible {
+  background: var(--ayu-orange);
+  color: var(--ayu-bg);
+}
+
+.swagger-ui .btn.execute {
+  background: var(--ayu-orange-strong);
+  border-color: var(--ayu-orange-strong);
+  color: var(--ayu-bg);
+}
+
+.swagger-ui .btn.cancel {
+  border-color: var(--ayu-red);
+  color: var(--ayu-red);
+}
+
+.swagger-ui .highlight-code,
+.swagger-ui .microlight,
+.swagger-ui .renderedMarkdown pre,
+.swagger-ui .response-col_description pre,
+.swagger-ui .curl-command .copy-to-clipboard {
+  background: var(--ayu-bg) !important;
+  color: var(--ayu-text) !important;
+}
+
+.swagger-ui .response-control-media-type__accept-message {
+  color: var(--ayu-green);
+}
+
+.swagger-ui table tbody tr td,
+.swagger-ui .response-col_description__inner div.markdown,
+.swagger-ui .response-col_description__inner div.renderedMarkdown {
+  background: transparent;
+  border-color: var(--ayu-border);
+  color: var(--ayu-text);
+}
+
+.swagger-ui .copy-to-clipboard {
+  background: var(--ayu-panel-raised);
+}
+
+.swagger-ui svg {
+  fill: var(--ayu-text);
+}
+
+.swagger-ui .loading-container .loading::after {
+  color: var(--ayu-orange);
+}
+
+::selection {
+  background: var(--ayu-orange);
+  color: var(--ayu-bg);
+}

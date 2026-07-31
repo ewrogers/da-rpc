@@ -241,9 +241,9 @@ configured PID and status, plus the DLL `instance_id` and process
 `created_time` once identity is available.
 
 `utoipa` generates the OpenAPI document from the Rust HTTP models. A vendored
-Swagger UI serves the same contract at `/docs` without requiring
-internet access, while `/openapi.json` can be imported into tools such as
-Postman and Apidog.
+Swagger UI serves the same contract at `/docs` without requiring internet
+access and uses an Ayu-inspired dark theme. `/openapi.json` can be imported
+into tools such as Postman and Apidog.
 
 ## Development
 

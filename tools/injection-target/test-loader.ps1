@@ -38,8 +38,15 @@ function Invoke-Loader {
         [int] $ExpectedExitCode = 0
     )
 
-    $Output = @(& $Loader --json @CommandArgs 2>$null)
-    $ExitCode = $LASTEXITCODE
+    $PreviousErrorActionPreference = $ErrorActionPreference
+
+    try {
+        $ErrorActionPreference = "Continue"
+        $Output = @(& $Loader --json @CommandArgs 2>$null)
+        $ExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $PreviousErrorActionPreference
+    }
 
     if ($ExitCode -ne $ExpectedExitCode) {
         throw "loader exit code was $ExitCode, expected $ExpectedExitCode for: $CommandArgs"

@@ -61,6 +61,7 @@ tools/
   injection-target/ inert process for loader integration testing
   lifecycle-host/   local DLL lifecycle integration harness
   loader-fixture-dll/ controlled failure DLL for loader integration testing
+  test-daemon.ps1   daemon registry and reconnect integration test
   test-ipc.ps1      direct IPC and shutdown integration test
 
 docs/           architecture and developer documentation
@@ -199,6 +200,21 @@ These diagnostic commands perform the real binary handshake and validate
 ordering, correlation, and timing without reading game state or installing
 hooks. See the [`darpc.exe` documentation](https://ewrogers.github.io/da-rpc/cli.html)
 for output fields and exit codes.
+
+## Daemon client registry
+
+`darpcd.exe` can persistently connect to one or more explicitly selected
+clients. Repeat `--pid` for every target:
+
+```text
+darpcd.exe --pid 3780 --pid 6648
+```
+
+The daemon prints connection status transitions and reconnects when a pipe or
+DLL returns. Automatic discovery, snapshots, and HTTP APIs are later work, so
+the current daemon requires explicit PIDs and aggregates identity and connection
+health only. While it owns a pipe, direct `darpc.exe ipc` commands report that
+the endpoint is busy.
 
 ## Development
 

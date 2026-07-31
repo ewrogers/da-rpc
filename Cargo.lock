@@ -129,9 +129,11 @@ dependencies = [
 name = "rpc-daemon"
 version = "0.1.0"
 dependencies = [
+ "darpc-game-client",
  "darpc-model",
  "darpc-protocol",
  "darpc-win32",
+ "windows-sys",
 ]
 
 [[package]]

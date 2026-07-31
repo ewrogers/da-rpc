@@ -4,6 +4,11 @@ Discovery is owned by `darpcd.exe`. The daemon periodically reconciles candidate
 game clients with available daRPC endpoints. `darpc.dll` does not need to locate
 or notify the daemon.
 
+The current daemon precedes automatic discovery and accepts repeated explicit
+`--pid <pid>` targets. It retries those deterministic endpoints independently.
+The reconciliation design below replaces that temporary selection step once
+window discovery and managed launch are implemented.
+
 ## Deterministic pipe names
 
 Once initialized, each `darpc.dll` creates a named pipe derived from its process

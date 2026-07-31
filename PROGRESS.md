@@ -9,8 +9,8 @@ remain concise.
 
 ## Current focus
 
-M6, direct IPC diagnostics through `darpc.exe`, is complete. The next planned
-implementation milestone is M7, the daemon client registry.
+M7, the daemon client registry, is complete. The next planned implementation
+milestone is M8, the read-only HTTP API.
 
 ## Milestone snapshot
 
@@ -24,7 +24,7 @@ implementation milestone is M7, the daemon client registry.
 | M4.1, optional launch patches | Complete | Exact 7.41 patch contracts, strict endpoint selection, safe pre-resume application, and live-client acceptance pass. |
 | M5, minimal binary protocol | Complete | Exact framing, identity handshake, diagnostics, checked codecs, and golden and boundary tests are implemented. |
 | M6, direct IPC diagnostics | Complete | The DLL pipe worker and direct hello, ping, and echo commands pass controlled and live-client Windows verification. |
-| M7, daemon client registry | Planned | Repeated explicit `--pid` targets, shared controller sessions, independent reconnecting workers, and identity-safe registry records. |
+| M7, daemon client registry | Complete | Repeated explicit `--pid` targets, shared controller sessions, independent reconnecting workers, and identity-safe registry records pass controlled and live-client verification. |
 
 ## Completed recently
 
@@ -121,6 +121,27 @@ implementation milestone is M7, the daemon client registry.
   shutdown during pending accept and connected I/O on 32-bit Windows.
 - [x] Verify late attach, all three diagnostics, clean unload, and continued
   process liveness against the supported client.
+
+## M7 completion evidence
+
+- [x] Extract the controller handshake, sequencing, and framing into one shared
+  session used by `darpc.exe` and `darpcd.exe`.
+- [x] Accept repeated nonzero unique `--pid <pid>` targets and retry missing or
+  busy endpoints.
+- [x] Give each target an independent worker with bounded periodic health pings
+  and reconnect behavior.
+- [x] Key accepted records by PID, process creation time, and DLL instance ID;
+  replace changed identities and ignore stale disconnect events.
+- [x] Keep incompatible identity visible without accepting it as a client.
+- [x] Require the supported x86 architecture, executable fingerprint, and
+  layout ID before accepting a release connection.
+- [x] Verify daemon-first startup, two controlled targets, exclusive ownership,
+  daemon restart, one-client replacement, and other-client independence.
+- [x] Late-attach release builds to two logged-in 7.41 clients, register both,
+  restart the daemon without reinjection, unload both DLLs, and confirm both
+  client processes remain alive.
+- [x] Keep the registry limited to identity and connection health with no hooks,
+  client-memory reads, state snapshots, or web API.
 
 ## M2 completion evidence
 

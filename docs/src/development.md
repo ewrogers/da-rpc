@@ -58,6 +58,25 @@ errors, malformed-client isolation, reconnect, and bounded cancellation during
 shutdown. The bypass is unavailable in release builds and is never a substitute
 for validation against the supported client.
 
+The daemon registry integration test uses two controlled targets and both
+runtime architectures:
+
+```powershell
+cargo build -p loader -p rpc-dll -p injection-target `
+    --target i686-pc-windows-msvc
+cargo build -p rpc-client -p rpc-daemon `
+    --target x86_64-pc-windows-msvc
+
+& .\tools\test-daemon.ps1 `
+    -X86TargetDir "$env:CARGO_TARGET_DIR\i686-pc-windows-msvc\debug" `
+    -X64TargetDir "$env:CARGO_TARGET_DIR\x86_64-pc-windows-msvc\debug"
+```
+
+It starts the daemon before injection, connects both targets, verifies exclusive
+pipe ownership, restarts the daemon, replaces one DLL instance, and confirms the
+other client stays connected. Incompatible negotiation is exercised by the
+native Windows controller-session test.
+
 ## Documentation
 
 The repository pins mdBook 0.5.4 for reproducible local and CI builds.

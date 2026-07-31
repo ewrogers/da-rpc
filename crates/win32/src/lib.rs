@@ -3,4 +3,6 @@
 pub mod lifecycle;
 
 #[cfg(windows)]
+pub mod controller;
+#[cfg(windows)]
 pub mod pipe;

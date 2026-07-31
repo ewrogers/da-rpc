@@ -96,7 +96,7 @@ only after real duplication appears.
 | M4.1 | Optional launch patches | Explicit flags safely patch supported 7.41 startup and endpoint behavior before the client resumes. | Complete |
 | M5 | Minimal binary protocol | A `Hello` frame has exact tested bytes and compatibility rules. | Complete |
 | M6 | Direct IPC diagnostics | `darpc.exe` exchanges `Hello`, `Ping`, and `Echo` messages with one injected DLL. | Complete |
-| M7 | Daemon client registry | `darpcd.exe` connects, tracks the DLL, and recovers after restart. | Planned |
+| M7 | Daemon client registry | `darpcd.exe` connects, tracks the DLL, and recovers after restart. | Complete |
 | M8 | Read-only HTTP API | A browser or HTTP client lists the injected client. | Planned |
 | M9 | Daemon-backed CLI | The existing `darpc.exe` adds client listing through the daemon HTTP API. | Planned |
 | M10 | Discovery and managed launch | `darpcd.exe` reconciles candidates and invokes the loader explicitly. | Planned |
@@ -110,7 +110,7 @@ only after real duplication appears.
 | M18 | Multi-client hardening and preview | Failure and soak evidence support a preview release. | Planned |
 | M19 | WebSocket and remote access | Added only for a proven use case and defined security model. | Deferred |
 
-M2 through M6 are complete. M7 is the next planned implementation milestone.
+M2 through M7 are complete. M8 is the next planned implementation milestone.
 M1 has been exercised manually, but its separate evidence checklist remains
 open until the lifecycle-host Windows continuous-integration coverage is
 present. The working checklist is maintained in the [repository progress
@@ -686,18 +686,15 @@ limits, and administrative capability boundaries before it is supported.
 
 ## Immediate next increment
 
-M7 should turn the proven direct connection into a small persistent daemon
-registry without pulling later state or discovery work forward:
+M8 should expose the working registry without changing DLL behavior:
 
-1. Extract the controller handshake and ordered connection into a shared
-   boundary used by both command-line components.
-2. Accept repeated `--pid <pid>` options, reject zero or duplicate PIDs, and
-   retry missing endpoints.
-3. Register successful handshakes by process creation time and DLL instance ID.
-4. Keep clients independent and expose concise status transitions.
-5. Verify both startup orders, daemon restart, changed identities, incompatible
-   peers, and a broken connection.
-6. Late-attach two live clients and confirm both reconnect without reinjection.
+1. Add a small loopback-only HTTP server to `darpcd.exe`.
+2. Define a versioned endpoint for daemon health and current client records.
+3. Keep HTTP response types separate from registry and wire-protocol types.
+4. Represent connecting, connected, disconnected, busy, and incompatible
+   targets explicitly.
+5. Bound request parsing and ensure HTTP failure cannot block a client worker.
+6. Inspect the two-client registry from a browser or standard HTTP client.
 
-The first client snapshot remains M13. M7 aggregates client identities and
-connection health only.
+Snapshots remain M13. M8 exposes only the identity and connection-health data
+already owned by the daemon.

@@ -24,6 +24,12 @@ foreach ($Path in @($Loader, $Target, $DarpcDll, $Darpc, $Daemon)) {
     }
 }
 
+$Loader = (Resolve-Path -LiteralPath $Loader).Path
+$Target = (Resolve-Path -LiteralPath $Target).Path
+$DarpcDll = (Resolve-Path -LiteralPath $DarpcDll).Path
+$Darpc = (Resolve-Path -LiteralPath $Darpc).Path
+$Daemon = (Resolve-Path -LiteralPath $Daemon).Path
+
 function Assert-True {
     param(
         [bool] $Condition,

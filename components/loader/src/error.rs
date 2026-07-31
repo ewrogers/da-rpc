@@ -20,6 +20,7 @@ pub(crate) enum ErrorKind {
     ShutdownFailed,
     RemoteOperationFailed,
     Internal,
+    LaunchFailed,
 }
 
 impl ErrorKind {
@@ -38,6 +39,7 @@ impl ErrorKind {
             Self::ShutdownFailed => "shutdown_failed",
             Self::RemoteOperationFailed => "remote_operation_failed",
             Self::Internal => "internal",
+            Self::LaunchFailed => "launch_failed",
         }
     }
 
@@ -56,6 +58,7 @@ impl ErrorKind {
             Self::ShutdownFailed => 12,
             Self::RemoteOperationFailed => 13,
             Self::Internal => 14,
+            Self::LaunchFailed => 15,
         }
     }
 }
@@ -64,6 +67,7 @@ impl ErrorKind {
 pub(crate) struct LoaderError {
     kind: ErrorKind,
     message: String,
+    pid: Option<u32>,
 }
 
 impl LoaderError {
@@ -71,6 +75,7 @@ impl LoaderError {
         Self {
             kind,
             message: message.into(),
+            pid: None,
         }
     }
 
@@ -93,8 +98,18 @@ impl LoaderError {
         self.kind
     }
 
+    pub(crate) const fn pid(&self) -> Option<u32> {
+        self.pid
+    }
+
     pub(crate) fn message(&self) -> &str {
         &self.message
+    }
+
+    #[cfg(any(windows, test))]
+    pub(crate) fn with_pid(mut self, pid: u32) -> Self {
+        self.pid = Some(pid);
+        self
     }
 }
 
@@ -133,6 +148,7 @@ mod tests {
                 13,
             ),
             (ErrorKind::Internal, "internal", 14),
+            (ErrorKind::LaunchFailed, "launch_failed", 15),
         ];
         let mut names = BTreeSet::new();
         let mut exit_codes = BTreeSet::new();

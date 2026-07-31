@@ -2,6 +2,7 @@
 
 mod error;
 mod inject;
+mod launch;
 mod output;
 mod pe;
 mod process;
@@ -19,13 +20,27 @@ const USAGE: &str = "\
 usage:
     loader [--json] inspect <pid>
     loader [--json] attach <pid> <dll-path>
-    loader [--json] detach <pid> <dll-path>";
+    loader [--json] detach <pid> <dll-path>
+    loader [--json] launch <executable-path> <dll-path> [-- <argument>...]";
 
 #[derive(Debug, Eq, PartialEq)]
 enum Command {
-    Inspect { pid: u32 },
-    Attach { pid: u32, dll_path: PathBuf },
-    Detach { pid: u32, dll_path: PathBuf },
+    Inspect {
+        pid: u32,
+    },
+    Attach {
+        pid: u32,
+        dll_path: PathBuf,
+    },
+    Detach {
+        pid: u32,
+        dll_path: PathBuf,
+    },
+    Launch {
+        executable_path: PathBuf,
+        dll_path: PathBuf,
+        arguments: Vec<OsString>,
+    },
 }
 
 impl Command {
@@ -34,6 +49,7 @@ impl Command {
             Self::Inspect { .. } => "inspect",
             Self::Attach { .. } => "attach",
             Self::Detach { .. } => "detach",
+            Self::Launch { .. } => "launch",
         }
     }
 }
@@ -99,6 +115,29 @@ fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
             pid: parse_pid(arguments.next())?,
             dll_path: parse_dll_path(arguments.next())?,
         },
+        Some("launch") => {
+            let executable_path = parse_path(arguments.next())?;
+            let dll_path = parse_dll_path(arguments.next())?;
+            let Some(separator) = arguments.next() else {
+                return Ok(Command::Launch {
+                    executable_path,
+                    dll_path,
+                    arguments: Vec::new(),
+                });
+            };
+
+            if separator != "--" {
+                return Err(invalid_arguments(format!(
+                    "launch arguments must follow `--`\n{USAGE}"
+                )));
+            }
+
+            return Ok(Command::Launch {
+                executable_path,
+                dll_path,
+                arguments: arguments.collect(),
+            });
+        }
         Some(command) => {
             return Err(invalid_arguments(format!(
                 "unknown command: `{command}`\n{USAGE}"
@@ -137,6 +176,10 @@ fn parse_pid(argument: Option<OsString>) -> Result<u32> {
 }
 
 fn parse_dll_path(argument: Option<OsString>) -> Result<PathBuf> {
+    parse_path(argument)
+}
+
+fn parse_path(argument: Option<OsString>) -> Result<PathBuf> {
     argument
         .map(PathBuf::from)
         .ok_or_else(|| invalid_arguments(USAGE))
@@ -172,6 +215,21 @@ fn execute(command: Command) -> Result<CommandResult> {
             Ok(command_result(
                 "detach",
                 pid,
+                outcome.inspection,
+                outcome.changed,
+            ))
+        }
+        Command::Launch {
+            executable_path,
+            dll_path,
+            arguments,
+        } => {
+            let dll = validate_dll(dll_path)?;
+            let outcome = launch::launch(&executable_path, &arguments, &dll)?;
+
+            Ok(command_result(
+                "launch",
+                outcome.pid,
                 outcome.inspection,
                 outcome.changed,
             ))
@@ -221,7 +279,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_all_m2_commands() {
+    fn parses_process_commands() {
         assert_eq!(
             parse_command(arguments(&["inspect", "42"])).unwrap(),
             Command::Inspect { pid: 42 }
@@ -238,6 +296,36 @@ mod tests {
             Command::Detach {
                 pid: 42,
                 dll_path: PathBuf::from("darpc.dll"),
+            }
+        );
+    }
+
+    #[test]
+    fn parses_launch_with_forwarded_arguments() {
+        assert_eq!(
+            parse_command(arguments(&[
+                "launch",
+                "target.exe",
+                "darpc.dll",
+                "--",
+                "--wait-ms",
+                "10",
+                "two words",
+            ]))
+            .unwrap(),
+            Command::Launch {
+                executable_path: PathBuf::from("target.exe"),
+                dll_path: PathBuf::from("darpc.dll"),
+                arguments: arguments(&["--wait-ms", "10", "two words"]),
+            }
+        );
+
+        assert_eq!(
+            parse_command(arguments(&["launch", "target.exe", "darpc.dll"])).unwrap(),
+            Command::Launch {
+                executable_path: PathBuf::from("target.exe"),
+                dll_path: PathBuf::from("darpc.dll"),
+                arguments: Vec::new(),
             }
         );
     }
@@ -262,6 +350,18 @@ mod tests {
             parse_command(arguments(&["inspect", "42", "extra"]))
                 .unwrap_err()
                 .kind(),
+            crate::error::ErrorKind::InvalidArguments
+        );
+        assert_eq!(
+            parse_command(arguments(&[
+                "launch",
+                "target.exe",
+                "darpc.dll",
+                "--wait-ms",
+                "10",
+            ]))
+            .unwrap_err()
+            .kind(),
             crate::error::ErrorKind::InvalidArguments
         );
     }

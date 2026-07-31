@@ -110,6 +110,51 @@ fn validate_loaded_dll(module: &ProcessModule, dll: &DarpcDll) -> Result<()> {
 #[cfg(windows)]
 pub(crate) fn attach(process: &TargetProcess, dll: &DarpcDll) -> Result<LifecycleOutcome> {
     let inspection = process.inspect()?;
+    attach_with_inspection(process, dll, inspection)
+}
+
+#[cfg(windows)]
+pub(crate) fn attach_created(process: &TargetProcess, dll: &DarpcDll) -> Result<LifecycleOutcome> {
+    let inspection = process.inspect_created()?;
+    let pid = process.pid();
+
+    eprintln!(
+        "Launch preflight complete: pid={pid} creation_time={}",
+        inspection.creation_time
+    );
+
+    let module = remote_dll::load_created(process, &dll.path)?;
+    let status = initialize(process, module, dll.initialize_rva)?;
+
+    if status != Status::OK.as_u32() {
+        return Err(LoaderError::new(
+            ErrorKind::InitializationFailed,
+            format!(
+                "darpc_initialize failed: status={status}; child process {pid} will be terminated"
+            ),
+        ));
+    }
+
+    eprintln!("darpc_initialize succeeded: status={status}");
+
+    Ok(LifecycleOutcome {
+        inspection: ProcessInspection {
+            creation_time: inspection.creation_time,
+            darpc_module: Some(ProcessModule {
+                base: module,
+                path: dll.path.clone(),
+            }),
+        },
+        changed: true,
+    })
+}
+
+#[cfg(windows)]
+fn attach_with_inspection(
+    process: &TargetProcess,
+    dll: &DarpcDll,
+    inspection: ProcessInspection,
+) -> Result<LifecycleOutcome> {
     let pid = process.pid();
 
     if inspection.darpc_module.is_some() {

@@ -205,11 +205,15 @@ fn decode_wide(value: &[u16]) -> String {
 #[cfg(windows)]
 pub(crate) fn inspect(pid: u32) -> Result<ProcessInspection> {
     let process = open_process(pid, PROCESS_QUERY_LIMITED_INFORMATION)?;
-    inspect_handle(pid, &process)
+    inspect_handle(pid, &process, true)
 }
 
 #[cfg(windows)]
-fn inspect_handle(pid: u32, process: &OwnedHandle) -> Result<ProcessInspection> {
+fn inspect_handle(
+    pid: u32,
+    process: &OwnedHandle,
+    include_modules: bool,
+) -> Result<ProcessInspection> {
     ensure_running(pid, process)?;
     eprintln!("Opened target process");
 
@@ -283,16 +287,24 @@ fn inspect_handle(pid: u32, process: &OwnedHandle) -> Result<ProcessInspection> 
 
     eprintln!("Process identity: pid={pid} creation_time={creation_time}");
 
-    let darpc_module = find_module(pid, process, "darpc.dll")?;
+    let darpc_module = if include_modules {
+        find_module(pid, process, "darpc.dll")?
+    } else {
+        None
+    };
 
-    eprintln!(
-        "daRPC module: {}",
-        if darpc_module.is_some() {
-            "loaded"
-        } else {
-            "not loaded"
-        }
-    );
+    if include_modules {
+        eprintln!(
+            "daRPC module: {}",
+            if darpc_module.is_some() {
+                "loaded"
+            } else {
+                "not loaded"
+            }
+        );
+    } else {
+        eprintln!("daRPC module inspection deferred until process startup");
+    }
 
     Ok(ProcessInspection {
         creation_time,
@@ -302,6 +314,10 @@ fn inspect_handle(pid: u32, process: &OwnedHandle) -> Result<ProcessInspection> 
 
 #[cfg(windows)]
 impl TargetProcess {
+    pub(crate) fn from_created(pid: u32, handle: OwnedHandle) -> Self {
+        Self { pid, handle }
+    }
+
     pub(crate) fn open(pid: u32) -> Result<Self> {
         let access = PROCESS_CREATE_THREAD
             | PROCESS_QUERY_INFORMATION
@@ -323,6 +339,10 @@ impl TargetProcess {
         &self.handle
     }
 
+    pub(crate) fn is_running(&self) -> Result<bool> {
+        is_running(self.pid, &self.handle)
+    }
+
     pub(crate) fn module_base(&self, expected_name: &str) -> Result<Option<usize>> {
         Ok(self
             .module(expected_name)?
@@ -334,7 +354,11 @@ impl TargetProcess {
     }
 
     pub(crate) fn inspect(&self) -> Result<ProcessInspection> {
-        inspect_handle(self.pid, &self.handle)
+        inspect_handle(self.pid, &self.handle, true)
+    }
+
+    pub(crate) fn inspect_created(&self) -> Result<ProcessInspection> {
+        inspect_handle(self.pid, &self.handle, false)
     }
 }
 

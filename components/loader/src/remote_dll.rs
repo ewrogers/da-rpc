@@ -37,7 +37,7 @@ fn encode_path(path: &Path) -> Result<Vec<u16>> {
 }
 
 #[cfg(windows)]
-fn local_kernel_export(export_name: &CStr) -> Result<(String, usize)> {
+fn local_kernel_export(export_name: &CStr) -> Result<(String, usize, usize)> {
     let kernel32: Vec<u16> = "kernel32.dll".encode_utf16().chain([0]).collect();
 
     // SAFETY: `kernel32` is a live, NUL-terminated UTF-16 string.
@@ -127,13 +127,13 @@ fn local_kernel_export(export_name: &CStr) -> Result<(String, usize)> {
             )
         })?;
 
-    Ok((module_name, offset))
+    Ok((module_name, offset, function as usize))
 }
 
 #[cfg(windows)]
 fn remote_kernel_export(process: &TargetProcess, export_name: &CStr) -> Result<usize> {
     let function_name = export_name.to_string_lossy();
-    let (module_name, offset) = local_kernel_export(export_name)?;
+    let (module_name, offset, _) = local_kernel_export(export_name)?;
 
     eprintln!("Local {function_name}: module={module_name} offset=0x{offset:X}");
 
@@ -160,12 +160,23 @@ fn remote_kernel_export(process: &TargetProcess, export_name: &CStr) -> Result<u
 }
 
 #[cfg(windows)]
-pub(crate) fn load(process: &TargetProcess, path: &Path, expected_name: &str) -> Result<usize> {
+fn local_kernel_export_address(export_name: &CStr) -> Result<usize> {
+    let function_name = export_name.to_string_lossy();
+    let (module_name, offset, address) = local_kernel_export(export_name)?;
+
+    eprintln!(
+        "Shared {function_name}: module={module_name} offset=0x{offset:X} address=0x{address:X}"
+    );
+
+    Ok(address)
+}
+
+#[cfg(windows)]
+fn load_at(process: &TargetProcess, path: &Path, load_library: usize) -> Result<usize> {
     let encoded_path = encode_path(path)?;
 
     eprintln!("Encoded DLL path: {} UTF-16 code units", encoded_path.len());
 
-    let load_library = remote_kernel_export(process, c"LoadLibraryW")?;
     let path_size = encoded_path
         .len()
         .checked_mul(size_of::<u16>())
@@ -193,6 +204,13 @@ pub(crate) fn load(process: &TargetProcess, path: &Path, expected_name: &str) ->
         ));
     }
 
+    Ok(exit_code as usize)
+}
+
+#[cfg(windows)]
+pub(crate) fn load(process: &TargetProcess, path: &Path, expected_name: &str) -> Result<usize> {
+    let load_library = remote_kernel_export(process, c"LoadLibraryW")?;
+    let loaded_address = load_at(process, path, load_library)?;
     let loaded_module = process.module_base(expected_name)?.ok_or_else(|| {
         LoaderError::new(
             ErrorKind::RemoteOperationFailed,
@@ -202,17 +220,26 @@ pub(crate) fn load(process: &TargetProcess, path: &Path, expected_name: &str) ->
         )
     })?;
 
-    if loaded_module != exit_code as usize {
+    if loaded_module != loaded_address {
         return Err(LoaderError::new(
             ErrorKind::RemoteOperationFailed,
             format!(
-                "loaded module address mismatch: thread=0x{exit_code:08X} \
+                "loaded module address mismatch: thread=0x{loaded_address:08X} \
                 snapshot=0x{loaded_module:08X}"
             ),
         ));
     }
 
     eprintln!("Verified loaded module: 0x{loaded_module:08X}");
+    Ok(loaded_module)
+}
+
+#[cfg(windows)]
+pub(crate) fn load_created(process: &TargetProcess, path: &Path) -> Result<usize> {
+    let load_library = local_kernel_export_address(c"LoadLibraryW")?;
+    let loaded_module = load_at(process, path, load_library)?;
+
+    eprintln!("Loaded module in suspended child: 0x{loaded_module:08X}");
     Ok(loaded_module)
 }
 

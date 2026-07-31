@@ -71,13 +71,17 @@ pub(crate) fn render_error(
         OutputFormat::Human => format!("loader: {error}"),
         OutputFormat::Json => {
             let command = command.map_or_else(|| "null".to_owned(), json_string);
+            let pid = error
+                .pid()
+                .map_or_else(|| "null".to_owned(), |pid| pid.to_string());
 
             format!(
                 concat!(
-                    "{{\"ok\":false,\"command\":{},",
+                    "{{\"ok\":false,\"command\":{},\"pid\":{},",
                     "\"error\":{{\"kind\":{},\"message\":{}}}}}"
                 ),
                 command,
+                pid,
                 json_string(error.kind().as_str()),
                 json_string(error.message())
             )
@@ -152,9 +156,23 @@ mod tests {
         assert_eq!(
             render_error(OutputFormat::Json, Some("attach"), &error),
             concat!(
-                "{\"ok\":false,\"command\":\"attach\",",
+                "{\"ok\":false,\"command\":\"attach\",\"pid\":null,",
                 "\"error\":{\"kind\":\"already_loaded\",",
                 "\"message\":\"already \\\"loaded\\\"\"}}"
+            )
+        );
+    }
+
+    #[test]
+    fn error_json_includes_an_owned_child_pid() {
+        let error = LoaderError::new(ErrorKind::InitializationFailed, "failed").with_pid(1234);
+
+        assert_eq!(
+            render_error(OutputFormat::Json, Some("launch"), &error),
+            concat!(
+                "{\"ok\":false,\"command\":\"launch\",\"pid\":1234,",
+                "\"error\":{\"kind\":\"initialization_failed\",",
+                "\"message\":\"failed\"}}"
             )
         );
     }

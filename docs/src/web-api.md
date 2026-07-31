@@ -1,9 +1,50 @@
 # Web API
 
+> **Status:** The daemon registry is implemented. The HTTP server, OpenAPI
+> document, and interactive documentation described here are planned.
+
 `darpcd.exe` exposes standard web interfaces so applications do not need to
 implement Windows injection, named-pipe IPC, or client-specific data layouts.
 
-The planned interfaces have distinct roles:
+## Initial read-only surface
+
+The initial server uses Axum and binds to a loopback address. It exposes one
+current API without a URL version prefix:
+
+| Route | Purpose |
+| --- | --- |
+| `GET /health` | Report daemon availability. |
+| `GET /clients` | List configured targets, identities, compatibility, and connection health. |
+| `GET /openapi.json` | Return the generated OpenAPI document for tools and code generators. |
+| `GET /docs` | Open the self-hosted interactive Swagger UI. |
+
+The client list represents connecting, connected, disconnected, busy, and
+incompatible targets explicitly. It contains only information already owned by
+the registry until snapshot messages and game-state models are implemented.
+
+Requests and responses use bounded, dedicated HTTP models. They do not expose
+registry implementation details, binary protocol messages, client layouts, or
+raw process pointers. HTTP handling must not block a client worker or hold a
+registry lock across network I/O.
+
+## OpenAPI and interactive documentation
+
+`utoipa` generates the OpenAPI document from the Rust HTTP models and route
+descriptions. The specification served by `/openapi.json` is the contract used
+by the interactive documentation and can be imported into Postman, Apidog, or
+another OpenAPI consumer.
+
+`utoipa-swagger-ui` serves `/docs` with vendored assets. The UI therefore works
+without a content delivery network or runtime internet access. It is a
+developer convenience layered over the API: failure to render the UI must not
+affect the JSON routes, registry, or DLL connections.
+
+The OpenAPI `info.version` follows the daRPC release that produced the
+document. It does not imply URL versioning. daRPC maintains a single current
+HTTP API and will add an explicit compatibility mechanism only if real
+consumers require simultaneous incompatible schemas.
+
+The broader planned interfaces have distinct roles:
 
 | Interface | Primary role |
 | --- | --- |

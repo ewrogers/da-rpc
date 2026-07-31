@@ -45,13 +45,32 @@ daemon is disconnected.
 a process as an injection candidate, but the loader must still validate that
 the target is compatible before modifying it.
 
+## Web boundary
+
+The planned daemon web boundary uses Axum. Its initial read-only surface binds
+to loopback and exposes `/health`, `/clients`, `/openapi.json`, and `/docs`.
+HTTP response models remain separate from registry records, binary protocol
+messages, and client layouts.
+
+`utoipa` generates the OpenAPI document from the same Rust models and route
+descriptions used by the server. A vendored Swagger UI presents that document
+at `/docs` without a content delivery network or other runtime internet
+dependency. Consumers may instead import `/openapi.json` into their preferred
+OpenAPI tooling.
+
+The HTTP routes do not carry a version prefix. daRPC maintains one current API
+while it is evolving. The OpenAPI `info.version` identifies the documented
+daRPC release, not a parallel compatibility surface. Route or media-type
+versioning should be introduced only if supported consumers create a concrete
+need for simultaneous incompatible APIs.
+
 ## Design principles
 
 - Keep injected code small, predictable, and resilient to failures.
 - Isolate unsafe Rust and document every memory and application binary
   interface invariant.
 - Use the smallest practical set of reviewed dependencies.
-- Keep protocol and platform boundaries explicit and versioned.
+- Keep platform boundaries explicit, and keep the binary protocol versioned.
 - Do not expose raw client pointers outside the injected process.
 - Keep daemon and consumer failures from terminating the game session.
 - Let consumers use portable APIs without needing client internals.

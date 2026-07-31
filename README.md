@@ -6,7 +6,11 @@ daRPC, short for Dark Ages Remote Procedure Call, is a Rust workspace for
 integrating developer tools with the 32-bit Windows client of *Dark Ages*.
 The project is in early development and does not yet provide a working client
 state integration. Injection, launch-time patches, and direct named-pipe
-diagnostics are implemented.
+diagnostics are implemented, along with the explicit-PID daemon registry.
+
+Read the [daRPC Book](https://ewrogers.github.io/da-rpc/) for the architecture,
+current implementation status, protocol, safety requirements, and development
+guidance.
 
 daRPC is designed around an injected library instead of a network proxy. The
 library can attach to an existing client, observe internal events, maintain a
@@ -216,6 +220,24 @@ the current daemon requires explicit PIDs and aggregates identity and connection
 health only. While it owns a pipe, direct `darpc.exe ipc` commands report that
 the endpoint is busy.
 
+## Planned web API
+
+The daemon's first web interface will use Axum and listen on loopback only. It
+will expose one current, unversioned API:
+
+```text
+GET /health
+GET /clients
+GET /openapi.json
+GET /docs
+```
+
+`utoipa` will generate the OpenAPI document from the Rust HTTP models. A
+vendored Swagger UI will serve the same contract at `/docs` without requiring
+internet access, while `/openapi.json` can be imported into tools such as
+Postman and Apidog. These routes are planned and are not available in the
+current daemon yet.
+
 ## Development
 
 The workspace uses Rust 2024. The injected-process components target 32-bit
@@ -244,8 +266,7 @@ format with a short, focused, imperative summary.
 
 ## Documentation
 
-The [daRPC Book](https://ewrogers.github.io/da-rpc/) contains the detailed
-architecture, state model, discovery design, safety requirements, IPC protocol,
+The book contains the detailed state model, discovery design, IPC protocol,
 and planned HTTP, Server-Sent Events, and WebSocket interfaces.
 
 The [development roadmap](docs/src/roadmap.md) divides the work into small

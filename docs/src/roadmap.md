@@ -429,19 +429,23 @@ Done:
 
 Build:
 
-- A loopback-only versioned endpoint that lists registered clients and their
-  connection metadata.
+- A loopback-only Axum server with unversioned `/health` and `/clients` routes.
 - HTTP models separate from binary wire and client layout types.
+- A `utoipa`-generated OpenAPI document at `/openapi.json` and vendored Swagger
+  UI at `/docs`.
 - Bounded requests and explicit unavailable states.
 
 See:
 
-- Open the endpoint with a browser or standard HTTP client and inspect the
-  injected client's identity.
+- Open `/docs` in a browser and inspect the two-client registry through the
+  interactive API.
+- Import `/openapi.json` into a standard OpenAPI consumer.
 
 Done:
 
 - Missing, disconnected, incompatible, and connected clients are distinct.
+- The UI works without runtime internet access and describes every public
+  route.
 - HTTP failure cannot block or corrupt the DLL connection.
 
 ### M9: daemon-backed CLI commands
@@ -689,12 +693,15 @@ limits, and administrative capability boundaries before it is supported.
 M8 should expose the working registry without changing DLL behavior:
 
 1. Add a small loopback-only HTTP server to `darpcd.exe`.
-2. Define a versioned endpoint for daemon health and current client records.
+2. Use Axum for unversioned `/health` and `/clients` routes.
 3. Keep HTTP response types separate from registry and wire-protocol types.
 4. Represent connecting, connected, disconnected, busy, and incompatible
    targets explicitly.
-5. Bound request parsing and ensure HTTP failure cannot block a client worker.
-6. Inspect the two-client registry from a browser or standard HTTP client.
+5. Generate `/openapi.json` with `utoipa` and serve a vendored Swagger UI at
+   `/docs`.
+6. Bound request parsing and ensure HTTP failure cannot block a client worker.
+7. Inspect the two-client registry in Swagger UI and import its OpenAPI
+   document into a standard client tool.
 
 Snapshots remain M13. M8 exposes only the identity and connection-health data
 already owned by the daemon.

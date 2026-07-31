@@ -90,7 +90,7 @@ only after real duplication appears.
 | --- | --- | --- | --- |
 | M0 | Workspace scaffold | Cargo recognizes the packages and the book builds. | Complete |
 | M1 | Local DLL lifecycle | A 32-bit host loads, initializes, shuts down, and unloads `darpc.dll`. | Verification pending |
-| M2 | Loader attach MVP | `loader.exe` injects and unloads the DLL in an existing test host. | In progress |
+| M2 | Loader attach MVP | `loader.exe` injects and unloads the DLL in an existing test host. | Complete |
 | M3 | Loader launch MVP | `loader.exe` launches a new process with the DLL initialized before normal execution. | Planned |
 | M4 | Client bootstrap without hooks | The 7.41 client runs normally with the inert DLL loaded. | Planned |
 | M5 | Minimal binary protocol | A `Hello` frame has exact tested bytes and compatibility rules. | Planned |
@@ -109,10 +109,11 @@ only after real duplication appears.
 | M18 | Multi-client hardening and preview | Failure and soak evidence support a preview release. | Planned |
 | M19 | WebSocket and remote access | Added only for a proven use case and defined security model. | Deferred |
 
-Active work is on M2. M1 has been exercised manually, but remains open until
-the required Windows continuous-integration coverage and initialization-failure
-host evidence are present. The working checklist is maintained in the
-[repository progress tracker](https://github.com/ewrogers/da-rpc/blob/main/PROGRESS.md).
+M2 is complete and M3 is the next implementation milestone. M1 has been
+exercised manually, but its separate evidence checklist remains open until the
+lifecycle-host Windows continuous-integration coverage is present. The working
+checklist is maintained in the [repository progress
+tracker](https://github.com/ewrogers/da-rpc/blob/main/PROGRESS.md).
 
 ## Phase 1: prove the DLL and loader
 
@@ -174,13 +175,15 @@ Done:
 
 Current state:
 
-- `inspect` and `attach` are implemented with DLL validation, target x86 and
-  creation-time checks, module discovery, remote loading, explicit
-  initialization, and rollback unloading after a rejected ABI version.
+- `inspect`, `attach`, and `detach` are implemented with DLL validation, target
+  x86 and creation-time checks, module discovery, explicit initialization and
+  shutdown, rollback after rejected initialization, and verified unload.
 - Remote memory operations, DLL operations, process state, PE validation, and
   daRPC lifecycle orchestration now have separate internal modules.
-- `detach`, explicit shutdown, structured JSON results, timeout handling, and
-  the full failure and repetition matrix remain.
+- Remote threads have bounded waits, command outcomes have stable human and
+  JSON forms, and repeated attach and detach behavior is deliberate.
+- The Windows integration harness covers the lifecycle and the required
+  controllable failure paths without terminating the target process.
 
 Build:
 

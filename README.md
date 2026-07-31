@@ -54,6 +54,7 @@ crates/
 tools/
   injection-target/ inert process for loader integration testing
   lifecycle-host/   local DLL lifecycle integration harness
+  loader-fixture-dll/ controlled failure DLL for loader integration testing
 
 docs/           architecture and developer documentation
 ```

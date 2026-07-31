@@ -9,11 +9,10 @@ remain concise.
 
 ## Current focus
 
-M2, loader attach MVP.
+M2, loader attach MVP, is complete.
 
-The immediate goal is to complete the lifecycle for an existing 32-bit test
-process: inspect, attach, initialize, shut down, detach, and verify the observed
-module state.
+M3, loader launch MVP, is next. Launch must keep the new process primary thread
+suspended through loader-owned startup patches and DLL initialization.
 
 ## Milestone snapshot
 
@@ -21,7 +20,7 @@ module state.
 | --- | --- | --- |
 | M0, workspace scaffold | Complete | Workspace and documentation checks pass. |
 | M1, local DLL lifecycle | Verification pending | Functional and manually exercised; Windows CI and explicit failed-initialization host coverage remain. |
-| M2, loader attach MVP | In progress | Inspect and attach work; detach and the remaining result model are next. |
+| M2, loader attach MVP | Complete | Inspect, attach, detach, JSON results, timeouts, and Windows integration coverage are implemented. |
 | M3, loader launch MVP | Planned | Launch must keep the primary thread suspended through patches and initialization. |
 
 ## Completed recently
@@ -42,27 +41,37 @@ module state.
   Windows.
 - [x] Added host tests and 32-bit Windows check and Clippy coverage for the
   loader source.
+- [x] Added explicit remote shutdown followed by verified unloading.
+- [x] Added stable structured errors, exit codes, and human and JSON results.
+- [x] Added bounded remote-thread waits with conservative uncertain-completion
+  behavior.
+- [x] Added a Windows lifecycle and failure integration harness.
 
-## Active M2 work
+## M2 completion evidence
 
-- [ ] Add a `detach` command for an existing target process.
-- [ ] Resolve and call `darpc_shutdown` using the validated shutdown RVA.
-- [ ] Unload only after shutdown completes successfully.
-- [ ] Leave the DLL loaded when shutdown fails or its completion is uncertain.
-- [ ] Verify through module enumeration that a successful detach removed
+- [x] Added a `detach` command for an existing target process.
+- [x] Resolve and call `darpc_shutdown` using the validated shutdown RVA.
+- [x] Unload only after shutdown completes successfully.
+- [x] Leave the DLL loaded when shutdown fails or its completion is uncertain.
+- [x] Verify through module enumeration that a successful detach removed
   `darpc.dll`.
-- [ ] Define deliberate repeated-detach behavior.
-
-## Remaining M2 work
-
-- [ ] Add bounded remote-thread timeout handling.
-- [ ] Distinguish missing process, exited process, access denied, timeout,
+- [x] Repeated detach succeeds without a state change; repeated attach returns
+  `already_loaded`.
+- [x] Add bounded remote-thread timeout handling.
+- [x] Distinguish missing process, exited process, access denied, timeout,
   already loaded, initialization failure, and shutdown failure results.
-- [ ] Add structured result types and `--json` output.
-- [ ] Run the complete Windows integration sequence against
+- [x] Add structured result types and `--json` output.
+- [x] Add the complete Windows integration sequence against
   `injection-target.exe`: inspect, attach, inspect, detach, inspect.
-- [ ] Exercise repeated attach and detach requests and every required failure
-  path without terminating the target process.
+- [x] Exercise repeated attach and detach requests and controllable failure
+  paths without terminating the target process.
+
+## Next M3 work
+
+- [ ] Define the `launch` command and structured result.
+- [ ] Create the target process with its primary thread suspended.
+- [ ] Reuse the existing load and lifecycle operations before resuming.
+- [ ] Define cleanup for launch failures without leaving a suspended child.
 
 ## M1 completion evidence
 
@@ -85,6 +94,8 @@ module state.
   suspended. The thread resumes only after patches and DLL initialization
   succeed.
 - Target module enumeration is the source of truth for observed loaded state.
+- A lifecycle relative virtual address is used only after the observed loaded
+  module path matches the validated DLL path.
 
 ## Updating this file
 

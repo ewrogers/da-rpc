@@ -101,9 +101,9 @@ Windows-specific builds or runtime checks are unavailable:
   while the default guest context may run as `SYSTEM`.
 - Use `prlctl exec` for builds, repository-owned controlled targets, inspection,
   and late attach. Do not use a Parallels Tools remote command as the parent of
-  a live client behavioral-acceptance launch. Start `loader.exe` from an
-  interactive Windows shell or an equivalent limited-privilege process using
-  the active interactive logon token, then let the client exit normally.
+  a live client behavioral-acceptance launch. Start `loader.exe` manually from
+  an interactive Windows shell; a Task Scheduler action created through remote
+  execution is not an accepted substitute. Let the client exit normally.
 - Keep Cargo-generated files on a Windows-local filesystem when the source is
   mounted from macOS. The exact target directory is environment-specific and
   must be discovered or chosen explicitly.

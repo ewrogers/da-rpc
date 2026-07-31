@@ -11,7 +11,7 @@ use std::{
 use windows_sys::Win32::{
     Foundation::{WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT},
     System::{
-        Diagnostics::Debug::WriteProcessMemory,
+        Diagnostics::Debug::{ReadProcessMemory, WriteProcessMemory},
         Memory::{
             MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE, VirtualAllocEx, VirtualFreeEx,
         },
@@ -30,6 +30,97 @@ type ThreadStart = unsafe extern "system" fn(*mut c_void) -> u32;
 
 #[cfg(windows)]
 pub(crate) const REMOTE_THREAD_TIMEOUT_MS: u32 = 10_000;
+
+#[cfg(windows)]
+pub(crate) fn read(process: &TargetProcess, address: usize, size: usize) -> Result<Vec<u8>> {
+    if size == 0 {
+        return Err(LoaderError::new(
+            ErrorKind::Internal,
+            "remote read size must be nonzero",
+        ));
+    }
+
+    let mut bytes = vec![0; size];
+    let mut bytes_read = 0;
+
+    // SAFETY: `process` has VM read access, `address` is supplied by the
+    // caller, `bytes` is writable for `size` bytes, and `bytes_read` is a
+    // writable output. Windows validates the remote address range.
+    let succeeded = unsafe {
+        ReadProcessMemory(
+            process.handle().as_raw_handle(),
+            address as *const c_void,
+            bytes.as_mut_ptr().cast(),
+            size,
+            &mut bytes_read,
+        )
+    };
+
+    if succeeded == 0 {
+        return Err(LoaderError::from_io(
+            ErrorKind::RemoteOperationFailed,
+            format!("failed to read target memory at 0x{address:08X}"),
+            io::Error::last_os_error(),
+        ));
+    }
+
+    if bytes_read != size {
+        return Err(LoaderError::new(
+            ErrorKind::RemoteOperationFailed,
+            format!(
+                "incomplete target memory read at 0x{address:08X}: expected={size} actual={bytes_read}"
+            ),
+        ));
+    }
+
+    Ok(bytes)
+}
+
+#[cfg(windows)]
+pub(crate) fn write(process: &TargetProcess, address: usize, bytes: &[u8]) -> Result<()> {
+    if bytes.is_empty() {
+        return Err(LoaderError::new(
+            ErrorKind::Internal,
+            "remote write size must be nonzero",
+        ));
+    }
+
+    let mut bytes_written = 0;
+
+    // SAFETY: `process` has VM write access, `address` is supplied by the
+    // caller, `bytes` is readable for its complete length, and
+    // `bytes_written` is a writable output. Windows validates the remote
+    // address range and its current protection.
+    let succeeded = unsafe {
+        WriteProcessMemory(
+            process.handle().as_raw_handle(),
+            address as *mut c_void,
+            bytes.as_ptr().cast(),
+            bytes.len(),
+            &mut bytes_written,
+        )
+    };
+
+    if succeeded == 0 {
+        return Err(LoaderError::from_io(
+            ErrorKind::RemoteOperationFailed,
+            format!("failed to write target memory at 0x{address:08X}"),
+            io::Error::last_os_error(),
+        ));
+    }
+
+    if bytes_written != bytes.len() {
+        return Err(LoaderError::new(
+            ErrorKind::RemoteOperationFailed,
+            format!(
+                "incomplete target memory write at 0x{address:08X}: expected={} actual={bytes_written}",
+                bytes.len()
+            ),
+        ));
+    }
+
+    Ok(())
+}
 
 #[cfg(windows)]
 pub(crate) struct RemoteAllocation<'a> {
@@ -91,39 +182,10 @@ impl<'a> RemoteAllocation<'a> {
             ));
         }
 
-        let mut bytes_written: usize = 0;
-
-        // SAFETY: `process` has VM write access, `address` identifies an
-        // allocation of at least `self.size` bytes, `value` is readable for
-        // `byte_count` bytes, and `bytes_written` is a writable output.
-        let succeeded = unsafe {
-            WriteProcessMemory(
-                self.process.handle().as_raw_handle(),
-                self.address,
-                value.as_ptr().cast(),
-                byte_count,
-                &mut bytes_written,
-            )
-        };
-
-        if succeeded == 0 {
-            return Err(LoaderError::from_io(
-                ErrorKind::RemoteOperationFailed,
-                "failed to write target memory",
-                io::Error::last_os_error(),
-            ));
-        }
-
-        if bytes_written != byte_count {
-            return Err(LoaderError::new(
-                ErrorKind::RemoteOperationFailed,
-                format!(
-                    "incomplete target memory write: expected={byte_count} actual={bytes_written}"
-                ),
-            ));
-        }
-
-        Ok(())
+        // SAFETY: a `u16` slice is contiguous and may be viewed as bytes for
+        // the duration of this write.
+        let bytes = unsafe { std::slice::from_raw_parts(value.as_ptr().cast(), byte_count) };
+        write(self.process, self.address as usize, bytes)
     }
 
     pub(crate) fn address(&self) -> *mut c_void {

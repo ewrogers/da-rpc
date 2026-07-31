@@ -9,10 +9,8 @@ remain concise.
 
 ## Current focus
 
-M4, client bootstrap without hooks, is complete.
-
-M5, minimal binary protocol, is next. It introduces the first versioned wire
-messages without depending on Windows or the live client.
+M4.1, optional launch patches, is complete. The next planned implementation
+milestone is M5, the minimal binary protocol.
 
 ## Milestone snapshot
 
@@ -23,6 +21,7 @@ messages without depending on Windows or the live client.
 | M2, loader attach MVP | Complete | Inspect, attach, detach, JSON results, timeouts, and Windows integration coverage are implemented. |
 | M3, loader launch MVP | Complete | Suspended launch, pre-resume initialization, argument forwarding, and owned-child cleanup are implemented and Windows-tested. |
 | M4, client bootstrap without hooks | Complete | Exact validation, live launch and attach, lifecycle evidence, and normal-use acceptance pass. |
+| M4.1, optional launch patches | Complete | Exact 7.41 patch contracts, strict endpoint selection, safe pre-resume application, and live-client acceptance pass. |
 
 ## Completed recently
 
@@ -73,6 +72,21 @@ messages without depending on Windows or the live client.
 - [x] Compare login, movement, representative user interface behavior, and
   normal exit in baseline, loader-launch, and late-attach runs.
 - [x] Record M4 complete after the private manual comparison passes.
+
+## M4.1 completion evidence
+
+- [x] Validate every selected 7.41 patch site before writing any replacement
+  bytes.
+- [x] Verify the 32-bit Windows patch application and rollback tests.
+- [x] Verify `--server` resolves and forwards an explicit endpoint, enables the
+  command-line parser, and disables compiled-endpoint fallback in the live
+  client.
+- [x] Verify `--skip-intro` in the live client.
+- [x] Verify `--allow-multiple` with an existing live client.
+- [x] Verify `--skip-notice` hides the notice, enables early title-menu pointer
+  input, and removes the fixed transfer pause in the live client.
+- [x] Verify all options together, including strict loopback routing through a
+  local network analyzer, and record M4.1 complete.
 
 ## M2 completion evidence
 

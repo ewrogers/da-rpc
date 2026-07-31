@@ -51,11 +51,44 @@ The M4 command surface is:
 loader [--json] inspect <pid>
 loader [--json] attach <pid> <dll-path>
 loader [--json] detach <pid> <dll-path>
-loader [--json] launch <executable-path> <dll-path> [-- <argument>...]
+loader [--json] launch [--allow-multiple] [--server <host[:port]>] \
+    [--skip-intro] [--skip-notice] \
+    <executable-path> <dll-path> [-- <argument>...]
 ```
 
 Arguments after the `--` separator are forwarded to the launched executable.
 The executable path is also supplied explicitly as its `argv[0]`.
+
+The four launch options are independent, may be combined, and are disabled by
+default. They apply only to a new suspended child. `attach` never modifies
+client startup behavior.
+
+| Launch option | Behavior |
+| --- | --- |
+| `--allow-multiple` | Bypasses the local `Nexon.SingleInstance` result check. |
+| `--server <host[:port]>` | Resolves the host to IPv4, enables the client's positional endpoint parser, and disables fallback to the official endpoint. The default port is 2610. |
+| `--skip-intro` | Enters the client's normal post-video state directly. |
+| `--skip-notice` | Hides both notice-window paths, enables early title-menu pointer input, and removes the fixed one-second transfer delay while preserving normal notice and transfer processing. |
+
+### Standard launch profile
+
+The standard project profile passes all four launch options explicitly:
+
+```text
+loader.exe launch --allow-multiple --server <host[:port]> \
+    --skip-intro --skip-notice <executable-path> <dll-path>
+```
+
+Use `--server 127.0.0.1:2610` when intentionally routing through a local network
+analyzer. The analyzer must already be listening and forwarding the connection;
+strict endpoint selection does not fall back when the loopback connection fails.
+Keeping the options explicit allows individual behaviors to be omitted during
+diagnosis without changing the loader's unflagged behavior.
+
+For `--server`, human diagnostics show the resolved IPv4 address and port. If
+no additional client arguments were forwarded, they also show the exact game
+command line. When additional arguments exist, the diagnostic omits them to
+avoid recording potentially sensitive values.
 
 Human mode writes progress diagnostics to standard error and one final result
 to standard output. `--json` keeps the same diagnostics on standard error and
@@ -101,12 +134,14 @@ modules:
   relative virtual addresses (RVAs).
 - `process.rs` owns target process handles, architecture inspection, process
   identity, executable-path discovery, and loaded-module discovery.
-- `darpc-client-741` owns the exact supported executable fingerprint and its
-  canonical-path validation.
+- `darpc-client-741` owns the exact supported executable fingerprint,
+  canonical-path validation, and version-specific launch patch contracts.
 - `launch.rs` owns suspended process creation, Windows argument quoting,
   primary-thread resumption, and child-only failure cleanup.
-- `remote.rs` contains low-level remote allocation, memory writing, and remote
-  thread execution, including the bounded wait.
+- `patch.rs` selects requested launch patches, finds the suspended main image,
+  validates original bytes, and coordinates protected writes.
+- `remote.rs` contains low-level remote allocation, memory reading and writing,
+  and remote thread execution, including the bounded wait.
 - `remote_dll.rs` owns the Windows details for loading and unloading a DLL,
   including forwarded `LoadLibraryW` and `FreeLibrary` export resolution.
 - `inject.rs` coordinates the daRPC lifecycle and decides when rollback is
@@ -169,10 +204,17 @@ The implemented launch path:
    disabled, and no copied standard handles.
 5. Validates the child as x86 and records its creation time without requiring
    module enumeration before Windows user-mode loader startup.
-6. Loads `darpc.dll` and calls `darpc_initialize` while the primary thread
+6. Resolves a selected server to dotted IPv4 and prepends the address and
+   explicit port to the child arguments before process creation.
+7. For any selected launch patches, reads the loaded main-module base from the
+   child process environment block and validates every original instruction
+   before writing anything.
+8. Applies complete instructions with temporary writable protection, flushes
+   the instruction cache, restores protection, and reads back each result.
+9. Loads `darpc.dll` and calls `darpc_initialize` while the primary thread
    remains suspended.
-7. Resumes the primary thread only after initialization returns success.
-8. Terminates and waits for only that owned child if any pre-resume operation
+10. Resumes the primary thread only after patching and initialization succeeds.
+11. Terminates and waits for only that owned child if any pre-resume operation
    fails.
 
 The loader and launched child are the same architecture and run in the same
@@ -185,6 +227,21 @@ enumeration as usual.
 Windows quoting doubles backslashes where required around embedded quotes and
 at quoted argument boundaries. Every argument is quoted independently, so
 spaces, empty values, quotes, trailing backslashes, and Unicode are preserved.
+
+The exact 7.41 contracts follow the documented
+[multiple-client](https://github.com/ewrogers/darkages-741-re/blob/main/docs/appendix/runtime-patches/multiple-clients.md),
+[command-line-endpoint](https://github.com/ewrogers/darkages-741-re/blob/main/docs/appendix/runtime-patches/command-line-endpoint.md),
+[disable-endpoint-fallback](https://github.com/ewrogers/darkages-741-re/blob/main/docs/appendix/runtime-patches/disable-endpoint-fallback.md),
+[skip-intro](https://github.com/ewrogers/darkages-741-re/blob/main/docs/appendix/runtime-patches/skip-intro.md),
+[hide-notice](https://github.com/ewrogers/darkages-741-re/blob/main/docs/appendix/runtime-patches/hide-stipulation.md),
+[early-continue](https://github.com/ewrogers/darkages-741-re/blob/main/docs/appendix/runtime-patches/early-continue.md), and
+[fast-server-transfer](https://github.com/ewrogers/darkages-741-re/blob/main/docs/appendix/runtime-patches/fast-server-transfer.md)
+targets. The early-continue patch enables the existing pointer hit-testing path
+while the initial menu gate is set; keyboard input remains unchanged. Fast
+server transfer changes the fixed post-connect sleep from one second to a yield;
+the actual blocking connection can still pause the animation. The executable is
+never modified on disk. A byte mismatch or failed write leaves the primary
+thread suspended and enters owned-child cleanup.
 
 ## Verification
 
@@ -231,12 +288,12 @@ When orchestrating a Parallels guest from macOS, do not use a Parallels Tools
 remote command as the parent of a live client behavioral-acceptance launch.
 Remote execution remains appropriate for building, controlled-target tests,
 inspection, and attaching to a client the user started interactively. Run the
-launch acceptance command from PowerShell opened inside the Windows desktop, or
-use an equivalent limited-privilege process created from the active interactive
-logon token. Let the client perform its normal exit rather than terminating it
-from the harness. Dark Ages 7.41 login redirect behavior was verified with this
-interactive-token method; the same login was unreliable when the client was a
-descendant of the Parallels Tools remote-command process.
+launch acceptance command from PowerShell opened directly inside the Windows
+desktop. Do not substitute a Task Scheduler action created through Parallels
+remote execution: even an interactive, limited-privilege task proved unreliable
+during the login redirect and could leave later vanilla attempts failing until
+the transient state cleared. Let the client perform its normal exit rather than
+terminating it from the harness.
 
 Complete the behavioral acceptance check manually and privately:
 
@@ -250,11 +307,15 @@ Complete the behavioral acceptance check manually and privately:
 4. Record whether all three runs behaved the same. Do not put credentials,
    private chat, or packet data in the record.
 
-The stock client currently enforces a single instance with a startup mutex, so
-these live checks must run sequentially. Until a later milestone implements the
-planned startup patch, multi-process loader behavior is verified with the
-repository-owned controlled target instead of concurrent live clients.
+Verify the M4.1 launch options from an interactive Windows session. Exercise
+each option independently, then launch two clients concurrently with all three
+visual options and `--server da0.kru.com`. Confirm that the intro and notice
+are absent, both clients reach normal login, the selected endpoint is used, and
+ordinary login and exit behavior remain intact. An unflagged launch remains the
+comparison case. An explicit server is strict: if that connection fails, the
+client follows its normal disconnected cleanup and does not retry the compiled
+official endpoint.
 
-Future loader-owned startup patches fit between suspended process validation
-and DLL initialization. Hooks and trampolines owned by daRPC remain the
+The loader-owned startup patches run between suspended process validation and
+DLL initialization. Hooks and trampolines owned by daRPC remain the
 responsibility of `darpc_initialize` and `darpc_shutdown`.

@@ -119,11 +119,11 @@ prlctl exec "<vm-name>" --current-user powershell.exe <arguments>
 
 Use remote guest commands for building, repository-owned integration targets,
 inspection, and late attach. For live-client login and behavior checks, start
-`loader.exe` from an interactive Windows shell. An equivalent automated launch
-must use the active user's interactive token at limited privilege, such as a
-one-shot Task Scheduler action with interactive logon. Do not parent the live
-client beneath the Parallels Tools remote-command process or force-terminate it
-after the check.
+`loader.exe` manually from an interactive Windows shell. Do not substitute a
+Task Scheduler action created through remote execution; it proved unreliable
+at the client login redirect even with interactive logon and limited privilege.
+Do not parent the live client beneath the Parallels Tools remote-command process
+or force-terminate it after the check.
 
 The intended development loop is:
 
@@ -133,6 +133,37 @@ The intended development loop is:
    `CARGO_TARGET_DIR`.
 3. Run the repository-owned Windows integration script inside the guest.
 4. Treat both host and native guest results as completion evidence.
+
+## Loader CLI
+
+`loader.exe` supports process inspection, late attach, detach, and suspended
+launch:
+
+```text
+loader [--json] inspect <pid>
+loader [--json] attach <pid> <dll-path>
+loader [--json] detach <pid> <dll-path>
+loader [--json] launch [--allow-multiple] [--server <host[:port]>] \
+    [--skip-intro] [--skip-notice] \
+    <executable-path> <dll-path> [-- <argument>...]
+```
+
+The standard launch profile combines all four launch options. It allows another
+client instance, selects a strict IPv4 endpoint, skips the intro, hides the
+notice, enables early title-menu pointer input, and removes the fixed one-second
+transfer delay. Launch options remain explicit so each behavior can be omitted
+during diagnosis.
+
+```text
+loader.exe launch --allow-multiple --server <host[:port]> \
+    --skip-intro --skip-notice <executable-path> <dll-path>
+```
+
+`--server` uses port 2610 when omitted. A local network analyzer can be selected
+with `--server 127.0.0.1:2610`, but it must already be listening and forwarding
+the connection. Arguments after `--` are forwarded unchanged to the client. See
+the [loader documentation](https://ewrogers.github.io/da-rpc/loader.html) for
+the detailed lifecycle, safety behavior, and result contract.
 
 ## Development
 

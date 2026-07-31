@@ -1,17 +1,21 @@
 //! daRPC client launcher and injector.
 
+mod endpoint;
 mod error;
 mod inject;
 mod launch;
 mod output;
+mod patch;
 mod pe;
 mod process;
 mod remote;
 mod remote_dll;
 
 use darpc_client_741::{CLIENT_VERSION, ClientExecutable, executable_sha256};
+use endpoint::ServerEndpoint;
 use error::{ErrorKind, LoaderError, Result};
 use output::{CommandResult, OutputFormat, render_error};
+use patch::LaunchPatches;
 use pe::DarpcDll;
 use process::{ProcessInspection, TargetProcess, inspect};
 
@@ -28,7 +32,9 @@ usage:
     loader [--json] inspect <pid>
     loader [--json] attach <pid> <dll-path>
     loader [--json] detach <pid> <dll-path>
-    loader [--json] launch <executable-path> <dll-path> [-- <argument>...]";
+    loader [--json] launch [--allow-multiple] [--server <host[:port]>] \
+        [--skip-intro] [--skip-notice] \
+        <executable-path> <dll-path> [-- <argument>...]";
 
 #[derive(Debug, Eq, PartialEq)]
 enum Command {
@@ -47,6 +53,8 @@ enum Command {
         executable_path: PathBuf,
         dll_path: PathBuf,
         arguments: Vec<OsString>,
+        patches: LaunchPatches,
+        server: Option<ServerEndpoint>,
     },
 }
 
@@ -122,29 +130,7 @@ fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
             pid: parse_pid(arguments.next())?,
             dll_path: parse_dll_path(arguments.next())?,
         },
-        Some("launch") => {
-            let executable_path = parse_path(arguments.next())?;
-            let dll_path = parse_dll_path(arguments.next())?;
-            let Some(separator) = arguments.next() else {
-                return Ok(Command::Launch {
-                    executable_path,
-                    dll_path,
-                    arguments: Vec::new(),
-                });
-            };
-
-            if separator != "--" {
-                return Err(invalid_arguments(format!(
-                    "launch arguments must follow `--`\n{USAGE}"
-                )));
-            }
-
-            return Ok(Command::Launch {
-                executable_path,
-                dll_path,
-                arguments: arguments.collect(),
-            });
-        }
+        Some("launch") => return parse_launch(arguments),
         Some(command) => {
             return Err(invalid_arguments(format!(
                 "unknown command: `{command}`\n{USAGE}"
@@ -162,6 +148,68 @@ fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
     }
 
     Ok(command)
+}
+
+fn parse_launch(mut arguments: impl Iterator<Item = OsString>) -> Result<Command> {
+    let mut patches = LaunchPatches::default();
+    let mut server = None;
+    let mut executable_path = None;
+
+    while let Some(argument) = arguments.next() {
+        match argument.to_str() {
+            Some("--allow-multiple") => patches.allow_multiple = true,
+            Some("--server") => {
+                if server.is_some() {
+                    return Err(invalid_arguments(
+                        "server option may be specified only once",
+                    ));
+                }
+
+                let value = arguments
+                    .next()
+                    .ok_or_else(|| invalid_arguments("server option requires a value"))?;
+                server = Some(ServerEndpoint::parse(&value)?);
+                patches.command_line_endpoint = true;
+            }
+            Some("--skip-intro") => patches.skip_intro = true,
+            Some("--skip-notice") => patches.skip_notice = true,
+            Some(option) if option.starts_with("--") => {
+                return Err(invalid_arguments(format!(
+                    "unknown launch option: `{option}`\n{USAGE}"
+                )));
+            }
+            _ => {
+                executable_path = Some(PathBuf::from(argument));
+                break;
+            }
+        }
+    }
+
+    let executable_path = executable_path.ok_or_else(|| invalid_arguments(USAGE))?;
+    let dll_path = parse_dll_path(arguments.next())?;
+    let Some(separator) = arguments.next() else {
+        return Ok(Command::Launch {
+            executable_path,
+            dll_path,
+            arguments: Vec::new(),
+            patches,
+            server,
+        });
+    };
+
+    if separator != "--" {
+        return Err(invalid_arguments(format!(
+            "launch arguments must follow `--`\n{USAGE}"
+        )));
+    }
+
+    Ok(Command::Launch {
+        executable_path,
+        dll_path,
+        arguments: arguments.collect(),
+        patches,
+        server,
+    })
 }
 
 fn parse_pid(argument: Option<OsString>) -> Result<u32> {
@@ -231,10 +279,16 @@ fn execute(command: Command) -> Result<CommandResult> {
             executable_path,
             dll_path,
             arguments,
+            patches,
+            server,
         } => {
             let dll = validate_dll(dll_path)?;
             let executable_path = validate_client(executable_path)?;
-            let outcome = launch::launch(&executable_path, &arguments, &dll)?;
+            let arguments = match server {
+                Some(server) => server.prepend_to(&executable_path, arguments)?,
+                None => arguments,
+            };
+            let outcome = launch::launch(&executable_path, &arguments, &dll, patches)?;
 
             Ok(command_result(
                 "launch",
@@ -315,6 +369,7 @@ fn command_result(
 #[cfg(test)]
 mod tests {
     use super::{Command, OutputFormat, parse_command, parse_output_format};
+    use crate::{endpoint::ServerEndpoint, patch::LaunchPatches};
     use std::{ffi::OsString, path::PathBuf};
 
     fn arguments(values: &[&str]) -> Vec<OsString> {
@@ -360,6 +415,8 @@ mod tests {
                 executable_path: PathBuf::from("target.exe"),
                 dll_path: PathBuf::from("darpc.dll"),
                 arguments: arguments(&["--wait-ms", "10", "two words"]),
+                patches: LaunchPatches::default(),
+                server: None,
             }
         );
 
@@ -369,6 +426,77 @@ mod tests {
                 executable_path: PathBuf::from("target.exe"),
                 dll_path: PathBuf::from("darpc.dll"),
                 arguments: Vec::new(),
+                patches: LaunchPatches::default(),
+                server: None,
+            }
+        );
+    }
+
+    #[test]
+    fn parses_launch_patch_options() {
+        assert_eq!(
+            parse_command(arguments(&[
+                "launch",
+                "--allow-multiple",
+                "--skip-intro",
+                "--skip-notice",
+                "target.exe",
+                "darpc.dll",
+            ]))
+            .unwrap(),
+            Command::Launch {
+                executable_path: PathBuf::from("target.exe"),
+                dll_path: PathBuf::from("darpc.dll"),
+                arguments: Vec::new(),
+                patches: LaunchPatches {
+                    allow_multiple: true,
+                    command_line_endpoint: false,
+                    skip_intro: true,
+                    skip_notice: true,
+                },
+                server: None,
+            }
+        );
+
+        assert_eq!(
+            parse_command(arguments(&[
+                "launch",
+                "target.exe",
+                "darpc.dll",
+                "--",
+                "--skip-intro",
+            ]))
+            .unwrap(),
+            Command::Launch {
+                executable_path: PathBuf::from("target.exe"),
+                dll_path: PathBuf::from("darpc.dll"),
+                arguments: arguments(&["--skip-intro"]),
+                patches: LaunchPatches::default(),
+                server: None,
+            }
+        );
+    }
+
+    #[test]
+    fn parses_server_option() {
+        assert_eq!(
+            parse_command(arguments(&[
+                "launch",
+                "--server",
+                "da0.kru.com",
+                "target.exe",
+                "darpc.dll",
+            ]))
+            .unwrap(),
+            Command::Launch {
+                executable_path: PathBuf::from("target.exe"),
+                dll_path: PathBuf::from("darpc.dll"),
+                arguments: Vec::new(),
+                patches: LaunchPatches {
+                    command_line_endpoint: true,
+                    ..Default::default()
+                },
+                server: Some(ServerEndpoint::parse("da0.kru.com".as_ref()).unwrap()),
             }
         );
     }
@@ -402,6 +530,17 @@ mod tests {
                 "darpc.dll",
                 "--wait-ms",
                 "10",
+            ]))
+            .unwrap_err()
+            .kind(),
+            crate::error::ErrorKind::InvalidArguments
+        );
+        assert_eq!(
+            parse_command(arguments(&[
+                "launch",
+                "--unknown",
+                "target.exe",
+                "darpc.dll",
             ]))
             .unwrap_err()
             .kind(),

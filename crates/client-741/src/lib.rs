@@ -14,6 +14,69 @@ pub const EXECUTABLE_SHA256: [u8; 32] = [
     0x62, 0xDC, 0x78, 0x8B, 0x63, 0x20, 0x9A, 0x3D, 0x90, 0x64, 0x92, 0xF5, 0xB8, 0x9E, 0x96, 0xC6,
 ];
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LaunchPatch {
+    pub name: &'static str,
+    pub rva: u32,
+    pub expected: &'static [u8],
+    pub replacement: &'static [u8],
+}
+
+pub const ALLOW_MULTIPLE_PATCHES: &[LaunchPatch] = &[LaunchPatch {
+    name: "allow multiple clients",
+    rva: 0x0017_A7D9,
+    expected: &[0x75, 0x07],
+    replacement: &[0xEB, 0x07],
+}];
+
+pub const COMMAND_LINE_ENDPOINT_PATCHES: &[LaunchPatch] = &[LaunchPatch {
+    name: "command-line endpoint",
+    rva: 0x0003_2253,
+    expected: &[0xE8, 0x28, 0x11, 0x00, 0x00],
+    replacement: &[0xE8, 0xB8, 0x0D, 0x00, 0x00],
+}];
+
+pub const DISABLE_ENDPOINT_FALLBACK_PATCHES: &[LaunchPatch] = &[LaunchPatch {
+    name: "disable endpoint fallback",
+    rva: 0x0016_55F4,
+    expected: &[0xC7, 0x85, 0x94, 0xFB, 0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00],
+    replacement: &[0xE9, 0x06, 0x13, 0x00, 0x00, 0x90, 0x90, 0x90, 0x90, 0x90],
+}];
+
+pub const SKIP_INTRO_PATCHES: &[LaunchPatch] = &[LaunchPatch {
+    name: "skip intro",
+    rva: 0x000A_CA85,
+    expected: &[0x6A, 0x01],
+    replacement: &[0x6A, 0x02],
+}];
+
+pub const SKIP_NOTICE_PATCHES: &[LaunchPatch] = &[
+    LaunchPatch {
+        name: "skip notice after cached greeting",
+        rva: 0x000B_897C,
+        expected: &[0x75, 0x6C],
+        replacement: &[0xEB, 0x6C],
+    },
+    LaunchPatch {
+        name: "skip notice after replacement greeting",
+        rva: 0x000B_8ACF,
+        expected: &[0x75, 0x6D],
+        replacement: &[0xEB, 0x6D],
+    },
+    LaunchPatch {
+        name: "enable early title menu input for skipped notice",
+        rva: 0x000B_7BED,
+        expected: &[0x74, 0x07],
+        replacement: &[0xEB, 0x07],
+    },
+    LaunchPatch {
+        name: "remove fixed server transfer delay for skipped notice",
+        rva: 0x0016_4855,
+        expected: &[0x68, 0xE8, 0x03, 0x00, 0x00],
+        replacement: &[0x68, 0x00, 0x00, 0x00, 0x00],
+    },
+];
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClientExecutable {
     path: PathBuf,
@@ -91,7 +154,11 @@ fn encode_hash(hash: &[u8; 32]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{ClientExecutable, EXECUTABLE_SHA256, EXECUTABLE_SIZE, executable_sha256};
+    use super::{
+        ALLOW_MULTIPLE_PATCHES, COMMAND_LINE_ENDPOINT_PATCHES, ClientExecutable,
+        DISABLE_ENDPOINT_FALLBACK_PATCHES, EXECUTABLE_SHA256, EXECUTABLE_SIZE, SKIP_INTRO_PATCHES,
+        SKIP_NOTICE_PATCHES, executable_sha256,
+    };
     use std::{fs, process};
 
     #[test]
@@ -101,6 +168,35 @@ mod tests {
             "054A5D6ADC56099C6BFD9D2A58675AFF62DC788B63209A3D906492F5B89E96C6"
         );
         assert_eq!(EXECUTABLE_SHA256.len(), 32);
+    }
+
+    #[test]
+    fn launch_patch_contracts_are_complete_and_disjoint() {
+        let patches = ALLOW_MULTIPLE_PATCHES
+            .iter()
+            .chain(COMMAND_LINE_ENDPOINT_PATCHES)
+            .chain(DISABLE_ENDPOINT_FALLBACK_PATCHES)
+            .chain(SKIP_INTRO_PATCHES)
+            .chain(SKIP_NOTICE_PATCHES)
+            .collect::<Vec<_>>();
+
+        assert_eq!(patches.len(), 8);
+
+        for patch in &patches {
+            assert!(!patch.expected.is_empty());
+            assert_eq!(patch.expected.len(), patch.replacement.len());
+        }
+
+        for (index, patch) in patches.iter().enumerate() {
+            let start = u64::from(patch.rva);
+            let end = start + patch.expected.len() as u64;
+
+            for other in patches.iter().skip(index + 1) {
+                let other_start = u64::from(other.rva);
+                let other_end = other_start + other.expected.len() as u64;
+                assert!(end <= other_start || other_end <= start);
+            }
+        }
     }
 
     #[test]

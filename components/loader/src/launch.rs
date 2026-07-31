@@ -1,5 +1,6 @@
 use crate::{
     error::{ErrorKind, LoaderError, Result},
+    patch::LaunchPatches,
     pe::DarpcDll,
     process::ProcessInspection,
 };
@@ -14,7 +15,7 @@ pub(crate) struct LaunchOutcome {
 #[cfg(windows)]
 mod platform {
     use super::*;
-    use crate::{inject, process::TargetProcess};
+    use crate::{inject, patch, process::TargetProcess};
     use std::{
         ffi::OsStr,
         fs, io,
@@ -307,14 +308,14 @@ mod platform {
 
     fn build_command_line(executable: &OsStr, arguments: &[OsString]) -> Result<Vec<u16>> {
         let mut command_line = Vec::new();
-        append_quoted_argument(
+        append_argument(
             &mut command_line,
             &executable.encode_wide().collect::<Vec<_>>(),
         )?;
 
         for argument in arguments {
             command_line.push(u16::from(b' '));
-            append_quoted_argument(
+            append_argument(
                 &mut command_line,
                 &argument.as_os_str().encode_wide().collect::<Vec<_>>(),
             )?;
@@ -328,10 +329,15 @@ mod platform {
         executable_path: &Path,
         arguments: &[OsString],
         dll: &DarpcDll,
+        patches: LaunchPatches,
     ) -> Result<LaunchOutcome> {
         let (executable, current_directory) = validate_executable(executable_path)?;
         let mut child = SuspendedChild::create(&executable, &current_directory, arguments)?;
         let pid = child.pid();
+
+        if let Err(error) = patch::apply(child.process(), patches) {
+            return Err(cleanup_launch_error(&mut child, error));
+        }
 
         let outcome = match inject::attach_created(child.process(), dll) {
             Ok(outcome) => outcome,
@@ -464,15 +470,27 @@ mod platform {
 }
 
 #[cfg(any(windows, test))]
-fn append_quoted_argument(output: &mut Vec<u16>, argument: &[u16]) -> Result<()> {
+fn append_argument(output: &mut Vec<u16>, argument: &[u16]) -> Result<()> {
     const BACKSLASH: u16 = b'\\' as u16;
     const QUOTE: u16 = b'"' as u16;
+    const SPACE: u16 = b' ' as u16;
+    const TAB: u16 = b'\t' as u16;
 
     if argument.contains(&0) {
         return Err(LoaderError::new(
             ErrorKind::InvalidArguments,
             "process argument contains a NUL character",
         ));
+    }
+
+    let requires_quotes = argument.is_empty()
+        || argument
+            .iter()
+            .any(|code_unit| matches!(*code_unit, SPACE | TAB | QUOTE));
+
+    if !requires_quotes {
+        output.extend_from_slice(argument);
+        return Ok(());
     }
 
     output.push(QUOTE);
@@ -503,15 +521,16 @@ pub(crate) fn launch(
     executable_path: &Path,
     arguments: &[OsString],
     dll: &DarpcDll,
+    patches: LaunchPatches,
 ) -> Result<LaunchOutcome> {
     #[cfg(windows)]
     {
-        platform::run(executable_path, arguments, dll)
+        platform::run(executable_path, arguments, dll, patches)
     }
 
     #[cfg(not(windows))]
     {
-        let _ = (executable_path, arguments, dll);
+        let _ = (executable_path, arguments, dll, patches);
         Err(LoaderError::new(
             ErrorKind::UnsupportedPlatform,
             "loader requires Windows",
@@ -521,23 +540,24 @@ pub(crate) fn launch(
 
 #[cfg(test)]
 mod tests {
-    use super::append_quoted_argument;
+    use super::append_argument;
 
-    fn quote(value: &str) -> String {
+    fn render(value: &str) -> String {
         let mut output = Vec::new();
-        append_quoted_argument(&mut output, &value.encode_utf16().collect::<Vec<_>>())
+        append_argument(&mut output, &value.encode_utf16().collect::<Vec<_>>())
             .expect("test argument should be valid");
         String::from_utf16(&output).expect("quoted argument should be valid UTF-16")
     }
 
     #[test]
-    fn quotes_windows_arguments() {
-        assert_eq!(quote(""), "\"\"");
-        assert_eq!(quote("plain"), "\"plain\"");
-        assert_eq!(quote("two words"), "\"two words\"");
-        assert_eq!(quote("quote\"value"), "\"quote\\\"value\"");
-        assert_eq!(quote("trailing\\"), "\"trailing\\\\\"");
-        assert_eq!(quote("two\\\\\"quotes"), "\"two\\\\\\\\\\\"quotes\"");
-        assert_eq!(quote("雪"), "\"雪\"");
+    fn quotes_windows_arguments_only_when_required() {
+        assert_eq!(render(""), "\"\"");
+        assert_eq!(render("plain"), "plain");
+        assert_eq!(render("two words"), "\"two words\"");
+        assert_eq!(render("quote\"value"), "\"quote\\\"value\"");
+        assert_eq!(render("trailing\\"), "trailing\\");
+        assert_eq!(render("two words\\"), "\"two words\\\\\"");
+        assert_eq!(render("two\\\\\"quotes"), "\"two\\\\\\\\\\\"quotes\"");
+        assert_eq!(render("雪"), "雪");
     }
 }

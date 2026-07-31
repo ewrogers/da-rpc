@@ -93,6 +93,7 @@ only after real duplication appears.
 | M2 | Loader attach MVP | `loader.exe` injects and unloads the DLL in an existing test host. | Complete |
 | M3 | Loader launch MVP | `loader.exe` launches a new process with the DLL initialized before normal execution. | Complete |
 | M4 | Client bootstrap without hooks | The 7.41 client runs normally with the inert DLL loaded. | Complete |
+| M4.1 | Optional launch patches | Explicit flags safely patch supported 7.41 startup and endpoint behavior before the client resumes. | Complete |
 | M5 | Minimal binary protocol | A `Hello` frame has exact tested bytes and compatibility rules. | Planned |
 | M6 | Direct IPC diagnostics | `darpc.exe` exchanges `Hello`, `Ping`, and `Echo` messages with one injected DLL. | Planned |
 | M7 | Daemon client registry | `darpcd.exe` connects, tracks the DLL, and recovers after restart. | Planned |
@@ -109,10 +110,10 @@ only after real duplication appears.
 | M18 | Multi-client hardening and preview | Failure and soak evidence support a preview release. | Planned |
 | M19 | WebSocket and remote access | Added only for a proven use case and defined security model. | Deferred |
 
-M2, M3, and M4 are complete. M5 is the next implementation milestone. M1 has
-been exercised manually, but its separate evidence checklist remains open until
-the lifecycle-host Windows continuous-integration coverage is present. The
-working checklist is maintained in the [repository progress
+M2, M3, M4, and M4.1 are complete. M5 is the next planned implementation
+milestone. M1 has been exercised manually, but its separate evidence checklist
+remains open until the lifecycle-host Windows continuous-integration coverage is
+present. The working checklist is maintained in the [repository progress
 tracker](https://github.com/ewrogers/da-rpc/blob/main/PROGRESS.md).
 
 ## Phase 1: prove the DLL and loader
@@ -285,6 +286,43 @@ Unloading is intentionally proven while the DLL is inert. Once hooks and
 client-facing workers exist, unload must remain disabled until shutdown can
 transactionally disable hooks, stop workers, drain callbacks, and prove that no
 thread can execute DLL code after `FreeLibrary`.
+
+### M4.1: optional launch patches
+
+Build:
+
+- Explicit `--allow-multiple`, `--server <host[:port]>`, `--skip-intro`, and
+  `--skip-notice` options on `loader launch`, disabled by default.
+- Hostname-to-IPv4 resolution and explicit positional endpoint arguments, with
+  port 2610 used when `--server` omits a port.
+- Strict endpoint selection that uses normal disconnected cleanup instead of
+  falling back when an explicit server connection fails.
+- Exact 7.41 relative virtual addresses, expected bytes, and replacement bytes
+  owned by the version-specific client crate.
+- Checked remote writes while the launched primary thread remains suspended,
+  before DLL initialization and normal execution.
+
+See:
+
+- Launch with each option independently and together. Observe a second client
+  starting, the intro videos being skipped, the notice window being hidden,
+  early title-menu pointer input being available, the fixed transfer pause being
+  removed, and the selected endpoint reaching normal login.
+
+Done:
+
+- Attach never accepts or applies startup patches, and an unflagged launch is
+  unchanged.
+- The loader uses the loaded main-module base, validates every requested
+  original byte before any write, changes complete instructions, flushes the
+  instruction cache, restores memory protection, and reads back replacements.
+- A mismatch or failed write terminates only the owned suspended child and
+  never resumes a partially patched process.
+- Unit and controlled native Windows checks cover flag parsing, patch
+  definitions, independent and combined requests, and fail-closed behavior.
+- Private live-client verification confirms every launch option independently
+  and together, including strict loopback routing through a local network
+  analyzer, with normal login and the inert DLL loaded.
 
 ## Phase 2: prove direct DLL communication
 

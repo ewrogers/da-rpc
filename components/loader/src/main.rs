@@ -1,50 +1,91 @@
 //! daRPC client launcher and injector.
 
+mod error;
 mod inject;
+mod output;
 mod pe;
 mod process;
 mod remote;
 mod remote_dll;
 
+use error::{ErrorKind, LoaderError, Result};
+use output::{CommandResult, OutputFormat, render_error};
 use pe::DarpcDll;
-use process::{TargetProcess, inspect};
+use process::{ProcessInspection, TargetProcess, inspect};
 
 use std::{env, ffi::OsString, path::PathBuf, process::ExitCode};
 
 const USAGE: &str = "\
 usage:
-    loader inspect <pid>
-    loader attach <pid> <dll-path>";
+    loader [--json] inspect <pid>
+    loader [--json] attach <pid> <dll-path>
+    loader [--json] detach <pid> <dll-path>";
 
+#[derive(Debug, Eq, PartialEq)]
 enum Command {
     Inspect { pid: u32 },
     Attach { pid: u32, dll_path: PathBuf },
+    Detach { pid: u32, dll_path: PathBuf },
+}
+
+impl Command {
+    const fn name(&self) -> &'static str {
+        match self {
+            Self::Inspect { .. } => "inspect",
+            Self::Attach { .. } => "attach",
+            Self::Detach { .. } => "detach",
+        }
+    }
 }
 
 fn main() -> ExitCode {
-    match run() {
-        Ok(()) => ExitCode::SUCCESS,
+    let mut arguments: Vec<OsString> = env::args_os().skip(1).collect();
+    let format = parse_output_format(&mut arguments);
+
+    let command = match parse_command(arguments) {
+        Ok(command) => command,
         Err(error) => {
-            eprintln!("loader: {error}");
-            ExitCode::FAILURE
+            print_error(format, None, &error);
+            return ExitCode::from(error.kind().exit_code());
+        }
+    };
+
+    let command_name = command.name();
+
+    match execute(command) {
+        Ok(result) => {
+            println!("{}", result.render(format));
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            print_error(format, Some(command_name), &error);
+            ExitCode::from(error.kind().exit_code())
         }
     }
 }
 
-fn run() -> Result<(), String> {
-    match parse_command()? {
-        Command::Inspect { pid } => {
-            inspect(pid)?;
-            Ok(())
-        }
-        Command::Attach { pid, dll_path } => attach(pid, dll_path),
+fn print_error(format: OutputFormat, command: Option<&str>, error: &LoaderError) {
+    let rendered = render_error(format, command, error);
+
+    match format {
+        OutputFormat::Human => eprintln!("{rendered}"),
+        OutputFormat::Json => println!("{rendered}"),
     }
 }
 
-fn parse_command() -> Result<Command, String> {
-    let mut arguments = env::args_os().skip(1);
+fn parse_output_format(arguments: &mut Vec<OsString>) -> OutputFormat {
+    if arguments.first().and_then(|argument| argument.to_str()) == Some("--json") {
+        arguments.remove(0);
+        OutputFormat::Json
+    } else {
+        OutputFormat::Human
+    }
+}
 
-    let command = arguments.next().ok_or_else(|| USAGE.to_owned())?;
+fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
+    let mut arguments = arguments.into_iter();
+
+    let command = arguments.next().ok_or_else(|| invalid_arguments(USAGE))?;
 
     let command = match command.to_str() {
         Some("inspect") => Command::Inspect {
@@ -52,52 +93,176 @@ fn parse_command() -> Result<Command, String> {
         },
         Some("attach") => Command::Attach {
             pid: parse_pid(arguments.next())?,
-            dll_path: arguments
-                .next()
-                .map(PathBuf::from)
-                .ok_or_else(|| USAGE.to_owned())?,
+            dll_path: parse_dll_path(arguments.next())?,
         },
-        Some(command) => return Err(format!("unknown command: `{command}`\n{USAGE}")),
+        Some("detach") => Command::Detach {
+            pid: parse_pid(arguments.next())?,
+            dll_path: parse_dll_path(arguments.next())?,
+        },
+        Some(command) => {
+            return Err(invalid_arguments(format!(
+                "unknown command: `{command}`\n{USAGE}"
+            )));
+        }
         None => {
-            return Err(format!("command must be valid Unicode\n{USAGE}"));
+            return Err(invalid_arguments(format!(
+                "command must be valid Unicode\n{USAGE}"
+            )));
         }
     };
 
     if arguments.next().is_some() {
-        return Err(format!("too many arguments\n{USAGE}"));
+        return Err(invalid_arguments(format!("too many arguments\n{USAGE}")));
     }
 
     Ok(command)
 }
 
-fn parse_pid(argument: Option<OsString>) -> Result<u32, String> {
-    let argument = argument.ok_or_else(|| USAGE.to_owned())?;
+fn parse_pid(argument: Option<OsString>) -> Result<u32> {
+    let argument = argument.ok_or_else(|| invalid_arguments(USAGE))?;
 
     let argument = argument
         .to_str()
-        .ok_or_else(|| "PID must be valid Unicode".to_owned())?;
+        .ok_or_else(|| invalid_arguments("PID must be valid Unicode"))?;
 
     let pid = argument
         .parse::<u32>()
-        .map_err(|_| "PID must be an unsigned 32-bit integer".to_owned())?;
+        .map_err(|_| invalid_arguments("PID must be an unsigned 32-bit integer"))?;
 
     if pid == 0 {
-        return Err("PID must be greater than zero".to_owned());
+        return Err(invalid_arguments("PID must be greater than zero"));
     }
 
     Ok(pid)
 }
 
-fn attach(pid: u32, dll_path: PathBuf) -> Result<(), String> {
-    let dll = DarpcDll::validate(dll_path)?;
+fn parse_dll_path(argument: Option<OsString>) -> Result<PathBuf> {
+    argument
+        .map(PathBuf::from)
+        .ok_or_else(|| invalid_arguments(USAGE))
+}
 
-    println!(
+fn invalid_arguments(message: impl Into<String>) -> LoaderError {
+    LoaderError::new(ErrorKind::InvalidArguments, message)
+}
+
+fn execute(command: Command) -> Result<CommandResult> {
+    match command {
+        Command::Inspect { pid } => {
+            let inspection = inspect(pid)?;
+            Ok(command_result("inspect", pid, inspection, false))
+        }
+        Command::Attach { pid, dll_path } => {
+            let dll = validate_dll(dll_path)?;
+            let process = TargetProcess::open(pid)?;
+            let outcome = inject::attach(&process, &dll)?;
+
+            Ok(command_result(
+                "attach",
+                pid,
+                outcome.inspection,
+                outcome.changed,
+            ))
+        }
+        Command::Detach { pid, dll_path } => {
+            let dll = validate_dll(dll_path)?;
+            let process = TargetProcess::open(pid)?;
+            let outcome = inject::detach(&process, &dll)?;
+
+            Ok(command_result(
+                "detach",
+                pid,
+                outcome.inspection,
+                outcome.changed,
+            ))
+        }
+    }
+}
+
+fn validate_dll(dll_path: PathBuf) -> Result<DarpcDll> {
+    let dll = DarpcDll::validate(dll_path)
+        .map_err(|error| LoaderError::new(ErrorKind::InvalidDll, error))?;
+
+    eprintln!(
         "Validated x86 DLL: {} initialize_rva=0x{:08X} shutdown_rva=0x{:08X}",
         dll.path.display(),
         dll.initialize_rva,
         dll.shutdown_rva
     );
 
-    let process = TargetProcess::open(pid)?;
-    inject::attach(&process, &dll)
+    Ok(dll)
+}
+
+fn command_result(
+    command: &'static str,
+    pid: u32,
+    inspection: ProcessInspection,
+    changed: bool,
+) -> CommandResult {
+    CommandResult {
+        command,
+        pid,
+        creation_time: inspection.creation_time,
+        darpc_loaded: inspection.darpc_module.is_some(),
+        module_base: inspection
+            .darpc_module
+            .map(|process_module| process_module.base),
+        changed,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Command, OutputFormat, parse_command, parse_output_format};
+    use std::{ffi::OsString, path::PathBuf};
+
+    fn arguments(values: &[&str]) -> Vec<OsString> {
+        values.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn parses_all_m2_commands() {
+        assert_eq!(
+            parse_command(arguments(&["inspect", "42"])).unwrap(),
+            Command::Inspect { pid: 42 }
+        );
+        assert_eq!(
+            parse_command(arguments(&["attach", "42", "darpc.dll"])).unwrap(),
+            Command::Attach {
+                pid: 42,
+                dll_path: PathBuf::from("darpc.dll"),
+            }
+        );
+        assert_eq!(
+            parse_command(arguments(&["detach", "42", "darpc.dll"])).unwrap(),
+            Command::Detach {
+                pid: 42,
+                dll_path: PathBuf::from("darpc.dll"),
+            }
+        );
+    }
+
+    #[test]
+    fn parses_leading_json_mode() {
+        let mut values = arguments(&["--json", "inspect", "42"]);
+
+        assert_eq!(parse_output_format(&mut values), OutputFormat::Json);
+        assert_eq!(values, arguments(&["inspect", "42"]));
+    }
+
+    #[test]
+    fn rejects_zero_pid_and_extra_arguments() {
+        assert_eq!(
+            parse_command(arguments(&["inspect", "0"]))
+                .unwrap_err()
+                .kind(),
+            crate::error::ErrorKind::InvalidArguments
+        );
+        assert_eq!(
+            parse_command(arguments(&["inspect", "42", "extra"]))
+                .unwrap_err()
+                .kind(),
+            crate::error::ErrorKind::InvalidArguments
+        );
+    }
 }

@@ -9,21 +9,27 @@ use std::{
 
 #[cfg(windows)]
 use windows_sys::Win32::{
-    Foundation::{WAIT_FAILED, WAIT_OBJECT_0},
+    Foundation::{WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT},
     System::{
         Diagnostics::Debug::WriteProcessMemory,
         Memory::{
             MEM_COMMIT, MEM_RELEASE, MEM_RESERVE, PAGE_READWRITE, VirtualAllocEx, VirtualFreeEx,
         },
-        Threading::{CreateRemoteThread, GetExitCodeThread, INFINITE, WaitForSingleObject},
+        Threading::{CreateRemoteThread, GetExitCodeThread, WaitForSingleObject},
     },
 };
 
 #[cfg(windows)]
-use crate::process::TargetProcess;
+use crate::{
+    error::{ErrorKind, LoaderError, Result},
+    process::TargetProcess,
+};
 
 #[cfg(windows)]
 type ThreadStart = unsafe extern "system" fn(*mut c_void) -> u32;
+
+#[cfg(windows)]
+pub(crate) const REMOTE_THREAD_TIMEOUT_MS: u32 = 10_000;
 
 #[cfg(windows)]
 pub(crate) struct RemoteAllocation<'a> {
@@ -34,9 +40,12 @@ pub(crate) struct RemoteAllocation<'a> {
 
 #[cfg(windows)]
 impl<'a> RemoteAllocation<'a> {
-    pub(crate) fn new(process: &'a TargetProcess, size: usize) -> Result<Self, String> {
+    pub(crate) fn new(process: &'a TargetProcess, size: usize) -> Result<Self> {
         if size == 0 {
-            return Err("remote allocation size must be nonzero".to_owned());
+            return Err(LoaderError::new(
+                ErrorKind::Internal,
+                "remote allocation size must be nonzero",
+            ));
         }
 
         // SAFETY: `process` references a valid handle with VM operation
@@ -52,9 +61,10 @@ impl<'a> RemoteAllocation<'a> {
         };
 
         if address.is_null() {
-            return Err(format!(
-                "failed to allocate target memory: {}",
-                io::Error::last_os_error()
+            return Err(LoaderError::from_io(
+                ErrorKind::RemoteOperationFailed,
+                "failed to allocate target memory",
+                io::Error::last_os_error(),
             ));
         }
 
@@ -65,16 +75,19 @@ impl<'a> RemoteAllocation<'a> {
         })
     }
 
-    pub(crate) fn write_wide(&self, value: &[u16]) -> Result<(), String> {
+    pub(crate) fn write_wide(&self, value: &[u16]) -> Result<()> {
         let byte_count = value
             .len()
             .checked_mul(size_of::<u16>())
-            .ok_or_else(|| "remote write size overflow".to_owned())?;
+            .ok_or_else(|| LoaderError::new(ErrorKind::Internal, "remote write size overflow"))?;
 
         if byte_count > self.size {
-            return Err(format!(
-                "remote write exceeds allocation: write={byte_count} allocation={}",
-                self.size
+            return Err(LoaderError::new(
+                ErrorKind::Internal,
+                format!(
+                    "remote write exceeds allocation: write={byte_count} allocation={}",
+                    self.size
+                ),
             ));
         }
 
@@ -94,15 +107,19 @@ impl<'a> RemoteAllocation<'a> {
         };
 
         if succeeded == 0 {
-            return Err(format!(
-                "failed to write target memory: {}",
-                io::Error::last_os_error()
+            return Err(LoaderError::from_io(
+                ErrorKind::RemoteOperationFailed,
+                "failed to write target memory",
+                io::Error::last_os_error(),
             ));
         }
 
         if bytes_written != byte_count {
-            return Err(format!(
-                "incomplete target memory write: expected={byte_count} actual={bytes_written}"
+            return Err(LoaderError::new(
+                ErrorKind::RemoteOperationFailed,
+                format!(
+                    "incomplete target memory write: expected={byte_count} actual={bytes_written}"
+                ),
             ));
         }
 
@@ -136,7 +153,7 @@ pub(crate) fn run_thread(
     address: usize,
     argument: *mut c_void,
     operation: &str,
-) -> Result<u32, String> {
+) -> Result<u32> {
     // SAFETY: the loader and validated target are x86, so `usize` and the
     // remote thread entry address have matching widths. The caller resolved
     // `address` as a compatible target entry point.
@@ -158,9 +175,10 @@ pub(crate) fn run_thread(
     };
 
     if thread.is_null() {
-        return Err(format!(
-            "failed to create remote {operation} thread: {}",
-            io::Error::last_os_error()
+        return Err(LoaderError::from_io(
+            ErrorKind::RemoteOperationFailed,
+            format!("failed to create remote {operation} thread"),
+            io::Error::last_os_error(),
         ));
     }
 
@@ -169,18 +187,30 @@ pub(crate) fn run_thread(
     let thread = unsafe { OwnedHandle::from_raw_handle(thread) };
 
     // SAFETY: `thread` references a valid thread handle.
-    let wait_result = unsafe { WaitForSingleObject(thread.as_raw_handle(), INFINITE) };
+    let wait_result =
+        unsafe { WaitForSingleObject(thread.as_raw_handle(), REMOTE_THREAD_TIMEOUT_MS) };
+
+    if wait_result == WAIT_TIMEOUT {
+        return Err(LoaderError::new(
+            ErrorKind::Timeout,
+            format!(
+                "remote {operation} thread did not complete within {REMOTE_THREAD_TIMEOUT_MS} ms"
+            ),
+        ));
+    }
 
     if wait_result == WAIT_FAILED {
-        return Err(format!(
-            "failed waiting for remote {operation} thread: {}",
-            io::Error::last_os_error()
+        return Err(LoaderError::from_io(
+            ErrorKind::RemoteOperationFailed,
+            format!("failed waiting for remote {operation} thread"),
+            io::Error::last_os_error(),
         ));
     }
 
     if wait_result != WAIT_OBJECT_0 {
-        return Err(format!(
-            "unexpected remote {operation} wait result: 0x{wait_result:08X}"
+        return Err(LoaderError::new(
+            ErrorKind::RemoteOperationFailed,
+            format!("unexpected remote {operation} wait result: 0x{wait_result:08X}"),
         ));
     }
 
@@ -190,9 +220,10 @@ pub(crate) fn run_thread(
     let succeeded = unsafe { GetExitCodeThread(thread.as_raw_handle(), &mut exit_code) };
 
     if succeeded == 0 {
-        return Err(format!(
-            "failed to read remote {operation} result: {}",
-            io::Error::last_os_error()
+        return Err(LoaderError::from_io(
+            ErrorKind::RemoteOperationFailed,
+            format!("failed to read remote {operation} result"),
+            io::Error::last_os_error(),
         ));
     }
 

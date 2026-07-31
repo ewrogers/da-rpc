@@ -34,8 +34,29 @@ The shared crates can be checked independently of the Windows components:
 cargo check -p darpc-model -p darpc-protocol
 ```
 
-Component builds and checks should specify their intended target. Detailed
-commands will be added as platform-specific implementation is introduced.
+Component builds and checks should specify their intended target.
+
+The controlled IPC integration test requires both architectures. Keep build
+outputs on a Windows-local filesystem, then pass their artifact directories to
+the script:
+
+```powershell
+$env:CARGO_TARGET_DIR = "C:\cargo-target\da-rpc"
+
+cargo build -p loader -p rpc-dll -p injection-target `
+    --target i686-pc-windows-msvc
+cargo build -p rpc-client --target x86_64-pc-windows-msvc
+
+& .\tools\test-ipc.ps1 `
+    -X86TargetDir "$env:CARGO_TARGET_DIR\i686-pc-windows-msvc\debug" `
+    -X64TargetDir "$env:CARGO_TARGET_DIR\x86_64-pc-windows-msvc\debug"
+```
+
+The script uses the inert `injection-target.exe` and a debug-only unsupported
+client bypass. It verifies hello, ping, byte-exact echo, missing and busy pipe
+errors, malformed-client isolation, reconnect, and bounded cancellation during
+shutdown. The bypass is unavailable in release builds and is never a substitute
+for validation against the supported client.
 
 ## Documentation
 

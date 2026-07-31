@@ -7,10 +7,13 @@ use std::{
     sync::Mutex,
 };
 
+use crate::{identity, ipc::IpcWorker};
+
 static LIFECYCLE: Mutex<Option<Lifecycle>> = Mutex::new(None);
 
 struct Lifecycle {
     log: File,
+    ipc: IpcWorker,
 }
 
 pub(crate) fn initialize() -> io::Result<()> {
@@ -34,14 +37,17 @@ pub(crate) fn initialize() -> io::Result<()> {
         .append(true)
         .open(log_path)?;
 
-    writeln!(
+    let hello = identity::hello()?;
+    let ipc = IpcWorker::start(hello, log.try_clone()?)?;
+
+    let _ = writeln!(
         log,
         "event=initialized pid={} version={}",
         process::id(),
         env!("CARGO_PKG_VERSION")
-    )?;
+    );
 
-    *lifecycle = Some(Lifecycle { log });
+    *lifecycle = Some(Lifecycle { log, ipc });
 
     Ok(())
 }
@@ -51,16 +57,20 @@ pub(crate) fn shutdown() -> io::Result<()> {
         .lock()
         .map_err(|_| io::Error::other("lifecycle lock is poisoned"))?;
 
-    let Some(mut lifecycle) = lifecycle.take() else {
+    let Some(active) = lifecycle.as_mut() else {
         return Ok(());
     };
 
+    active.ipc.shutdown()?;
+
     writeln!(
-        lifecycle.log,
+        active.log,
         "event=shutdown pid={} version={}",
         process::id(),
         env!("CARGO_PKG_VERSION")
     )?;
+
+    *lifecycle = None;
 
     Ok(())
 }

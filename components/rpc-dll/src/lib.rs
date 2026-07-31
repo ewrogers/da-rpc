@@ -1,6 +1,10 @@
 //! Injected daRPC client component.
 
 #[cfg(windows)]
+mod identity;
+#[cfg(windows)]
+mod ipc;
+#[cfg(windows)]
 mod lifecycle;
 
 #[cfg(windows)]

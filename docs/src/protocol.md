@@ -167,6 +167,11 @@ uses. daRPC does not change the system multimedia timer resolution merely to
 stamp frames. The codec accepts the tick from its caller and has no Windows
 dependency.
 
+Samples carried by different processes are coarse observations and must not be
+used alone to assert strict event ordering. `darpc.exe` measures round-trip time
+from two `timeGetTime` samples in its own process; the remote request and
+response ticks remain visible for comparison and diagnosis.
+
 ## Validation rules
 
 Protocol handling is deliberately strict. The codec rejects invalid magic,

@@ -9,8 +9,8 @@ remain concise.
 
 ## Current focus
 
-M5, the minimal binary protocol, is complete. The next planned implementation
-milestone is M6, direct IPC diagnostics through `darpc.exe`.
+M6, direct IPC diagnostics through `darpc.exe`, is complete. The next planned
+implementation milestone is M7, the daemon client registry.
 
 ## Milestone snapshot
 
@@ -23,6 +23,7 @@ milestone is M6, direct IPC diagnostics through `darpc.exe`.
 | M4, client bootstrap without hooks | Complete | Exact validation, live launch and attach, lifecycle evidence, and normal-use acceptance pass. |
 | M4.1, optional launch patches | Complete | Exact 7.41 patch contracts, strict endpoint selection, safe pre-resume application, and live-client acceptance pass. |
 | M5, minimal binary protocol | Complete | Exact framing, identity handshake, diagnostics, checked codecs, and golden and boundary tests are implemented. |
+| M6, direct IPC diagnostics | Complete | The DLL pipe worker and direct hello, ping, and echo commands pass controlled and live-client Windows verification. |
 
 ## Completed recently
 
@@ -102,6 +103,23 @@ milestone is M6, direct IPC diagnostics through `darpc.exe`.
   fields, hostile lengths, overflow, trailing bytes, and sequence and tick
   wraparound.
 - [x] Document the complete wire contract and a human review checklist.
+
+## M6 completion evidence
+
+- [x] Start the deterministic PID-based pipe worker during DLL initialization
+  and stop it before successful shutdown.
+- [x] Use local-only, single-instance, overlapped pipe I/O with bounded reads,
+  writes, accepts, and cancellation.
+- [x] Implement direct `darpc.exe ipc hello`, `ping`, and byte-exact `echo`
+  commands with human and JSON output.
+- [x] Enforce handshake ordering, per-sender sequences, request correlation,
+  protocol compatibility, and conservative payload bounds.
+- [x] Distinguish missing, busy, denied, timed-out, incompatible, malformed, and
+  other I/O failures with stable JSON names and exit codes.
+- [x] Verify malformed-client isolation, reconnect, no-client operation, and
+  shutdown during pending accept and connected I/O on 32-bit Windows.
+- [x] Verify late attach, all three diagnostics, clean unload, and continued
+  process liveness against the supported client.
 
 ## M2 completion evidence
 

@@ -55,6 +55,10 @@ version = "0.1.0"
 [[package]]
 name = "darpc-win32"
 version = "0.1.0"
+dependencies = [
+ "darpc-protocol",
+ "windows-sys",
+]
 
 [[package]]
 name = "digest"
@@ -118,6 +122,7 @@ version = "0.1.0"
 dependencies = [
  "darpc-protocol",
  "darpc-win32",
+ "windows-sys",
 ]
 
 [[package]]

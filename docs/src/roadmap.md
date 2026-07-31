@@ -95,7 +95,7 @@ only after real duplication appears.
 | M4 | Client bootstrap without hooks | The 7.41 client runs normally with the inert DLL loaded. | Complete |
 | M4.1 | Optional launch patches | Explicit flags safely patch supported 7.41 startup and endpoint behavior before the client resumes. | Complete |
 | M5 | Minimal binary protocol | A `Hello` frame has exact tested bytes and compatibility rules. | Complete |
-| M6 | Direct IPC diagnostics | `darpc.exe` exchanges `Hello`, `Ping`, and `Echo` messages with one injected DLL. | Planned |
+| M6 | Direct IPC diagnostics | `darpc.exe` exchanges `Hello`, `Ping`, and `Echo` messages with one injected DLL. | Complete |
 | M7 | Daemon client registry | `darpcd.exe` connects, tracks the DLL, and recovers after restart. | Planned |
 | M8 | Read-only HTTP API | A browser or HTTP client lists the injected client. | Planned |
 | M9 | Daemon-backed CLI | The existing `darpc.exe` adds client listing through the daemon HTTP API. | Planned |
@@ -110,9 +110,9 @@ only after real duplication appears.
 | M18 | Multi-client hardening and preview | Failure and soak evidence support a preview release. | Planned |
 | M19 | WebSocket and remote access | Added only for a proven use case and defined security model. | Deferred |
 
-M2, M3, M4, M4.1, and M5 are complete. M6 is the next planned implementation
-milestone. M1 has been exercised manually, but its separate evidence checklist
-remains open until the lifecycle-host Windows continuous-integration coverage is
+M2 through M6 are complete. M7 is the next planned implementation milestone.
+M1 has been exercised manually, but its separate evidence checklist remains
+open until the lifecycle-host Windows continuous-integration coverage is
 present. The working checklist is maintained in the [repository progress
 tracker](https://github.com/ewrogers/da-rpc/blob/main/PROGRESS.md).
 
@@ -377,7 +377,7 @@ See:
 - Inject the DLL and run `darpc --output json ipc hello --pid <pid>`.
 - Measure a request round trip with `darpc ipc ping --pid <pid>`.
 - Receive `hello` from `darpc ipc echo --pid <pid> "hello"`.
-- Stop the client, reconnect it, then unload the DLL cleanly.
+- Run commands over replacement connections, then unload the DLL cleanly.
 
 Done:
 

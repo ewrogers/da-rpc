@@ -5,7 +5,8 @@
 daRPC, short for Dark Ages Remote Procedure Call, is a Rust workspace for
 integrating developer tools with the 32-bit Windows client of *Dark Ages*.
 The project is in early development and does not yet provide a working client
-integration.
+state integration. Injection, launch-time patches, and direct named-pipe
+diagnostics are implemented.
 
 daRPC is designed around an injected library instead of a network proxy. The
 library can attach to an existing client, observe internal events, maintain a
@@ -60,6 +61,7 @@ tools/
   injection-target/ inert process for loader integration testing
   lifecycle-host/   local DLL lifecycle integration harness
   loader-fixture-dll/ controlled failure DLL for loader integration testing
+  test-ipc.ps1      direct IPC and shutdown integration test
 
 docs/           architecture and developer documentation
 ```
@@ -181,6 +183,23 @@ forwarding the connection. Arguments after `--` are forwarded unchanged to the
 client. See the [loader documentation](https://ewrogers.github.io/da-rpc/loader.html)
 for the detailed lifecycle, safety behavior, and result contract.
 
+## Direct IPC diagnostics
+
+With `darpc.dll` initialized in a process and `darpcd.exe` disconnected, the
+64-bit client can exercise the PID-based pipe directly:
+
+```text
+darpc.exe ipc hello --pid <pid>
+darpc.exe ipc ping --pid <pid>
+darpc.exe ipc echo --pid <pid> "hello"
+darpc.exe --output json ipc hello --pid <pid>
+```
+
+These diagnostic commands perform the real binary handshake and validate
+ordering, correlation, and timing without reading game state or installing
+hooks. See the [`darpc.exe` documentation](https://ewrogers.github.io/da-rpc/cli.html)
+for output fields and exit codes.
+
 ## Development
 
 The workspace uses Rust 2024. The injected-process components target 32-bit
@@ -215,8 +234,8 @@ and planned HTTP, Server-Sent Events, and WebSocket interfaces.
 
 The [development roadmap](docs/src/roadmap.md) divides the work into small
 increments with a visible demonstration and exit checks for each milestone.
-The [tentative command-line interface](docs/src/cli.md) describes the planned
-`darpc.exe` command hierarchy, client selection, typed actions, and JSON output.
+The [command-line interface](docs/src/cli.md) documents implemented direct IPC
+diagnostics and the planned daemon command hierarchy.
 
 Build and serve it locally with the pinned mdBook version:
 

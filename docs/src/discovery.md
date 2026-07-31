@@ -14,8 +14,14 @@ identifier (PID):
 ```
 
 The DLL keeps this endpoint available and accepts a replacement connection
-after `darpcd.exe` disconnects or restarts. Pipe access should be local-only and
-restricted to the intended Windows user.
+after a controller disconnects or restarts. The implemented endpoint rejects
+remote clients and grants access to the process owner, Windows system, and
+administrators.
+
+The pipe exposes one instance because the DLL has one controller. During
+development, `darpc.exe ipc` can own it for direct diagnostics. In normal use,
+`darpcd.exe` owns it; a second connector receives a distinct busy error and must
+not inject another DLL.
 
 ## Reconciliation loop
 

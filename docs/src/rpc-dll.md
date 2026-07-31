@@ -4,6 +4,26 @@
 game client. It provides the bridge between the client's internal event system
 and the daRPC named-pipe protocol.
 
+## IPC lifecycle
+
+`darpc_initialize` validates the host identity and starts one IPC worker. The
+worker binds `\\.\pipe\da-rpc-{pid}` before initialization reports success,
+then waits for one local controller without touching the game thread. `DllMain`
+does not start IPC or wait for the worker.
+
+Each connection begins with the DLL's `Hello` and must answer with a compatible
+`HelloAck`. The worker currently serves bounded `Ping` and `Echo` diagnostics.
+It uses overlapped reads, writes, and accepts so `darpc_shutdown` can signal the
+worker, cancel pending input/output, and join it before unloading. If bounded
+shutdown cannot prove the worker stopped, shutdown fails and the loader leaves
+the DLL loaded.
+
+Malformed frames, invalid ordering, and broken connections end only that
+connection. The worker returns to listening for a replacement controller. The
+pipe is local-only, has one instance, and grants access to the process owner,
+Windows system, and administrators. A disconnected or absent controller does
+not affect the client process.
+
 ## Event integration
 
 The client dispatches input and network events through a tree of user interface

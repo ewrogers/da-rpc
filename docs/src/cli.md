@@ -1,8 +1,8 @@
 # `darpc.exe` command-line interface
 
-> **Status:** This command-line interface is a tentative design. No `darpc.exe`
-> implementation exists yet. Command names, output fields, and exit codes may
-> change as the binary IPC, HTTP API, and first real actions are implemented.
+> **Status:** The direct `ipc` commands documented below are implemented. The
+> daemon-backed command hierarchy remains a tentative design until those APIs
+> exist.
 
 `darpc.exe` is the user-facing command-line client for daRPC. Normal commands
 query and control clients through the public `darpcd.exe` HTTP API. The explicit
@@ -15,8 +15,8 @@ an intentionally narrow diagnostic path, not a second production controller.
 
 ## Direct IPC diagnostics
 
-The first `darpc.exe` increment should prove communication before hooks or game
-state exist:
+The implemented direct diagnostics prove communication without hooks or game
+state:
 
 ```text
 darpc ipc hello --pid <pid>
@@ -37,7 +37,16 @@ game state, execute game actions, invoke the loader, or manage multiple clients.
 It requires an explicit process ID and, while the pipe supports one controller,
 requires `darpcd.exe` to be disconnected.
 
-## Command shape
+Human-readable output is the default. Put `--output json` before `ipc` for one
+stable JSON object on standard output:
+
+```text
+darpc --output json ipc hello --pid <pid>
+darpc --output json ipc ping --pid <pid>
+darpc --output json ipc echo --pid <pid> "hello"
+```
+
+## Planned daemon command shape
 
 Commands follow one predictable grammar:
 
@@ -256,6 +265,10 @@ namespace rather than masquerading as an ordinary typed action.
 
 ## Output formats
 
+Direct IPC commands currently support `table` and `json` through an optional
+`--output <format>` placed before `ipc`. The `-o` shorthand, `jsonl`, and the
+more flexible placement described below are planned for daemon-backed commands.
+
 Human-readable output is the interactive default:
 
 ```text
@@ -287,7 +300,26 @@ it.
 
 ## Exit behavior
 
-Exact numeric values remain tentative, but exit categories should distinguish:
+Direct IPC diagnostics use these exact exit codes:
+
+| Code | JSON `error.kind` | Meaning |
+| --- | --- | --- |
+| 0 | | Success. |
+| 2 | `invalid_arguments` | Command syntax or local validation failed. |
+| 3 | `unsupported_platform` | Direct IPC was requested outside Windows. |
+| 4 | `pipe_missing` | The PID-based pipe does not exist. |
+| 5 | `pipe_busy` | Another controller owns the one available connection. |
+| 6 | `access_denied` | Windows rejected access to the pipe. |
+| 7 | `timeout` | A bounded pipe operation timed out. |
+| 8 | `incompatible` | Protocol negotiation or DLL identity was incompatible. |
+| 9 | `protocol` | Framing, ordering, correlation, or message validation failed. |
+| 10 | `io` | Another Windows pipe operation failed. |
+
+When a direct command reports `pipe_busy`, disconnect `darpcd.exe` or the other
+diagnostic client before retrying.
+
+Daemon-backed numeric values remain tentative, but their exit categories should
+distinguish:
 
 | Category | Meaning |
 | --- | --- |
@@ -302,7 +334,7 @@ Exact numeric values remain tentative, but exit categories should distinguish:
 Shell scripts should be able to rely on both the exit category and structured
 error output without parsing human prose.
 
-## Initial implementation slices
+## Implemented direct slice
 
 The first slice follows the loader and exercises only direct IPC:
 
@@ -312,8 +344,8 @@ darpc ipc ping --pid <pid>
 darpc ipc echo --pid <pid> "hello"
 ```
 
-It should support human-readable and `json` output, deterministic exit behavior,
-and clean reconnection. It has no dependency on hooks, client memory, or state.
+It supports human-readable and `json` output, deterministic exit behavior, and
+clean reconnection. It has no dependency on hooks, client memory, or state.
 
 After the daemon exposes HTTP, the same executable gains its first normal
 commands:
@@ -332,12 +364,12 @@ developer diagnostic when the daemon is disconnected.
 
 ## Open decisions
 
-The following details should remain tentative until the first implementation:
+The following daemon-facing details remain tentative:
 
 - Whether global options can appear at every command depth without confusing
   help output.
-- Exact JSON schemas and compatibility guarantees.
-- Exact numeric exit codes.
+- Exact daemon JSON schemas and compatibility guarantees.
+- Exact daemon command exit codes.
 - Whether a configured default client becomes useful after real multi-client
   use.
 - Confirmation policy for destructive or unusually broad actions.

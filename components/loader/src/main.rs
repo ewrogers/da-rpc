@@ -11,6 +11,8 @@ mod process;
 mod remote;
 mod remote_dll;
 
+#[cfg(debug_assertions)]
+use darpc_game_client::DEBUG_UNSUPPORTED_CLIENT_BYPASS_ENVIRONMENT_VARIABLE;
 use darpc_game_client::{CLIENT_VERSION, ClientExecutable, executable_sha256};
 use endpoint::ServerEndpoint;
 use error::{ErrorKind, LoaderError, Result};
@@ -23,9 +25,6 @@ use std::{env, ffi::OsString, path::PathBuf, process::ExitCode};
 
 #[cfg(debug_assertions)]
 use std::fs;
-
-#[cfg(debug_assertions)]
-const TEST_CLIENT_BYPASS_ENVIRONMENT_VARIABLE: &str = "DARPC_LOADER_TEST_ALLOW_UNSUPPORTED_CLIENT";
 
 const USAGE: &str = "\
 usage:
@@ -302,7 +301,7 @@ fn execute(command: Command) -> Result<CommandResult> {
 
 fn validate_client(executable_path: PathBuf) -> Result<PathBuf> {
     #[cfg(debug_assertions)]
-    if env::var_os(TEST_CLIENT_BYPASS_ENVIRONMENT_VARIABLE).as_deref()
+    if env::var_os(DEBUG_UNSUPPORTED_CLIENT_BYPASS_ENVIRONMENT_VARIABLE).as_deref()
         == Some(std::ffi::OsStr::new("1"))
     {
         let executable_path = fs::canonicalize(&executable_path).map_err(|error| {

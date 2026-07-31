@@ -89,8 +89,8 @@ only after real duplication appears.
 | ID | Increment | Visible result | Status |
 | --- | --- | --- | --- |
 | M0 | Workspace scaffold | Cargo recognizes the packages and the book builds. | Complete |
-| M1 | Local DLL lifecycle | A 32-bit host loads, initializes, shuts down, and unloads `darpc.dll`. | Next |
-| M2 | Loader attach MVP | `loader.exe` injects and unloads the DLL in an existing test host. | Planned |
+| M1 | Local DLL lifecycle | A 32-bit host loads, initializes, shuts down, and unloads `darpc.dll`. | Verification pending |
+| M2 | Loader attach MVP | `loader.exe` injects and unloads the DLL in an existing test host. | In progress |
 | M3 | Loader launch MVP | `loader.exe` launches a new process with the DLL initialized before normal execution. | Planned |
 | M4 | Client bootstrap without hooks | The 7.41 client runs normally with the inert DLL loaded. | Planned |
 | M5 | Minimal binary protocol | A `Hello` frame has exact tested bytes and compatibility rules. | Planned |
@@ -108,6 +108,11 @@ only after real duplication appears.
 | M17 | Packet observation and local rules | Bounded plaintext telemetry and fail-open decisions work locally. | Planned |
 | M18 | Multi-client hardening and preview | Failure and soak evidence support a preview release. | Planned |
 | M19 | WebSocket and remote access | Added only for a proven use case and defined security model. | Deferred |
+
+Active work is on M2. M1 has been exercised manually, but remains open until
+the required Windows continuous-integration coverage and initialization-failure
+host evidence are present. The working checklist is maintained in the
+[repository progress tracker](https://github.com/ewrogers/da-rpc/blob/main/PROGRESS.md).
 
 ## Phase 1: prove the DLL and loader
 
@@ -130,6 +135,14 @@ Done:
   development host.
 
 ### M1: local DLL lifecycle
+
+Current state:
+
+- The x86 DLL, minimal `DllMain`, lifecycle exports, deterministic log, and
+  repeated local lifecycle host are implemented and have been exercised
+  manually.
+- Completion remains pending for Windows CI and an explicit lifecycle-host
+  initialization-failure and unload check.
 
 Build:
 
@@ -158,6 +171,16 @@ Done:
 - No file I/O, waiting, IPC, or hook installation occurs in `DllMain`.
 
 ### M2: loader attach MVP
+
+Current state:
+
+- `inspect` and `attach` are implemented with DLL validation, target x86 and
+  creation-time checks, module discovery, remote loading, explicit
+  initialization, and rollback unloading after a rejected ABI version.
+- Remote memory operations, DLL operations, process state, PE validation, and
+  daRPC lifecycle orchestration now have separate internal modules.
+- `detach`, explicit shutdown, structured JSON results, timeout handling, and
+  the full failure and repetition matrix remain.
 
 Build:
 

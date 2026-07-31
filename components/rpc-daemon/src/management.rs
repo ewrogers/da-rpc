@@ -12,8 +12,9 @@ pub(crate) struct ServerEndpoint {
     pub(crate) port: u16,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct LaunchOptions {
+    pub(crate) client_path: PathBuf,
     pub(crate) allow_multiple: bool,
     pub(crate) skip_intro: bool,
     pub(crate) skip_notice: bool,
@@ -61,21 +62,15 @@ pub(crate) trait LifecycleControl: Send + Sync {
 pub(crate) struct LoaderControl {
     loader_path: PathBuf,
     dll_path: PathBuf,
-    client_path: Option<PathBuf>,
     operation_lock: Mutex<()>,
 }
 
 impl LoaderControl {
     #[must_use]
-    pub(crate) fn new(
-        loader_path: PathBuf,
-        dll_path: PathBuf,
-        client_path: Option<PathBuf>,
-    ) -> Self {
+    pub(crate) fn new(loader_path: PathBuf, dll_path: PathBuf) -> Self {
         Self {
             loader_path,
             dll_path,
-            client_path,
             operation_lock: Mutex::new(()),
         }
     }
@@ -106,14 +101,7 @@ impl LoaderControl {
         parse_output(operation, output)
     }
 
-    fn launch_arguments(&self, options: &LaunchOptions) -> Result<Vec<OsString>, ManagementError> {
-        let client_path = self.client_path.as_ref().ok_or_else(|| {
-            ManagementError::new(
-                "launch_not_configured",
-                "client executable path was not configured for the daemon",
-                None,
-            )
-        })?;
+    fn launch_arguments(&self, options: &LaunchOptions) -> Vec<OsString> {
         let mut arguments = vec![OsString::from("launch")];
         if options.allow_multiple {
             arguments.push(OsString::from("--allow-multiple"));
@@ -128,9 +116,9 @@ impl LoaderControl {
         if options.skip_notice {
             arguments.push(OsString::from("--skip-notice"));
         }
-        arguments.push(client_path.as_os_str().to_owned());
+        arguments.push(options.client_path.as_os_str().to_owned());
         arguments.push(self.dll_path.as_os_str().to_owned());
-        Ok(arguments)
+        arguments
     }
 }
 
@@ -158,7 +146,7 @@ impl LifecycleControl for LoaderControl {
     }
 
     fn launch(&self, options: &LaunchOptions) -> Result<LifecycleOutcome, ManagementError> {
-        self.invoke(LifecycleOperation::Launch, &self.launch_arguments(options)?)
+        self.invoke(LifecycleOperation::Launch, &self.launch_arguments(options))
     }
 }
 
@@ -250,22 +238,17 @@ mod tests {
 
     #[test]
     fn launch_arguments_expose_only_supported_options() {
-        let control = LoaderControl::new(
-            PathBuf::from("loader.exe"),
-            PathBuf::from("darpc.dll"),
-            Some(PathBuf::from("Darkages.exe")),
-        );
-        let arguments = control
-            .launch_arguments(&LaunchOptions {
-                allow_multiple: true,
-                skip_intro: true,
-                skip_notice: true,
-                server: Some(ServerEndpoint {
-                    host: "127.0.0.1".into(),
-                    port: 2610,
-                }),
-            })
-            .unwrap();
+        let control = LoaderControl::new(PathBuf::from("loader.exe"), PathBuf::from("darpc.dll"));
+        let arguments = control.launch_arguments(&LaunchOptions {
+            client_path: PathBuf::from("Darkages.exe"),
+            allow_multiple: true,
+            skip_intro: true,
+            skip_notice: true,
+            server: Some(ServerEndpoint {
+                host: "127.0.0.1".into(),
+                port: 2610,
+            }),
+        });
 
         assert_eq!(
             arguments,
@@ -282,18 +265,5 @@ mod tests {
             .map(OsString::from)
         );
         assert!(!arguments.iter().any(|argument| argument == "--"));
-    }
-
-    #[test]
-    fn launch_requires_a_configured_client_path() {
-        let control = LoaderControl::new(
-            PathBuf::from("loader.exe"),
-            PathBuf::from("darpc.dll"),
-            None,
-        );
-        let error = control
-            .launch_arguments(&LaunchOptions::default())
-            .unwrap_err();
-        assert_eq!(error.code, "launch_not_configured");
     }
 }

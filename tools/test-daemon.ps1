@@ -98,8 +98,7 @@ function Start-Daemon {
     if ($Managed) {
         foreach ($Argument in @(
             "--loader-path", $Loader,
-            "--dll-path", $DarpcDll,
-            "--client-path", $Target
+            "--dll-path", $DarpcDll
         )) {
             [void] $Arguments.Add($Argument)
         }
@@ -282,6 +281,9 @@ function Assert-ApiContract {
     )) {
         Assert-True ($Schemas -contains $Schema) "OpenAPI omitted $Schema"
     }
+    Assert-True `
+        (@($OpenApi.components.schemas.LaunchOptions.required) -contains "client_path") `
+        "OpenAPI did not require launch client_path"
 
     $Docs = Invoke-WebRequest `
         -Uri "http://127.0.0.1:$Port/docs/" `
@@ -534,7 +536,11 @@ try {
         -Port $ManagedPort | Out-Null
     Wait-ForClientStatus $DiscoveredTarget.Id "connected" $ManagedPort | Out-Null
 
-    $Result = Invoke-ApiPost -Path "/clients/launch" -Port $ManagedPort -Body "{}"
+    $LaunchBody = @{ client_path = $Target } | ConvertTo-Json -Compress
+    $Result = Invoke-ApiPost `
+        -Path "/clients/launch" `
+        -Port $ManagedPort `
+        -Body $LaunchBody
     Assert-True ($Result.operation -eq "launch") "managed launch reported the wrong operation"
     Assert-True $Result.darpc_loaded "managed launch did not initialize darpc.dll"
     $LaunchedTarget = Get-Process -Id $Result.pid -ErrorAction Stop
@@ -545,7 +551,10 @@ try {
         Invoke-ApiPost `
             -Path "/clients/launch" `
             -Port $ManagedPort `
-            -Body '{"arguments":["not-supported"]}' | Out-Null
+            -Body (@{
+                client_path = $Target
+                arguments = @("not-supported")
+            } | ConvertTo-Json -Compress) | Out-Null
     } catch {
         $RejectedStatus = [int] $_.Exception.Response.StatusCode
     }

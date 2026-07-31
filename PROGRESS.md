@@ -176,10 +176,11 @@ milestone is M10, the hook qualification harness.
   disappear, with a bounded grace period for newly launched processes.
 - [x] Keep window matches as untrusted candidates and require loader validation
   plus a daRPC handshake before reporting a compatible connection.
-- [x] Expose API-managed load, unload, and launch operations without allowing
-  request-selected executable, loader, DLL, or arbitrary argument values.
-- [x] Limit launch requests to allow-multiple, skip-intro, skip-notice, and an
-  optional validated server endpoint whose port defaults to 2610.
+- [x] Expose API-managed load, unload, and launch operations while keeping the
+  loader and DLL paths under daemon configuration.
+- [x] Limit launch requests to a validated client executable path,
+  allow-multiple, skip-intro, skip-notice, and an optional server endpoint
+  whose port defaults to 2610, without arbitrary arguments.
 - [x] Document the request, result, status, and error models in generated
   OpenAPI and the standalone mdBook chapters.
 - [x] Verify automatic discovery, not-loaded state, load, unload, relaunch,
@@ -258,8 +259,9 @@ milestone is M10, the hook qualification harness.
   interactive token and normal client exit.
 - `darpc.exe` talks directly to one DLL and remains usable without the daemon.
   Multi-client aggregation is consumed through the `darpcd.exe` web API.
-- Daemon lifecycle paths are server-side configuration. The web API exposes no
-  arbitrary client argument or path forwarding.
+- Loader and DLL lifecycle paths are server-side configuration. Launch requests
+  select the supported client executable but expose no arbitrary argument
+  forwarding.
 - M7 aggregates client identity and connection health only. The first real
   client snapshot remains M12.
 - Character and user interface state remain per-client. A future shared-world

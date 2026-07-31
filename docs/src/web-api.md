@@ -77,16 +77,20 @@ Load and unload requests have no body. They operate only on PIDs already
 discovered or explicitly configured in the daemon. The loader and DLL paths are
 daemon configuration, never request data.
 
-Launch requires a JSON object. An empty object selects normal client startup:
+Launch requires a JSON object containing the full path to the supported client
+executable. The smallest request is:
 
 ```json
-{}
+{
+  "client_path": "C:\\Games\\Dark Ages\\Darkages.exe"
+}
 ```
 
 The complete request model is:
 
 ```text
 LaunchOptions {
+    client_path: string,
     allow_multiple: bool = false,
     skip_intro: bool = false,
     skip_notice: bool = false,
@@ -103,6 +107,7 @@ For example:
 
 ```json
 {
+  "client_path": "D:\\Games\\Dark Ages\\Darkages.exe",
   "allow_multiple": true,
   "skip_intro": true,
   "skip_notice": true,
@@ -113,14 +118,19 @@ For example:
 }
 ```
 
+`client_path` must be a fully qualified Windows drive or Universal Naming
+Convention (UNC) path. `loader.exe` validates the selected file as the supported
+client before creating a process and uses its parent directory as the client
+working directory.
+
 `host` must be a nonempty IPv4 address or hostname without whitespace, control
 characters, or a port suffix. Supplying `server` activates the loader's
 supported endpoint and fallback patch bundle. `skip_notice` activates its full
 notice, early-continue, and fast-transfer patch group.
 
 Unknown fields are rejected. In particular, the API does not accept arbitrary
-client arguments or client, loader, or DLL paths. The configured game client
-does not have a supported general-purpose argument surface.
+client arguments or request-selected loader and DLL paths. The game client does
+not have a supported general-purpose argument surface.
 
 Successful lifecycle operations return:
 

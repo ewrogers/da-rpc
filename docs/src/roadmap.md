@@ -458,10 +458,10 @@ Build:
 - Candidate PID and expected pipe derivation.
 - Not-loaded, busy, initializing, connected, and incompatible candidate states.
 - Explicit daemon invocation of `loader.exe` for load, unload, or launch.
-- Loopback HTTP lifecycle routes with daemon-owned executable, loader, and DLL
-  paths.
-- A narrow launch model for allow-multiple, skip-intro, skip-notice, and an
-  optional server endpoint, without arbitrary client arguments.
+- Loopback HTTP lifecycle routes with daemon-owned loader and DLL paths.
+- A narrow launch model for a validated client executable path,
+  allow-multiple, skip-intro, skip-notice, and an optional server endpoint,
+  without arbitrary client arguments.
 
 See:
 
@@ -473,7 +473,7 @@ Done:
 - A window match alone never proves compatibility.
 - Handshake failure never causes automatic reinjection.
 - The daemon cannot ask the loader to inject an arbitrary DLL.
-- HTTP callers cannot select an arbitrary executable or pass through process
+- HTTP callers cannot launch an unsupported executable or pass through process
   arguments.
 - Multiple candidates remain independent.
 

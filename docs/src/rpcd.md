@@ -54,24 +54,26 @@ daemon exits.
 
 The loader and DLL paths default to `loader.exe` and `darpc.dll` beside
 `darpcd.exe`. Override those server-side paths when the artifacts live
-elsewhere. Managed launch also requires a configured client executable:
+elsewhere:
 
 ```text
-darpcd.exe --loader-path <loader.exe> --dll-path <darpc.dll> --client-path <Darkages.exe>
+darpcd.exe --loader-path <loader.exe> --dll-path <darpc.dll>
 ```
 
-`--client-path` is the full executable path for the intended installation. The
-daemon assumes no client base directory; `loader.exe` uses the executable's
-parent directory as the launched process working directory.
+Each launch request supplies the full executable path for the intended
+installation. The daemon assumes no client base directory; `loader.exe` uses
+the executable's parent directory as the launched process working directory.
 
-The HTTP API can then load the configured DLL into a discovered PID, unload it,
-or launch the configured executable suspended and initialize the DLL before the
+The HTTP API can load the configured DLL into a discovered PID, unload it, or
+launch the requested executable suspended and initialize the DLL before the
 client resumes. `loader.exe` repeats architecture, DLL, and executable
-validation for every operation. A window match is only a candidate signal.
+validation for every operation. A window match or request path is only a
+candidate signal.
 
-Launch requests expose only the supported startup choices: allow multiple
-clients, skip the intro, skip the notice sequence, and optionally select a
-server endpoint. The API never accepts arbitrary process arguments or paths.
+Launch requests expose the client executable path and only the supported
+startup choices: allow multiple clients, skip the intro, skip the notice
+sequence, and optionally select a server endpoint. The API never accepts
+arbitrary process arguments or request-selected loader and DLL paths.
 
 The current console output reports transitions such as:
 

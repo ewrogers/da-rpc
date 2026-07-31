@@ -64,9 +64,9 @@ The pipe result determines the next step:
 injection, even when `darpcd.exe` reports a candidate.
 
 The HTTP API exposes explicit load and unload operations for tracked PIDs and a
-launch operation for the daemon-configured executable. Discovery itself never
-injects, unloads, or launches anything. Handshake failures therefore cannot
-cause an automatic reinjection loop.
+launch operation for a request-selected executable that the loader must
+validate. Discovery itself never injects, unloads, or launches anything.
+Handshake failures therefore cannot cause an automatic reinjection loop.
 
 ## Daemon recovery
 

@@ -292,13 +292,13 @@ async fn unload(
 #[utoipa::path(
     post,
     path = "/clients/launch",
-    request_body(content = LaunchOptions, description = "Supported Dark Ages launch options", content_type = "application/json"),
+    request_body(content = LaunchOptions, description = "Supported Dark Ages executable path and launch options", content_type = "application/json"),
     responses(
         (status = 201, description = "The configured client was launched with the DLL initialized", body = LifecycleResult),
         (status = 400, description = "The launch options were invalid", body = ErrorState),
         (status = 413, description = "The request body exceeded 4 KiB", body = ErrorState),
         (status = 422, description = "Loader validation rejected the configured client", body = ErrorState),
-        (status = 503, description = "The client or loader is not configured or available", body = ErrorState),
+        (status = 503, description = "The configured loader is unavailable", body = ErrorState),
         (status = 504, description = "The loader operation timed out", body = ErrorState)
     )
 )]
@@ -522,16 +522,22 @@ impl ConnectionMetadata {
     }
 }
 
-#[derive(Debug, Default, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-#[serde(default, deny_unknown_fields)]
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 struct LaunchOptions {
+    /// Full path to the supported Dark Ages client executable.
+    client_path: String,
     /// Allow another Dark Ages client process to start.
+    #[serde(default)]
     allow_multiple: bool,
     /// Skip the introductory video.
+    #[serde(default)]
     skip_intro: bool,
     /// Skip the title-screen notice and its associated delays.
+    #[serde(default)]
     skip_notice: bool,
     /// Override the game server through the supported endpoint patch bundle.
+    #[serde(default)]
     server: Option<ServerEndpoint>,
 }
 
@@ -549,14 +555,34 @@ impl TryFrom<LaunchOptions> for ManagedLaunchOptions {
     type Error = ApiError;
 
     fn try_from(options: LaunchOptions) -> Result<Self, Self::Error> {
+        let client_path = validate_client_path(options.client_path)?;
         let server = options.server.map(validate_server).transpose()?;
         Ok(Self {
+            client_path,
             allow_multiple: options.allow_multiple,
             skip_intro: options.skip_intro,
             skip_notice: options.skip_notice,
             server,
         })
     }
+}
+
+fn validate_client_path(client_path: String) -> Result<std::path::PathBuf, ApiError> {
+    let bytes = client_path.as_bytes();
+    let drive_absolute = bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'\\' | b'/');
+    let unc_absolute = client_path.starts_with("\\\\") || client_path.starts_with("//");
+    if client_path.contains('\0') || (!drive_absolute && !unc_absolute) {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_client_path",
+            "client_path must be a fully qualified Windows executable path",
+            None,
+        ));
+    }
+    Ok(client_path.into())
 }
 
 fn validate_server(server: ServerEndpoint) -> Result<ManagedServerEndpoint, ApiError> {
@@ -672,7 +698,7 @@ impl From<ManagementError> for ApiError {
                 StatusCode::UNPROCESSABLE_ENTITY
             }
             "timeout" => StatusCode::GATEWAY_TIMEOUT,
-            "loader_unavailable" | "launch_not_configured" => StatusCode::SERVICE_UNAVAILABLE,
+            "loader_unavailable" => StatusCode::SERVICE_UNAVAILABLE,
             "invalid_loader_response" => StatusCode::BAD_GATEWAY,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
@@ -949,6 +975,13 @@ mod tests {
         ] {
             assert!(schemas.contains_key(name), "OpenAPI omitted {name}");
         }
+        assert!(
+            schemas["LaunchOptions"]["required"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|field| field == "client_path")
+        );
 
         let docs = response("/docs/");
         assert_eq!(docs.status(), StatusCode::OK);
@@ -983,7 +1016,7 @@ mod tests {
         let response = post_json(
             state,
             "/clients/launch",
-            r#"{"allow_multiple":true,"server":{"host":"127.0.0.1"}}"#,
+            r#"{"client_path":"C:\\Darkages.exe","allow_multiple":true,"server":{"host":"127.0.0.1"}}"#,
         );
         assert_eq!(response.status(), StatusCode::CREATED);
         assert!(matches!(receiver.recv().unwrap(), DaemonEvent::Track(77)));
@@ -992,23 +1025,43 @@ mod tests {
     #[test]
     fn rejects_arbitrary_launch_arguments() {
         let (state, _receiver) = state_with_status(ConnectionEvent::NotLoaded { pid: 42 });
-        let response = post_json(state, "/clients/launch", r#"{"arguments":["unsafe"]}"#);
+        let response = post_json(
+            state,
+            "/clients/launch",
+            r#"{"client_path":"C:\\Darkages.exe","arguments":["unsafe"]}"#,
+        );
         assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
     }
 
     #[test]
-    fn defaults_the_server_port_without_exposing_paths() {
+    fn accepts_a_full_client_path_and_defaults_the_server_port() {
         let request: LaunchOptions =
-            serde_json::from_str(r#"{"server":{"host":"da0.kru.com"}}"#).unwrap();
+            serde_json::from_str(
+                r#"{"client_path":"D:\\Games\\Dark Ages\\Darkages.exe","server":{"host":"da0.kru.com"}}"#,
+            )
+            .unwrap();
         let options = ManagedLaunchOptions::try_from(request).unwrap();
+        assert_eq!(
+            options.client_path,
+            std::path::PathBuf::from(r"D:\Games\Dark Ages\Darkages.exe")
+        );
         let server = options.server.unwrap();
         assert_eq!(server.host, "da0.kru.com");
         assert_eq!(server.port, 2610);
 
-        for field in ["client_path", "loader_path", "dll_path"] {
+        assert!(serde_json::from_str::<LaunchOptions>("{}").is_err());
+        for field in ["loader_path", "dll_path"] {
             let body = format!(r#"{{"{field}":"unsafe"}}"#);
             assert!(serde_json::from_str::<LaunchOptions>(&body).is_err());
         }
+    }
+
+    #[test]
+    fn rejects_relative_client_paths() {
+        let request: LaunchOptions =
+            serde_json::from_str(r#"{"client_path":"Darkages.exe"}"#).unwrap();
+        let error = ManagedLaunchOptions::try_from(request).unwrap_err();
+        assert_eq!(error.body.error.code, "invalid_client_path");
     }
 
     #[test]

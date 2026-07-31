@@ -18,7 +18,7 @@ use std::{collections::BTreeSet, env, ffi::OsString, path::PathBuf, process::Exi
 const DEFAULT_PORT: u16 = 2626;
 const USAGE: &str = concat!(
     "usage: darpcd [--pid <pid> ...] [--port <port>] ",
-    "[--loader-path <path>] [--dll-path <path>] [--client-path <path>]"
+    "[--loader-path <path>] [--dll-path <path>]"
 );
 
 #[derive(Debug, Eq, PartialEq)]
@@ -27,7 +27,6 @@ struct Options {
     port: u16,
     loader_path: Option<PathBuf>,
     dll_path: Option<PathBuf>,
-    client_path: Option<PathBuf>,
 }
 
 fn main() -> ExitCode {
@@ -55,7 +54,6 @@ fn parse_options(arguments: impl IntoIterator<Item = OsString>) -> Result<Option
     let mut port = None;
     let mut loader_path = None;
     let mut dll_path = None;
-    let mut client_path = None;
 
     while let Some(option) = arguments.next() {
         if option == "--pid" {
@@ -96,8 +94,6 @@ fn parse_options(arguments: impl IntoIterator<Item = OsString>) -> Result<Option
             parse_path_option(&mut arguments, &mut loader_path, "--loader-path")?;
         } else if option == "--dll-path" {
             parse_path_option(&mut arguments, &mut dll_path, "--dll-path")?;
-        } else if option == "--client-path" {
-            parse_path_option(&mut arguments, &mut client_path, "--client-path")?;
         } else {
             return Err(format!("unknown option `{}`", option.to_string_lossy()));
         }
@@ -108,7 +104,6 @@ fn parse_options(arguments: impl IntoIterator<Item = OsString>) -> Result<Option
         port: port.unwrap_or(DEFAULT_PORT),
         loader_path,
         dll_path,
-        client_path,
     })
 }
 
@@ -158,11 +153,7 @@ fn run(options: Options) -> Result<(), String> {
     let dll_path = options
         .dll_path
         .unwrap_or_else(|| component_directory.join("darpc.dll"));
-    let lifecycle = Arc::new(LoaderControl::new(
-        loader_path.clone(),
-        dll_path.clone(),
-        options.client_path.clone(),
-    ));
+    let lifecycle = Arc::new(LoaderControl::new(loader_path.clone(), dll_path.clone()));
 
     let explicit_pids = options.pids.into_iter().collect::<BTreeSet<_>>();
     let discovered_pids = discovery::client_pids()
@@ -183,11 +174,6 @@ fn run(options: Options) -> Result<(), String> {
     println!("HTTP API listening on http://127.0.0.1:{}", options.port);
     println!("loader path: {}", loader_path.display());
     println!("DLL path: {}", dll_path.display());
-    if let Some(client_path) = options.client_path.as_ref() {
-        println!("client path: {}", client_path.display());
-    } else {
-        println!("client launch is disabled until --client-path is configured");
-    }
     for client in registry.snapshot().clients {
         println!("client pid={} status=connecting", client.pid);
     }
@@ -326,7 +312,6 @@ mod tests {
                 port: DEFAULT_PORT,
                 loader_path: None,
                 dll_path: None,
-                client_path: None,
             }
         );
         assert_eq!(
@@ -336,7 +321,6 @@ mod tests {
                 port: 3000,
                 loader_path: None,
                 dll_path: None,
-                client_path: None,
             }
         );
     }
@@ -349,8 +333,6 @@ mod tests {
                 "tools/loader.exe",
                 "--dll-path",
                 "tools/darpc.dll",
-                "--client-path",
-                "game/Darkages.exe",
             ]))
             .unwrap(),
             Options {
@@ -358,7 +340,6 @@ mod tests {
                 port: DEFAULT_PORT,
                 loader_path: Some("tools/loader.exe".into()),
                 dll_path: Some("tools/darpc.dll".into()),
-                client_path: Some("game/Darkages.exe".into()),
             }
         );
         assert!(parse_options(Vec::<OsString>::new()).is_ok());
@@ -369,6 +350,7 @@ mod tests {
         assert!(parse_options(arguments(&["--pid", "0"])).is_err());
         assert!(parse_options(arguments(&["--pid", "7", "--pid", "7"])).is_err());
         assert!(parse_options(arguments(&["--pids", "7,8"])).is_err());
+        assert!(parse_options(arguments(&["--client-path", "Darkages.exe"])).is_err());
         assert!(parse_options(arguments(&["--pid", "7", "--port"])).is_err());
         assert!(parse_options(arguments(&["--pid", "7", "--port", "0"])).is_err());
         assert!(parse_options(arguments(&["--pid", "7", "--port", "65536"])).is_err());

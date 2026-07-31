@@ -219,7 +219,7 @@ PIDs remain available for controlled targets or clients without a window:
 ```text
 darpcd.exe
 darpcd.exe --pid 3780 --pid 6648
-darpcd.exe --loader-path <loader.exe> --dll-path <darpc.dll> --client-path <Darkages.exe>
+darpcd.exe --loader-path <loader.exe> --dll-path <darpc.dll>
 ```
 
 The daemon prints connection status transitions and reconnects when a pipe or
@@ -227,11 +227,10 @@ DLL returns. It aggregates identity and connection health only until game-state
 snapshots are implemented. While it owns a pipe, direct `darpc.exe ipc`
 commands report that the endpoint is busy.
 
-The loader and DLL default to files beside `darpcd.exe`. Managed launch remains
-disabled until `--client-path` is configured with the full path to that
-installation's `Darkages.exe`. The loader uses its parent as the client working
-directory, so no installation directory is assumed. These paths belong to
-daemon configuration and are never accepted from an HTTP request.
+The loader and DLL default to files beside `darpcd.exe` and can be overridden
+only through daemon configuration. Each launch request supplies the full path
+to that installation's `Darkages.exe`; the loader uses its parent as the client
+working directory, so no installation directory is assumed.
 
 ## Web API
 
@@ -255,10 +254,10 @@ unavailable rather than silently choosing another one. `/clients` reports each
 discovered or explicitly configured PID and status, plus the DLL `instance_id`
 and process `created_time` once identity is available.
 
-Managed launch accepts only `allow_multiple`, `skip_intro`, `skip_notice`, and
-an optional `server` object containing `host` and `port`. The server port
-defaults to `2610`. Arbitrary client arguments and executable, loader, or DLL
-paths are intentionally not part of the API.
+Managed launch requires `client_path` and accepts `allow_multiple`,
+`skip_intro`, `skip_notice`, and an optional `server` object containing `host`
+and `port`. The server port defaults to `2610`. Arbitrary client arguments and
+request-selected loader or DLL paths are intentionally not part of the API.
 
 `utoipa` generates the OpenAPI document from the Rust HTTP models. A vendored
 Swagger UI serves the same contract at `/docs` without requiring internet

@@ -9,11 +9,9 @@ remain concise.
 
 ## Current focus
 
-M3, loader launch MVP, is complete.
-
-M4, client bootstrap without hooks, is next. It is the first milestone that
-requires a supported live Dark Ages client for executable identity and version
-validation and inert DLL loading.
+M4, client bootstrap without hooks, is in final verification. Exact client
+validation and the automated live-client lifecycle checks pass. The private
+normal-use comparison is the remaining completion criterion.
 
 ## Milestone snapshot
 
@@ -23,7 +21,7 @@ validation and inert DLL loading.
 | M1, local DLL lifecycle | Verification pending | Functional and manually exercised; Windows CI and explicit failed-initialization host coverage remain. |
 | M2, loader attach MVP | Complete | Inspect, attach, detach, JSON results, timeouts, and Windows integration coverage are implemented. |
 | M3, loader launch MVP | Complete | Suspended launch, pre-resume initialization, argument forwarding, and owned-child cleanup are implemented and Windows-tested. |
-| M4, client bootstrap without hooks | Planned | Validate and load the inert DLL in the supported live client without hooks. |
+| M4, client bootstrap without hooks | Verification pending | Automated live launch and late attach pass; private normal-use comparison remains. |
 
 ## Completed recently
 
@@ -56,6 +54,22 @@ validation and inert DLL loading.
   failure.
 - [x] Added native Windows launch ordering, lifecycle log, argument, path,
   handle, natural-exit, and failure-cleanup coverage.
+- [x] Added exact Dark Ages 7.41 executable size and SHA-256 validation.
+- [x] Rejected unsupported attach and launch attempts before injection or child
+  creation.
+- [x] Verified duplicate detection, late attach, suspended launch, lifecycle
+  logging, unload, and post-unload liveness against the supported live client.
+- [x] Verified independent DLL instances in two controlled target processes.
+- [x] Proved release builds ignore the debug-only controlled-target bypass.
+
+## M4 completion evidence
+
+- [x] Run the automated live-client harness on 32-bit Windows.
+- [x] Confirm the inert DLL does not read client memory, call client functions,
+  install hooks, or start IPC.
+- [ ] Compare login, movement, representative user interface behavior, and
+  normal exit in baseline, loader-launch, and late-attach runs.
+- [ ] Record M4 complete after the private manual comparison passes.
 
 ## M2 completion evidence
 
@@ -118,6 +132,9 @@ validation and inert DLL loading.
   user-mode loader startup makes enumeration available.
 - A lifecycle relative virtual address is used only after the observed loaded
   module path matches the validated DLL path.
+- The stock client single-instance mutex keeps live M4 checks sequential.
+  Multi-process loader behavior uses controlled targets until the planned
+  startup patch exists.
 
 ## Updating this file
 

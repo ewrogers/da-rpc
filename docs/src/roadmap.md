@@ -92,7 +92,7 @@ only after real duplication appears.
 | M1 | Local DLL lifecycle | A 32-bit host loads, initializes, shuts down, and unloads `darpc.dll`. | Verification pending |
 | M2 | Loader attach MVP | `loader.exe` injects and unloads the DLL in an existing test host. | Complete |
 | M3 | Loader launch MVP | `loader.exe` launches a new process with the DLL initialized before normal execution. | Complete |
-| M4 | Client bootstrap without hooks | The 7.41 client runs normally with the inert DLL loaded. | Planned |
+| M4 | Client bootstrap without hooks | The 7.41 client runs normally with the inert DLL loaded. | Verification pending |
 | M5 | Minimal binary protocol | A `Hello` frame has exact tested bytes and compatibility rules. | Planned |
 | M6 | Direct IPC diagnostics | `darpc.exe` exchanges `Hello`, `Ping`, and `Echo` messages with one injected DLL. | Planned |
 | M7 | Daemon client registry | `darpcd.exe` connects, tracks the DLL, and recovers after restart. | Planned |
@@ -109,7 +109,8 @@ only after real duplication appears.
 | M18 | Multi-client hardening and preview | Failure and soak evidence support a preview release. | Planned |
 | M19 | WebSocket and remote access | Added only for a proven use case and defined security model. | Deferred |
 
-M2 is complete and M3 is the next implementation milestone. M1 has been
+M2 and M3 are complete. M4 implementation and automated live-client checks are
+complete, with its private normal-use comparison still pending. M1 has been
 exercised manually, but its separate evidence checklist remains open until the
 lifecycle-host Windows continuous-integration coverage is present. The working
 checklist is maintained in the [repository progress
@@ -241,6 +242,19 @@ Done:
   covered by focused tests.
 
 ### M4: client bootstrap without hooks
+
+Current state:
+
+- Exact executable validation is implemented for the supported 7.41 client.
+- Unsupported attach and launch attempts are rejected before injection or
+  process creation.
+- Automated Windows checks cover live late attach, suspended launch, lifecycle
+  logging, duplicate detection, unload, and post-unload liveness.
+- The normal login, movement, user interface, and clean-exit comparison remains
+  a private manual acceptance check.
+- The stock single-instance mutex currently limits live verification to
+  sequential runs. Separate-process loader behavior is covered by controlled
+  targets until a later startup-patch milestone.
 
 Build:
 

@@ -26,9 +26,26 @@ library. Before calling a lifecycle export in an existing process by its
 validated relative virtual address, the observed loaded-module path must match
 the selected DLL.
 
+The supported client is Dark Ages 7.41 with a 3,112,960-byte executable and
+SHA-256 fingerprint
+`054A5D6ADC56099C6BFD9D2A58675AFF62DC788B63209A3D906492F5B89E96C6`.
+Both attach and launch canonicalize and fingerprint the executable before any
+remote operation or child creation. Any other executable fails with
+`unsupported_client`.
+
+The caller supplies the intended DLL path explicitly. The loader canonicalizes
+that path, requires the file name `darpc.dll`, validates its x86 Portable
+Executable headers, and resolves the required lifecycle exports. It does not
+search the current directory or select among multiple DLLs implicitly.
+
+Repository-owned integration targets can opt into an unsupported-client bypass
+with `DARPC_LOADER_TEST_ALLOW_UNSUPPORTED_CLIENT=1`. This escape hatch exists
+only in debug builds. Release builds ignore it and always require the exact
+supported fingerprint.
+
 ## Commands
 
-The M3 command surface is:
+The M4 command surface is:
 
 ```text
 loader [--json] inspect <pid>
@@ -72,6 +89,7 @@ exit codes are:
 | 13 | `remote_operation_failed` |
 | 14 | `internal` |
 | 15 | `launch_failed` |
+| 16 | `unsupported_client` |
 
 ## Implementation boundaries
 
@@ -82,7 +100,9 @@ modules:
   descriptor containing its canonical path and required lifecycle export
   relative virtual addresses (RVAs).
 - `process.rs` owns target process handles, architecture inspection, process
-  identity, and loaded-module discovery.
+  identity, executable-path discovery, and loaded-module discovery.
+- `darpc-client-741` owns the exact supported executable fingerprint and its
+  canonical-path validation.
 - `launch.rs` owns suspended process creation, Windows argument quoting,
   primary-thread resumption, and child-only failure cleanup.
 - `remote.rs` contains low-level remote allocation, memory writing, and remote
@@ -101,12 +121,13 @@ The implemented attach path:
 
 1. Validates the selected DLL and its required lifecycle exports.
 2. Opens and validates the target process as 32-bit x86.
-3. Refuses to load a duplicate `darpc.dll`.
-4. Loads the DLL and verifies its module base through target module
+3. Resolves and validates the target's exact Dark Ages 7.41 executable.
+4. Refuses to load a duplicate `darpc.dll`.
+5. Loads the DLL and verifies its module base through target module
    enumeration.
-5. Calls `darpc_initialize` with the supported ABI version.
-6. Unloads the DLL when initialization completes with a non-success status.
-7. Re-inspects the target module list before reporting success.
+6. Calls `darpc_initialize` with the supported ABI version.
+7. Unloads the DLL when initialization completes with a non-success status.
+8. Re-inspects the target module list before reporting success.
 
 If completion of the initialization thread is uncertain, the loader leaves the
 DLL loaded rather than risk unloading code that may still be executing.
@@ -141,16 +162,17 @@ Command repetition is deliberate:
 The implemented launch path:
 
 1. Validates the selected DLL before creating a process.
-2. Resolves the executable and uses its parent directory as the child working
-   directory.
-3. Creates the child with `CREATE_SUSPENDED`, general handle inheritance
+2. Resolves and validates the exact Dark Ages 7.41 executable before creating
+   a process.
+3. Uses the executable parent directory as the child working directory.
+4. Creates the child with `CREATE_SUSPENDED`, general handle inheritance
    disabled, and no copied standard handles.
-4. Validates the child as x86 and records its creation time without requiring
+5. Validates the child as x86 and records its creation time without requiring
    module enumeration before Windows user-mode loader startup.
-5. Loads `darpc.dll` and calls `darpc_initialize` while the primary thread
+6. Loads `darpc.dll` and calls `darpc_initialize` while the primary thread
    remains suspended.
-6. Resumes the primary thread only after initialization returns success.
-7. Terminates and waits for only that owned child if any pre-resume operation
+7. Resumes the primary thread only after initialization returns success.
+8. Terminates and waits for only that owned child if any pre-resume operation
    fails.
 
 The loader and launched child are the same architecture and run in the same
@@ -187,6 +209,40 @@ entered `main`, arguments and the executable working directory were preserved,
 handles were not inherited, a normal process can exit, and a failed
 initialization leaves no suspended child. The same sequence runs in the
 Windows workflow.
+
+The live-client checks are intentionally local and require a legally obtained
+Dark Ages 7.41 installation. They never copy the executable, enter credentials,
+or record game data. Build the x86 artifacts, close every running client, and
+run:
+
+```powershell
+./tools/test-client-741.ps1 `
+  -ClientPath "C:\path\to\Darkages.exe" `
+  -TargetDir ./target/i686-pc-windows-msvc/debug
+```
+
+This script proves unsupported-client rejection, two independent controlled
+target processes, live late attach, live suspended launch, duplicate detection,
+lifecycle logging, unload, and client liveness after unload. It force-stops only
+the client processes it starts, so it is not evidence of normal interactive
+exit behavior.
+
+Complete the behavioral acceptance check manually and privately:
+
+1. Close every running client. Start the client directly, log in, move, open
+   and close representative user interface panels, and exit normally.
+2. With no client running, use `loader launch <client-path> <dll-path>`. Repeat
+   the same actions and exit normally with the inert DLL still loaded.
+3. With no client running, start the client directly, use
+   `loader attach <pid> <dll-path>`, repeat the same actions, and exit normally
+   with the inert DLL still loaded.
+4. Record whether all three runs behaved the same. Do not put credentials,
+   private chat, or packet data in the record.
+
+The stock client currently enforces a single instance with a startup mutex, so
+these live checks must run sequentially. Until a later milestone implements the
+planned startup patch, multi-process loader behavior is verified with the
+repository-owned controlled target instead of concurrent live clients.
 
 Future loader-owned startup patches fit between suspended process validation
 and DLL initialization. Hooks and trampolines owned by daRPC remain the

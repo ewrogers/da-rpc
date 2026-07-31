@@ -9,10 +9,11 @@ remain concise.
 
 ## Current focus
 
-M2, loader attach MVP, is complete.
+M3, loader launch MVP, is complete.
 
-M3, loader launch MVP, is next. Launch must keep the new process primary thread
-suspended through loader-owned startup patches and DLL initialization.
+M4, client bootstrap without hooks, is next. It is the first milestone that
+requires a supported live Dark Ages client for executable identity and version
+validation and inert DLL loading.
 
 ## Milestone snapshot
 
@@ -21,7 +22,8 @@ suspended through loader-owned startup patches and DLL initialization.
 | M0, workspace scaffold | Complete | Workspace and documentation checks pass. |
 | M1, local DLL lifecycle | Verification pending | Functional and manually exercised; Windows CI and explicit failed-initialization host coverage remain. |
 | M2, loader attach MVP | Complete | Inspect, attach, detach, JSON results, timeouts, and Windows integration coverage are implemented. |
-| M3, loader launch MVP | Planned | Launch must keep the primary thread suspended through patches and initialization. |
+| M3, loader launch MVP | Complete | Suspended launch, pre-resume initialization, argument forwarding, and owned-child cleanup are implemented and Windows-tested. |
+| M4, client bootstrap without hooks | Planned | Validate and load the inert DLL in the supported live client without hooks. |
 
 ## Completed recently
 
@@ -46,6 +48,14 @@ suspended through loader-owned startup patches and DLL initialization.
 - [x] Added bounded remote-thread waits with conservative uncertain-completion
   behavior.
 - [x] Added a Windows lifecycle and failure integration harness.
+- [x] Added suspended process launch with initialization before primary-thread
+  resume.
+- [x] Added Windows argument quoting, executable-directory working directory,
+  and structured launch results.
+- [x] Added launch-owned child termination and waiting for every pre-resume
+  failure.
+- [x] Added native Windows launch ordering, lifecycle log, argument, path,
+  handle, natural-exit, and failure-cleanup coverage.
 
 ## M2 completion evidence
 
@@ -66,12 +76,22 @@ suspended through loader-owned startup patches and DLL initialization.
 - [x] Exercise repeated attach and detach requests and controllable failure
   paths without terminating the target process.
 
-## Next M3 work
+## M3 completion evidence
 
-- [ ] Define the `launch` command and structured result.
-- [ ] Create the target process with its primary thread suspended.
-- [ ] Reuse the existing load and lifecycle operations before resuming.
-- [ ] Define cleanup for launch failures without leaving a suspended child.
+- [x] Added `launch <executable-path> <dll-path> [-- <argument>...]`.
+- [x] Validate the DLL before creating a suspended x86 child.
+- [x] Load and initialize the DLL before resuming the primary thread.
+- [x] Confirm the real DLL lifecycle log exists when the test target enters
+  `main`.
+- [x] Forward spaced, trailing-backslash, and Unicode arguments and cover quote
+  and empty-argument encoding with focused unit tests.
+- [x] Use the executable parent as current directory and disable inherited and
+  standard handles.
+- [x] Return the owned child PID in structured post-creation failures.
+- [x] Terminate and wait for the owned child after initialization failure.
+- [x] Confirm a successfully launched process can exit normally.
+- [x] Run unit tests and the complete M3 integration suite natively on 32-bit
+  Windows through Parallels.
 
 ## M1 completion evidence
 
@@ -93,7 +113,9 @@ suspended through loader-owned startup patches and DLL initialization.
 - Future launch-time client patches run while the launched primary thread is
   suspended. The thread resumes only after patches and DLL initialization
   succeed.
-- Target module enumeration is the source of truth for observed loaded state.
+- Existing-process module enumeration is the source of truth for observed
+  loaded state. Suspended launch uses the remote load result until Windows
+  user-mode loader startup makes enumeration available.
 - A lifecycle relative virtual address is used only after the observed loaded
   module path matches the validated DLL path.
 

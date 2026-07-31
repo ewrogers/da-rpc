@@ -91,7 +91,7 @@ only after real duplication appears.
 | M0 | Workspace scaffold | Cargo recognizes the packages and the book builds. | Complete |
 | M1 | Local DLL lifecycle | A 32-bit host loads, initializes, shuts down, and unloads `darpc.dll`. | Verification pending |
 | M2 | Loader attach MVP | `loader.exe` injects and unloads the DLL in an existing test host. | Complete |
-| M3 | Loader launch MVP | `loader.exe` launches a new process with the DLL initialized before normal execution. | Planned |
+| M3 | Loader launch MVP | `loader.exe` launches a new process with the DLL initialized before normal execution. | Complete |
 | M4 | Client bootstrap without hooks | The 7.41 client runs normally with the inert DLL loaded. | Planned |
 | M5 | Minimal binary protocol | A `Hello` frame has exact tested bytes and compatibility rules. | Planned |
 | M6 | Direct IPC diagnostics | `darpc.exe` exchanges `Hello`, `Ping`, and `Echo` messages with one injected DLL. | Planned |
@@ -209,6 +209,17 @@ Done:
   instances.
 
 ### M3: loader launch MVP
+
+Current state:
+
+- `launch` creates an x86 process suspended, loads and initializes the selected
+  DLL, and resumes the primary thread only after initialization succeeds.
+- Arguments use explicit Windows quoting, the executable parent is the working
+  directory, and inherited and standard handles are disabled.
+- A failed pre-resume operation terminates and waits for only the child created
+  by that invocation. Structured failures include its PID.
+- Focused unit and native Windows integration tests cover lifecycle ordering,
+  paths, quoting, working directory, handles, normal exit, and failure cleanup.
 
 Build:
 

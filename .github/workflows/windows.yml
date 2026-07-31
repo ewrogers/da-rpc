@@ -8,9 +8,11 @@ on:
       - "Cargo.lock"
       - "components/loader/**"
       - "components/rpc-dll/**"
+      - "crates/client-741/**"
       - "crates/win32/**"
       - "tools/injection-target/**"
       - "tools/loader-fixture-dll/**"
+      - "tools/test-client-741.ps1"
   push:
     branches:
       - main
@@ -20,9 +22,11 @@ on:
       - "Cargo.lock"
       - "components/loader/**"
       - "components/rpc-dll/**"
+      - "crates/client-741/**"
       - "crates/win32/**"
       - "tools/injection-target/**"
       - "tools/loader-fixture-dll/**"
+      - "tools/test-client-741.ps1"
   workflow_dispatch:
 
 permissions:
@@ -47,6 +51,7 @@ jobs:
       - name: Run Clippy
         run: >
           cargo clippy
+          -p darpc-client-741
           -p loader
           -p rpc-dll
           -p injection-target
@@ -58,6 +63,7 @@ jobs:
       - name: Run unit tests
         run: >
           cargo test
+          -p darpc-client-741
           -p loader
           -p injection-target
           --target i686-pc-windows-msvc

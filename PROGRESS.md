@@ -10,7 +10,7 @@ remain concise.
 ## Current focus
 
 M8, the read-only HTTP API, is complete. The next planned implementation
-milestone is M9, the daemon-backed CLI.
+milestone is M9, discovery and managed launch.
 
 ## Milestone snapshot
 
@@ -233,8 +233,10 @@ milestone is M9, the daemon-backed CLI.
 - Parallels remote commands remain suitable for builds, controlled targets,
   inspection, and late attach. Live launch acceptance uses the active Windows
   interactive token and normal client exit.
+- `darpc.exe` talks directly to one DLL and remains usable without the daemon.
+  Multi-client aggregation is consumed through the `darpcd.exe` web API.
 - M7 aggregates client identity and connection health only. The first real
-  client snapshot remains M13.
+  client snapshot remains M12.
 - Character and user interface state remain per-client. A future shared-world
   projection must preserve observation source, last-seen freshness, and stale
   or uncertain status.

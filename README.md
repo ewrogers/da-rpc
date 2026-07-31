@@ -25,7 +25,7 @@ portable web APIs.
 | --- | --- | --- |
 | `darpc.dll` | 32-bit Windows x86 | Integrates with one client, maintains local state, and hosts its named-pipe endpoint. |
 | `loader.exe` | 32-bit Windows x86 | Launches a compatible client or injects `darpc.dll` into an existing one. |
-| `darpc.exe` | 64-bit Windows x86-64 | Provides direct IPC diagnostics and a user-facing daemon client. |
+| `darpc.exe` | 64-bit Windows x86-64 | Talks directly to one DLL through the binary protocol and presents human-readable or JSON results. |
 | `darpcd.exe` | 64-bit Windows x86-64 | Discovers clients, aggregates state and events, and exposes web APIs. |
 
 daRPC supports one exact game-client build at a time. The `darpc-game-client`
@@ -205,6 +205,10 @@ These diagnostic commands perform the real binary handshake and validate
 ordering, correlation, and timing without reading game state or installing
 hooks. See the [`darpc.exe` documentation](https://ewrogers.github.io/da-rpc/cli.html)
 for output fields and exit codes.
+
+`darpc.exe` does not call the daemon HTTP API. It remains usable with only the
+loader and an injected DLL. Multi-client aggregation is available directly
+through the `darpcd.exe` web API and its Swagger UI.
 
 ## Daemon client registry
 

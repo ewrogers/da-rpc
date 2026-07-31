@@ -12,8 +12,9 @@ daRPC is a Rust workspace for integrating with the 32-bit Windows client of
 
 - `darpc.dll`, a 32-bit x86 library injected into the game client.
 - `loader.exe`, a 32-bit x86 executable that launches or injects the library.
-- `darpc.exe`, a 64-bit x86-64 command-line client for diagnostics and the
-  daemon API.
+- `darpc.exe`, a 64-bit x86-64 command-line client that talks directly to one
+  injected DLL and presents binary protocol results as human-readable text or
+  JSON.
 - `darpcd.exe`, a 64-bit x86-64 daemon that aggregates client state and real-time
   events and presents REST, SSE, and WebSocket APIs.
 

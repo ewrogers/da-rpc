@@ -68,21 +68,21 @@ treated as reliable evidence, especially during process termination.
 
 ## CLI roles
 
-Two executables cover three command-line roles:
+Three executables have distinct control and presentation roles:
 
 | Tool | Audience | Boundary |
 | --- | --- | --- |
 | `loader.exe` | Developer and `darpcd.exe` | Inspects, launches, injects, initializes, shuts down, and unloads `darpc.dll`. |
-| `darpc.exe ipc ...` | Developer only | Connects directly to one DLL for bounded protocol diagnostics while `darpcd.exe` is disconnected. |
-| Other `darpc.exe` commands | User and automation | Talk to the public `darpcd.exe` HTTP API and can print stable JSON results. |
+| `darpc.exe` | Developer and automation | Connects directly to one DLL, exchanges typed binary protocol messages, and prints human-readable or stable JSON results. |
+| `darpcd.exe` | Applications and HTTP clients | Owns multi-client connections, aggregation, discovery policy, and the public web API. |
 
 The explicit `ipc` command group replaces a separate pipe-probe executable. It
 shares `darpc-protocol` and proves the real named pipe and binary framing with
-synthetic messages, but it is not a second production controller. Every other
-[`darpc.exe` command](cli.md) goes through the daemon so discovery, aggregation,
-action status, security, and multi-client behavior have one owner. If HTTP
-request and response models later need to be shared, add a small API-model crate
-only after real duplication appears.
+synthetic messages. Future [`darpc.exe` commands](cli.md) remain direct,
+single-client protocol operations and do not call the daemon HTTP API.
+`darpc.exe` and `darpcd.exe` are alternative pipe controllers because the DLL
+currently accepts one connection at a time. HTTP consumers use the daemon API
+directly for discovery, aggregation, action status, and multi-client behavior.
 
 ## Progress
 
@@ -98,17 +98,16 @@ only after real duplication appears.
 | M6 | Direct IPC diagnostics | `darpc.exe` exchanges `Hello`, `Ping`, and `Echo` messages with one injected DLL. | Complete |
 | M7 | Daemon client registry | `darpcd.exe` connects, tracks the DLL, and recovers after restart. | Complete |
 | M8 | Read-only HTTP API | A browser or HTTP client lists the injected client. | Complete |
-| M9 | Daemon-backed CLI | The existing `darpc.exe` adds client listing through the daemon HTTP API. | Planned |
-| M10 | Discovery and managed launch | `darpcd.exe` reconciles candidates and invokes the loader explicitly. | Planned |
-| M11 | Hook qualification harness | The hook mechanism preserves a controlled test function exactly. | Planned |
-| M12 | First client tick hook | The daemon reports client ticks while the game behaves normally. | Planned |
-| M13 | Minimal late-attach snapshot | The API and CLI expose a small real-client state slice. | Planned |
-| M14 | Event-driven updates | One normal game event updates state without another snapshot. | Planned |
-| M15 | Main-thread command queue | A diagnostic command completes on a client tick. | Planned |
-| M16 | First typed action | One low-risk action executes through a native client path. | Planned |
-| M17 | Packet observation and local rules | Bounded plaintext telemetry and fail-open decisions work locally. | Planned |
-| M18 | Multi-client hardening and preview | Failure and soak evidence support a preview release. | Planned |
-| M19 | WebSocket and remote access | Added only for a proven use case and defined security model. | Deferred |
+| M9 | Discovery and managed launch | `darpcd.exe` reconciles candidates and invokes the loader explicitly. | Planned |
+| M10 | Hook qualification harness | The hook mechanism preserves a controlled test function exactly. | Planned |
+| M11 | First client tick hook | The daemon reports client ticks while the game behaves normally. | Planned |
+| M12 | Minimal late-attach snapshot | The direct CLI and daemon API expose a small real-client state slice. | Planned |
+| M13 | Event-driven updates | One normal game event updates state without another snapshot. | Planned |
+| M14 | Main-thread command queue | A diagnostic command completes on a client tick. | Planned |
+| M15 | First typed action | One low-risk action executes through a native client path. | Planned |
+| M16 | Packet observation and local rules | Bounded plaintext telemetry and fail-open decisions work locally. | Planned |
+| M17 | Multi-client hardening and preview | Failure and soak evidence support a preview release. | Planned |
+| M18 | WebSocket and remote access | Added only for a proven use case and defined security model. | Deferred |
 
 M2 through M8 are complete. M9 is the next planned implementation milestone.
 M1 has been exercised manually, but its separate evidence checklist remains
@@ -451,28 +450,7 @@ Done:
   route.
 - HTTP failure cannot block or corrupt the DLL connection.
 
-### M9: daemon-backed CLI commands
-
-Build:
-
-- HTTP-backed commands added to the existing `darpc.exe` parser and output
-  model.
-- Human-readable output by default and stable JSON output for automation.
-- Initial commands limited to daemon health and client listing.
-
-See:
-
-- Run `darpc clients --json` and receive the same clients represented by the
-  HTTP endpoint.
-
-Done:
-
-- Commands outside the explicit `ipc` group never connect directly to DLL
-  pipes.
-- Exit codes distinguish connection failure, invalid input, and daemon errors.
-- JSON output is separated from diagnostics so scripts can parse it reliably.
-
-### M10: discovery and managed launch
+### M9: discovery and managed launch
 
 Build:
 
@@ -484,7 +462,7 @@ Build:
 See:
 
 - Start an uninjected client, list it as a candidate, explicitly attach it, and
-  watch it become connected through the daemon and CLI.
+  watch it become connected through the daemon HTTP API.
 
 Done:
 
@@ -494,11 +472,11 @@ Done:
 - Multiple candidates remain independent.
 
 This completes the first useful process-management vertical slice. The daemon,
-loader, DLL, HTTP API, and CLI now work together without any game hook.
+loader, DLL, and HTTP API now work together without any game hook.
 
 ## Phase 4: qualify hooks before reading state
 
-### M11: hook qualification harness
+### M10: hook qualification harness
 
 Build:
 
@@ -524,7 +502,7 @@ Done:
 - No panic or unwind crosses the native boundary.
 - Shutdown proves no thread can call the detour after unload.
 
-### M12: first client tick hook
+### M11: first client tick hook
 
 Build:
 
@@ -548,7 +526,7 @@ Done:
 
 ## Phase 5: expose real state incrementally
 
-### M13: minimal late-attach snapshot
+### M12: minimal late-attach snapshot
 
 Build:
 
@@ -556,12 +534,12 @@ Build:
   and current map when available.
 - Validated roots, offsets, buffers, and root-generation tracking.
 - Snapshot messages with an explicit sequence boundary.
-- Matching daemon state, HTTP response, and CLI output.
+- Matching direct CLI output, daemon state, and HTTP response.
 
 See:
 
-- Late-attach after login and read the real state slice with
-  `darpc client <id> state --json`.
+- Late-attach after login and read the real state slice with direct CLI JSON or
+  the daemon HTTP API.
 
 Done:
 
@@ -571,7 +549,7 @@ Done:
 - The daemon retains each snapshot as a client observation and does not treat
   one client's visible map region as complete world truth.
 
-### M14: event-driven updates
+### M13: event-driven updates
 
 Build:
 
@@ -595,7 +573,7 @@ Done:
 
 ## Phase 6: add control one safe action at a time
 
-### M15: main-thread command queue
+### M14: main-thread command queue
 
 Build:
 
@@ -615,13 +593,13 @@ Done:
 - IPC workers never call client functions.
 - Disconnect and timeout cannot leave queued client pointers or unbounded work.
 
-### M16: first typed action
+### M15: first typed action
 
 Build:
 
 - One low-risk action through a confirmed native client producer.
 - State and argument validation before main-thread execution.
-- CLI submission plus asynchronous action status.
+- Direct CLI submission plus asynchronous action status.
 
 See:
 
@@ -634,7 +612,7 @@ Done:
 - Execution is distinct from a later observed server outcome.
 - Non-idempotent actions are not automatically retried.
 
-### M17: packet observation and local rules
+### M16: packet observation and local rules
 
 Build:
 
@@ -658,7 +636,7 @@ Done:
 
 ## Phase 7: harden what is actually useful
 
-### M18: multi-client hardening and preview
+### M17: multi-client hardening and preview
 
 Build:
 
@@ -684,7 +662,7 @@ Done:
   recovery.
 - The preview release states exactly what is and is not supported.
 
-### M19: WebSocket and remote access
+### M18: WebSocket and remote access
 
 This remains deferred until a real application demonstrates that REST plus
 Server-Sent Events cannot express its interaction cleanly. Remote listening
@@ -693,17 +671,19 @@ limits, and administrative capability boundaries before it is supported.
 
 ## Immediate next increment
 
-M9 should make the existing `darpc.exe` the first normal HTTP API consumer:
+M9 should add discovery and explicit managed injection without treating a
+window match as proof of compatibility:
 
-1. Add daemon HTTP client code outside the explicit direct-IPC command group.
-2. Add `darpc health` and `darpc clients` commands against the current API.
-3. Preserve human-readable output by default and stable JSON output for
-   automation.
-4. Keep HTTP response models separate from CLI presentation models.
-5. Distinguish invalid input, connection failure, HTTP failure, and malformed
-   daemon responses with stable exit codes.
-6. Verify the CLI presents the same two-client identity and connection status
-   returned by `/clients`.
+1. Reconcile top-level windows with the verified game window class and derive
+   candidate process IDs.
+2. Represent not-loaded, initializing, busy, connected, and incompatible
+   candidates through the daemon HTTP API.
+3. Add explicit management requests that allow the daemon to invoke the
+   trusted `loader.exe` for inspection or attachment without accepting an
+   arbitrary DLL path.
+4. Preserve independent state and retry behavior for multiple candidates.
+5. Verify discovery and attachment first with controlled targets, then with an
+   uninjected live client.
 
-Snapshots remain M13. M9 consumes only the identity and connection-health data
-already exposed by the daemon.
+Snapshots remain M12. M9 is limited to process discovery, lifecycle management,
+identity, and connection health.

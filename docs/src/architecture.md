@@ -6,21 +6,22 @@ daRPC has four primary runtime components:
 | --- | --- | --- |
 | `darpc.dll` | 32-bit Windows x86 | Integrates with one game client, reconstructs initial state, tracks game and UI changes, and hosts a named-pipe endpoint. |
 | `loader.exe` | 32-bit Windows x86 | Launches a client with daRPC or injects `darpc.dll` into an already-running compatible client. |
-| `darpc.exe` | 64-bit Windows x86-64 | Provides direct IPC diagnostics and a user-facing interface to the daemon API. |
+| `darpc.exe` | 64-bit Windows x86-64 | Talks directly to one injected DLL and presents typed binary protocol results as text or JSON. |
 | `darpcd.exe` | 64-bit Windows x86-64 | Discovers clients, queries and aggregates their state and events, and exposes portable web APIs. |
 
 ```text
-Remote or local application ---- REST / SSE / WebSocket ----+
-                                                            |
-darpc.exe ---------------------- HTTP -----------------------+--> darpcd.exe
-    |                                                               |
-    | Explicit diagnostic IPC                                      | Binary IPC
-    v                                                               v
-                         darpc.dll <-------------------------- loader.exe
-                             |
-                             | Client events, actions, and state
-                             v
-                     Dark Ages game client
+Remote or local application ---- REST / SSE / WebSocket ----> darpcd.exe
+                                                                  |
+                                                                  | Binary IPC
+darpc.exe ---------------------- Binary IPC ------------------+    |
+                                                             v    v
+                                                           darpc.dll
+                                                               ^
+                                                               | Load and initialize
+                                                          loader.exe
+                                                               |
+                                                               v
+                                                     Dark Ages game client
 ```
 
 ## Responsibility boundaries
@@ -37,9 +38,11 @@ projection may merge compatible map and entity observations, but it must retain
 their source and freshness instead of presenting partial client visibility as
 authoritative global state.
 
-`darpc.exe` normally uses the daemon HTTP API. Its explicit `ipc` command group
-may connect directly to one DLL for bounded development diagnostics while the
-daemon is disconnected.
+`darpc.exe` connects directly to one DLL and remains usable without the daemon.
+It presents typed binary protocol operations as human-readable text or stable
+JSON. Because the DLL currently accepts one controller, the direct CLI reports
+a busy endpoint while `darpcd.exe` owns that pipe. It does not call or fall back
+to the daemon HTTP API.
 
 `loader.exe` owns process launch and injection mechanics. Discovery may present
 a process as an injection candidate, but the loader must still validate that

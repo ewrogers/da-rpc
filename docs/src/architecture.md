@@ -48,9 +48,10 @@ the target is compatible before modifying it.
 ## Web boundary
 
 The planned daemon web boundary uses Axum. Its initial read-only surface binds
-to loopback and exposes `/health`, `/clients`, `/openapi.json`, and `/docs`.
-HTTP response models remain separate from registry records, binary protocol
-messages, and client layouts.
+to `127.0.0.1:2626` by default and exposes `/health`, `/clients`,
+`/openapi.json`, and `/docs`. A `--port <port>` option changes only the port;
+remote interfaces remain unavailable. HTTP response models remain separate
+from registry records, binary protocol messages, and client layouts.
 
 `utoipa` generates the OpenAPI document from the same Rust models and route
 descriptions used by the server. A vendored Swagger UI presents that document

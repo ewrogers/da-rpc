@@ -429,7 +429,8 @@ Done:
 
 Build:
 
-- A loopback-only Axum server with unversioned `/health` and `/clients` routes.
+- A loopback-only Axum server on `127.0.0.1:2626` by default, with a validated
+  `--port <port>` override and unversioned `/health` and `/clients` routes.
 - HTTP models separate from binary wire and client layout types.
 - A `utoipa`-generated OpenAPI document at `/openapi.json` and vendored Swagger
   UI at `/docs`.
@@ -693,7 +694,8 @@ limits, and administrative capability boundaries before it is supported.
 M8 should expose the working registry without changing DLL behavior:
 
 1. Add a small loopback-only HTTP server to `darpcd.exe`.
-2. Use Axum for unversioned `/health` and `/clients` routes.
+2. Use Axum on `127.0.0.1:2626` by default, accept a validated `--port <port>`
+   override, and expose unversioned `/health` and `/clients` routes.
 3. Keep HTTP response types separate from registry and wire-protocol types.
 4. Represent connecting, connected, disconnected, busy, and incompatible
    targets explicitly.

@@ -8,8 +8,11 @@ implement Windows injection, named-pipe IPC, or client-specific data layouts.
 
 ## Initial read-only surface
 
-The initial server uses Axum and binds to a loopback address. It exposes one
-current API without a URL version prefix:
+The initial server uses Axum and binds to `127.0.0.1:2626` by default. A single
+`--port <port>` option accepts values from 1 through 65535 and changes only the
+port. Port zero, repeated options, and malformed values are rejected. If the
+selected address is unavailable, daemon startup fails instead of choosing a
+different port. It exposes one current API without a URL version prefix:
 
 | Route | Purpose |
 | --- | --- |
@@ -17,6 +20,9 @@ current API without a URL version prefix:
 | `GET /clients` | List configured targets, identities, compatibility, and connection health. |
 | `GET /openapi.json` | Return the generated OpenAPI document for tools and code generators. |
 | `GET /docs` | Open the self-hosted interactive Swagger UI. |
+
+With the default port, the interactive documentation is available at
+`http://127.0.0.1:2626/docs`.
 
 The client list represents connecting, connected, disconnected, busy, and
 incompatible targets explicitly. It contains only information already owned by

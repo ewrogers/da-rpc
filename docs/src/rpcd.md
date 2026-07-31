@@ -57,11 +57,12 @@ will obtain a fresh snapshot and then follow updates from an ordered boundary.
 
 ## Planned web interface
 
-The daemon's first HTTP surface will use Axum and bind to loopback. It will
-provide unversioned `/health` and `/clients` routes, a generated OpenAPI
-document at `/openapi.json`, and a vendored Swagger UI at `/docs`. The OpenAPI
-models remain separate from registry and binary protocol types. None of these
-routes are implemented yet.
+The daemon's first HTTP surface will use Axum and bind to `127.0.0.1:2626` by
+default. A single `--port <port>` option will override the port while retaining
+the loopback-only boundary. It will provide unversioned `/health` and
+`/clients` routes, a generated OpenAPI document at `/openapi.json`, and a
+vendored Swagger UI at `/docs`. The OpenAPI models remain separate from
+registry and binary protocol types. None of these routes are implemented yet.
 
 ## Failure isolation
 

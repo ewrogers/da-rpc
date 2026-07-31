@@ -222,8 +222,10 @@ the endpoint is busy.
 
 ## Planned web API
 
-The daemon's first web interface will use Axum and listen on loopback only. It
-will expose one current, unversioned API:
+The daemon's first web interface will use Axum and listen on
+`127.0.0.1:2626` by default. A single `--port <port>` option will override the
+port while keeping the listener on loopback. It will expose one current,
+unversioned API:
 
 ```text
 GET /health
@@ -231,6 +233,10 @@ GET /clients
 GET /openapi.json
 GET /docs
 ```
+
+The default interactive documentation URL will be
+`http://127.0.0.1:2626/docs`. Startup will fail clearly if the selected port is
+unavailable rather than silently choosing another one.
 
 `utoipa` will generate the OpenAPI document from the Rust HTTP models. A
 vendored Swagger UI will serve the same contract at `/docs` without requiring

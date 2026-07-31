@@ -227,6 +227,17 @@ lifecycle logging, unload, and client liveness after unload. It force-stops only
 the client processes it starts, so it is not evidence of normal interactive
 exit behavior.
 
+When orchestrating a Parallels guest from macOS, do not use a Parallels Tools
+remote command as the parent of a live client behavioral-acceptance launch.
+Remote execution remains appropriate for building, controlled-target tests,
+inspection, and attaching to a client the user started interactively. Run the
+launch acceptance command from PowerShell opened inside the Windows desktop, or
+use an equivalent limited-privilege process created from the active interactive
+logon token. Let the client perform its normal exit rather than terminating it
+from the harness. Dark Ages 7.41 login redirect behavior was verified with this
+interactive-token method; the same login was unreliable when the client was a
+descendant of the Parallels Tools remote-command process.
+
 Complete the behavioral acceptance check manually and privately:
 
 1. Close every running client. Start the client directly, log in, move, open

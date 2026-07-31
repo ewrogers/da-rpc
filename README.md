@@ -117,6 +117,14 @@ prlctl list -a
 prlctl exec "<vm-name>" --current-user powershell.exe <arguments>
 ```
 
+Use remote guest commands for building, repository-owned integration targets,
+inspection, and late attach. For live-client login and behavior checks, start
+`loader.exe` from an interactive Windows shell. An equivalent automated launch
+must use the active user's interactive token at limited privilege, such as a
+one-shot Task Scheduler action with interactive logon. Do not parent the live
+client beneath the Parallels Tools remote-command process or force-terminate it
+after the check.
+
 The intended development loop is:
 
 1. Run formatting, platform-independent tests, and cross-target checks on

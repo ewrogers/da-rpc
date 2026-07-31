@@ -9,8 +9,8 @@ remain concise.
 
 ## Current focus
 
-M4.1, optional launch patches, is complete. The next planned implementation
-milestone is M5, the minimal binary protocol.
+M5, the minimal binary protocol, is complete. The next planned implementation
+milestone is M6, direct IPC diagnostics through `darpc.exe`.
 
 ## Milestone snapshot
 
@@ -22,6 +22,7 @@ milestone is M5, the minimal binary protocol.
 | M3, loader launch MVP | Complete | Suspended launch, pre-resume initialization, argument forwarding, and owned-child cleanup are implemented and Windows-tested. |
 | M4, client bootstrap without hooks | Complete | Exact validation, live launch and attach, lifecycle evidence, and normal-use acceptance pass. |
 | M4.1, optional launch patches | Complete | Exact 7.41 patch contracts, strict endpoint selection, safe pre-resume application, and live-client acceptance pass. |
+| M5, minimal binary protocol | Complete | Exact framing, identity handshake, diagnostics, checked codecs, and golden and boundary tests are implemented. |
 
 ## Completed recently
 
@@ -87,6 +88,20 @@ milestone is M5, the minimal binary protocol.
   input, and removes the fixed transfer pause in the live client.
 - [x] Verify all options together, including strict loopback routing through the
   Arbiter local proxy, and record M4.1 complete.
+
+## M5 completion evidence
+
+- [x] Define the fixed little-endian frame header, discriminants, sizes, and
+  conservative limits.
+- [x] Encode and decode `Hello`, `HelloAck`, `Ping`, `Pong`, `EchoRequest`, and
+  `EchoResponse` without relying on Rust memory layout.
+- [x] Enforce version negotiation, instance matching, handshake order, and
+  per-sender wrapping sequence progression.
+- [x] Match the documented 95-byte Hello fixture in both directions.
+- [x] Cover all message round trips, every truncated Hello prefix, malformed
+  fields, hostile lengths, overflow, trailing bytes, and sequence and tick
+  wraparound.
+- [x] Document the complete wire contract and a human review checklist.
 
 ## M2 completion evidence
 

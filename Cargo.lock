@@ -51,9 +51,6 @@ version = "0.1.0"
 [[package]]
 name = "darpc-protocol"
 version = "0.1.0"
-dependencies = [
- "darpc-model",
-]
 
 [[package]]
 name = "darpc-win32"

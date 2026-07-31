@@ -94,7 +94,7 @@ only after real duplication appears.
 | M3 | Loader launch MVP | `loader.exe` launches a new process with the DLL initialized before normal execution. | Complete |
 | M4 | Client bootstrap without hooks | The 7.41 client runs normally with the inert DLL loaded. | Complete |
 | M4.1 | Optional launch patches | Explicit flags safely patch supported 7.41 startup and endpoint behavior before the client resumes. | Complete |
-| M5 | Minimal binary protocol | A `Hello` frame has exact tested bytes and compatibility rules. | Planned |
+| M5 | Minimal binary protocol | A `Hello` frame has exact tested bytes and compatibility rules. | Complete |
 | M6 | Direct IPC diagnostics | `darpc.exe` exchanges `Hello`, `Ping`, and `Echo` messages with one injected DLL. | Planned |
 | M7 | Daemon client registry | `darpcd.exe` connects, tracks the DLL, and recovers after restart. | Planned |
 | M8 | Read-only HTTP API | A browser or HTTP client lists the injected client. | Planned |
@@ -110,7 +110,7 @@ only after real duplication appears.
 | M18 | Multi-client hardening and preview | Failure and soak evidence support a preview release. | Planned |
 | M19 | WebSocket and remote access | Added only for a proven use case and defined security model. | Deferred |
 
-M2, M3, M4, and M4.1 are complete. M5 is the next planned implementation
+M2, M3, M4, M4.1, and M5 are complete. M6 is the next planned implementation
 milestone. M1 has been exercised manually, but its separate evidence checklist
 remains open until the lifecycle-host Windows continuous-integration coverage is
 present. The working checklist is maintained in the [repository progress
@@ -328,6 +328,8 @@ Done:
 
 ### M5: minimal binary protocol
 
+Status: complete.
+
 Build:
 
 - Fixed little-endian frame header with a per-sender wrapping `u16` sequence,
@@ -353,6 +355,8 @@ Done:
 - The decoder validates lengths before allocating.
 - Rust memory layout is never the wire layout.
 - Golden and boundary tests cover sequence wrap and timestamp wrap arithmetic.
+- The protocol chapter documents every field, discriminant, limit, ordering
+  rule, exact golden bytes, and the choices that should be reviewed before M6.
 
 ### M6: direct IPC diagnostics through `darpc.exe`
 

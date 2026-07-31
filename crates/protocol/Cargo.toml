@@ -7,8 +7,5 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
-[dependencies]
-darpc-model.workspace = true
-
 [lints]
 workspace = true

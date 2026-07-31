@@ -1,0 +1,78 @@
+name: Windows
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/windows.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "components/loader/**"
+      - "components/rpc-dll/**"
+      - "crates/win32/**"
+      - "tools/injection-target/**"
+      - "tools/loader-fixture-dll/**"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/windows.yml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "components/loader/**"
+      - "components/rpc-dll/**"
+      - "crates/win32/**"
+      - "tools/injection-target/**"
+      - "tools/loader-fixture-dll/**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  loader:
+    name: Loader x86
+    runs-on: windows-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install x86 Rust target
+        run: rustup target add i686-pc-windows-msvc
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Run Clippy
+        run: >
+          cargo clippy
+          -p loader
+          -p rpc-dll
+          -p injection-target
+          -p loader-fixture-dll
+          --target i686-pc-windows-msvc
+          --all-targets
+          -- -D warnings
+
+      - name: Run unit tests
+        run: >
+          cargo test
+          -p loader
+          -p injection-target
+          --target i686-pc-windows-msvc
+
+      - name: Build integration artifacts
+        run: >
+          cargo build
+          -p loader
+          -p rpc-dll
+          -p injection-target
+          -p loader-fixture-dll
+          --target i686-pc-windows-msvc
+
+      - name: Run loader integration checks
+        shell: pwsh
+        run: >
+          ./tools/injection-target/test-loader.ps1
+          -TargetDir ./target/i686-pc-windows-msvc/debug

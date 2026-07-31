@@ -46,6 +46,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "loader-fixture-dll"
+version = "0.1.0"
+dependencies = [
+ "darpc-win32",
+]
+
+[[package]]
 name = "rpc-client"
 version = "0.1.0"
 dependencies = [

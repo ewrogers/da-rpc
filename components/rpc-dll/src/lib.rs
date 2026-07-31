@@ -14,6 +14,12 @@ use darpc_win32::lifecycle::{ABI_VERSION, InitializeFn, ShutdownFn, Status};
 
 #[cfg(windows)]
 #[unsafe(no_mangle)]
+/// Minimal Windows DLL entry point.
+///
+/// # Safety
+///
+/// Windows must call this function using the documented DLL entry-point ABI
+/// and provide the loader-supplied argument values.
 pub unsafe extern "system" fn DllMain(
     _module: HINSTANCE,
     _reason: u32,

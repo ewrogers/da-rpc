@@ -11,6 +11,7 @@ members = [
     "crates/win32",
     "tools/injection-target",
     "tools/lifecycle-host",
+    "tools/loader-fixture-dll",
 ]
 
 [workspace.package]

@@ -444,7 +444,7 @@ See:
 
 Done:
 
-- Connecting, missing, connected, busy, disconnected, and incompatible clients
+- Connecting, not-loaded, connected, busy, disconnected, and incompatible clients
   are distinct.
 - Each connected client exposes its PID, creation time, and instance ID.
 - The UI works without runtime internet access and describes every public
@@ -478,7 +478,7 @@ Build:
 
 - Periodic top-level-window reconciliation using a verified game window class.
 - Candidate PID and expected pipe derivation.
-- Missing, busy, initializing, connected, and incompatible candidate states.
+- Not-loaded, busy, initializing, connected, and incompatible candidate states.
 - Explicit daemon invocation of `loader.exe` for inspect, attach, or launch.
 
 See:

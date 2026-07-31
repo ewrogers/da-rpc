@@ -39,7 +39,7 @@ ClientsResponse {
 
 Client {
     pid: u32,
-    status: "connecting" | "missing" | "connected" | "busy" |
+    status: "connecting" | "not_loaded" | "connected" | "busy" |
             "disconnected" | "incompatible",
     identity: ClientIdentity?,
     connection: ConnectionMetadata?,

@@ -205,7 +205,7 @@ impl From<&ClientSnapshot> for ClientResponse {
 #[serde(rename_all = "snake_case")]
 enum ClientStatus {
     Connecting,
-    Missing,
+    NotLoaded,
     Connected,
     Busy,
     Disconnected,
@@ -216,7 +216,7 @@ impl From<ClientSnapshotStatus> for ClientStatus {
     fn from(status: ClientSnapshotStatus) -> Self {
         match status {
             ClientSnapshotStatus::Connecting => Self::Connecting,
-            ClientSnapshotStatus::Missing => Self::Missing,
+            ClientSnapshotStatus::NotLoaded => Self::NotLoaded,
             ClientSnapshotStatus::Connected => Self::Connected,
             ClientSnapshotStatus::Busy => Self::Busy,
             ClientSnapshotStatus::Disconnected => Self::Disconnected,
@@ -360,7 +360,7 @@ mod tests {
 
         let state = state();
         let mut registry = Registry::new();
-        registry.apply(&ConnectionEvent::Missing { pid: 7 });
+        registry.apply(&ConnectionEvent::NotLoaded { pid: 7 });
         state.publish(registry.snapshot());
         assert_eq!(state.snapshot().clients[0].pid, 7);
     }
@@ -369,7 +369,7 @@ mod tests {
     fn serializes_every_client_status() {
         let mut registry = Registry::new();
         registry.apply(&ConnectionEvent::Connecting { pid: 1 });
-        registry.apply(&ConnectionEvent::Missing { pid: 2 });
+        registry.apply(&ConnectionEvent::NotLoaded { pid: 2 });
         let mut connected = hello();
         connected.process_id = 3;
         registry.apply(&ConnectionEvent::Connected {
@@ -400,7 +400,7 @@ mod tests {
             statuses,
             [
                 "connecting",
-                "missing",
+                "not_loaded",
                 "connected",
                 "busy",
                 "disconnected",

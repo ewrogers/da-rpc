@@ -151,7 +151,7 @@ milestone is M9, the daemon-backed CLI.
 - [x] Publish immutable registry snapshots to an isolated HTTP thread without
   holding the live registry across network I/O.
 - [x] Expose `/health` and `/clients` with dedicated response models and
-  explicit connecting, missing, connected, busy, disconnected, and
+  explicit connecting, not-loaded, connected, busy, disconnected, and
   incompatible states.
 - [x] Expose each observed PID, exact decimal process `created_time`, DLL
   `instance_id`, and connection compatibility metadata.

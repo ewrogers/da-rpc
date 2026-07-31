@@ -145,7 +145,7 @@ fn connect_failure(pid: u32, error: ControllerError) -> ConnectionEvent {
         ControllerError::Io { source, .. }
             if source.raw_os_error().map(|value| value as u32) == Some(ERROR_FILE_NOT_FOUND) =>
         {
-            ConnectionEvent::Missing { pid }
+            ConnectionEvent::NotLoaded { pid }
         }
         ControllerError::Io { source, .. }
             if source.raw_os_error().map(|value| value as u32) == Some(ERROR_PIPE_BUSY) =>

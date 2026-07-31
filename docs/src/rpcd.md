@@ -46,7 +46,7 @@ The current console output reports transitions such as:
 ```text
 HTTP API listening on http://127.0.0.1:2626
 client pid=3780 status=connecting
-client pid=3780 status=missing
+client pid=3780 status=not_loaded
 client pid=3780 status=connected creation_time=... instance=... protocol=1.0 ...
 client pid=3780 status=disconnected instance=... reason="..."
 client pid=3780 status=busy

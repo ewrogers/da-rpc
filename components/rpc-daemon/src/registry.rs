@@ -25,7 +25,7 @@ pub(crate) enum ConnectionEvent {
     Connecting {
         pid: u32,
     },
-    Missing {
+    NotLoaded {
         pid: u32,
     },
     Connected {
@@ -53,7 +53,7 @@ impl ConnectionEvent {
     pub(crate) const fn pid(&self) -> u32 {
         match self {
             Self::Connecting { pid }
-            | Self::Missing { pid }
+            | Self::NotLoaded { pid }
             | Self::Connected { pid, .. }
             | Self::Busy { pid }
             | Self::Disconnected { pid, .. }
@@ -65,7 +65,7 @@ impl ConnectionEvent {
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum TargetStatus {
     Connecting,
-    Missing,
+    NotLoaded,
     Connected(ClientIdentity),
     Busy,
     Disconnected {
@@ -87,7 +87,7 @@ struct ClientRecord {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ClientSnapshotStatus {
     Connecting,
-    Missing,
+    NotLoaded,
     Connected,
     Busy,
     Disconnected,
@@ -128,7 +128,7 @@ impl Registry {
         let pid = event.pid();
         let next = match event {
             ConnectionEvent::Connecting { .. } => TargetStatus::Connecting,
-            ConnectionEvent::Missing { .. } => TargetStatus::Missing,
+            ConnectionEvent::NotLoaded { .. } => TargetStatus::NotLoaded,
             ConnectionEvent::Busy { .. } => TargetStatus::Busy,
             ConnectionEvent::Connected {
                 hello,
@@ -185,7 +185,7 @@ impl Registry {
             .map(|(&pid, target)| {
                 let (status, identity, reason) = match target {
                     TargetStatus::Connecting => (ClientSnapshotStatus::Connecting, None, None),
-                    TargetStatus::Missing => (ClientSnapshotStatus::Missing, None, None),
+                    TargetStatus::NotLoaded => (ClientSnapshotStatus::NotLoaded, None, None),
                     TargetStatus::Connected(identity) => {
                         (ClientSnapshotStatus::Connected, Some(*identity), None)
                     }
@@ -219,7 +219,7 @@ impl Registry {
 pub(crate) fn render_event(event: &ConnectionEvent) -> String {
     match event {
         ConnectionEvent::Connecting { pid } => format!("client pid={pid} status=connecting"),
-        ConnectionEvent::Missing { pid } => format!("client pid={pid} status=missing"),
+        ConnectionEvent::NotLoaded { pid } => format!("client pid={pid} status=not_loaded"),
         ConnectionEvent::Busy { pid } => format!("client pid={pid} status=busy"),
         ConnectionEvent::Connected {
             pid,
@@ -387,7 +387,7 @@ mod tests {
         let mut registry = Registry::new();
         for event in [
             ConnectionEvent::Connecting { pid: 1 },
-            ConnectionEvent::Missing { pid: 2 },
+            ConnectionEvent::NotLoaded { pid: 2 },
             ConnectionEvent::Busy { pid: 3 },
         ] {
             assert!(registry.apply(&event));
@@ -403,7 +403,7 @@ mod tests {
 
         let snapshot = registry.snapshot();
         assert_eq!(snapshot.clients.len(), 4);
-        assert_eq!(snapshot.clients[1].status, ClientSnapshotStatus::Missing);
+        assert_eq!(snapshot.clients[1].status, ClientSnapshotStatus::NotLoaded);
         assert_eq!(snapshot.clients[3].reason.as_deref(), Some("closed"));
     }
 }

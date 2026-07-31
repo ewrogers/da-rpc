@@ -298,7 +298,7 @@ Build:
 - Strict endpoint selection that uses normal disconnected cleanup instead of
   falling back when an explicit server connection fails.
 - Exact 7.41 relative virtual addresses, expected bytes, and replacement bytes
-  owned by the version-specific client crate.
+  owned by the `darpc-game-client` crate.
 - Checked remote writes while the launched primary thread remains suspended,
   before DLL initialization and normal execution.
 
@@ -330,14 +330,16 @@ Done:
 
 Build:
 
-- Fixed frame header, explicit byte order, message discriminants, and payload
-  limits.
+- Fixed little-endian frame header with a per-sender wrapping `u16` sequence,
+  `u32` sender tick in milliseconds, message discriminants, and payload limits.
 - A minimal `Hello` and `HelloAck` containing protocol range, DLL instance ID,
   process ID, process creation time, architecture, DLL version, executable
   fingerprint, and layout ID.
 - Minimal `Ping`, `Pong`, `EchoRequest`, and `EchoResponse` messages with
   explicit request correlation.
 - Checked manual encoding and decoding in `darpc-protocol`.
+- Platform-independent codecs that accept sequence and tick values from their
+  caller rather than reading a Windows clock.
 
 See:
 
@@ -350,6 +352,7 @@ Done:
   versions, and trailing bytes have tests.
 - The decoder validates lengths before allocating.
 - Rust memory layout is never the wire layout.
+- Golden and boundary tests cover sequence wrap and timestamp wrap arithmetic.
 
 ### M6: direct IPC diagnostics through `darpc.exe`
 
@@ -358,6 +361,8 @@ Build:
 - A deterministic PID-based named-pipe server started by DLL initialization and
   stopped by DLL shutdown.
 - Bounded overlapped I/O owned by a DLL worker, independent from game code.
+- Windows transport stamping with `timeGetTime` immediately before sending each
+  frame, plus wrapping sequence advancement in each direction.
 - A `darpc.exe ipc` command group that shares `darpc-protocol` and connects
   directly to one DLL by process ID.
 - `hello`, `ping`, and `echo` commands using the real framing and named pipe.

@@ -39,3 +39,30 @@ These are roles, not a commitment to specific message names or encodings.
 The handshake must establish enough identity and compatibility information for
 `darpcd.exe` to reject a stale, unrelated, or unsupported endpoint before
 accepting its state.
+
+## Frame timing and sequence metadata
+
+Every frame carries two diagnostic fields in its fixed header:
+
+- `sequence: u16` starts at zero for each sender on each connection and advances
+  with wrapping addition for every frame. Each direction has its own sequence.
+- `sender_tick_ms: u32` records the sender's Windows uptime tick immediately
+  before the transport sends the frame.
+
+The Windows transport obtains `sender_tick_ms` from
+[`timeGetTime`](https://learn.microsoft.com/en-us/windows/win32/api/timeapi/nf-timeapi-timegettime),
+the same millisecond clock used by the supported game client. The value wraps
+about every 49.71 days, so elapsed-time calculations always use wrapping
+subtraction. It is neither wall-clock time nor an expiration or authorization
+source. daRPC does not change the Windows multimedia timer resolution merely for
+protocol timestamps.
+
+The `darpc-protocol` codec remains platform-independent: its caller supplies the
+sequence and tick values. The Windows dependency belongs to the transport added
+in M6. A receiver captures its own tick after reading a complete frame, allowing
+same-machine latency and log sequencing to be compared across processes.
+
+Sequence is diagnostic ordering metadata, not request correlation. Requests
+carry a separate wrapping `u32` request ID that the corresponding response
+echoes. This keeps correlation stable when one request produces multiple frames
+or unsolicited events are interleaved.

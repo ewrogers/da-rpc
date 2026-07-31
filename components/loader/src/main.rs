@@ -3,11 +3,13 @@
 mod inject;
 mod pe;
 mod process;
+mod remote;
+mod remote_dll;
 
-use pe::inspect_x86_dll;
-use process::inspect;
+use pe::DarpcDll;
+use process::{TargetProcess, inspect};
 
-use std::{env, ffi::OsString, fs, path::PathBuf, process::ExitCode};
+use std::{env, ffi::OsString, path::PathBuf, process::ExitCode};
 
 const USAGE: &str = "\
 usage:
@@ -87,32 +89,15 @@ fn parse_pid(argument: Option<OsString>) -> Result<u32, String> {
 }
 
 fn attach(pid: u32, dll_path: PathBuf) -> Result<(), String> {
-    let dll_path = fs::canonicalize(&dll_path).map_err(|error| {
-        format!(
-            "failed to resolve DLL path `{}`: {error}",
-            dll_path.display()
-        )
-    })?;
-
-    let metadata = fs::metadata(&dll_path).map_err(|error| {
-        format!(
-            "failed to inspect DLL path `{}`: {error}",
-            dll_path.display()
-        )
-    })?;
-
-    if !metadata.is_file() {
-        return Err(format!("DLL path is not a file: `{}`", dll_path.display()));
-    }
-
-    let exports = inspect_x86_dll(&dll_path)?;
+    let dll = DarpcDll::validate(dll_path)?;
 
     println!(
         "Validated x86 DLL: {} initialize_rva=0x{:08X} shutdown_rva=0x{:08X}",
-        dll_path.display(),
-        exports.initialize_rva,
-        exports.shutdown_rva
+        dll.path.display(),
+        dll.initialize_rva,
+        dll.shutdown_rva
     );
 
-    inject::attach(pid, &dll_path, exports.initialize_rva)
+    let process = TargetProcess::open(pid)?;
+    inject::attach(&process, &dll)
 }

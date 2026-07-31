@@ -29,6 +29,12 @@ pub(crate) struct ProcessInspection {
 }
 
 #[cfg(windows)]
+pub(crate) struct TargetProcess {
+    pid: u32,
+    handle: OwnedHandle,
+}
+
+#[cfg(windows)]
 fn open_process(pid: u32, access: u32) -> Result<OwnedHandle, String> {
     // SAFETY: `pid` has been validated as nonzero, the caller supplies
     // the desired access mask, and handle inheritance is disabled.
@@ -47,18 +53,7 @@ fn open_process(pid: u32, access: u32) -> Result<OwnedHandle, String> {
 }
 
 #[cfg(windows)]
-pub(crate) fn open_for_injection(pid: u32) -> Result<OwnedHandle, String> {
-    let access = PROCESS_CREATE_THREAD
-        | PROCESS_QUERY_INFORMATION
-        | PROCESS_VM_OPERATION
-        | PROCESS_VM_READ
-        | PROCESS_VM_WRITE;
-
-    open_process(pid, access)
-}
-
-#[cfg(windows)]
-pub(crate) fn module_base(pid: u32, expected_name: &str) -> Result<Option<usize>, String> {
+fn module_base(pid: u32, expected_name: &str) -> Result<Option<usize>, String> {
     // SAFETY: the validated PID identifies the target process, and the
     // requested snapshot contains read-only module information.
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPMODULE, pid) };
@@ -74,9 +69,11 @@ pub(crate) fn module_base(pid: u32, expected_name: &str) -> Result<Option<usize>
     // is transferred exactly once.
     let snapshot = unsafe { OwnedHandle::from_raw_handle(snapshot) };
 
-    let mut module = MODULEENTRY32W::default();
-    module.dwSize = u32::try_from(size_of::<MODULEENTRY32W>())
-        .map_err(|_| "module entry size does not fit in u32".to_owned())?;
+    let mut module = MODULEENTRY32W {
+        dwSize: u32::try_from(size_of::<MODULEENTRY32W>())
+            .map_err(|_| "module entry size does not fit in u32".to_owned())?,
+        ..Default::default()
+    };
 
     // SAFETY: `snapshot` owns a valid module snapshot handle. `module`
     // is writable, and `dwSize` describes its complete initialized size.
@@ -129,14 +126,11 @@ fn decode_module_name(module: &MODULEENTRY32W) -> String {
 #[cfg(windows)]
 pub(crate) fn inspect(pid: u32) -> Result<ProcessInspection, String> {
     let process = open_process(pid, PROCESS_QUERY_LIMITED_INFORMATION)?;
-    inspect_process(pid, &process)
+    inspect_handle(pid, &process)
 }
 
 #[cfg(windows)]
-pub(crate) fn inspect_process(
-    pid: u32,
-    process: &OwnedHandle,
-) -> Result<ProcessInspection, String> {
+fn inspect_handle(pid: u32, process: &OwnedHandle) -> Result<ProcessInspection, String> {
     println!("Opened target process");
 
     let mut process_machine = IMAGE_FILE_MACHINE_UNKNOWN;
@@ -213,6 +207,48 @@ pub(crate) fn inspect_process(
         creation_time,
         darpc_loaded,
     })
+}
+
+#[cfg(windows)]
+impl TargetProcess {
+    pub(crate) fn open(pid: u32) -> Result<Self, String> {
+        let access = PROCESS_CREATE_THREAD
+            | PROCESS_QUERY_INFORMATION
+            | PROCESS_VM_OPERATION
+            | PROCESS_VM_READ
+            | PROCESS_VM_WRITE;
+
+        Ok(Self {
+            pid,
+            handle: open_process(pid, access)?,
+        })
+    }
+
+    pub(crate) fn pid(&self) -> u32 {
+        self.pid
+    }
+
+    pub(crate) fn handle(&self) -> &OwnedHandle {
+        &self.handle
+    }
+
+    pub(crate) fn module_base(&self, expected_name: &str) -> Result<Option<usize>, String> {
+        module_base(self.pid, expected_name)
+    }
+
+    pub(crate) fn inspect(&self) -> Result<ProcessInspection, String> {
+        inspect_handle(self.pid, &self.handle)
+    }
+}
+
+#[cfg(not(windows))]
+pub(crate) struct TargetProcess;
+
+#[cfg(not(windows))]
+impl TargetProcess {
+    pub(crate) fn open(_pid: u32) -> Result<Self, String> {
+        Err("loader requires Windows".to_owned())
+    }
 }
 
 #[cfg(not(windows))]

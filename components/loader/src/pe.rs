@@ -1,5 +1,8 @@
 use darpc_win32::lifecycle::{INITIALIZE_EXPORT, SHUTDOWN_EXPORT};
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 const MAX_DLL_SIZE: u64 = 64 * 1024 * 1024;
 const MAX_EXPORT_NAME_SIZE: u32 = 256;
@@ -24,9 +27,15 @@ const EXPORT_FUNCTION_TABLE_RVA_OFFSET: usize = 28;
 const EXPORT_NAME_TABLE_RVA_OFFSET: usize = 32;
 const EXPORT_ORDINAL_TABLE_RVA_OFFSET: usize = 36;
 
-pub(crate) struct LifecycleExports {
+pub(crate) struct DarpcDll {
+    pub(crate) path: PathBuf,
     pub(crate) initialize_rva: u32,
     pub(crate) shutdown_rva: u32,
+}
+
+struct LifecycleExports {
+    initialize_rva: u32,
+    shutdown_rva: u32,
 }
 
 struct PeHeaders<'a> {
@@ -150,6 +159,10 @@ fn export_name_at_rva(
 fn read_dll(path: &Path) -> Result<Vec<u8>, String> {
     let metadata = fs::metadata(path)
         .map_err(|error| format!("failed to inspect `{}`: {error}", path.display()))?;
+
+    if !metadata.is_file() {
+        return Err(format!("DLL path is not a file: `{}`", path.display()));
+    }
 
     if metadata.len() > MAX_DLL_SIZE {
         return Err(format!("DLL exceeds {MAX_DLL_SIZE} bytes"));
@@ -438,8 +451,51 @@ fn find_lifecycle_exports(
     })
 }
 
-pub(crate) fn inspect_x86_dll(path: &Path) -> Result<LifecycleExports, String> {
-    let image = read_dll(path)?;
-    let headers = parse_headers(&image)?;
-    find_lifecycle_exports(&image, &headers)
+impl DarpcDll {
+    pub(crate) fn validate(path: PathBuf) -> Result<Self, String> {
+        let path = fs::canonicalize(&path)
+            .map_err(|error| format!("failed to resolve DLL path `{}`: {error}", path.display()))?;
+
+        let image = read_dll(&path)?;
+        let headers = parse_headers(&image)?;
+        let exports = find_lifecycle_exports(&image, &headers)?;
+
+        Ok(Self {
+            path,
+            initialize_rva: exports.initialize_rva,
+            shutdown_rva: exports.shutdown_rva,
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DarpcDll;
+    use std::{env, fs, process};
+
+    #[test]
+    fn validation_rejects_directory() {
+        let path = env::temp_dir().join(format!("darpc-loader-{}-directory", process::id()));
+        let _ = fs::remove_dir(&path);
+        fs::create_dir(&path).expect("create test directory");
+
+        let result = DarpcDll::validate(path.clone());
+
+        fs::remove_dir(&path).expect("remove test directory");
+        let error = result.err().expect("directory must be rejected");
+        assert!(error.contains("DLL path is not a file"));
+    }
+
+    #[test]
+    fn validation_rejects_non_pe_file() {
+        let path = env::temp_dir().join(format!("darpc-loader-{}-invalid.dll", process::id()));
+        let _ = fs::remove_file(&path);
+        fs::write(&path, b"NO").expect("write invalid test DLL");
+
+        let result = DarpcDll::validate(path.clone());
+
+        fs::remove_file(&path).expect("remove invalid test DLL");
+        let error = result.err().expect("non-PE file must be rejected");
+        assert_eq!(error, "file does not have an MZ header");
+    }
 }

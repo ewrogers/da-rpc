@@ -355,3 +355,4 @@ Assert-True (-not (Test-Path $LaunchFailureReport)) "failed launch resumed the t
 Remove-Item -Recurse -Force $LaunchDirectory
 
 Write-Host "Loader M3 integration checks passed"
+exit 0

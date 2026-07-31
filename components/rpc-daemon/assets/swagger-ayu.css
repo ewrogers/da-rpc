@@ -5,7 +5,7 @@
   --ayu-panel-raised: #151a22;
   --ayu-border: #2d3640;
   --ayu-text: #bfbdb6;
-  --ayu-muted: #6c7680;
+  --ayu-muted: #8a9199;
   --ayu-orange: #ffb454;
   --ayu-orange-strong: #ff8f40;
   --ayu-blue: #59c2ff;
@@ -129,6 +129,18 @@ body {
 .swagger-ui .model .property.primitive,
 .swagger-ui .prop-format,
 .swagger-ui .response-col_links {
+  color: var(--ayu-muted);
+}
+
+.swagger-ui .opblock .opblock-section-header h4,
+.swagger-ui .opblock .opblock-section-header h4 span,
+.swagger-ui .responses-wrapper .opblock-section-header h4 {
+  color: var(--ayu-text);
+}
+
+.swagger-ui .opblock-body .markdown p,
+.swagger-ui .opblock-body .renderedMarkdown p,
+.swagger-ui .opblock-description-wrapper p {
   color: var(--ayu-muted);
 }
 

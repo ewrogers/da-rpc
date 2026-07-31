@@ -291,6 +291,21 @@ fn run_remote_thread(
 }
 
 #[cfg(windows)]
+fn unload_remote_dll(
+    process: &OwnedHandle,
+    free_library: usize,
+    module: usize,
+) -> Result<(), String> {
+    let exit_code = run_remote_thread(process, free_library, module as *mut c_void, "FreeLibrary")?;
+
+    if exit_code == 0 {
+        return Err("remote FreeLibrary returned failure".to_owned());
+    }
+
+    Ok(())
+}
+
+#[cfg(windows)]
 pub(crate) fn attach(pid: u32, dll_path: &Path, initialize_rva: u32) -> Result<(), String> {
     let dll_path_wide = encode_dll_path(dll_path)?;
 
@@ -326,6 +341,32 @@ pub(crate) fn attach(pid: u32, dll_path: &Path, initialize_rva: u32) -> Result<(
     println!(
         "Target LoadLibraryW: module={module_name} base=0x{remote_module_base:X} \
         offset=0x{offset:X} address=0x{remote_load_library:X}"
+    );
+
+    let (free_library_module, free_library_offset) = local_kernel_export(c"FreeLibrary")?;
+
+    println!(
+        "Local FreeLibrary: module={free_library_module} \
+        offset=0x{free_library_offset:X}"
+    );
+
+    let free_library_module_base =
+        process::module_base(pid, &free_library_module)?.ok_or_else(|| {
+            format!(
+                "target module containing FreeLibrary is not loaded: \
+                {free_library_module}"
+            )
+        })?;
+
+    let remote_free_library = free_library_module_base
+        .checked_add(free_library_offset)
+        .ok_or_else(|| "target FreeLibrary address overflow".to_owned())?;
+
+    println!(
+        "Target FreeLibrary: module={free_library_module} \
+        base=0x{free_library_module_base:X} \
+        offset=0x{free_library_offset:X} \
+        address=0x{remote_free_library:X}"
     );
 
     let dll_path_size = dll_path_wide
@@ -394,9 +435,16 @@ pub(crate) fn attach(pid: u32, dll_path: &Path, initialize_rva: u32) -> Result<(
     )?;
 
     if initialize_status != Status::OK.as_u32() {
-        return Err(format!(
-            "darpc_initialize failed: status={initialize_status}"
-        ));
+        let initialize_error = format!("darpc_initialize failed: status={initialize_status}");
+
+        if let Err(error) = unload_remote_dll(&process, remote_free_library, loaded_module) {
+            return Err(format!(
+                "{initialize_error}; rollback FreeLibrary failed: {error}"
+            ));
+        }
+
+        println!("Rollback FreeLibrary succeeded");
+        return Err(initialize_error);
     }
 
     println!("darpc_initialize succeeded: status={initialize_status}");

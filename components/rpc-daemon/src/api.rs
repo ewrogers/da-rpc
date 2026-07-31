@@ -479,6 +479,7 @@ mod tests {
         assert!(theme.contains(".swagger-ui .info .title small pre.version"));
         assert!(theme.contains(".swagger-ui button.model-box-control"));
         assert!(theme.contains(".swagger-ui .json-schema-2020-12-accordion"));
+        assert!(theme.contains(".swagger-ui .opblock-summary-control:focus"));
     }
 
     #[test]

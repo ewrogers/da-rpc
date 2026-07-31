@@ -76,6 +76,13 @@ body {
   color: var(--ayu-orange);
 }
 
+.swagger-ui .opblock-summary-control:focus,
+.swagger-ui .opblock-summary-control:focus-visible {
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 2px rgb(255 180 84 / 45%);
+  outline: none;
+}
+
 .swagger-ui .info .title small {
   background: var(--ayu-orange-strong);
   color: var(--ayu-bg);

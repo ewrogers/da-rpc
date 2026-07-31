@@ -85,17 +85,46 @@ Install the Rust targets used by the runtime components from a Windows shell:
 rustup target add i686-pc-windows-msvc x86_64-pc-windows-msvc
 ```
 
-On Apple silicon, Windows 11 Arm in a virtual machine can build and run the x86
-artifacts. Perform MSVC builds and executable tests inside Windows rather than
-cross-compiling them from macOS.
+Developers working natively on Windows can build and test directly from their
+normal checkout. On Apple silicon, Windows 11 Arm in a virtual machine can
+build and run the x86 artifacts. macOS can run platform-independent tests and
+cross-target checks, but MSVC builds and executable integration tests should
+run inside Windows.
 
-When the source tree is mounted through a Parallels shared folder, keep Cargo's
-generated files on the Windows-local filesystem. For example, set this in
-PowerShell before building:
+### Optional macOS and Parallels workflow
+
+Parallels Desktop can provide the native Windows verification environment while
+the repository remains in a macOS checkout. This is optional and is not
+required for developers already working on Windows.
+
+Share or mount the checkout into the guest, but discover its guest path rather
+than relying on a fixed drive letter. Mapped drives, virtual machine names, and
+Windows usernames vary by developer and session. Keep Cargo-generated files on
+the Windows-local filesystem. For example, set an environment-specific local
+directory in PowerShell before building:
 
 ```powershell
 $env:CARGO_TARGET_DIR = "C:\cargo-target\da-rpc"
+Set-Location "<guest-path-to-repository>"
 ```
+
+Parallels Pro can invoke guest commands from macOS. First discover the virtual
+machine, then execute in the logged-in Windows user context so mapped drives and
+the user's Rust environment are available:
+
+```text
+prlctl list -a
+prlctl exec "<vm-name>" --current-user powershell.exe <arguments>
+```
+
+The intended development loop is:
+
+1. Run formatting, platform-independent tests, and cross-target checks on
+   macOS.
+2. Build the required MSVC target inside Windows with a Windows-local
+   `CARGO_TARGET_DIR`.
+3. Run the repository-owned Windows integration script inside the guest.
+4. Treat both host and native guest results as completion evidence.
 
 ## Development
 

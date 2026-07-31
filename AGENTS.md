@@ -84,6 +84,33 @@ the product direction and retains ownership of the repository.
 Do not claim that a component, protocol operation, or client version is
 supported until its implementation and verification exist in the repository.
 
+## Windows verification from macOS
+
+Windows-native development and verification remain the default when Windows is
+already the development host. When working from macOS, do not assume that
+Windows-specific builds or runtime checks are unavailable:
+
+- Check whether Parallels Desktop and an accessible Windows virtual machine are
+  available before stopping at macOS-only verification.
+- Discover the current virtual machine name, state, guest user, repository
+  location, mapped drives, Rust toolchain, installed targets, and build-output
+  location through read-only checks. Never assume repository mappings such as
+  `X:`, a particular virtual machine name, or a Windows username.
+- Prefer `prlctl exec <vm> --current-user ...` when supported. The current-user
+  context exposes that user's mapped drives and configured Rust environment,
+  while the default guest context may run as `SYSTEM`.
+- Keep Cargo-generated files on a Windows-local filesystem when the source is
+  mounted from macOS. The exact target directory is environment-specific and
+  must be discovered or chosen explicitly.
+- Run repository-owned Windows verification scripts when available and report
+  both the host checks and native guest results.
+- Prefer an already-running virtual machine. Do not start, stop, reconfigure,
+  or install software in a virtual machine unless the task or project owner
+  authorizes it.
+
+If no usable Windows environment is available, run the applicable host and
+cross-target checks, then state clearly which native Windows checks remain.
+
 ## Rust conventions
 
 - Follow stable Rust conventions unless a crate documents a justified nightly

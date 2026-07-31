@@ -10,6 +10,7 @@ publish = false
 [dependencies]
 darpc-model.workspace = true
 darpc-win32.workspace = true
+sha2.workspace = true
 
 [lints]
 workspace = true

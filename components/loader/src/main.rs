@@ -9,12 +9,19 @@ mod process;
 mod remote;
 mod remote_dll;
 
+use darpc_client_741::{CLIENT_VERSION, ClientExecutable, executable_sha256};
 use error::{ErrorKind, LoaderError, Result};
 use output::{CommandResult, OutputFormat, render_error};
 use pe::DarpcDll;
 use process::{ProcessInspection, TargetProcess, inspect};
 
 use std::{env, ffi::OsString, path::PathBuf, process::ExitCode};
+
+#[cfg(debug_assertions)]
+use std::fs;
+
+#[cfg(debug_assertions)]
+const TEST_CLIENT_BYPASS_ENVIRONMENT_VARIABLE: &str = "DARPC_LOADER_TEST_ALLOW_UNSUPPORTED_CLIENT";
 
 const USAGE: &str = "\
 usage:
@@ -198,6 +205,7 @@ fn execute(command: Command) -> Result<CommandResult> {
         Command::Attach { pid, dll_path } => {
             let dll = validate_dll(dll_path)?;
             let process = TargetProcess::open(pid)?;
+            validate_client(process.executable_path()?)?;
             let outcome = inject::attach(&process, &dll)?;
 
             Ok(command_result(
@@ -225,6 +233,7 @@ fn execute(command: Command) -> Result<CommandResult> {
             arguments,
         } => {
             let dll = validate_dll(dll_path)?;
+            let executable_path = validate_client(executable_path)?;
             let outcome = launch::launch(&executable_path, &arguments, &dll)?;
 
             Ok(command_result(
@@ -235,6 +244,40 @@ fn execute(command: Command) -> Result<CommandResult> {
             ))
         }
     }
+}
+
+fn validate_client(executable_path: PathBuf) -> Result<PathBuf> {
+    #[cfg(debug_assertions)]
+    if env::var_os(TEST_CLIENT_BYPASS_ENVIRONMENT_VARIABLE).as_deref()
+        == Some(std::ffi::OsStr::new("1"))
+    {
+        let executable_path = fs::canonicalize(&executable_path).map_err(|error| {
+            LoaderError::new(
+                ErrorKind::UnsupportedClient,
+                format!(
+                    "failed to resolve test client `{}`: {error}",
+                    executable_path.display(),
+                ),
+            )
+        })?;
+
+        eprintln!(
+            "WARNING: debug-only unsupported-client test bypass enabled for {}",
+            executable_path.display()
+        );
+        return Ok(executable_path);
+    }
+
+    let executable = ClientExecutable::validate(&executable_path)
+        .map_err(|error| LoaderError::new(ErrorKind::UnsupportedClient, error))?;
+
+    eprintln!(
+        "Validated Dark Ages client {CLIENT_VERSION}: {} sha256={}",
+        executable.path().display(),
+        executable_sha256()
+    );
+
+    Ok(executable.path().to_owned())
 }
 
 fn validate_dll(dll_path: PathBuf) -> Result<DarpcDll> {

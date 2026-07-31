@@ -3,8 +3,10 @@ use std::path::PathBuf;
 
 #[cfg(windows)]
 use std::{
+    ffi::OsString,
     io,
     mem::size_of,
+    os::windows::ffi::OsStringExt,
     os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle},
 };
 
@@ -22,7 +24,7 @@ use windows_sys::Win32::{
         Threading::{
             GetExitCodeProcess, GetProcessTimes, IsWow64Process2, OpenProcess,
             PROCESS_CREATE_THREAD, PROCESS_QUERY_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION,
-            PROCESS_VM_OPERATION, PROCESS_VM_READ, PROCESS_VM_WRITE,
+            PROCESS_VM_OPERATION, PROCESS_VM_READ, PROCESS_VM_WRITE, QueryFullProcessImageNameW,
         },
     },
 };
@@ -343,6 +345,49 @@ impl TargetProcess {
         is_running(self.pid, &self.handle)
     }
 
+    pub(crate) fn executable_path(&self) -> Result<PathBuf> {
+        const MAX_EXECUTABLE_PATH_UNITS: usize = 32_768;
+
+        let mut path = vec![0_u16; MAX_EXECUTABLE_PATH_UNITS];
+        let mut length = u32::try_from(path.len()).map_err(|_| {
+            LoaderError::new(
+                ErrorKind::Internal,
+                "executable path buffer length does not fit u32",
+            )
+        })?;
+
+        // SAFETY: the process handle includes query access, path is writable
+        // for length UTF-16 code units, and length is a writable in/out value.
+        let succeeded = unsafe {
+            QueryFullProcessImageNameW(
+                self.handle.as_raw_handle(),
+                0,
+                path.as_mut_ptr(),
+                &mut length,
+            )
+        };
+
+        if succeeded == 0 {
+            let error = io::Error::last_os_error();
+            ensure_running(self.pid, &self.handle)?;
+            return Err(LoaderError::from_io(
+                ErrorKind::RemoteOperationFailed,
+                format!("failed to query process {} executable path", self.pid),
+                error,
+            ));
+        }
+
+        let length = usize::try_from(length).map_err(|_| {
+            LoaderError::new(
+                ErrorKind::Internal,
+                "executable path length does not fit usize",
+            )
+        })?;
+        path.truncate(length);
+
+        Ok(PathBuf::from(OsString::from_wide(&path)))
+    }
+
     pub(crate) fn module_base(&self, expected_name: &str) -> Result<Option<usize>> {
         Ok(self
             .module(expected_name)?
@@ -373,6 +418,13 @@ impl TargetProcess {
             "loader requires Windows",
         ))
     }
+
+    pub(crate) fn executable_path(&self) -> Result<PathBuf> {
+        Err(LoaderError::new(
+            ErrorKind::UnsupportedPlatform,
+            "loader requires Windows",
+        ))
+    }
 }
 
 #[cfg(not(windows))]
@@ -385,9 +437,27 @@ pub(crate) fn inspect(_pid: u32) -> Result<ProcessInspection> {
 
 #[cfg(all(test, windows))]
 mod tests {
-    use super::ensure_running;
+    use super::{TargetProcess, ensure_running};
     use crate::error::ErrorKind;
-    use std::process::Command;
+    use std::{fs, process, process::Command};
+
+    #[test]
+    fn reads_the_target_executable_path() {
+        let target = TargetProcess::open(process::id()).expect("failed to open test process");
+        let observed = fs::canonicalize(
+            target
+                .executable_path()
+                .expect("failed to query test executable path"),
+        )
+        .expect("failed to canonicalize observed executable");
+        let expected = fs::canonicalize(std::env::current_exe().expect("missing test executable"))
+            .expect("failed to canonicalize test executable");
+
+        assert_eq!(
+            observed.to_string_lossy().to_ascii_lowercase(),
+            expected.to_string_lossy().to_ascii_lowercase()
+        );
+    }
 
     #[test]
     fn terminated_process_has_an_exited_result() {

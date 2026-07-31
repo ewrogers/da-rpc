@@ -1,1 +1,133 @@
 //! Version-specific integration boundary for Dark Ages client version 7.41.
+
+use sha2::{Digest, Sha256};
+use std::{
+    fmt::Write as _,
+    fs,
+    path::{Path, PathBuf},
+};
+
+pub const CLIENT_VERSION: &str = "7.41";
+pub const EXECUTABLE_SIZE: u64 = 3_112_960;
+pub const EXECUTABLE_SHA256: [u8; 32] = [
+    0x05, 0x4A, 0x5D, 0x6A, 0xDC, 0x56, 0x09, 0x9C, 0x6B, 0xFD, 0x9D, 0x2A, 0x58, 0x67, 0x5A, 0xFF,
+    0x62, 0xDC, 0x78, 0x8B, 0x63, 0x20, 0x9A, 0x3D, 0x90, 0x64, 0x92, 0xF5, 0xB8, 0x9E, 0x96, 0xC6,
+];
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientExecutable {
+    path: PathBuf,
+}
+
+impl ClientExecutable {
+    pub fn validate(path: impl AsRef<Path>) -> Result<Self, String> {
+        let path = path.as_ref();
+        let canonical_path = fs::canonicalize(path).map_err(|error| {
+            format!(
+                "failed to resolve client executable `{}`: {error}",
+                path.display()
+            )
+        })?;
+        let metadata = fs::metadata(&canonical_path).map_err(|error| {
+            format!(
+                "failed to inspect client executable `{}`: {error}",
+                canonical_path.display()
+            )
+        })?;
+
+        if !metadata.is_file() {
+            return Err(format!(
+                "client executable is not a file: `{}`",
+                canonical_path.display()
+            ));
+        }
+
+        if metadata.len() != EXECUTABLE_SIZE {
+            return Err(format!(
+                "unsupported client executable size: expected={EXECUTABLE_SIZE} actual={}",
+                metadata.len()
+            ));
+        }
+
+        let image = fs::read(&canonical_path).map_err(|error| {
+            format!(
+                "failed to read client executable `{}`: {error}",
+                canonical_path.display()
+            )
+        })?;
+        let actual_hash: [u8; 32] = Sha256::digest(&image).into();
+
+        if actual_hash != EXECUTABLE_SHA256 {
+            return Err(format!(
+                "unsupported client executable SHA-256: expected={} actual={}",
+                encode_hash(&EXECUTABLE_SHA256),
+                encode_hash(&actual_hash)
+            ));
+        }
+
+        Ok(Self {
+            path: canonical_path,
+        })
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+pub fn executable_sha256() -> String {
+    encode_hash(&EXECUTABLE_SHA256)
+}
+
+fn encode_hash(hash: &[u8; 32]) -> String {
+    let mut encoded = String::with_capacity(hash.len() * 2);
+
+    for byte in hash {
+        write!(encoded, "{byte:02X}").expect("writing to a String cannot fail");
+    }
+
+    encoded
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ClientExecutable, EXECUTABLE_SHA256, EXECUTABLE_SIZE, executable_sha256};
+    use std::{fs, process};
+
+    #[test]
+    fn renders_the_supported_fingerprint() {
+        assert_eq!(
+            executable_sha256(),
+            "054A5D6ADC56099C6BFD9D2A58675AFF62DC788B63209A3D906492F5B89E96C6"
+        );
+        assert_eq!(EXECUTABLE_SHA256.len(), 32);
+    }
+
+    #[test]
+    fn rejects_an_executable_with_the_wrong_size() {
+        let path =
+            std::env::temp_dir().join(format!("darpc-client-741-wrong-size-{}.exe", process::id()));
+        fs::write(&path, b"not the supported client").expect("failed to write test executable");
+
+        let error = ClientExecutable::validate(&path)
+            .expect_err("wrong-sized executable unexpectedly validated");
+
+        fs::remove_file(path).expect("failed to remove test executable");
+        assert!(error.contains("unsupported client executable size"));
+    }
+
+    #[test]
+    fn rejects_an_executable_with_the_wrong_hash() {
+        let path =
+            std::env::temp_dir().join(format!("darpc-client-741-wrong-hash-{}.exe", process::id()));
+        let file = fs::File::create(&path).expect("failed to create test executable");
+        file.set_len(EXECUTABLE_SIZE)
+            .expect("failed to size test executable");
+
+        let error = ClientExecutable::validate(&path)
+            .expect_err("wrong executable fingerprint unexpectedly validated");
+
+        fs::remove_file(path).expect("failed to remove test executable");
+        assert!(error.contains("unsupported client executable SHA-256"));
+    }
+}

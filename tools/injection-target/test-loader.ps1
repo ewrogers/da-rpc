@@ -4,6 +4,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$env:DARPC_LOADER_TEST_ALLOW_UNSUPPORTED_CLIENT = "1"
 
 $Loader = Join-Path $TargetDir "loader.exe"
 $Target = Join-Path $TargetDir "injection-target.exe"

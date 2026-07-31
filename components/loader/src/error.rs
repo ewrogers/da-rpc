@@ -21,6 +21,7 @@ pub(crate) enum ErrorKind {
     RemoteOperationFailed,
     Internal,
     LaunchFailed,
+    UnsupportedClient,
 }
 
 impl ErrorKind {
@@ -40,6 +41,7 @@ impl ErrorKind {
             Self::RemoteOperationFailed => "remote_operation_failed",
             Self::Internal => "internal",
             Self::LaunchFailed => "launch_failed",
+            Self::UnsupportedClient => "unsupported_client",
         }
     }
 
@@ -59,6 +61,7 @@ impl ErrorKind {
             Self::RemoteOperationFailed => 13,
             Self::Internal => 14,
             Self::LaunchFailed => 15,
+            Self::UnsupportedClient => 16,
         }
     }
 }
@@ -149,6 +152,7 @@ mod tests {
             ),
             (ErrorKind::Internal, "internal", 14),
             (ErrorKind::LaunchFailed, "launch_failed", 15),
+            (ErrorKind::UnsupportedClient, "unsupported_client", 16),
         ];
         let mut names = BTreeSet::new();
         let mut exit_codes = BTreeSet::new();

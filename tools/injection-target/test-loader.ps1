@@ -352,7 +352,17 @@ Assert-True ($null -ne $Result.pid) "failed launch did not report its child PID"
 Assert-ProcessExited -ProcessId $Result.pid -Context "failed launch cleanup"
 Assert-True (-not (Test-Path $LaunchFailureReport)) "failed launch resumed the target"
 
-Remove-Item -Recurse -Force $LaunchDirectory
+for ($Attempt = 1; $Attempt -le 20; $Attempt++) {
+    try {
+        Remove-Item -Recurse -Force $LaunchDirectory
+        break
+    } catch {
+        if ($Attempt -eq 20) {
+            throw
+        }
+        Start-Sleep -Milliseconds 100
+    }
+}
 
 Write-Host "Loader M3 integration checks passed"
 exit 0

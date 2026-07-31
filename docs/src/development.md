@@ -36,6 +36,26 @@ cargo check -p darpc-model -p darpc-protocol
 
 Component builds and checks should specify their intended target.
 
+On Windows Arm, a native Arm64 Rust toolchain needs the matching Arm64 MSVC
+libraries to link dependency build scripts and procedural macros. When the VM
+has only the x64 MSVC tools, install Rust's x64 host toolchain and run it under
+Windows x64 emulation from an x64 Developer Command Prompt:
+
+```powershell
+rustup toolchain install stable-x86_64-pc-windows-msvc `
+    --profile minimal `
+    --force-non-host
+rustup +stable-x86_64-pc-windows-msvc target add i686-pc-windows-msvc
+
+cargo +stable-x86_64-pc-windows-msvc build -p rpc-daemon -p rpc-client
+cargo +stable-x86_64-pc-windows-msvc build `
+    -p loader -p rpc-dll -p injection-target `
+    --target i686-pc-windows-msvc
+```
+
+This workaround is unnecessary on native x64 Windows or when the Arm64 MSVC
+workload is installed.
+
 The controlled IPC integration test requires both architectures. Keep build
 outputs on a Windows-local filesystem, then pass their artifact directories to
 the script:
@@ -73,9 +93,12 @@ cargo build -p rpc-client -p rpc-daemon `
 ```
 
 It starts the daemon before injection, connects both targets, verifies exclusive
-pipe ownership, restarts the daemon, replaces one DLL instance, and confirms the
-other client stays connected. Incompatible negotiation is exercised by the
-native Windows controller-session test.
+pipe ownership, inspects both identities through `/clients`, checks
+`/health`, OpenAPI 3.1, and vendored Swagger assets, and exercises the default
+and overridden HTTP ports. It then restarts the daemon, replaces one DLL
+instance, confirms the other client stays connected, and verifies occupied-port
+failure. Incompatible negotiation is exercised by the native Windows
+controller-session test.
 
 ## Documentation
 

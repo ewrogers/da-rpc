@@ -25,6 +25,9 @@ pub(crate) enum ConnectionEvent {
     Connecting {
         pid: u32,
     },
+    Missing {
+        pid: u32,
+    },
     Connected {
         pid: u32,
         hello: Hello,
@@ -50,6 +53,7 @@ impl ConnectionEvent {
     pub(crate) const fn pid(&self) -> u32 {
         match self {
             Self::Connecting { pid }
+            | Self::Missing { pid }
             | Self::Connected { pid, .. }
             | Self::Busy { pid }
             | Self::Disconnected { pid, .. }
@@ -61,6 +65,7 @@ impl ConnectionEvent {
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum TargetStatus {
     Connecting,
+    Missing,
     Connected(ClientIdentity),
     Busy,
     Disconnected {
@@ -77,7 +82,31 @@ enum TargetStatus {
 struct ClientRecord {
     hello: Hello,
     selected_version: u16,
-    connected: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ClientSnapshotStatus {
+    Connecting,
+    Missing,
+    Connected,
+    Busy,
+    Disconnected,
+    Incompatible,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct ClientSnapshot {
+    pub(crate) pid: u32,
+    pub(crate) status: ClientSnapshotStatus,
+    pub(crate) identity: Option<ClientIdentity>,
+    pub(crate) hello: Option<Hello>,
+    pub(crate) selected_version: Option<u16>,
+    pub(crate) reason: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct RegistrySnapshot {
+    pub(crate) clients: Vec<ClientSnapshot>,
 }
 
 #[derive(Default)]
@@ -99,6 +128,7 @@ impl Registry {
         let pid = event.pid();
         let next = match event {
             ConnectionEvent::Connecting { .. } => TargetStatus::Connecting,
+            ConnectionEvent::Missing { .. } => TargetStatus::Missing,
             ConnectionEvent::Busy { .. } => TargetStatus::Busy,
             ConnectionEvent::Connected {
                 hello,
@@ -112,7 +142,6 @@ impl Registry {
                     ClientRecord {
                         hello: *hello,
                         selected_version: *selected_version,
-                        connected: true,
                     },
                 );
                 TargetStatus::Connected(identity)
@@ -120,16 +149,13 @@ impl Registry {
             ConnectionEvent::Disconnected {
                 identity, reason, ..
             } => {
-                if let Some(identity) = identity {
-                    if let Some(client) = self.clients.get_mut(identity) {
-                        client.connected = false;
-                    }
-                    if matches!(
+                if let Some(identity) = identity
+                    && matches!(
                         self.targets.get(&pid),
                         Some(TargetStatus::Connected(current)) if current != identity
-                    ) {
-                        return false;
-                    }
+                    )
+                {
+                    return false;
                 }
                 TargetStatus::Disconnected {
                     identity: *identity,
@@ -150,11 +176,50 @@ impl Registry {
         self.targets.insert(pid, next);
         true
     }
+
+    #[must_use]
+    pub(crate) fn snapshot(&self) -> RegistrySnapshot {
+        let clients = self
+            .targets
+            .iter()
+            .map(|(&pid, target)| {
+                let (status, identity, reason) = match target {
+                    TargetStatus::Connecting => (ClientSnapshotStatus::Connecting, None, None),
+                    TargetStatus::Missing => (ClientSnapshotStatus::Missing, None, None),
+                    TargetStatus::Connected(identity) => {
+                        (ClientSnapshotStatus::Connected, Some(*identity), None)
+                    }
+                    TargetStatus::Busy => (ClientSnapshotStatus::Busy, None, None),
+                    TargetStatus::Disconnected { identity, reason } => (
+                        ClientSnapshotStatus::Disconnected,
+                        *identity,
+                        Some(reason.clone()),
+                    ),
+                    TargetStatus::Incompatible { identity, reason } => (
+                        ClientSnapshotStatus::Incompatible,
+                        *identity,
+                        Some(reason.clone()),
+                    ),
+                };
+                let record = identity.and_then(|identity| self.clients.get(&identity));
+                ClientSnapshot {
+                    pid,
+                    status,
+                    identity,
+                    hello: record.map(|record| record.hello),
+                    selected_version: record.map(|record| record.selected_version),
+                    reason,
+                }
+            })
+            .collect();
+        RegistrySnapshot { clients }
+    }
 }
 
 pub(crate) fn render_event(event: &ConnectionEvent) -> String {
     match event {
         ConnectionEvent::Connecting { pid } => format!("client pid={pid} status=connecting"),
+        ConnectionEvent::Missing { pid } => format!("client pid={pid} status=missing"),
         ConnectionEvent::Busy { pid } => format!("client pid={pid} status=busy"),
         ConnectionEvent::Connected {
             pid,
@@ -203,14 +268,14 @@ fn optional_instance(identity: Option<ClientIdentity>) -> String {
     )
 }
 
-fn architecture(architecture: Architecture) -> &'static str {
+pub(crate) fn architecture(architecture: Architecture) -> &'static str {
     match architecture {
         Architecture::X86 => "x86",
         Architecture::X86_64 => "x86_64",
     }
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     let mut output = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
         write!(output, "{byte:02X}").expect("writing to String cannot fail");
@@ -220,7 +285,9 @@ fn hex(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{ClientIdentity, ConnectionEvent, Registry, TargetStatus};
+    use super::{
+        ClientIdentity, ClientSnapshotStatus, ConnectionEvent, Registry, TargetStatus, render_event,
+    };
     use darpc_protocol::{Architecture, ComponentVersion, Hello, SUPPORTED_VERSIONS};
 
     fn hello(instance: u8, creation_time: u64) -> Hello {
@@ -313,5 +380,30 @@ mod tests {
                 ..
             }) if *actual == identity
         ));
+    }
+
+    #[test]
+    fn snapshots_and_renders_unavailable_targets() {
+        let mut registry = Registry::new();
+        for event in [
+            ConnectionEvent::Connecting { pid: 1 },
+            ConnectionEvent::Missing { pid: 2 },
+            ConnectionEvent::Busy { pid: 3 },
+        ] {
+            assert!(registry.apply(&event));
+            assert!(render_event(&event).contains("status="));
+        }
+        let disconnected = ConnectionEvent::Disconnected {
+            pid: 4,
+            identity: None,
+            reason: "closed".into(),
+        };
+        assert!(registry.apply(&disconnected));
+        assert!(render_event(&disconnected).contains("instance=unknown"));
+
+        let snapshot = registry.snapshot();
+        assert_eq!(snapshot.clients.len(), 4);
+        assert_eq!(snapshot.clients[1].status, ClientSnapshotStatus::Missing);
+        assert_eq!(snapshot.clients[3].reason.as_deref(), Some("closed"));
     }
 }

@@ -6,7 +6,8 @@ daRPC, short for Dark Ages Remote Procedure Call, is a Rust workspace for
 integrating developer tools with the 32-bit Windows client of *Dark Ages*.
 The project is in early development and does not yet provide a working client
 state integration. Injection, launch-time patches, and direct named-pipe
-diagnostics are implemented, along with the explicit-PID daemon registry.
+diagnostics are implemented, along with the explicit-PID daemon registry and
+its read-only HTTP API.
 
 Read the [daRPC Book](https://ewrogers.github.io/da-rpc/) for the architecture,
 current implementation status, protocol, safety requirements, and development
@@ -215,17 +216,16 @@ darpcd.exe --pid 3780 --pid 6648
 ```
 
 The daemon prints connection status transitions and reconnects when a pipe or
-DLL returns. Automatic discovery, snapshots, and HTTP APIs are later work, so
-the current daemon requires explicit PIDs and aggregates identity and connection
-health only. While it owns a pipe, direct `darpc.exe ipc` commands report that
-the endpoint is busy.
+DLL returns. Automatic discovery and snapshots are later work, so the current
+daemon requires explicit PIDs and aggregates identity and connection health
+only. While it owns a pipe, direct `darpc.exe ipc` commands report that the
+endpoint is busy.
 
-## Planned web API
+## Web API
 
-The daemon's first web interface will use Axum and listen on
-`127.0.0.1:2626` by default. A single `--port <port>` option will override the
-port while keeping the listener on loopback. It will expose one current,
-unversioned API:
+The daemon uses Axum and listens on `127.0.0.1:2626` by default. A single
+`--port <port>` option overrides the port while keeping the listener on
+loopback. It exposes one current, unversioned API:
 
 ```text
 GET /health
@@ -234,15 +234,16 @@ GET /openapi.json
 GET /docs
 ```
 
-The default interactive documentation URL will be
-`http://127.0.0.1:2626/docs`. Startup will fail clearly if the selected port is
-unavailable rather than silently choosing another one.
+The default interactive documentation URL is
+`http://127.0.0.1:2626/docs`. Startup fails clearly if the selected port is
+unavailable rather than silently choosing another one. `/clients` reports each
+configured PID and status, plus the DLL `instance_id` and process
+`created_time` once identity is available.
 
-`utoipa` will generate the OpenAPI document from the Rust HTTP models. A
-vendored Swagger UI will serve the same contract at `/docs` without requiring
+`utoipa` generates the OpenAPI document from the Rust HTTP models. A vendored
+Swagger UI serves the same contract at `/docs` without requiring
 internet access, while `/openapi.json` can be imported into tools such as
-Postman and Apidog. These routes are planned and are not available in the
-current daemon yet.
+Postman and Apidog.
 
 ## Development
 
@@ -272,8 +273,8 @@ format with a short, focused, imperative summary.
 
 ## Documentation
 
-The book contains the detailed state model, discovery design, IPC protocol,
-and planned HTTP, Server-Sent Events, and WebSocket interfaces.
+The book contains the detailed state model, discovery design, IPC and HTTP
+protocols, and planned Server-Sent Events and WebSocket interfaces.
 
 The [development roadmap](docs/src/roadmap.md) divides the work into small
 increments with a visible demonstration and exit checks for each milestone.

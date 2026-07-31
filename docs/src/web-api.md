@@ -1,14 +1,15 @@
 # Web API
 
-> **Status:** The daemon registry is implemented. The HTTP server, OpenAPI
-> document, and interactive documentation described here are planned.
+> **Status:** The read-only HTTP server, OpenAPI document, and interactive
+> documentation described in the initial surface are implemented. State
+> snapshots, actions, streaming APIs, and remote access remain planned.
 
 `darpcd.exe` exposes standard web interfaces so applications do not need to
 implement Windows injection, named-pipe IPC, or client-specific data layouts.
 
 ## Initial read-only surface
 
-The initial server uses Axum and binds to `127.0.0.1:2626` by default. A single
+The server uses Axum and binds to `127.0.0.1:2626` by default. A single
 `--port <port>` option accepts values from 1 through 65535 and changes only the
 port. Port zero, repeated options, and malformed values are rejected. If the
 selected address is unavailable, daemon startup fails instead of choosing a
@@ -24,6 +25,47 @@ different port. It exposes one current API without a URL version prefix:
 With the default port, the interactive documentation is available at
 `http://127.0.0.1:2626/docs`.
 
+The JSON response shapes are:
+
+```text
+HealthResponse {
+    status: "ok",
+    version: string,
+}
+
+ClientsResponse {
+    clients: Client[],
+}
+
+Client {
+    pid: u32,
+    status: "connecting" | "missing" | "connected" | "busy" |
+            "disconnected" | "incompatible",
+    identity: ClientIdentity?,
+    connection: ConnectionMetadata?,
+    reason: string?,
+}
+
+ClientIdentity {
+    created_time: string,
+    instance_id: string,
+}
+
+ConnectionMetadata {
+    protocol_version: string,
+    architecture: "x86" | "x86_64",
+    dll_version: string,
+    executable_fingerprint: string,
+    layout_id: u32,
+}
+```
+
+`created_time` is the unsigned 64-bit Windows process creation time encoded as
+a decimal string. The string representation preserves its exact identity value
+for JavaScript consumers. `instance_id` and `executable_fingerprint` are
+uppercase hexadecimal strings. Identity and connection metadata are `null`
+until the corresponding information has been observed.
+
 The client list represents connecting, connected, disconnected, busy, and
 incompatible targets explicitly. It contains only information already owned by
 the registry until snapshot messages and game-state models are implemented.
@@ -32,6 +74,11 @@ Requests and responses use bounded, dedicated HTTP models. They do not expose
 registry implementation details, binary protocol messages, client layouts, or
 raw process pointers. HTTP handling must not block a client worker or hold a
 registry lock across network I/O.
+
+The current routes accept no request body. A nonzero content length or transfer
+encoding receives `413 Payload Too Large`. Unsupported methods and unknown
+paths receive the normal `405 Method Not Allowed` and `404 Not Found`
+responses. The daemon never falls back to another port when binding fails.
 
 ## OpenAPI and interactive documentation
 

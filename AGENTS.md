@@ -257,8 +257,11 @@ memory boundaries. Treat those boundaries as small audited interfaces.
 - Keep externally visible API models separate from internal client layouts and
   wire protocol models.
 - Validate request sizes and values at the HTTP and WebSocket boundaries.
-- Use explicit API versioning before compatibility constraints exist in the
-  wild.
+- Keep one current unversioned HTTP API until supported consumers create a
+  concrete need for simultaneous incompatible schemas. Treat the OpenAPI
+  document version as release metadata, not a URL version.
+- Generate OpenAPI from the HTTP models and keep the vendored documentation UI
+  independent from registry and client-worker health.
 - Define SSE and WebSocket ordering, replay, lag, and disconnect behavior.
 - Default network listeners to the least exposed practical interface. Any
   remote-access mode must document authentication, authorization, and transport

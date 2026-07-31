@@ -9,8 +9,8 @@ remain concise.
 
 ## Current focus
 
-M7, the daemon client registry, is complete. The next planned implementation
-milestone is M8, the read-only HTTP API.
+M8, the read-only HTTP API, is complete. The next planned implementation
+milestone is M9, the daemon-backed CLI.
 
 ## Milestone snapshot
 
@@ -25,6 +25,7 @@ milestone is M8, the read-only HTTP API.
 | M5, minimal binary protocol | Complete | Exact framing, identity handshake, diagnostics, checked codecs, and golden and boundary tests are implemented. |
 | M6, direct IPC diagnostics | Complete | The DLL pipe worker and direct hello, ping, and echo commands pass controlled and live-client Windows verification. |
 | M7, daemon client registry | Complete | Repeated explicit `--pid` targets, shared controller sessions, independent reconnecting workers, and identity-safe registry records pass controlled and live-client verification. |
+| M8, read-only HTTP API | Complete | Loopback Axum routes, client identity snapshots, generated OpenAPI, and vendored Swagger UI pass controlled and live-client verification. |
 
 ## Completed recently
 
@@ -140,8 +141,30 @@ milestone is M8, the read-only HTTP API.
 - [x] Late-attach release builds to two logged-in 7.41 clients, register both,
   restart the daemon without reinjection, unload both DLLs, and confirm both
   client processes remain alive.
-- [x] Keep the registry limited to identity and connection health with no hooks,
-  client-memory reads, state snapshots, or web API.
+- [x] At the M7 boundary, keep the registry limited to identity and connection
+  health with no hooks, client-memory reads, state snapshots, or web API.
+
+## M8 completion evidence
+
+- [x] Bind Axum to `127.0.0.1:2626` by default and accept one validated
+  `--port <port>` override without silently falling back.
+- [x] Publish immutable registry snapshots to an isolated HTTP thread without
+  holding the live registry across network I/O.
+- [x] Expose `/health` and `/clients` with dedicated response models and
+  explicit connecting, missing, connected, busy, disconnected, and
+  incompatible states.
+- [x] Expose each observed PID, exact decimal process `created_time`, DLL
+  `instance_id`, and connection compatibility metadata.
+- [x] Generate an OpenAPI 3.1 document at `/openapi.json` and serve vendored,
+  offline Swagger UI assets at `/docs`.
+- [x] Reject request bodies, invalid port options, duplicate port options, and
+  occupied listeners with bounded, explicit failures.
+- [x] Verify the default and overridden ports, two controlled targets, daemon
+  restart, one-client replacement, OpenAPI, Swagger assets, and failure
+  isolation on Windows.
+- [x] Late-attach release builds to two supported clients, match both HTTP
+  creation identities to loader inspection, validate compatibility metadata,
+  unload both DLLs, and confirm both processes remain alive.
 
 ## M2 completion evidence
 

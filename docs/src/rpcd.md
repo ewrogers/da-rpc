@@ -1,8 +1,8 @@
 # `darpcd.exe`
 
 > **Status:** The explicit-PID connection manager and identity registry are
-> implemented. Automatic discovery, snapshots, actions, and web APIs remain
-> planned.
+> implemented together with the read-only HTTP API. Automatic discovery,
+> snapshots, actions, and streaming APIs remain planned.
 
 `darpcd.exe` is a 64-bit x86-64 Windows daemon that makes injected clients easy
 to use from local and remote applications.
@@ -27,6 +27,7 @@ process identifiers (PIDs):
 ```text
 darpcd.exe --pid 3780
 darpcd.exe --pid 3780 --pid 6648
+darpcd.exe --pid 3780 --pid 6648 --port 3626
 ```
 
 Each `--pid` option accepts one nonzero 32-bit PID. At least one is required,
@@ -43,7 +44,9 @@ record instead of inheriting it.
 The current console output reports transitions such as:
 
 ```text
+HTTP API listening on http://127.0.0.1:2626
 client pid=3780 status=connecting
+client pid=3780 status=missing
 client pid=3780 status=connected creation_time=... instance=... protocol=1.0 ...
 client pid=3780 status=disconnected instance=... reason="..."
 client pid=3780 status=busy
@@ -55,14 +58,14 @@ an accepted client. The current registry contains identity, compatibility, and
 connection health only. Once state messages exist, every new daemon connection
 will obtain a fresh snapshot and then follow updates from an ordered boundary.
 
-## Planned web interface
+## Web interface
 
-The daemon's first HTTP surface will use Axum and bind to `127.0.0.1:2626` by
-default. A single `--port <port>` option will override the port while retaining
-the loopback-only boundary. It will provide unversioned `/health` and
-`/clients` routes, a generated OpenAPI document at `/openapi.json`, and a
-vendored Swagger UI at `/docs`. The OpenAPI models remain separate from
-registry and binary protocol types. None of these routes are implemented yet.
+The daemon's HTTP surface uses Axum and binds to `127.0.0.1:2626` by default. A
+single `--port <port>` option overrides the port while retaining the
+loopback-only boundary. It provides unversioned `/health` and `/clients`
+routes, a generated OpenAPI document at `/openapi.json`, and a vendored Swagger
+UI at `/docs`. The OpenAPI models remain separate from registry and binary
+protocol types.
 
 ## Failure isolation
 

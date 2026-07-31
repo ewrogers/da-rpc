@@ -1,7 +1,7 @@
 # Introduction
 
-daRPC, short for Dark Ages Remote Procedure Call, is a planned Rust workspace
-for directly integrating tools with the Windows client of *Dark Ages*.
+daRPC, short for Dark Ages Remote Procedure Call, is a Rust workspace for
+directly integrating tools with the Windows client of *Dark Ages*.
 
 The project is in early development. This book records the intended
 architecture and engineering constraints. It distinguishes design decisions
@@ -34,6 +34,7 @@ understood.
 ## Portable access
 
 The injected integration is necessarily Windows-specific, but its consumers do
-not need to be. A local daemon translates the binary daRPC protocol into REST,
-Server-Sent Events, and WebSocket APIs. Applications may run on the same
-Windows computer or connect remotely from another operating system.
+not need to understand Windows injection or named pipes. The local daemon now
+exposes its client identity registry through a loopback-only REST API. State
+queries, Server-Sent Events, WebSockets, and secured remote access remain later
+work.

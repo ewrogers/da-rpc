@@ -14,6 +14,8 @@ $Target = Join-Path $X86TargetDir "injection-target.exe"
 $DarpcDll = Join-Path $X86TargetDir "darpc.dll"
 $Darpc = Join-Path $X64TargetDir "darpc.exe"
 $Daemon = Join-Path $X64TargetDir "darpcd.exe"
+$DefaultPort = 2626
+$OverridePort = 3626
 
 foreach ($Path in @($Loader, $Target, $DarpcDll, $Darpc, $Daemon)) {
     if (-not (Test-Path -PathType Leaf $Path)) {
@@ -63,11 +65,18 @@ function Invoke-DarpcExitCode {
 }
 
 function Start-Daemon {
-    param([int[]] $ProcessIds)
+    param(
+        [int[]] $ProcessIds,
+        [Nullable[int]] $Port = $null
+    )
 
     $StartInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $StartInfo.FileName = $Daemon
-    $StartInfo.Arguments = (($ProcessIds | ForEach-Object { "--pid $_" }) -join " ")
+    $Arguments = @($ProcessIds | ForEach-Object { "--pid $_" })
+    if ($null -ne $Port) {
+        $Arguments += @("--port", "$Port")
+    }
+    $StartInfo.Arguments = ($Arguments -join " ")
     $StartInfo.UseShellExecute = $false
     $StartInfo.CreateNoWindow = $true
     $StartInfo.RedirectStandardOutput = $true
@@ -80,6 +89,116 @@ function Start-Daemon {
         throw "failed to start darpcd.exe"
     }
     return $Process
+}
+
+function Get-ApiJson {
+    param(
+        [string] $Path,
+        [int] $Port
+    )
+
+    return Invoke-RestMethod `
+        -Uri "http://127.0.0.1:$Port$Path" `
+        -Method Get `
+        -TimeoutSec 2
+}
+
+function Wait-ForApi {
+    param(
+        [System.Diagnostics.Process] $DaemonProcess,
+        [int] $Port,
+        [int] $TimeoutMilliseconds = 8000
+    )
+
+    $Deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
+    do {
+        if ($DaemonProcess.HasExited) {
+            throw "darpcd.exe exited before its HTTP API became available"
+        }
+        try {
+            $Health = Get-ApiJson -Path "/health" -Port $Port
+            if ($Health.status -eq "ok") {
+                return
+            }
+        } catch {
+            # The listener may not have entered its accept loop yet.
+        }
+        Start-Sleep -Milliseconds 50
+    } while ([DateTime]::UtcNow -lt $Deadline)
+
+    throw "timed out waiting for the HTTP API on port $Port"
+}
+
+function Wait-ForConnectedClients {
+    param(
+        [int[]] $ProcessIds,
+        [int] $Port,
+        [int] $TimeoutMilliseconds = 8000
+    )
+
+    $Deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
+    do {
+        try {
+            $Response = Get-ApiJson -Path "/clients" -Port $Port
+            $Clients = @($Response.clients)
+            $AllConnected = $Clients.Count -eq $ProcessIds.Count
+            foreach ($ProcessId in $ProcessIds) {
+                $Client = @($Clients | Where-Object { $_.pid -eq $ProcessId })
+                if ($Client.Count -ne 1 -or $Client[0].status -ne "connected") {
+                    $AllConnected = $false
+                }
+            }
+            if ($AllConnected) {
+                return $Response
+            }
+        } catch {
+            # Retry while workers complete their handshakes.
+        }
+        Start-Sleep -Milliseconds 50
+    } while ([DateTime]::UtcNow -lt $Deadline)
+
+    throw "timed out waiting for connected clients through the HTTP API"
+}
+
+function Assert-ApiContract {
+    param(
+        [object] $ClientsResponse,
+        [int[]] $ProcessIds,
+        [int] $Port
+    )
+
+    $Clients = @($ClientsResponse.clients)
+    Assert-True ($Clients.Count -eq $ProcessIds.Count) "HTTP client count was incorrect"
+    foreach ($ProcessId in $ProcessIds) {
+        $Client = @($Clients | Where-Object { $_.pid -eq $ProcessId })[0]
+        Assert-True ($Client.status -eq "connected") "PID $ProcessId was not connected"
+        Assert-True `
+            ($Client.identity.instance_id -match "^[0-9A-F]{32}$") `
+            "PID $ProcessId had an invalid instance_id"
+        Assert-True `
+            ($Client.identity.created_time -match "^[0-9]+$") `
+            "PID $ProcessId had an invalid created_time"
+        Assert-True `
+            ($Client.connection.protocol_version -eq "1.0") `
+            "PID $ProcessId had the wrong protocol version"
+    }
+
+    $OpenApi = Get-ApiJson -Path "/openapi.json" -Port $Port
+    Assert-True ($OpenApi.openapi -eq "3.1.0") "OpenAPI version was not 3.1.0"
+    $Paths = @($OpenApi.paths.PSObject.Properties.Name)
+    Assert-True ($Paths -contains "/health") "OpenAPI omitted /health"
+    Assert-True ($Paths -contains "/clients") "OpenAPI omitted /clients"
+
+    $Docs = Invoke-WebRequest `
+        -Uri "http://127.0.0.1:$Port/docs/" `
+        -UseBasicParsing `
+        -TimeoutSec 2
+    Assert-True ($Docs.StatusCode -eq 200) "Swagger UI was unavailable"
+    $Asset = Invoke-WebRequest `
+        -Uri "http://127.0.0.1:$Port/docs/swagger-ui-bundle.js" `
+        -UseBasicParsing `
+        -TimeoutSec 5
+    Assert-True ($Asset.StatusCode -eq 200) "vendored Swagger UI asset was unavailable"
 }
 
 function Stop-Daemon {
@@ -174,14 +293,17 @@ try {
 
     Write-Host "Testing daemon-first connection to two target PIDs"
     $DaemonProcess = Start-Daemon -ProcessIds @($First.Id, $Second.Id)
-    Start-Sleep -Milliseconds 200
-    Assert-True (-not $DaemonProcess.HasExited) "daemon exited while target pipes were missing"
+    Wait-ForApi $DaemonProcess $DefaultPort
+    $PendingClients = @(Get-ApiJson -Path "/clients" -Port $DefaultPort).clients
+    Assert-True ($PendingClients.Count -eq 2) "HTTP API omitted configured targets"
 
     $Result = Invoke-Loader -CommandArgs @("attach", "$($First.Id)", $DarpcDll)
     Assert-True $Result.darpc_loaded "first target attach did not load darpc.dll"
     $Result = Invoke-Loader -CommandArgs @("attach", "$($Second.Id)", $DarpcDll)
     Assert-True $Result.darpc_loaded "second target attach did not load darpc.dll"
     Wait-ForDaemonOwnership $DaemonProcess @($First.Id, $Second.Id)
+    $Clients = Wait-ForConnectedClients @($First.Id, $Second.Id) $DefaultPort
+    Assert-ApiContract $Clients @($First.Id, $Second.Id) $DefaultPort
 
     $InitialOutput = Stop-Daemon $DaemonProcess
     $DaemonProcess = $null
@@ -193,8 +315,11 @@ try {
     Wait-ForDirectConnection $Second.Id
 
     Write-Host "Testing daemon restart and independent client replacement"
-    $DaemonProcess = Start-Daemon -ProcessIds @($First.Id, $Second.Id)
+    $DaemonProcess = Start-Daemon -ProcessIds @($First.Id, $Second.Id) -Port $OverridePort
+    Wait-ForApi $DaemonProcess $OverridePort
     Wait-ForDaemonOwnership $DaemonProcess @($First.Id, $Second.Id)
+    $Clients = Wait-ForConnectedClients @($First.Id, $Second.Id) $OverridePort
+    Assert-ApiContract $Clients @($First.Id, $Second.Id) $OverridePort
 
     $Result = Invoke-Loader -CommandArgs @("detach", "$($First.Id)", $DarpcDll)
     Assert-True (-not $Result.darpc_loaded) "first target detach left darpc.dll loaded"
@@ -206,6 +331,8 @@ try {
     $Result = Invoke-Loader -CommandArgs @("attach", "$($First.Id)", $DarpcDll)
     Assert-True $Result.darpc_loaded "first target reattach did not load darpc.dll"
     Wait-ForDaemonOwnership $DaemonProcess @($First.Id, $Second.Id)
+    $Clients = Wait-ForConnectedClients @($First.Id, $Second.Id) $OverridePort
+    Assert-ApiContract $Clients @($First.Id, $Second.Id) $OverridePort
 
     $RestartOutput = Stop-Daemon $DaemonProcess
     $DaemonProcess = $null
@@ -222,6 +349,29 @@ try {
     Assert-True `
         ($SecondRestartInstances[0] -eq $SecondInitialInstances[0]) `
         "daemon restart changed the second DLL instance identity"
+
+    $HeldListener = [System.Net.Sockets.TcpListener]::new(
+        [System.Net.IPAddress]::Loopback,
+        0
+    )
+    try {
+        $HeldListener.Start()
+        $OccupiedPort = $HeldListener.LocalEndpoint.Port
+        $PreviousErrorActionPreference = $ErrorActionPreference
+        try {
+            $ErrorActionPreference = "Continue"
+            $ConflictOutput = @(& $Daemon --pid $First.Id --port $OccupiedPort 2>&1)
+            $ConflictExitCode = $LASTEXITCODE
+        } finally {
+            $ErrorActionPreference = $PreviousErrorActionPreference
+        }
+        Assert-True ($ConflictExitCode -eq 1) "occupied port did not fail daemon startup"
+        Assert-True `
+            (($ConflictOutput -join "`n") -match "failed to listen") `
+            "occupied port failure was not explained"
+    } finally {
+        $HeldListener.Stop()
+    }
 
     Wait-ForDirectConnection $First.Id
     Wait-ForDirectConnection $Second.Id

@@ -97,7 +97,7 @@ only after real duplication appears.
 | M5 | Minimal binary protocol | A `Hello` frame has exact tested bytes and compatibility rules. | Complete |
 | M6 | Direct IPC diagnostics | `darpc.exe` exchanges `Hello`, `Ping`, and `Echo` messages with one injected DLL. | Complete |
 | M7 | Daemon client registry | `darpcd.exe` connects, tracks the DLL, and recovers after restart. | Complete |
-| M8 | Read-only HTTP API | A browser or HTTP client lists the injected client. | Planned |
+| M8 | Read-only HTTP API | A browser or HTTP client lists the injected client. | Complete |
 | M9 | Daemon-backed CLI | The existing `darpc.exe` adds client listing through the daemon HTTP API. | Planned |
 | M10 | Discovery and managed launch | `darpcd.exe` reconciles candidates and invokes the loader explicitly. | Planned |
 | M11 | Hook qualification harness | The hook mechanism preserves a controlled test function exactly. | Planned |
@@ -110,7 +110,7 @@ only after real duplication appears.
 | M18 | Multi-client hardening and preview | Failure and soak evidence support a preview release. | Planned |
 | M19 | WebSocket and remote access | Added only for a proven use case and defined security model. | Deferred |
 
-M2 through M7 are complete. M8 is the next planned implementation milestone.
+M2 through M8 are complete. M9 is the next planned implementation milestone.
 M1 has been exercised manually, but its separate evidence checklist remains
 open until the lifecycle-host Windows continuous-integration coverage is
 present. The working checklist is maintained in the [repository progress
@@ -444,7 +444,9 @@ See:
 
 Done:
 
-- Missing, disconnected, incompatible, and connected clients are distinct.
+- Connecting, missing, connected, busy, disconnected, and incompatible clients
+  are distinct.
+- Each connected client exposes its PID, creation time, and instance ID.
 - The UI works without runtime internet access and describes every public
   route.
 - HTTP failure cannot block or corrupt the DLL connection.
@@ -691,19 +693,17 @@ limits, and administrative capability boundaries before it is supported.
 
 ## Immediate next increment
 
-M8 should expose the working registry without changing DLL behavior:
+M9 should make the existing `darpc.exe` the first normal HTTP API consumer:
 
-1. Add a small loopback-only HTTP server to `darpcd.exe`.
-2. Use Axum on `127.0.0.1:2626` by default, accept a validated `--port <port>`
-   override, and expose unversioned `/health` and `/clients` routes.
-3. Keep HTTP response types separate from registry and wire-protocol types.
-4. Represent connecting, connected, disconnected, busy, and incompatible
-   targets explicitly.
-5. Generate `/openapi.json` with `utoipa` and serve a vendored Swagger UI at
-   `/docs`.
-6. Bound request parsing and ensure HTTP failure cannot block a client worker.
-7. Inspect the two-client registry in Swagger UI and import its OpenAPI
-   document into a standard client tool.
+1. Add daemon HTTP client code outside the explicit direct-IPC command group.
+2. Add `darpc health` and `darpc clients` commands against the current API.
+3. Preserve human-readable output by default and stable JSON output for
+   automation.
+4. Keep HTTP response models separate from CLI presentation models.
+5. Distinguish invalid input, connection failure, HTTP failure, and malformed
+   daemon responses with stable exit codes.
+6. Verify the CLI presents the same two-client identity and connection status
+   returned by `/clients`.
 
-Snapshots remain M13. M8 exposes only the identity and connection-health data
-already owned by the daemon.
+Snapshots remain M13. M9 consumes only the identity and connection-health data
+already exposed by the daemon.

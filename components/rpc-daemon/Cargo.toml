@@ -12,13 +12,22 @@ name = "darpcd"
 path = "src/main.rs"
 
 [dependencies]
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
 darpc-game-client.workspace = true
 darpc-model.workspace = true
 darpc-protocol.workspace = true
 darpc-win32.workspace = true
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["net", "rt"] }
+utoipa = "5"
+utoipa-swagger-ui = { version = "9", default-features = false, features = ["axum", "debug-embed", "vendored"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = ["Win32_Foundation"] }
+
+[dev-dependencies]
+serde_json = "1"
+tower = { version = "0.5", features = ["util"] }
 
 [lints]
 workspace = true

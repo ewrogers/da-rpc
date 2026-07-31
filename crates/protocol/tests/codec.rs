@@ -1,13 +1,17 @@
 use darpc_protocol::{
     Architecture, ComponentVersion, DecodeError, EchoRequest, EchoResponse, EncodeError,
     FRAME_HEADER_LEN, FRAME_MAGIC, FRAME_VERSION, Frame, FrameHeader, Hello, HelloAck,
-    MAX_ECHO_TEXT_LEN, MAX_PAYLOAD_LEN, Message, MessageType, Ping, Pong, VersionRange,
-    decode_frame, decode_header, encode_frame,
+    MAX_ECHO_TEXT_LEN, MAX_PAYLOAD_LEN, Message, MessageType, PROTOCOL_VERSION_1_0, Ping, Pong,
+    VersionRange, decode_frame, decode_header, encode_frame, protocol_version,
+    protocol_version_major, protocol_version_minor,
 };
 
 fn hello() -> Hello {
     Hello {
-        protocol_versions: VersionRange { min: 1, max: 1 },
+        protocol_versions: VersionRange {
+            min: PROTOCOL_VERSION_1_0,
+            max: PROTOCOL_VERSION_1_0,
+        },
         dll_instance_id: [0x5a; 16],
         process_id: 42,
         process_creation_time: 0x1122_3344_5566_7788,
@@ -42,11 +46,11 @@ fn header_with_payload_len(message_type: u16, payload_len: u32) -> Vec<u8> {
 }
 
 #[test]
-fn every_m5_message_round_trips() {
+fn every_message_round_trips() {
     let messages = [
         Message::Hello(hello()),
         Message::HelloAck(HelloAck {
-            selected_version: 1,
+            selected_version: PROTOCOL_VERSION_1_0,
             dll_instance_id: [0x5a; 16],
         }),
         Message::Ping(Ping { request_id: 1 }),
@@ -66,6 +70,15 @@ fn every_m5_message_round_trips() {
         let bytes = encode_frame(&frame).unwrap();
         assert_eq!(decode_frame(&bytes).unwrap(), frame);
     }
+}
+
+#[test]
+fn protocol_version_packs_major_and_minor_bytes() {
+    let version = protocol_version(1, 2);
+
+    assert_eq!(version, 0x0102);
+    assert_eq!(protocol_version_major(version), 1);
+    assert_eq!(protocol_version_minor(version), 2);
 }
 
 #[test]
@@ -190,10 +203,13 @@ fn fixed_payload_sizes_are_exact() {
 #[test]
 fn invalid_hello_fields_are_rejected() {
     let mut invalid_range = encode_frame(&Frame::new(0, 0, Message::Hello(hello()))).unwrap();
-    invalid_range[20..24].copy_from_slice(&[2, 0, 1, 0]);
+    invalid_range[20..24].copy_from_slice(&[0x01, 0x01, 0x00, 0x01]);
     assert_eq!(
         decode_frame(&invalid_range),
-        Err(DecodeError::InvalidVersionRange { min: 2, max: 1 })
+        Err(DecodeError::InvalidVersionRange {
+            min: 0x0101,
+            max: 0x0100,
+        })
     );
 
     let mut invalid_architecture =
@@ -208,11 +224,17 @@ fn invalid_hello_fields_are_rejected() {
 #[test]
 fn invalid_hello_range_is_rejected_when_encoding() {
     let mut message = hello();
-    message.protocol_versions = VersionRange { min: 0, max: 1 };
+    message.protocol_versions = VersionRange {
+        min: 0,
+        max: PROTOCOL_VERSION_1_0,
+    };
 
     assert_eq!(
         encode_frame(&Frame::new(0, 0, Message::Hello(message))),
-        Err(EncodeError::InvalidVersionRange { min: 0, max: 1 })
+        Err(EncodeError::InvalidVersionRange {
+            min: 0,
+            max: PROTOCOL_VERSION_1_0,
+        })
     );
 }
 

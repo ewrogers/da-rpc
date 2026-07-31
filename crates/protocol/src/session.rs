@@ -1,4 +1,7 @@
-use crate::{HelloAck, Message, MessageType, SUPPORTED_VERSIONS, VersionRange};
+use crate::{
+    HelloAck, Message, MessageType, SUPPORTED_VERSIONS, VersionRange, protocol_version_major,
+    protocol_version_minor,
+};
 use std::{error::Error, fmt};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -48,16 +51,32 @@ impl fmt::Display for SessionError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidVersionRange { min, max } => {
-                write!(formatter, "invalid protocol version range {min}..={max}")
+                write!(
+                    formatter,
+                    "invalid protocol version range {}.{}..={}.{}",
+                    protocol_version_major(*min),
+                    protocol_version_minor(*min),
+                    protocol_version_major(*max),
+                    protocol_version_minor(*max)
+                )
             }
             Self::UnsupportedVersionRange { min, max } => {
                 write!(
                     formatter,
-                    "unsupported protocol version range {min}..={max}"
+                    "unsupported protocol version range {}.{}..={}.{}",
+                    protocol_version_major(*min),
+                    protocol_version_minor(*min),
+                    protocol_version_major(*max),
+                    protocol_version_minor(*max)
                 )
             }
             Self::InvalidSelectedVersion { selected } => {
-                write!(formatter, "invalid selected protocol version {selected}")
+                write!(
+                    formatter,
+                    "invalid selected protocol version {}.{}",
+                    protocol_version_major(*selected),
+                    protocol_version_minor(*selected)
+                )
             }
             Self::InstanceMismatch => formatter.write_str("DLL instance ID does not match Hello"),
             Self::UnexpectedMessage {

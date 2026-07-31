@@ -1,12 +1,15 @@
 use darpc_protocol::{
     Architecture, ComponentVersion, EndpointRole, Handshake, HandshakePhase, Hello, Message,
-    MessageDirection, Ping, SequenceCounter, SequenceError, SessionError, VersionRange,
-    elapsed_tick_ms, negotiate_version,
+    MessageDirection, PROTOCOL_VERSION_1_0, Ping, SequenceCounter, SequenceError, SessionError,
+    VersionRange, elapsed_tick_ms, negotiate_version,
 };
 
 fn hello() -> Hello {
     Hello {
-        protocol_versions: VersionRange { min: 1, max: 1 },
+        protocol_versions: VersionRange {
+            min: PROTOCOL_VERSION_1_0,
+            max: PROTOCOL_VERSION_1_0,
+        },
         dll_instance_id: [0x5a; 16],
         process_id: 42,
         process_creation_time: 123,
@@ -40,7 +43,7 @@ fn dll_and_controller_complete_the_same_handshake() {
 
     assert!(dll.is_ready());
     assert!(controller.is_ready());
-    assert_eq!(dll.selected_version(), Some(1));
+    assert_eq!(dll.selected_version(), Some(PROTOCOL_VERSION_1_0));
     assert_eq!(dll.dll_instance_id(), Some([0x5a; 16]));
 
     let ping = Message::Ping(Ping { request_id: 7 });
@@ -100,8 +103,22 @@ fn invalid_and_unsupported_versions_are_distinct() {
         Err(SessionError::InvalidVersionRange { min: 0, max: 1 })
     );
     assert_eq!(
-        negotiate_version(VersionRange { min: 2, max: 3 }),
-        Err(SessionError::UnsupportedVersionRange { min: 2, max: 3 })
+        negotiate_version(VersionRange {
+            min: 0x0200,
+            max: 0x0300,
+        }),
+        Err(SessionError::UnsupportedVersionRange {
+            min: 0x0200,
+            max: 0x0300,
+        })
+    );
+
+    assert_eq!(
+        negotiate_version(VersionRange {
+            min: PROTOCOL_VERSION_1_0,
+            max: 0x0101,
+        }),
+        Ok(PROTOCOL_VERSION_1_0)
     );
 }
 
@@ -112,16 +129,16 @@ fn dll_rejects_an_acknowledgement_for_the_wrong_offer() {
     dll.observe(MessageDirection::Outbound, &hello).unwrap();
 
     let wrong_version = Message::HelloAck(darpc_protocol::HelloAck {
-        selected_version: 2,
+        selected_version: 0x0101,
         dll_instance_id: [0x5a; 16],
     });
     assert_eq!(
         dll.observe(MessageDirection::Inbound, &wrong_version),
-        Err(SessionError::InvalidSelectedVersion { selected: 2 })
+        Err(SessionError::InvalidSelectedVersion { selected: 0x0101 })
     );
 
     let wrong_instance = Message::HelloAck(darpc_protocol::HelloAck {
-        selected_version: 1,
+        selected_version: PROTOCOL_VERSION_1_0,
         dll_instance_id: [0x6b; 16],
     });
     assert_eq!(
@@ -139,7 +156,7 @@ fn controller_must_send_the_exact_acknowledgement() {
         .unwrap();
 
     let wrong = Message::HelloAck(darpc_protocol::HelloAck {
-        selected_version: 1,
+        selected_version: PROTOCOL_VERSION_1_0,
         dll_instance_id: [0x6b; 16],
     });
     assert!(matches!(

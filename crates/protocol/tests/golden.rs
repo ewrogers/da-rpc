@@ -1,5 +1,6 @@
 use darpc_protocol::{
-    Architecture, ComponentVersion, Frame, Hello, Message, VersionRange, decode_frame, encode_frame,
+    Architecture, ComponentVersion, Frame, Hello, Message, PROTOCOL_VERSION_1_0, VersionRange,
+    decode_frame, encode_frame,
 };
 
 fn hello_frame() -> Frame {
@@ -7,7 +8,10 @@ fn hello_frame() -> Frame {
         0x1234,
         0x7856_3412,
         Message::Hello(Hello {
-            protocol_versions: VersionRange { min: 1, max: 1 },
+            protocol_versions: VersionRange {
+                min: PROTOCOL_VERSION_1_0,
+                max: PROTOCOL_VERSION_1_0,
+            },
             dll_instance_id: [
                 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
                 0x0e, 0x0f,
@@ -38,7 +42,7 @@ const HELLO_FRAME_BYTES: [u8; 95] = [
     0x00, 0x00, // flags
     0x12, 0x34, 0x56, 0x78, // sender tick
     0x4b, 0x00, 0x00, 0x00, // payload length: 75
-    0x01, 0x00, 0x01, 0x00, // supported protocol versions
+    0x00, 0x01, 0x00, 0x01, // supported protocol versions: 1.0 through 1.0
     0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, // DLL instance ID
     0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f, 0x44, 0x33, 0x22, 0x11, // process ID
     0x08, 0x07, 0x06, 0x05, 0x04, 0x03, 0x02, 0x01, // process creation time

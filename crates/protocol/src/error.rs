@@ -1,4 +1,4 @@
-use crate::MessageType;
+use crate::{MessageType, protocol_version_major, protocol_version_minor};
 use std::{error::Error, fmt};
 
 /// Failure while converting a typed message into its wire representation.
@@ -14,7 +14,14 @@ impl fmt::Display for EncodeError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidVersionRange { min, max } => {
-                write!(formatter, "invalid protocol version range {min}..={max}")
+                write!(
+                    formatter,
+                    "invalid protocol version range {}.{}..={}.{}",
+                    protocol_version_major(*min),
+                    protocol_version_minor(*min),
+                    protocol_version_major(*max),
+                    protocol_version_minor(*max)
+                )
             }
             Self::EchoTooLong { length, max } => {
                 write!(formatter, "echo text is {length} bytes; maximum is {max}")
@@ -131,7 +138,14 @@ impl fmt::Display for DecodeError {
                 "{message_type:?} payload has {remaining} trailing bytes"
             ),
             Self::InvalidVersionRange { min, max } => {
-                write!(formatter, "invalid protocol version range {min}..={max}")
+                write!(
+                    formatter,
+                    "invalid protocol version range {}.{}..={}.{}",
+                    protocol_version_major(*min),
+                    protocol_version_minor(*min),
+                    protocol_version_major(*max),
+                    protocol_version_minor(*max)
+                )
             }
             Self::InvalidArchitecture { actual } => {
                 write!(formatter, "invalid architecture value {actual}")

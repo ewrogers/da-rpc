@@ -9,9 +9,10 @@ remain concise.
 
 ## Current focus
 
-M4, client bootstrap without hooks, is in final verification. Exact client
-validation and the automated live-client lifecycle checks pass. The private
-normal-use comparison is the remaining completion criterion.
+M4, client bootstrap without hooks, is complete.
+
+M5, minimal binary protocol, is next. It introduces the first versioned wire
+messages without depending on Windows or the live client.
 
 ## Milestone snapshot
 
@@ -21,7 +22,7 @@ normal-use comparison is the remaining completion criterion.
 | M1, local DLL lifecycle | Verification pending | Functional and manually exercised; Windows CI and explicit failed-initialization host coverage remain. |
 | M2, loader attach MVP | Complete | Inspect, attach, detach, JSON results, timeouts, and Windows integration coverage are implemented. |
 | M3, loader launch MVP | Complete | Suspended launch, pre-resume initialization, argument forwarding, and owned-child cleanup are implemented and Windows-tested. |
-| M4, client bootstrap without hooks | Verification pending | Automated live launch and late attach pass; private normal-use comparison remains. |
+| M4, client bootstrap without hooks | Complete | Exact validation, live launch and attach, lifecycle evidence, and normal-use acceptance pass. |
 
 ## Completed recently
 
@@ -61,15 +62,17 @@ normal-use comparison is the remaining completion criterion.
   logging, unload, and post-unload liveness against the supported live client.
 - [x] Verified independent DLL instances in two controlled target processes.
 - [x] Proved release builds ignore the debug-only controlled-target bypass.
+- [x] Confirmed normal login, movement, representative user interface behavior,
+  and clean exit in baseline, late-attach, and interactive-token launch runs.
 
 ## M4 completion evidence
 
 - [x] Run the automated live-client harness on 32-bit Windows.
 - [x] Confirm the inert DLL does not read client memory, call client functions,
   install hooks, or start IPC.
-- [ ] Compare login, movement, representative user interface behavior, and
+- [x] Compare login, movement, representative user interface behavior, and
   normal exit in baseline, loader-launch, and late-attach runs.
-- [ ] Record M4 complete after the private manual comparison passes.
+- [x] Record M4 complete after the private manual comparison passes.
 
 ## M2 completion evidence
 
@@ -135,6 +138,9 @@ normal-use comparison is the remaining completion criterion.
 - The stock client single-instance mutex keeps live M4 checks sequential.
   Multi-process loader behavior uses controlled targets until the planned
   startup patch exists.
+- Parallels remote commands remain suitable for builds, controlled targets,
+  inspection, and late attach. Live launch acceptance uses the active Windows
+  interactive token and normal client exit.
 
 ## Updating this file
 

@@ -48,16 +48,15 @@ Pages.
 
 ## Collaboration
 
-The project owner writes implementation code. Agents act as reviewers,
-mentors, debugging partners, and pair-programming partners. Agents may write
-focused unit tests, but production implementation remains with the project
-owner. See the repository's
+Agents may implement requested changes and also act as reviewers, mentors,
+debugging partners, and pair-programming partners. The project owner sets
+product direction and retains ownership of the repository. See the repository's
 [AGENTS.md](https://github.com/ewrogers/da-rpc/blob/main/AGENTS.md) for the full
 guidance.
 
 ## Commits
 
-Use Conventional Commits with focused imperative summaries:
+Use Conventional Commits with short, focused imperative summaries:
 
 ```text
 feat(protocol): add handshake negotiation

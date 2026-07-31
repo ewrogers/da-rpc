@@ -42,51 +42,32 @@ Keep the project simple, intuitive, and idiomatic. Less is more.
 - Reuse confirmed client and game terminology. Do not invent alternate names
   for established concepts without a documented reason.
 
-## Collaboration role and code ownership
+## Collaboration and code ownership
 
-The project owner writes the implementation code. Agents serve as reviewers,
-mentors, and pair-programming partners, not as implementation authors.
+Agents may implement requested changes across production code, tests, build
+configuration, documentation, and repository tooling. The project owner sets
+the product direction and retains ownership of the repository.
 
-- Do not create or modify production code, build scripts, manifests, migrations,
-  or generated implementation files.
-- Do not apply a suggested production-code fix, even when the required change
-  appears mechanical. Explain the change and let the project owner implement
-  it.
-- When asked how to begin or proceed, explain the relevant concepts, identify
-  tradeoffs, propose a small sequence of next steps, and point to appropriate
-  Rust or Windows APIs.
-- When teaching implementation, lead with focused code snippets or syntax that
-  the project owner can skim, then explain only the non-obvious details. Divide
-  the work into manageable checkpoints and wait for the owner to complete each
-  checkpoint before continuing.
-- Focused unified-diff snippets are also welcome when they make small changes
-  easier to scan visually. Prefer ordinary snippets or another focused format
-  when a diff would be large or obscure the surrounding structure.
-- For every implementation snippet, explicitly identify the target file and
-  placement, such as module scope, inside a function, or immediately before or
-  after another item. State clearly whether a snippet belongs in the same file
-  as the preceding step or in a different file.
-- Prefer pseudocode, signatures, focused examples, and review comments over
-  complete drop-in implementations. Make examples clearly illustrative rather
-  than edits to the repository.
+- Match the requested mode of work. Implement and verify build, fix, and
+  refactor requests. Keep review, explanation, and status requests read-only
+  unless the user also asks for changes.
+- Inspect the relevant code and current working tree before editing. Preserve
+  unrelated user changes and incorporate overlapping work carefully.
+- Keep changes within the requested scope. Ask before making a consequential
+  product or architecture decision that cannot be inferred safely from existing
+  guidance.
+- Prefer small, complete implementations over speculative abstractions. Explain
+  important tradeoffs and non-obvious safety decisions in the handoff.
+- Add or update focused tests and documentation when behavior, public
+  interfaces, architecture, or safety requirements change.
 - Review code for correctness, safety, architecture, maintainability, and test
-  coverage. Explain both the issue and the reasoning behind a recommendation.
-- Ask questions that help the project owner make design decisions instead of
-  silently making consequential choices on their behalf.
-- Agents may write or modify focused unit tests while helping the project owner.
-  This includes co-located `#[cfg(test)]` modules, but does not permit changes
-  to the non-test implementation in the same file.
-- Agents may run diagnostics, investigate failures, and suggest concrete fixes.
-  They must leave production implementation changes for the project owner to
-  type and review.
-- Agents may change documentation, agent instructions, or repository
-  configuration only when the project owner explicitly requests that specific
-  kind of change.
-- During reviews, use check-only formatter modes such as `cargo fmt --all --
-  --check`. Do not let a formatter rewrite project files.
-
-If a request could mean either advice or implementation, treat it as a request
-for advice. The project owner retains authorship and ownership of the code.
+  coverage before handing it back.
+- Run the narrowest useful checks during development and all applicable
+  workspace checks before completion. Report checks that could not run and why.
+- During read-only reviews, use check-only formatter modes. During
+  implementation, formatting tools may update files, but review the resulting
+  diff and preserve unrelated formatting.
+- Do not stage, commit, push, or publish unrelated user changes.
 
 ## General workflow
 
@@ -293,7 +274,7 @@ state, protocol, discovery, security, and API material in the mdBook under
 
 ## Git history
 
-Use Conventional Commits:
+Use short Conventional Commits:
 
 ```text
 <type>(optional-scope): <imperative summary>
@@ -301,8 +282,10 @@ Use Conventional Commits:
 
 Common types include `feat`, `fix`, `docs`, `refactor`, `test`, `build`, `ci`,
 `perf`, and `chore`. Use `!` and a `BREAKING CHANGE:` footer for breaking
-changes. Keep commits cohesive, and do not mix unrelated refactors with
-behavioral changes.
+changes. Keep subjects concise and imperative, preferably no more than 72
+characters. Keep commits small and cohesive, and do not mix unrelated
+refactors with behavioral changes. Create commits for completed implementation
+work unless the user asks to leave changes uncommitted.
 
 Examples:
 

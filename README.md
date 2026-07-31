@@ -115,12 +115,12 @@ cargo check -p darpc-model -p darpc-protocol
 Platform component checks should specify their intended Windows target. Build
 and test instructions will grow alongside the implementation.
 
-The project owner writes implementation code. Coding agents act as reviewers,
-debugging partners, and mentors, and may help with tests when requested. See
-[AGENTS.md](AGENTS.md) for the complete collaboration and engineering rules.
+Coding agents may implement requested changes and also act as reviewers,
+debugging partners, and mentors. See [AGENTS.md](AGENTS.md) for the complete
+collaboration and engineering rules.
 
 All commits should follow the [Conventional Commits](https://www.conventionalcommits.org/)
-format with a focused, imperative summary.
+format with a short, focused, imperative summary.
 
 ## Documentation
 

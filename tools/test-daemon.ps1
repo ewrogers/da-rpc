@@ -282,8 +282,7 @@ function Assert-ApiContract {
         "HealthStatus",
         "LaunchOptions",
         "LifecycleAction",
-        "LifecycleResult",
-        "ServerEndpoint"
+        "LifecycleResult"
     )) {
         Assert-True ($Schemas -contains $Schema) "OpenAPI omitted $Schema"
     }

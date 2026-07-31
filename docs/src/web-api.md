@@ -94,12 +94,7 @@ LaunchOptions {
     allow_multiple: bool = false,
     skip_intro: bool = false,
     skip_notice: bool = false,
-    server: ServerEndpoint?,
-}
-
-ServerEndpoint {
-    host: string,
-    port: u16 = 2610,
+    server: string?,
 }
 ```
 
@@ -111,10 +106,7 @@ For example:
   "allow_multiple": true,
   "skip_intro": true,
   "skip_notice": true,
-  "server": {
-    "host": "127.0.0.1",
-    "port": 2610
-  }
+  "server": "127.0.0.1:2610"
 }
 ```
 
@@ -123,10 +115,12 @@ Convention (UNC) path. `loader.exe` validates the selected file as the supported
 client before creating a process and uses its parent directory as the client
 working directory.
 
-`host` must be a nonempty IPv4 address or hostname without whitespace, control
-characters, or a port suffix. Supplying `server` activates the loader's
-supported endpoint and fallback patch bundle. `skip_notice` activates its full
-notice, early-continue, and fast-transfer patch group.
+`server` accepts `host` or `host:port`. The host must be a nonempty IPv4 address
+or hostname without whitespace or control characters. The port defaults to
+2610 and, when present, must be from 1 through 65535. IPv6 literals are not
+supported. Supplying `server` activates the loader's supported endpoint and
+fallback patch bundle. `skip_notice` activates its full notice,
+early-continue, and fast-transfer patch group.
 
 Unknown fields are rejected. In particular, the API does not accept arbitrary
 client arguments or request-selected loader and DLL paths. The game client does

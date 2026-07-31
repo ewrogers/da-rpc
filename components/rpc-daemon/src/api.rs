@@ -383,7 +383,6 @@ fn operation_in_progress(pid: u32) -> ApiError {
         ClientIdentity,
         ConnectionMetadata,
         LaunchOptions,
-        ServerEndpoint,
         LifecycleResult,
         LifecycleAction,
         ErrorState,
@@ -536,19 +535,9 @@ struct LaunchOptions {
     /// Skip the title-screen notice and its associated delays.
     #[serde(default)]
     skip_notice: bool,
-    /// Override the game server through the supported endpoint patch bundle.
+    /// Override the game server as `host` or `host:port`; the port defaults to 2610.
     #[serde(default)]
-    server: Option<ServerEndpoint>,
-}
-
-#[derive(Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
-#[serde(deny_unknown_fields)]
-struct ServerEndpoint {
-    /// IPv4 address or hostname accepted by the supported game client.
-    host: String,
-    /// Server port. Defaults to 2610 when omitted.
-    #[schema(minimum = 1, maximum = 65535)]
-    port: Option<u16>,
+    server: Option<String>,
 }
 
 impl TryFrom<LaunchOptions> for ManagedLaunchOptions {
@@ -585,32 +574,55 @@ fn validate_client_path(client_path: String) -> Result<std::path::PathBuf, ApiEr
     Ok(client_path.into())
 }
 
-fn validate_server(server: ServerEndpoint) -> Result<ManagedServerEndpoint, ApiError> {
-    let host = server.host;
-    if host.is_empty()
-        || host.trim() != host
-        || host.len() > 255
-        || host.chars().any(|character| {
-            character.is_control() || character.is_whitespace() || character == ':'
-        })
-    {
-        return Err(ApiError::new(
-            StatusCode::BAD_REQUEST,
-            "invalid_server",
-            "server host must be a nonempty IPv4 address or hostname without whitespace or a port",
-            None,
+fn validate_server(server: String) -> Result<ManagedServerEndpoint, ApiError> {
+    if server.is_empty() || server.trim() != server {
+        return Err(invalid_server(
+            "server must be a nonempty host or host:port without surrounding whitespace",
         ));
     }
-    let port = server.port.unwrap_or(DEFAULT_SERVER_PORT);
+
+    if server.matches(':').count() > 1 {
+        return Err(invalid_server(
+            "server must be an IPv4 address or hostname with an optional port",
+        ));
+    }
+
+    let (host, port) = match server.rsplit_once(':') {
+        Some((host, port)) => {
+            if host.is_empty() || port.is_empty() {
+                return Err(invalid_server("server host and port must not be empty"));
+            }
+            let port = port.parse::<u16>().map_err(|_| {
+                invalid_server("server port must be an integer from 1 through 65535")
+            })?;
+            (host, port)
+        }
+        None => (server.as_str(), DEFAULT_SERVER_PORT),
+    };
+
     if port == 0 {
-        return Err(ApiError::new(
-            StatusCode::BAD_REQUEST,
-            "invalid_server",
+        return Err(invalid_server(
             "server port must be an integer from 1 through 65535",
-            None,
         ));
     }
-    Ok(ManagedServerEndpoint { host, port })
+    if host.len() > 255
+        || host
+            .chars()
+            .any(|character| character.is_control() || character.is_whitespace())
+    {
+        return Err(invalid_server(
+            "server host must be at most 255 characters without whitespace or control characters",
+        ));
+    }
+
+    Ok(ManagedServerEndpoint {
+        host: host.to_owned(),
+        port,
+    })
+}
+
+fn invalid_server(message: impl Into<String>) -> ApiError {
+    ApiError::new(StatusCode::BAD_REQUEST, "invalid_server", message, None)
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
@@ -967,7 +979,6 @@ mod tests {
             "ClientIdentity",
             "ConnectionMetadata",
             "LaunchOptions",
-            "ServerEndpoint",
             "LifecycleResult",
             "LifecycleAction",
             "ErrorState",
@@ -1016,7 +1027,7 @@ mod tests {
         let response = post_json(
             state,
             "/clients/launch",
-            r#"{"client_path":"C:\\Darkages.exe","allow_multiple":true,"server":{"host":"127.0.0.1"}}"#,
+            r#"{"client_path":"C:\\Darkages.exe","allow_multiple":true,"server":"127.0.0.1"}"#,
         );
         assert_eq!(response.status(), StatusCode::CREATED);
         assert!(matches!(receiver.recv().unwrap(), DaemonEvent::Track(77)));
@@ -1035,11 +1046,10 @@ mod tests {
 
     #[test]
     fn accepts_a_full_client_path_and_defaults_the_server_port() {
-        let request: LaunchOptions =
-            serde_json::from_str(
-                r#"{"client_path":"D:\\Games\\Dark Ages\\Darkages.exe","server":{"host":"da0.kru.com"}}"#,
-            )
-            .unwrap();
+        let request: LaunchOptions = serde_json::from_str(
+            r#"{"client_path":"D:\\Games\\Dark Ages\\Darkages.exe","server":"da0.kru.com"}"#,
+        )
+        .unwrap();
         let options = ManagedLaunchOptions::try_from(request).unwrap();
         assert_eq!(
             options.client_path,
@@ -1049,7 +1059,24 @@ mod tests {
         assert_eq!(server.host, "da0.kru.com");
         assert_eq!(server.port, 2610);
 
+        let request: LaunchOptions = serde_json::from_str(
+            r#"{"client_path":"D:\\Games\\Dark Ages\\Darkages.exe","server":"127.0.0.1:3000"}"#,
+        )
+        .unwrap();
+        let server = ManagedLaunchOptions::try_from(request)
+            .unwrap()
+            .server
+            .unwrap();
+        assert_eq!(server.host, "127.0.0.1");
+        assert_eq!(server.port, 3000);
+
         assert!(serde_json::from_str::<LaunchOptions>("{}").is_err());
+        assert!(
+            serde_json::from_str::<LaunchOptions>(
+                r#"{"client_path":"C:\\Darkages.exe","server":{"host":"da0.kru.com"}}"#
+            )
+            .is_err()
+        );
         for field in ["loader_path", "dll_path"] {
             let body = format!(r#"{{"{field}":"unsafe"}}"#);
             assert!(serde_json::from_str::<LaunchOptions>(&body).is_err());
@@ -1062,6 +1089,21 @@ mod tests {
             serde_json::from_str(r#"{"client_path":"Darkages.exe"}"#).unwrap();
         let error = ManagedLaunchOptions::try_from(request).unwrap_err();
         assert_eq!(error.body.error.code, "invalid_client_path");
+    }
+
+    #[test]
+    fn rejects_invalid_server_strings() {
+        for server in ["", ":2610", "host:", "host:0", "host:nope", "::1"] {
+            let request = LaunchOptions {
+                client_path: r"C:\Darkages.exe".into(),
+                allow_multiple: false,
+                skip_intro: false,
+                skip_notice: false,
+                server: Some(server.into()),
+            };
+            let error = ManagedLaunchOptions::try_from(request).unwrap_err();
+            assert_eq!(error.body.error.code, "invalid_server");
+        }
     }
 
     #[test]

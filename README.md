@@ -255,9 +255,9 @@ discovered or explicitly configured PID and status, plus the DLL `instance_id`
 and process `created_time` once identity is available.
 
 Managed launch requires `client_path` and accepts `allow_multiple`,
-`skip_intro`, `skip_notice`, and an optional `server` object containing `host`
-and `port`. The server port defaults to `2610`. Arbitrary client arguments and
-request-selected loader or DLL paths are intentionally not part of the API.
+`skip_intro`, `skip_notice`, and an optional `server` string in `host` or
+`host:port` form. A missing port defaults to `2610`. Arbitrary client arguments
+and request-selected loader or DLL paths are intentionally not part of the API.
 
 `utoipa` generates the OpenAPI document from the Rust HTTP models. A vendored
 Swagger UI serves the same contract at `/docs` without requiring internet

@@ -321,8 +321,8 @@ Done:
 - Unit and controlled native Windows checks cover flag parsing, patch
   definitions, independent and combined requests, and fail-closed behavior.
 - Private live-client verification confirms every launch option independently
-  and together, including strict loopback routing through a local network
-  analyzer, with normal login and the inert DLL loaded.
+  and together, including strict loopback routing through the Arbiter local
+  proxy, with normal login and the inert DLL loaded.
 
 ## Phase 2: prove direct DLL communication
 

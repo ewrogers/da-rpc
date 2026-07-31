@@ -79,11 +79,12 @@ loader.exe launch --allow-multiple --server <host[:port]> \
     --skip-intro --skip-notice <executable-path> <dll-path>
 ```
 
-Use `--server 127.0.0.1:2610` when intentionally routing through a local network
-analyzer. The analyzer must already be listening and forwarding the connection;
-strict endpoint selection does not fall back when the loopback connection fails.
-Keeping the options explicit allows individual behaviors to be omitted during
-diagnosis without changing the loader's unflagged behavior.
+Use `--server 127.0.0.1:2610` when intentionally routing through
+[Arbiter](https://github.com/ewrogers/Arbiter), a Dark Ages network analyzer and
+local proxy. Arbiter must be configured to listen there and forward the
+connection; strict endpoint selection does not fall back when the loopback
+connection fails. Keeping the options explicit allows individual behaviors to
+be omitted during diagnosis without changing the loader's unflagged behavior.
 
 For `--server`, human diagnostics show the resolved IPv4 address and port. If
 no additional client arguments were forwarded, they also show the exact game
@@ -284,18 +285,23 @@ lifecycle logging, unload, and client liveness after unload. It force-stops only
 the client processes it starts, so it is not evidence of normal interactive
 exit behavior.
 
-When orchestrating a Parallels guest from macOS, do not use a Parallels Tools
-remote command as the parent of a live client behavioral-acceptance launch.
-Remote execution remains appropriate for building, controlled-target tests,
-inspection, and attaching to a client the user started interactively. Run the
-launch acceptance command from PowerShell opened directly inside the Windows
-desktop. Do not substitute a Task Scheduler action created through Parallels
-remote execution: even an interactive, limited-privilege task proved unreliable
-during the login redirect and could leave later vanilla attempts failing until
-the transient state cleared. Let the client perform its normal exit rather than
-terminating it from the harness.
+When orchestrating a Parallels guest from macOS, use direct current-user guest
+execution for live launches as well as builds, controlled targets, inspection,
+and attach. A scheduled task or other launch intermediary is unnecessary:
 
-Complete the behavioral acceptance check manually and privately:
+```sh
+prlctl exec "<vm-name>" --current-user powershell.exe -NoProfile -Command \
+  "& '<loader-path>' launch --allow-multiple --skip-intro --skip-notice '<client-path>' '<dll-path>'"
+```
+
+Add `--server '<host[:port]>'` when endpoint selection is part of the check. A
+loopback endpoint such as `127.0.0.1:2610` can route through Arbiter when its
+guest-local proxy is already listening and forwarding. Automated checks may
+launch the client and inspect non-sensitive process state, but must not enter
+credentials, record private game data, or force-terminate a client they do not
+clearly own.
+
+Complete the interactive portion of behavioral acceptance privately:
 
 1. Close every running client. Start the client directly, log in, move, open
    and close representative user interface panels, and exit normally.
@@ -307,14 +313,15 @@ Complete the behavioral acceptance check manually and privately:
 4. Record whether all three runs behaved the same. Do not put credentials,
    private chat, or packet data in the record.
 
-Verify the M4.1 launch options from an interactive Windows session. Exercise
-each option independently, then launch two clients concurrently with all three
-visual options and `--server da0.kru.com`. Confirm that the intro and notice
-are absent, both clients reach normal login, the selected endpoint is used, and
-ordinary login and exit behavior remain intact. An unflagged launch remains the
-comparison case. An explicit server is strict: if that connection fails, the
-client follows its normal disconnected cleanup and does not retry the compiled
-official endpoint.
+Verify M4.1 with automated current-user launches where practical. Exercise each
+option independently, then launch two clients concurrently with
+`--allow-multiple --skip-intro --skip-notice` and, when needed,
+`--server <host[:port]>`. Confirm that the intro and notice are absent, both
+clients reach normal login, the selected endpoint is used, and ordinary login
+and exit behavior remain intact. An unflagged launch remains the comparison
+case. An explicit server is strict: if that connection fails, the client follows
+its normal disconnected cleanup and does not retry the compiled official
+endpoint.
 
 The loader-owned startup patches run between suspended process validation and
 DLL initialization. Hooks and trampolines owned by daRPC remain the

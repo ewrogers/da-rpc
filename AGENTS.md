@@ -99,11 +99,16 @@ Windows-specific builds or runtime checks are unavailable:
 - Prefer `prlctl exec <vm> --current-user ...` when supported. The current-user
   context exposes that user's mapped drives and configured Rust environment,
   while the default guest context may run as `SYSTEM`.
-- Use `prlctl exec` for builds, repository-owned controlled targets, inspection,
-  and late attach. Do not use a Parallels Tools remote command as the parent of
-  a live client behavioral-acceptance launch. Start `loader.exe` manually from
-  an interactive Windows shell; a Task Scheduler action created through remote
-  execution is not an accepted substitute. Let the client exit normally.
+- Use `prlctl exec <vm> --current-user ...` directly for builds, controlled
+  targets, inspection, attach, and automated live-client launches. A scheduled
+  task or other launch intermediary is unnecessary.
+- For rapid live-client launch checks, prefer `--allow-multiple`, `--skip-intro`,
+  and `--skip-notice`. Add `--server <host[:port]>` only when the selected
+  endpoint is part of the test. The paths, endpoint, and port remain
+  environment-specific and must be discovered or supplied rather than assumed.
+- Automated launch may start the client and inspect non-sensitive process state.
+  Do not enter credentials, capture private game data, or force-terminate a
+  client the test does not clearly own.
 - Keep Cargo-generated files on a Windows-local filesystem when the source is
   mounted from macOS. The exact target directory is environment-specific and
   must be discovered or chosen explicitly.

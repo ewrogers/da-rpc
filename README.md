@@ -117,13 +117,22 @@ prlctl list -a
 prlctl exec "<vm-name>" --current-user powershell.exe <arguments>
 ```
 
-Use remote guest commands for building, repository-owned integration targets,
-inspection, and late attach. For live-client login and behavior checks, start
-`loader.exe` manually from an interactive Windows shell. Do not substitute a
-Task Scheduler action created through remote execution; it proved unreliable
-at the client login redirect even with interactive logon and limited privilege.
-Do not parent the live client beneath the Parallels Tools remote-command process
-or force-terminate it after the check.
+Use direct current-user remote commands for building, repository-owned
+integration targets, inspection, attach, and automated live-client launch. No
+scheduled task or other launch intermediary is required. A rapid launch from
+macOS has this general form:
+
+```sh
+prlctl exec "<vm-name>" --current-user powershell.exe -NoProfile -Command \
+  "& '<loader-path>' launch --allow-multiple --skip-intro --skip-notice '<client-path>' '<dll-path>'"
+```
+
+Add `--server '<host[:port]>'` when endpoint selection is part of the test.
+[Arbiter](https://github.com/ewrogers/Arbiter) is a Dark Ages network analyzer
+and local proxy; use `--server 127.0.0.1:2610` when Arbiter is configured to
+listen there and forward the connection. Automated checks must not enter
+credentials, record private game data, or force-terminate a client they do not
+clearly own.
 
 The intended development loop is:
 
@@ -132,7 +141,9 @@ The intended development loop is:
 2. Build the required MSVC target inside Windows with a Windows-local
    `CARGO_TARGET_DIR`.
 3. Run the repository-owned Windows integration script inside the guest.
-4. Treat both host and native guest results as completion evidence.
+4. Launch live-client checks through direct current-user guest execution when
+   the milestone requires them.
+5. Treat both host and native guest results as completion evidence.
 
 ## Loader CLI
 
@@ -159,11 +170,11 @@ loader.exe launch --allow-multiple --server <host[:port]> \
     --skip-intro --skip-notice <executable-path> <dll-path>
 ```
 
-`--server` uses port 2610 when omitted. A local network analyzer can be selected
-with `--server 127.0.0.1:2610`, but it must already be listening and forwarding
-the connection. Arguments after `--` are forwarded unchanged to the client. See
-the [loader documentation](https://ewrogers.github.io/da-rpc/loader.html) for
-the detailed lifecycle, safety behavior, and result contract.
+`--server` uses port 2610 when omitted. Arbiter can be selected by passing
+`--server 127.0.0.1:2610`, but its local proxy must already be listening and
+forwarding the connection. Arguments after `--` are forwarded unchanged to the
+client. See the [loader documentation](https://ewrogers.github.io/da-rpc/loader.html)
+for the detailed lifecycle, safety behavior, and result contract.
 
 ## Development
 

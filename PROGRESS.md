@@ -85,8 +85,8 @@ milestone is M5, the minimal binary protocol.
 - [x] Verify `--allow-multiple` with an existing live client.
 - [x] Verify `--skip-notice` hides the notice, enables early title-menu pointer
   input, and removes the fixed transfer pause in the live client.
-- [x] Verify all options together, including strict loopback routing through a
-  local network analyzer, and record M4.1 complete.
+- [x] Verify all options together, including strict loopback routing through the
+  Arbiter local proxy, and record M4.1 complete.
 
 ## M2 completion evidence
 

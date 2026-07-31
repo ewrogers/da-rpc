@@ -146,6 +146,35 @@ body {
   outline-offset: 3px;
 }
 
+.swagger-ui .json-schema-2020-12-accordion,
+.swagger-ui .json-schema-2020-12-expand-deep-button {
+  appearance: none;
+  background-color: transparent !important;
+  border: 0;
+  box-shadow: none;
+  color: var(--ayu-text) !important;
+}
+
+.swagger-ui .json-schema-2020-12-accordion:focus-visible,
+.swagger-ui .json-schema-2020-12-expand-deep-button:focus-visible {
+  outline: 1px solid var(--ayu-orange);
+  outline-offset: 3px;
+}
+
+.swagger-ui .json-schema-2020-12__title,
+.swagger-ui .json-schema-2020-12-property .json-schema-2020-12__title {
+  color: var(--ayu-text);
+}
+
+.swagger-ui .json-schema-2020-12__attribute,
+.swagger-ui .json-schema-2020-12__attribute--primary {
+  color: var(--ayu-blue);
+}
+
+.swagger-ui .json-schema-2020-12__attribute--muted {
+  color: var(--ayu-muted);
+}
+
 .swagger-ui .prop-type,
 .swagger-ui .prop-enum {
   color: var(--ayu-blue);

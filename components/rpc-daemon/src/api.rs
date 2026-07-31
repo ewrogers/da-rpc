@@ -95,13 +95,16 @@ async fn swagger_redirect() -> Redirect {
     Redirect::to("/docs/")
 }
 
-async fn swagger_index() -> Html<&'static str> {
-    Html(SWAGGER_INDEX)
+async fn swagger_index() -> impl IntoResponse {
+    ([(header::CACHE_CONTROL, "no-store")], Html(SWAGGER_INDEX))
 }
 
 async fn swagger_theme() -> impl IntoResponse {
     (
-        [(header::CONTENT_TYPE, "text/css; charset=utf-8")],
+        [
+            (header::CONTENT_TYPE, "text/css; charset=utf-8"),
+            (header::CACHE_CONTROL, "no-store"),
+        ],
         SWAGGER_THEME,
     )
 }
@@ -475,6 +478,7 @@ mod tests {
         assert!(theme.contains("--ayu-orange: #ffb454"));
         assert!(theme.contains(".swagger-ui .info .title small pre.version"));
         assert!(theme.contains(".swagger-ui button.model-box-control"));
+        assert!(theme.contains(".swagger-ui .json-schema-2020-12-accordion"));
     }
 
     #[test]

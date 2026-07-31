@@ -25,6 +25,9 @@ pub(crate) enum ConnectionEvent {
     Connecting {
         pid: u32,
     },
+    Initializing {
+        pid: u32,
+    },
     NotLoaded {
         pid: u32,
     },
@@ -53,6 +56,7 @@ impl ConnectionEvent {
     pub(crate) const fn pid(&self) -> u32 {
         match self {
             Self::Connecting { pid }
+            | Self::Initializing { pid }
             | Self::NotLoaded { pid }
             | Self::Connected { pid, .. }
             | Self::Busy { pid }
@@ -65,6 +69,7 @@ impl ConnectionEvent {
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum TargetStatus {
     Connecting,
+    Initializing,
     NotLoaded,
     Connected(ClientIdentity),
     Busy,
@@ -87,6 +92,7 @@ struct ClientRecord {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ClientSnapshotStatus {
     Connecting,
+    Initializing,
     NotLoaded,
     Connected,
     Busy,
@@ -128,6 +134,7 @@ impl Registry {
         let pid = event.pid();
         let next = match event {
             ConnectionEvent::Connecting { .. } => TargetStatus::Connecting,
+            ConnectionEvent::Initializing { .. } => TargetStatus::Initializing,
             ConnectionEvent::NotLoaded { .. } => TargetStatus::NotLoaded,
             ConnectionEvent::Busy { .. } => TargetStatus::Busy,
             ConnectionEvent::Connected {
@@ -177,6 +184,13 @@ impl Registry {
         true
     }
 
+    pub(crate) fn remove(&mut self, pid: u32) -> bool {
+        let removed_target = self.targets.remove(&pid).is_some();
+        let original_clients = self.clients.len();
+        self.clients.retain(|identity, _| identity.pid != pid);
+        removed_target || self.clients.len() != original_clients
+    }
+
     #[must_use]
     pub(crate) fn snapshot(&self) -> RegistrySnapshot {
         let clients = self
@@ -185,6 +199,7 @@ impl Registry {
             .map(|(&pid, target)| {
                 let (status, identity, reason) = match target {
                     TargetStatus::Connecting => (ClientSnapshotStatus::Connecting, None, None),
+                    TargetStatus::Initializing => (ClientSnapshotStatus::Initializing, None, None),
                     TargetStatus::NotLoaded => (ClientSnapshotStatus::NotLoaded, None, None),
                     TargetStatus::Connected(identity) => {
                         (ClientSnapshotStatus::Connected, Some(*identity), None)
@@ -219,6 +234,9 @@ impl Registry {
 pub(crate) fn render_event(event: &ConnectionEvent) -> String {
     match event {
         ConnectionEvent::Connecting { pid } => format!("client pid={pid} status=connecting"),
+        ConnectionEvent::Initializing { pid } => {
+            format!("client pid={pid} status=initializing")
+        }
         ConnectionEvent::NotLoaded { pid } => format!("client pid={pid} status=not_loaded"),
         ConnectionEvent::Busy { pid } => format!("client pid={pid} status=busy"),
         ConnectionEvent::Connected {
@@ -387,14 +405,15 @@ mod tests {
         let mut registry = Registry::new();
         for event in [
             ConnectionEvent::Connecting { pid: 1 },
-            ConnectionEvent::NotLoaded { pid: 2 },
-            ConnectionEvent::Busy { pid: 3 },
+            ConnectionEvent::Initializing { pid: 2 },
+            ConnectionEvent::NotLoaded { pid: 3 },
+            ConnectionEvent::Busy { pid: 4 },
         ] {
             assert!(registry.apply(&event));
             assert!(render_event(&event).contains("status="));
         }
         let disconnected = ConnectionEvent::Disconnected {
-            pid: 4,
+            pid: 5,
             identity: None,
             reason: "closed".into(),
         };
@@ -402,8 +421,23 @@ mod tests {
         assert!(render_event(&disconnected).contains("instance=unknown"));
 
         let snapshot = registry.snapshot();
-        assert_eq!(snapshot.clients.len(), 4);
-        assert_eq!(snapshot.clients[1].status, ClientSnapshotStatus::NotLoaded);
-        assert_eq!(snapshot.clients[3].reason.as_deref(), Some("closed"));
+        assert_eq!(snapshot.clients.len(), 5);
+        assert_eq!(snapshot.clients[2].status, ClientSnapshotStatus::NotLoaded);
+        assert_eq!(snapshot.clients[4].reason.as_deref(), Some("closed"));
+    }
+
+    #[test]
+    fn removes_a_disappeared_target_and_identity() {
+        let mut registry = Registry::new();
+        registry.apply(&ConnectionEvent::Connected {
+            pid: 42,
+            hello: hello(1, 100),
+            selected_version: SUPPORTED_VERSIONS.max,
+        });
+
+        assert!(registry.remove(42));
+        assert!(registry.snapshot().clients.is_empty());
+        assert!(registry.clients.is_empty());
+        assert!(!registry.remove(42));
     }
 }

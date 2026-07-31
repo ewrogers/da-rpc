@@ -9,6 +9,7 @@ use std::{
 
 pub const CLIENT_VERSION: &str = "7.41";
 pub const LAYOUT_ID: u32 = 741;
+pub const WINDOW_CLASS: &str = "Darkages";
 pub const EXECUTABLE_SIZE: u64 = 3_112_960;
 pub const EXECUTABLE_SHA256: [u8; 32] = [
     0x05, 0x4A, 0x5D, 0x6A, 0xDC, 0x56, 0x09, 0x9C, 0x6B, 0xFD, 0x9D, 0x2A, 0x58, 0x67, 0x5A, 0xFF,

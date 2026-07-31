@@ -1,4 +1,7 @@
-use crate::registry::{ClientIdentity, ConnectionEvent};
+use crate::{
+    event::DaemonEvent,
+    registry::{ClientIdentity, ConnectionEvent},
+};
 #[cfg(debug_assertions)]
 use darpc_game_client::DEBUG_UNSUPPORTED_CLIENT_BYPASS_ENVIRONMENT_VARIABLE;
 use darpc_game_client::{EXECUTABLE_SHA256, LAYOUT_ID};
@@ -8,27 +11,51 @@ use darpc_win32::controller::{ControllerError, ControllerSession};
 use std::env;
 use std::{
     io,
-    sync::mpsc::Sender,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc::Sender,
+    },
     thread::{self, JoinHandle},
-    time::Duration,
+    time::{Duration, Instant},
 };
 use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_PIPE_BUSY};
 
 const RETRY_INTERVAL: Duration = Duration::from_millis(500);
 const HEALTH_INTERVAL: Duration = Duration::from_secs(1);
+const INITIALIZATION_GRACE: Duration = Duration::from_secs(1);
+const STOP_POLL_INTERVAL: Duration = Duration::from_millis(50);
 
-pub(crate) fn spawn(pid: u32, events: Sender<ConnectionEvent>) -> io::Result<JoinHandle<()>> {
-    thread::Builder::new()
-        .name(format!("darpcd-client-{pid}"))
-        .spawn(move || run(pid, events))
+pub(crate) struct Worker {
+    stop: Arc<AtomicBool>,
+    _handle: JoinHandle<()>,
 }
 
-fn run(pid: u32, events: Sender<ConnectionEvent>) {
+impl Worker {
+    pub(crate) fn stop(&self) {
+        self.stop.store(true, Ordering::Release);
+    }
+}
+
+pub(crate) fn spawn(pid: u32, events: Sender<DaemonEvent>) -> io::Result<Worker> {
+    let stop = Arc::new(AtomicBool::new(false));
+    let worker_stop = Arc::clone(&stop);
+    let handle = thread::Builder::new()
+        .name(format!("darpcd-client-{pid}"))
+        .spawn(move || run(pid, events, &worker_stop))?;
+    Ok(Worker {
+        stop,
+        _handle: handle,
+    })
+}
+
+fn run(pid: u32, events: Sender<DaemonEvent>, stop: &AtomicBool) {
     if !emit(&events, ConnectionEvent::Connecting { pid }) {
         return;
     }
+    let discovered_at = Instant::now();
 
-    loop {
+    while !stop.load(Ordering::Acquire) {
         match ControllerSession::connect(pid) {
             Ok(mut session) => {
                 let hello = session.hello();
@@ -44,7 +71,9 @@ fn run(pid: u32, events: Sender<ConnectionEvent>) {
                     ) {
                         return;
                     }
-                    thread::sleep(RETRY_INTERVAL);
+                    if wait_for_stop(stop, RETRY_INTERVAL) {
+                        return;
+                    }
                     continue;
                 }
                 if !emit(
@@ -58,7 +87,8 @@ fn run(pid: u32, events: Sender<ConnectionEvent>) {
                     return;
                 }
 
-                if let Err(error) = monitor(&mut session)
+                if let Err(error) = monitor(&mut session, stop)
+                    && !stop.load(Ordering::Acquire)
                     && !emit(
                         &events,
                         ConnectionEvent::Disconnected {
@@ -73,13 +103,17 @@ fn run(pid: u32, events: Sender<ConnectionEvent>) {
             }
             Err(error) => {
                 let event = connect_failure(pid, error);
-                if !emit(&events, event) {
+                let within_grace = matches!(event, ConnectionEvent::NotLoaded { .. })
+                    && discovered_at.elapsed() < INITIALIZATION_GRACE;
+                if !within_grace && !emit(&events, event) {
                     return;
                 }
             }
         }
 
-        thread::sleep(RETRY_INTERVAL);
+        if wait_for_stop(stop, RETRY_INTERVAL) {
+            return;
+        }
     }
 }
 
@@ -112,10 +146,9 @@ fn validate_identity(hello: Hello) -> Result<(), String> {
     Ok(())
 }
 
-fn monitor(session: &mut ControllerSession) -> Result<(), ControllerError> {
+fn monitor(session: &mut ControllerSession, stop: &AtomicBool) -> Result<(), ControllerError> {
     let mut request_id = 1_u32;
-    loop {
-        thread::sleep(HEALTH_INTERVAL);
+    while !wait_for_stop(stop, HEALTH_INTERVAL) {
         session.send(Message::Ping(Ping { request_id }))?;
         let response = session.receive()?;
         match response.message {
@@ -138,6 +171,18 @@ fn monitor(session: &mut ControllerSession) -> Result<(), ControllerError> {
         }
         request_id = request_id.wrapping_add(1);
     }
+    Ok(())
+}
+
+fn wait_for_stop(stop: &AtomicBool, duration: Duration) -> bool {
+    let deadline = Instant::now() + duration;
+    while Instant::now() < deadline {
+        if stop.load(Ordering::Acquire) {
+            return true;
+        }
+        thread::sleep(STOP_POLL_INTERVAL.min(deadline.saturating_duration_since(Instant::now())));
+    }
+    stop.load(Ordering::Acquire)
 }
 
 fn connect_failure(pid: u32, error: ControllerError) -> ConnectionEvent {
@@ -170,8 +215,8 @@ fn connect_failure(pid: u32, error: ControllerError) -> ConnectionEvent {
     }
 }
 
-fn emit(events: &Sender<ConnectionEvent>, event: ConnectionEvent) -> bool {
-    events.send(event).is_ok()
+fn emit(events: &Sender<DaemonEvent>, event: ConnectionEvent) -> bool {
+    events.send(DaemonEvent::Connection(event)).is_ok()
 }
 
 #[cfg(test)]

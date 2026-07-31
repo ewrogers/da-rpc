@@ -98,7 +98,7 @@ directly for discovery, aggregation, action status, and multi-client behavior.
 | M6 | Direct IPC diagnostics | `darpc.exe` exchanges `Hello`, `Ping`, and `Echo` messages with one injected DLL. | Complete |
 | M7 | Daemon client registry | `darpcd.exe` connects, tracks the DLL, and recovers after restart. | Complete |
 | M8 | Read-only HTTP API | A browser or HTTP client lists the injected client. | Complete |
-| M9 | Discovery and managed launch | `darpcd.exe` reconciles candidates and invokes the loader explicitly. | Planned |
+| M9 | Discovery and managed launch | `darpcd.exe` reconciles candidates and invokes the loader explicitly. | Complete |
 | M10 | Hook qualification harness | The hook mechanism preserves a controlled test function exactly. | Planned |
 | M11 | First client tick hook | The daemon reports client ticks while the game behaves normally. | Planned |
 | M12 | Minimal late-attach snapshot | The direct CLI and daemon API expose a small real-client state slice. | Planned |
@@ -109,7 +109,7 @@ directly for discovery, aggregation, action status, and multi-client behavior.
 | M17 | Multi-client hardening and preview | Failure and soak evidence support a preview release. | Planned |
 | M18 | WebSocket and remote access | Added only for a proven use case and defined security model. | Deferred |
 
-M2 through M8 are complete. M9 is the next planned implementation milestone.
+M2 through M9 are complete. M10 is the next planned implementation milestone.
 M1 has been exercised manually, but its separate evidence checklist remains
 open until the lifecycle-host Windows continuous-integration coverage is
 present. The working checklist is maintained in the [repository progress
@@ -398,8 +398,8 @@ Build:
 - A shared controller connection that lets `darpc.exe` and `darpcd.exe` reuse
   the working pipe handshake, sequencing, and compatibility checks.
 - A repeatable `--pid <pid>` target option, for example
-  `darpcd.exe --pid 3780 --pid 6244`, until automatic discovery is introduced
-  later. Zero and duplicate PIDs are rejected.
+  `darpcd.exe --pid 3780 --pid 6244`, as the initial target-selection boundary.
+  Zero and duplicate PIDs are rejected.
 - One independent connection worker per target PID with bounded health checks,
   disconnect detection, and retry.
 - An in-memory registry keyed by process ID, process creation time, and DLL
@@ -457,7 +457,11 @@ Build:
 - Periodic top-level-window reconciliation using a verified game window class.
 - Candidate PID and expected pipe derivation.
 - Not-loaded, busy, initializing, connected, and incompatible candidate states.
-- Explicit daemon invocation of `loader.exe` for inspect, attach, or launch.
+- Explicit daemon invocation of `loader.exe` for load, unload, or launch.
+- Loopback HTTP lifecycle routes with daemon-owned executable, loader, and DLL
+  paths.
+- A narrow launch model for allow-multiple, skip-intro, skip-notice, and an
+  optional server endpoint, without arbitrary client arguments.
 
 See:
 
@@ -469,6 +473,8 @@ Done:
 - A window match alone never proves compatibility.
 - Handshake failure never causes automatic reinjection.
 - The daemon cannot ask the loader to inject an arbitrary DLL.
+- HTTP callers cannot select an arbitrary executable or pass through process
+  arguments.
 - Multiple candidates remain independent.
 
 This completes the first useful process-management vertical slice. The daemon,

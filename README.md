@@ -5,9 +5,9 @@
 daRPC, short for Dark Ages Remote Procedure Call, is a Rust workspace for
 integrating developer tools with the 32-bit Windows client of *Dark Ages*.
 The project is in early development and does not yet provide a working client
-state integration. Injection, launch-time patches, and direct named-pipe
-diagnostics are implemented, along with the explicit-PID daemon registry and
-its read-only HTTP API.
+state integration. Injection, launch-time patches, direct named-pipe
+diagnostics, automatic client discovery, and daemon-managed client lifecycle
+operations are implemented.
 
 Read the [daRPC Book](https://ewrogers.github.io/da-rpc/) for the architecture,
 current implementation status, protocol, safety requirements, and development
@@ -66,7 +66,7 @@ tools/
   injection-target/ inert process for loader integration testing
   lifecycle-host/   local DLL lifecycle integration harness
   loader-fixture-dll/ controlled failure DLL for loader integration testing
-  test-daemon.ps1   daemon registry and reconnect integration test
+  test-daemon.ps1   daemon discovery, lifecycle, and reconnect integration test
   test-ipc.ps1      direct IPC and shutdown integration test
 
 docs/           architecture and developer documentation
@@ -212,18 +212,26 @@ through the `darpcd.exe` web API and its Swagger UI.
 
 ## Daemon client registry
 
-`darpcd.exe` can persistently connect to one or more explicitly selected
-clients. Repeat `--pid` for every target:
+`darpcd.exe` discovers running clients by their verified `Darkages` top-level
+window class and persistently connects to every available daRPC pipe. Explicit
+PIDs remain available for controlled targets or clients without a window:
 
 ```text
+darpcd.exe
 darpcd.exe --pid 3780 --pid 6648
+darpcd.exe --loader-path <loader.exe> --dll-path <darpc.dll> --client-path <Darkages.exe>
 ```
 
 The daemon prints connection status transitions and reconnects when a pipe or
-DLL returns. Automatic discovery and snapshots are later work, so the current
-daemon requires explicit PIDs and aggregates identity and connection health
-only. While it owns a pipe, direct `darpc.exe ipc` commands report that the
-endpoint is busy.
+DLL returns. It aggregates identity and connection health only until game-state
+snapshots are implemented. While it owns a pipe, direct `darpc.exe ipc`
+commands report that the endpoint is busy.
+
+The loader and DLL default to files beside `darpcd.exe`. Managed launch remains
+disabled until `--client-path` is configured with the full path to that
+installation's `Darkages.exe`. The loader uses its parent as the client working
+directory, so no installation directory is assumed. These paths belong to
+daemon configuration and are never accepted from an HTTP request.
 
 ## Web API
 
@@ -234,6 +242,9 @@ loopback. It exposes one current, unversioned API:
 ```text
 GET /health
 GET /clients
+POST /clients/launch
+POST /clients/{pid}/load
+POST /clients/{pid}/unload
 GET /openapi.json
 GET /docs
 ```
@@ -241,8 +252,13 @@ GET /docs
 The default interactive documentation URL is
 `http://127.0.0.1:2626/docs`. Startup fails clearly if the selected port is
 unavailable rather than silently choosing another one. `/clients` reports each
-configured PID and status, plus the DLL `instance_id` and process
-`created_time` once identity is available.
+discovered or explicitly configured PID and status, plus the DLL `instance_id`
+and process `created_time` once identity is available.
+
+Managed launch accepts only `allow_multiple`, `skip_intro`, `skip_notice`, and
+an optional `server` object containing `host` and `port`. The server port
+defaults to `2610`. Arbitrary client arguments and executable, loader, or DLL
+paths are intentionally not part of the API.
 
 `utoipa` generates the OpenAPI document from the Rust HTTP models. A vendored
 Swagger UI serves the same contract at `/docs` without requiring internet

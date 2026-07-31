@@ -10,11 +10,15 @@ use std::{
     time::Duration,
 };
 
+const DISCOVERY_TEST_ENVIRONMENT_VARIABLE: &str = "DARPC_DISCOVERY_TEST_WINDOW";
+const DISCOVERY_TEST_WAIT: Duration = Duration::from_secs(60);
+
 fn main() -> io::Result<()> {
     let darpc_loaded_at_start = darpc_is_loaded();
     let initialized_at_start = lifecycle_log_contains_initialization();
     let standard_handles_unavailable_at_start = standard_handles_are_unavailable();
     let options = parse_options()?;
+    let _discovery_window = create_discovery_window()?;
 
     if let Some(report_path) = options.report_path.as_ref() {
         write_launch_report(
@@ -62,6 +66,7 @@ fn parse_options() -> io::Result<Options> {
     let mut wait = Wait::Input;
     let mut report_path = None;
     let mut forwarded = Vec::new();
+    let mut wait_was_explicit = false;
 
     while let Some(option) = arguments.next() {
         if option == "--" {
@@ -76,6 +81,7 @@ fn parse_options() -> io::Result<Options> {
                 .and_then(|value| value.parse::<u64>().ok())
                 .ok_or_else(invalid_arguments)?;
             wait = Wait::Duration(Duration::from_millis(milliseconds));
+            wait_was_explicit = true;
             continue;
         }
 
@@ -92,11 +98,124 @@ fn parse_options() -> io::Result<Options> {
         return Err(invalid_arguments());
     }
 
+    if !wait_was_explicit && discovery_window_enabled() {
+        wait = Wait::Duration(DISCOVERY_TEST_WAIT);
+    }
+
     Ok(Options {
         wait,
         report_path,
         arguments: forwarded,
     })
+}
+
+fn discovery_window_enabled() -> bool {
+    env::var_os(DISCOVERY_TEST_ENVIRONMENT_VARIABLE).as_deref() == Some(std::ffi::OsStr::new("1"))
+}
+
+#[cfg(windows)]
+struct DiscoveryWindow {
+    handle: windows_sys::Win32::Foundation::HWND,
+    instance: windows_sys::Win32::Foundation::HINSTANCE,
+    class_name: Vec<u16>,
+}
+
+#[cfg(windows)]
+impl Drop for DiscoveryWindow {
+    fn drop(&mut self) {
+        use windows_sys::Win32::UI::WindowsAndMessaging::{DestroyWindow, UnregisterClassW};
+
+        // SAFETY: handle was returned by CreateWindowExW on this thread and
+        // has not been destroyed. class_name remains NUL-terminated and was
+        // registered with instance for this process.
+        unsafe {
+            DestroyWindow(self.handle);
+            UnregisterClassW(self.class_name.as_ptr(), self.instance);
+        }
+    }
+}
+
+#[cfg(windows)]
+fn create_discovery_window() -> io::Result<Option<DiscoveryWindow>> {
+    use std::{iter, os::windows::ffi::OsStrExt, ptr};
+    use windows_sys::Win32::{
+        System::LibraryLoader::GetModuleHandleW,
+        UI::WindowsAndMessaging::{CreateWindowExW, DefWindowProcW, RegisterClassW, WNDCLASSW},
+    };
+
+    if !discovery_window_enabled() {
+        return Ok(None);
+    }
+
+    let class_name = std::ffi::OsStr::new(darpc_game_client::WINDOW_CLASS)
+        .encode_wide()
+        .chain(iter::once(0))
+        .collect::<Vec<_>>();
+    let title = std::ffi::OsStr::new("daRPC discovery target")
+        .encode_wide()
+        .chain(iter::once(0))
+        .collect::<Vec<_>>();
+
+    // SAFETY: a null module name requests the module handle for this process.
+    let instance = unsafe { GetModuleHandleW(ptr::null()) };
+    if instance.is_null() {
+        return Err(io::Error::last_os_error());
+    }
+
+    // SAFETY: all-zero WNDCLASSW fields are valid defaults. The required
+    // callback, module instance, and class name are assigned before use.
+    let mut window_class: WNDCLASSW = unsafe { std::mem::zeroed() };
+    window_class.lpfnWndProc = Some(DefWindowProcW);
+    window_class.hInstance = instance;
+    window_class.lpszClassName = class_name.as_ptr();
+
+    // SAFETY: window_class points to live data and class_name is a live,
+    // NUL-terminated UTF-16 string.
+    if unsafe { RegisterClassW(&raw const window_class) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+
+    // SAFETY: the registered class, title, and module instance remain valid
+    // until the returned DiscoveryWindow is dropped. A null parent creates a
+    // hidden top-level window that EnumWindows can discover.
+    let handle = unsafe {
+        CreateWindowExW(
+            0,
+            class_name.as_ptr(),
+            title.as_ptr(),
+            0,
+            0,
+            0,
+            0,
+            0,
+            ptr::null_mut(),
+            ptr::null_mut(),
+            instance,
+            ptr::null(),
+        )
+    };
+    if handle.is_null() {
+        // SAFETY: the class was registered successfully above and the UTF-16
+        // class name remains live.
+        unsafe {
+            windows_sys::Win32::UI::WindowsAndMessaging::UnregisterClassW(
+                class_name.as_ptr(),
+                instance,
+            );
+        }
+        return Err(io::Error::last_os_error());
+    }
+
+    Ok(Some(DiscoveryWindow {
+        handle,
+        instance,
+        class_name,
+    }))
+}
+
+#[cfg(not(windows))]
+fn create_discovery_window() -> io::Result<Option<()>> {
+    Ok(None)
 }
 
 fn write_launch_report(

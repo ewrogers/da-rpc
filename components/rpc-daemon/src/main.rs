@@ -4,18 +4,30 @@
 mod api;
 #[cfg(windows)]
 mod connection;
+#[cfg(windows)]
+mod discovery;
+#[cfg(any(windows, test))]
+mod event;
+#[cfg(any(windows, test))]
+mod management;
 #[cfg(any(windows, test))]
 mod registry;
 
-use std::{collections::BTreeSet, env, ffi::OsString, process::ExitCode};
+use std::{collections::BTreeSet, env, ffi::OsString, path::PathBuf, process::ExitCode};
 
 const DEFAULT_PORT: u16 = 2626;
-const USAGE: &str = "usage: darpcd --pid <pid> [--pid <pid> ...] [--port <port>]";
+const USAGE: &str = concat!(
+    "usage: darpcd [--pid <pid> ...] [--port <port>] ",
+    "[--loader-path <path>] [--dll-path <path>] [--client-path <path>]"
+);
 
 #[derive(Debug, Eq, PartialEq)]
 struct Options {
     pids: Vec<u32>,
     port: u16,
+    loader_path: Option<PathBuf>,
+    dll_path: Option<PathBuf>,
+    client_path: Option<PathBuf>,
 }
 
 fn main() -> ExitCode {
@@ -41,6 +53,9 @@ fn parse_options(arguments: impl IntoIterator<Item = OsString>) -> Result<Option
     let mut pids = Vec::new();
     let mut unique = BTreeSet::new();
     let mut port = None;
+    let mut loader_path = None;
+    let mut dll_path = None;
+    let mut client_path = None;
 
     while let Some(option) = arguments.next() {
         if option == "--pid" {
@@ -77,61 +92,215 @@ fn parse_options(arguments: impl IntoIterator<Item = OsString>) -> Result<Option
                 return Err("port must be greater than zero".into());
             }
             port = Some(parsed);
+        } else if option == "--loader-path" {
+            parse_path_option(&mut arguments, &mut loader_path, "--loader-path")?;
+        } else if option == "--dll-path" {
+            parse_path_option(&mut arguments, &mut dll_path, "--dll-path")?;
+        } else if option == "--client-path" {
+            parse_path_option(&mut arguments, &mut client_path, "--client-path")?;
         } else {
             return Err(format!("unknown option `{}`", option.to_string_lossy()));
         }
     }
 
-    if pids.is_empty() {
-        return Err("at least one --pid target is required".into());
-    }
     Ok(Options {
         pids,
         port: port.unwrap_or(DEFAULT_PORT),
+        loader_path,
+        dll_path,
+        client_path,
     })
+}
+
+fn parse_path_option(
+    arguments: &mut impl Iterator<Item = OsString>,
+    destination: &mut Option<PathBuf>,
+    option: &str,
+) -> Result<(), String> {
+    if destination.is_some() {
+        return Err(format!("{option} may be provided only once"));
+    }
+    let value = arguments
+        .next()
+        .ok_or_else(|| format!("{option} requires a value"))?;
+    if value.is_empty() {
+        return Err(format!("{option} requires a nonempty path"));
+    }
+    *destination = Some(PathBuf::from(value));
+    Ok(())
 }
 
 #[cfg(windows)]
 fn run(options: Options) -> Result<(), String> {
     use api::ApiState;
-    use registry::{ConnectionEvent, Registry};
-    use std::{io::Write as _, sync::mpsc};
+    use connection::Worker;
+    use event::DaemonEvent;
+    use management::LoaderControl;
+    use registry::Registry;
+    use std::{
+        collections::{BTreeMap, BTreeSet},
+        io::Write as _,
+        sync::{Arc, mpsc},
+        time::{Duration, Instant},
+    };
 
+    const DISCOVERY_INTERVAL: Duration = Duration::from_secs(1);
+    const LAUNCH_DISCOVERY_GRACE: Duration = Duration::from_secs(5);
+
+    let component_directory = env::current_exe()
+        .map_err(|error| format!("failed to resolve darpcd.exe: {error}"))?
+        .parent()
+        .ok_or_else(|| "darpcd.exe has no parent directory".to_owned())?
+        .to_owned();
+    let loader_path = options
+        .loader_path
+        .unwrap_or_else(|| component_directory.join("loader.exe"));
+    let dll_path = options
+        .dll_path
+        .unwrap_or_else(|| component_directory.join("darpc.dll"));
+    let lifecycle = Arc::new(LoaderControl::new(
+        loader_path.clone(),
+        dll_path.clone(),
+        options.client_path.clone(),
+    ));
+
+    let explicit_pids = options.pids.into_iter().collect::<BTreeSet<_>>();
+    let discovered_pids = discovery::client_pids()
+        .map_err(|error| format!("failed to enumerate game windows: {error}"))?;
+    let mut desired_pids = explicit_pids.clone();
+    desired_pids.extend(discovered_pids);
+
+    let (sender, receiver) = mpsc::channel();
     let mut registry = Registry::new();
-    for &pid in &options.pids {
-        let event = ConnectionEvent::Connecting { pid };
-        registry.apply(&event);
+    let mut workers = BTreeMap::<u32, Worker>::new();
+    for pid in desired_pids {
+        track_client(pid, &sender, &mut workers, &mut registry);
     }
 
-    let api_state = ApiState::new(registry.snapshot());
+    let api_state = ApiState::new(registry.snapshot(), lifecycle, sender.clone());
     let _api_worker = api::start(options.port, api_state.clone())
         .map_err(|error| format!("failed to listen on 127.0.0.1:{}: {error}", options.port))?;
     println!("HTTP API listening on http://127.0.0.1:{}", options.port);
-    for &pid in &options.pids {
-        println!(
-            "{}",
-            registry::render_event(&ConnectionEvent::Connecting { pid })
-        );
+    println!("loader path: {}", loader_path.display());
+    println!("DLL path: {}", dll_path.display());
+    if let Some(client_path) = options.client_path.as_ref() {
+        println!("client path: {}", client_path.display());
+    } else {
+        println!("client launch is disabled until --client-path is configured");
+    }
+    for client in registry.snapshot().clients {
+        println!("client pid={} status=connecting", client.pid);
     }
     let _ = std::io::stdout().flush();
 
-    let (sender, receiver) = mpsc::channel();
-    let mut workers = Vec::with_capacity(options.pids.len());
-    for pid in options.pids {
-        workers.push(connection::spawn(pid, sender.clone()).map_err(|error| {
-            format!("failed to start connection worker for PID {pid}: {error}")
-        })?);
-    }
-    drop(sender);
+    let mut next_discovery = Instant::now() + DISCOVERY_INTERVAL;
+    let mut launch_grace = BTreeMap::<u32, Instant>::new();
 
-    for event in receiver {
-        if registry.apply(&event) {
+    loop {
+        let timeout = next_discovery.saturating_duration_since(Instant::now());
+        match receiver.recv_timeout(timeout) {
+            Ok(DaemonEvent::Connection(event)) => {
+                if workers.contains_key(&event.pid()) {
+                    publish_event(&mut registry, &api_state, &event);
+                }
+            }
+            Ok(DaemonEvent::Status(event)) => {
+                if workers.contains_key(&event.pid()) {
+                    publish_event(&mut registry, &api_state, &event);
+                }
+            }
+            Ok(DaemonEvent::Track(pid)) => {
+                launch_grace.insert(pid, Instant::now() + LAUNCH_DISCOVERY_GRACE);
+                track_client(pid, &sender, &mut workers, &mut registry);
+                api_state.publish(registry.snapshot());
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                return Err("daemon event channel disconnected".into());
+            }
+        }
+
+        if Instant::now() < next_discovery {
+            continue;
+        }
+        next_discovery = Instant::now() + DISCOVERY_INTERVAL;
+        let discovered = match discovery::client_pids() {
+            Ok(discovered) => discovered,
+            Err(error) => {
+                eprintln!("darpcd: client discovery failed: {error}");
+                continue;
+            }
+        };
+        launch_grace
+            .retain(|pid, deadline| !discovered.contains(pid) && *deadline > Instant::now());
+
+        let mut desired = explicit_pids.clone();
+        desired.extend(discovered);
+        desired.extend(launch_grace.keys().copied());
+        let mut changed = false;
+        for &pid in &desired {
+            changed |= track_client(pid, &sender, &mut workers, &mut registry);
+        }
+
+        let removed = workers
+            .keys()
+            .copied()
+            .filter(|pid| !desired.contains(pid))
+            .collect::<Vec<_>>();
+        for pid in removed {
+            if let Some(worker) = workers.remove(&pid) {
+                worker.stop();
+            }
+            changed |= registry.remove(pid);
+            println!("client pid={pid} status=removed");
+        }
+        if changed {
             api_state.publish(registry.snapshot());
-            println!("{}", registry::render_event(&event));
             let _ = std::io::stdout().flush();
         }
     }
-    Err("all client connection workers stopped".into())
+}
+
+#[cfg(windows)]
+fn track_client(
+    pid: u32,
+    sender: &std::sync::mpsc::Sender<event::DaemonEvent>,
+    workers: &mut std::collections::BTreeMap<u32, connection::Worker>,
+    registry: &mut registry::Registry,
+) -> bool {
+    if workers.contains_key(&pid) {
+        return false;
+    }
+    let event = registry::ConnectionEvent::Connecting { pid };
+    registry.apply(&event);
+    match connection::spawn(pid, sender.clone()) {
+        Ok(worker) => {
+            workers.insert(pid, worker);
+        }
+        Err(error) => {
+            let event = registry::ConnectionEvent::Disconnected {
+                pid,
+                identity: None,
+                reason: format!("failed to start connection worker: {error}"),
+            };
+            registry.apply(&event);
+            eprintln!("darpcd: {}", registry::render_event(&event));
+        }
+    }
+    true
+}
+
+#[cfg(windows)]
+fn publish_event(
+    registry: &mut registry::Registry,
+    api_state: &api::ApiState,
+    event: &registry::ConnectionEvent,
+) {
+    if registry.apply(event) {
+        api_state.publish(registry.snapshot());
+        println!("{}", registry::render_event(event));
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+    }
 }
 
 #[cfg(not(windows))]
@@ -155,6 +324,9 @@ mod tests {
             Options {
                 pids: vec![42, 7],
                 port: DEFAULT_PORT,
+                loader_path: None,
+                dll_path: None,
+                client_path: None,
             }
         );
         assert_eq!(
@@ -162,13 +334,38 @@ mod tests {
             Options {
                 pids: vec![42],
                 port: 3000,
+                loader_path: None,
+                dll_path: None,
+                client_path: None,
             }
         );
     }
 
     #[test]
+    fn parses_discovery_and_management_options() {
+        assert_eq!(
+            parse_options(arguments(&[
+                "--loader-path",
+                "tools/loader.exe",
+                "--dll-path",
+                "tools/darpc.dll",
+                "--client-path",
+                "game/Darkages.exe",
+            ]))
+            .unwrap(),
+            Options {
+                pids: Vec::new(),
+                port: DEFAULT_PORT,
+                loader_path: Some("tools/loader.exe".into()),
+                dll_path: Some("tools/darpc.dll".into()),
+                client_path: Some("game/Darkages.exe".into()),
+            }
+        );
+        assert!(parse_options(Vec::<OsString>::new()).is_ok());
+    }
+
+    #[test]
     fn rejects_invalid_targets_and_ports() {
-        assert!(parse_options(Vec::<OsString>::new()).is_err());
         assert!(parse_options(arguments(&["--pid", "0"])).is_err());
         assert!(parse_options(arguments(&["--pid", "7", "--pid", "7"])).is_err());
         assert!(parse_options(arguments(&["--pids", "7,8"])).is_err());
@@ -178,6 +375,15 @@ mod tests {
         assert!(
             parse_options(arguments(&[
                 "--pid", "7", "--port", "2626", "--port", "2627"
+            ]))
+            .is_err()
+        );
+        assert!(
+            parse_options(arguments(&[
+                "--loader-path",
+                "first.exe",
+                "--loader-path",
+                "second.exe",
             ]))
             .is_err()
         );

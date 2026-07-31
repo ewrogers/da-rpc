@@ -9,8 +9,8 @@ remain concise.
 
 ## Current focus
 
-M8, the read-only HTTP API, is complete. The next planned implementation
-milestone is M9, discovery and managed launch.
+M9, discovery and managed launch, is complete. The next planned implementation
+milestone is M10, the hook qualification harness.
 
 ## Milestone snapshot
 
@@ -26,6 +26,7 @@ milestone is M9, discovery and managed launch.
 | M6, direct IPC diagnostics | Complete | The DLL pipe worker and direct hello, ping, and echo commands pass controlled and live-client Windows verification. |
 | M7, daemon client registry | Complete | Repeated explicit `--pid` targets, shared controller sessions, independent reconnecting workers, and identity-safe registry records pass controlled and live-client verification. |
 | M8, read-only HTTP API | Complete | Loopback Axum routes, client identity snapshots, generated OpenAPI, and vendored Swagger UI pass controlled and live-client verification. |
+| M9, discovery and managed launch | Complete | Exact-window discovery and API-managed load, unload, and constrained launch pass native Windows integration coverage. |
 
 ## Completed recently
 
@@ -157,14 +158,36 @@ milestone is M9, discovery and managed launch.
   `instance_id`, and connection compatibility metadata.
 - [x] Generate an OpenAPI 3.1 document at `/openapi.json` and serve vendored,
   offline Swagger UI assets with an Ayu-inspired dark theme at `/docs`.
-- [x] Reject request bodies, invalid port options, duplicate port options, and
-  occupied listeners with bounded, explicit failures.
+- [x] Reject request bodies on the read-only routes, invalid port options,
+  duplicate port options, and occupied listeners with bounded, explicit
+  failures.
 - [x] Verify the default and overridden ports, two controlled targets, daemon
   restart, one-client replacement, OpenAPI, Swagger assets, and failure
   isolation on Windows.
 - [x] Late-attach release builds to two supported clients, match both HTTP
   creation identities to loader inspection, validate compatibility metadata,
   unload both DLLs, and confirm both processes remain alive.
+
+## M9 completion evidence
+
+- [x] Discover the exact `Darkages` top-level window class at startup and once
+  per second while retaining repeated explicit PID targets.
+- [x] Add and remove independent workers as discovered windows appear and
+  disappear, with a bounded grace period for newly launched processes.
+- [x] Keep window matches as untrusted candidates and require loader validation
+  plus a daRPC handshake before reporting a compatible connection.
+- [x] Expose API-managed load, unload, and launch operations without allowing
+  request-selected executable, loader, DLL, or arbitrary argument values.
+- [x] Limit launch requests to allow-multiple, skip-intro, skip-notice, and an
+  optional validated server endpoint whose port defaults to 2610.
+- [x] Document the request, result, status, and error models in generated
+  OpenAPI and the standalone mdBook chapters.
+- [x] Verify automatic discovery, not-loaded state, load, unload, relaunch,
+  strict request rejection, independent candidates, and daemon reconnect on
+  native Windows with controlled x86 processes.
+- [x] Launch the supported client with rapid-test options through the HTTP API,
+  observe its returned PID connect, unload and reload it, and confirm unload
+  leaves the process alive.
 
 ## M2 completion evidence
 
@@ -235,6 +258,8 @@ milestone is M9, discovery and managed launch.
   interactive token and normal client exit.
 - `darpc.exe` talks directly to one DLL and remains usable without the daemon.
   Multi-client aggregation is consumed through the `darpcd.exe` web API.
+- Daemon lifecycle paths are server-side configuration. The web API exposes no
+  arbitrary client argument or path forwarding.
 - M7 aggregates client identity and connection health only. The first real
   client snapshot remains M12.
 - Character and user interface state remain per-client. A future shared-world

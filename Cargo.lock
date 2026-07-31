@@ -353,6 +353,7 @@ dependencies = [
 name = "injection-target"
 version = "0.1.0"
 dependencies = [
+ "darpc-game-client",
  "windows-sys",
 ]
 

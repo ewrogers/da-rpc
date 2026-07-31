@@ -6,13 +6,9 @@ on:
       - ".github/workflows/windows.yml"
       - "Cargo.toml"
       - "Cargo.lock"
-      - "components/loader/**"
-      - "components/rpc-dll/**"
-      - "crates/game-client/**"
-      - "crates/win32/**"
-      - "tools/injection-target/**"
-      - "tools/loader-fixture-dll/**"
-      - "tools/test-game-client.ps1"
+      - "components/**"
+      - "crates/**"
+      - "tools/**"
   push:
     branches:
       - main
@@ -20,13 +16,9 @@ on:
       - ".github/workflows/windows.yml"
       - "Cargo.toml"
       - "Cargo.lock"
-      - "components/loader/**"
-      - "components/rpc-dll/**"
-      - "crates/game-client/**"
-      - "crates/win32/**"
-      - "tools/injection-target/**"
-      - "tools/loader-fixture-dll/**"
-      - "tools/test-game-client.ps1"
+      - "components/**"
+      - "crates/**"
+      - "tools/**"
   workflow_dispatch:
 
 permissions:
@@ -34,9 +26,9 @@ permissions:
 
 jobs:
   loader:
-    name: Loader x86
+    name: Windows integration
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
 
     steps:
       - name: Check out repository
@@ -48,7 +40,7 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-      - name: Run Clippy
+      - name: Run x86 Clippy
         run: >
           cargo clippy
           -p darpc-game-client
@@ -60,7 +52,17 @@ jobs:
           --all-targets
           -- -D warnings
 
-      - name: Run unit tests
+      - name: Run x64 Clippy
+        run: >
+          cargo clippy
+          -p darpc-model
+          -p darpc-protocol
+          -p rpc-client
+          -p rpc-daemon
+          --all-targets
+          -- -D warnings
+
+      - name: Run x86 unit tests
         run: >
           cargo test
           -p darpc-game-client
@@ -68,7 +70,15 @@ jobs:
           -p injection-target
           --target i686-pc-windows-msvc
 
-      - name: Build integration artifacts
+      - name: Run x64 unit tests
+        run: >
+          cargo test
+          -p darpc-model
+          -p darpc-protocol
+          -p rpc-client
+          -p rpc-daemon
+
+      - name: Build x86 integration artifacts
         run: >
           cargo build
           -p loader
@@ -77,8 +87,18 @@ jobs:
           -p loader-fixture-dll
           --target i686-pc-windows-msvc
 
+      - name: Build x64 integration artifacts
+        run: cargo build -p rpc-client -p rpc-daemon
+
       - name: Run loader integration checks
         shell: pwsh
         run: >
           ./tools/injection-target/test-loader.ps1
           -TargetDir ./target/i686-pc-windows-msvc/debug
+
+      - name: Run daemon integration checks
+        shell: pwsh
+        run: >
+          ./tools/test-daemon.ps1
+          -X86TargetDir ./target/i686-pc-windows-msvc/debug
+          -X64TargetDir ./target/debug

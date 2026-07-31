@@ -7,11 +7,16 @@ license.workspace = true
 repository.workspace = true
 publish = false
 
+[dependencies]
+darpc-game-client.workspace = true
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = [
+  "Win32_Graphics_Gdi",
   "Win32_Foundation",
   "Win32_System_Console",
   "Win32_System_LibraryLoader",
+  "Win32_UI_WindowsAndMessaging",
 ] }
 
 [lints]

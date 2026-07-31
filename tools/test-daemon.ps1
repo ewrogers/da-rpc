@@ -16,6 +16,7 @@ $Darpc = Join-Path $X64TargetDir "darpc.exe"
 $Daemon = Join-Path $X64TargetDir "darpcd.exe"
 $DefaultPort = 2626
 $OverridePort = 3626
+$ManagedPort = 4626
 
 foreach ($Path in @($Loader, $Target, $DarpcDll, $Darpc, $Daemon)) {
     if (-not (Test-Path -PathType Leaf $Path)) {
@@ -32,6 +33,18 @@ function Assert-True {
     if (-not $Condition) {
         throw $Message
     }
+}
+
+function ConvertTo-ProcessArguments {
+    param([string[]] $Arguments)
+
+    $Quoted = foreach ($Argument in $Arguments) {
+        if ($Argument.Contains('"')) {
+            throw "Test process arguments cannot contain quotes: $Argument"
+        }
+        '"' + $Argument + '"'
+    }
+    return $Quoted -join " "
 }
 
 function Invoke-Loader {
@@ -66,17 +79,32 @@ function Invoke-DarpcExitCode {
 
 function Start-Daemon {
     param(
-        [int[]] $ProcessIds,
-        [Nullable[int]] $Port = $null
+        [int[]] $ProcessIds = @(),
+        [Nullable[int]] $Port = $null,
+        [switch] $Managed
     )
 
     $StartInfo = [System.Diagnostics.ProcessStartInfo]::new()
     $StartInfo.FileName = $Daemon
-    $Arguments = @($ProcessIds | ForEach-Object { "--pid $_" })
-    if ($null -ne $Port) {
-        $Arguments += @("--port", "$Port")
+    $Arguments = [System.Collections.Generic.List[string]]::new()
+    foreach ($ProcessId in $ProcessIds) {
+        [void] $Arguments.Add("--pid")
+        [void] $Arguments.Add("$ProcessId")
     }
-    $StartInfo.Arguments = ($Arguments -join " ")
+    if ($null -ne $Port) {
+        [void] $Arguments.Add("--port")
+        [void] $Arguments.Add("$Port")
+    }
+    if ($Managed) {
+        foreach ($Argument in @(
+            "--loader-path", $Loader,
+            "--dll-path", $DarpcDll,
+            "--client-path", $Target
+        )) {
+            [void] $Arguments.Add($Argument)
+        }
+    }
+    $StartInfo.Arguments = ConvertTo-ProcessArguments $Arguments
     $StartInfo.UseShellExecute = $false
     $StartInfo.CreateNoWindow = $true
     $StartInfo.RedirectStandardOutput = $true
@@ -101,6 +129,51 @@ function Get-ApiJson {
         -Uri "http://127.0.0.1:$Port$Path" `
         -Method Get `
         -TimeoutSec 2
+}
+
+function Invoke-ApiPost {
+    param(
+        [string] $Path,
+        [int] $Port,
+        [AllowNull()]
+        [string] $Body = $null
+    )
+
+    $Parameters = @{
+        Uri = "http://127.0.0.1:$Port$Path"
+        Method = "Post"
+        TimeoutSec = 15
+    }
+    if ($null -ne $Body) {
+        $Parameters.ContentType = "application/json"
+        $Parameters.Body = $Body
+    }
+    return Invoke-RestMethod @Parameters
+}
+
+function Wait-ForClientStatus {
+    param(
+        [int] $ProcessId,
+        [string] $Status,
+        [int] $Port,
+        [int] $TimeoutMilliseconds = 12000
+    )
+
+    $Deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
+    do {
+        try {
+            $Clients = @(Get-ApiJson -Path "/clients" -Port $Port).clients
+            $Client = @($Clients | Where-Object { $_.pid -eq $ProcessId })
+            if ($Client.Count -eq 1 -and $Client[0].status -eq $Status) {
+                return $Client[0]
+            }
+        } catch {
+            # Retry while discovery and connection workers converge.
+        }
+        Start-Sleep -Milliseconds 50
+    } while ([DateTime]::UtcNow -lt $Deadline)
+
+    throw "timed out waiting for PID $ProcessId to reach $Status"
 }
 
 function Wait-ForApi {
@@ -141,7 +214,7 @@ function Wait-ForConnectedClients {
         try {
             $Response = Get-ApiJson -Path "/clients" -Port $Port
             $Clients = @($Response.clients)
-            $AllConnected = $Clients.Count -eq $ProcessIds.Count
+            $AllConnected = $true
             foreach ($ProcessId in $ProcessIds) {
                 $Client = @($Clients | Where-Object { $_.pid -eq $ProcessId })
                 if ($Client.Count -ne 1 -or $Client[0].status -ne "connected") {
@@ -168,7 +241,7 @@ function Assert-ApiContract {
     )
 
     $Clients = @($ClientList.clients)
-    Assert-True ($Clients.Count -eq $ProcessIds.Count) "HTTP client count was incorrect"
+    Assert-True ($Clients.Count -ge $ProcessIds.Count) "HTTP client count was incorrect"
     foreach ($ProcessId in $ProcessIds) {
         $Client = @($Clients | Where-Object { $_.pid -eq $ProcessId })[0]
         Assert-True ($Client.status -eq "connected") "PID $ProcessId was not connected"
@@ -188,6 +261,9 @@ function Assert-ApiContract {
     $Paths = @($OpenApi.paths.PSObject.Properties.Name)
     Assert-True ($Paths -contains "/health") "OpenAPI omitted /health"
     Assert-True ($Paths -contains "/clients") "OpenAPI omitted /clients"
+    Assert-True ($Paths -contains "/clients/launch") "OpenAPI omitted /clients/launch"
+    Assert-True ($Paths -contains "/clients/{pid}/load") "OpenAPI omitted client load"
+    Assert-True ($Paths -contains "/clients/{pid}/unload") "OpenAPI omitted client unload"
     $Schemas = @($OpenApi.components.schemas.PSObject.Properties.Name)
     foreach ($Schema in @(
         "ClientIdentity",
@@ -195,8 +271,14 @@ function Assert-ApiContract {
         "ClientState",
         "ClientStatus",
         "ConnectionMetadata",
+        "ErrorDetail",
+        "ErrorState",
         "HealthState",
-        "HealthStatus"
+        "HealthStatus",
+        "LaunchOptions",
+        "LifecycleAction",
+        "LifecycleResult",
+        "ServerEndpoint"
     )) {
         Assert-True ($Schemas -contains $Schema) "OpenAPI omitted $Schema"
     }
@@ -245,7 +327,9 @@ function Wait-ForDaemonOwnership {
     $Deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
     do {
         if ($DaemonProcess.HasExited) {
-            throw "darpcd.exe exited before owning its target pipes"
+            $Output = $DaemonProcess.StandardOutput.ReadToEnd()
+            $ErrorOutput = $DaemonProcess.StandardError.ReadToEnd()
+            throw "darpcd.exe exited before owning its target pipes (exit $($DaemonProcess.ExitCode)): $Output $ErrorOutput"
         }
         $Owned = $true
         foreach ($ProcessId in $ProcessIds) {
@@ -313,7 +397,7 @@ try {
     $DaemonProcess = Start-Daemon -ProcessIds @($First.Id, $Second.Id)
     Wait-ForApi $DaemonProcess $DefaultPort
     $PendingClients = @(Get-ApiJson -Path "/clients" -Port $DefaultPort).clients
-    Assert-True ($PendingClients.Count -eq 2) "HTTP API omitted configured targets"
+    Assert-True ($PendingClients.Count -ge 2) "HTTP API omitted configured targets"
 
     $Result = Invoke-Loader -CommandArgs @("attach", "$($First.Id)", $DarpcDll)
     Assert-True $Result.darpc_loaded "first target attach did not load darpc.dll"
@@ -413,4 +497,98 @@ try {
     }
 }
 
-Write-Host "Daemon registry integration checks passed"
+Write-Host "Testing discovery and managed lifecycle API"
+$PreviousDiscoveryWindow = $env:DARPC_DISCOVERY_TEST_WINDOW
+$DiscoveredTarget = $null
+$LaunchedTarget = $null
+$DaemonProcess = $null
+try {
+    $env:DARPC_DISCOVERY_TEST_WINDOW = "1"
+    $DiscoveredTarget = Start-Process `
+        $Target `
+        -ArgumentList "--wait-ms", "60000" `
+        -PassThru
+    Start-Sleep -Milliseconds 200
+    Assert-True (-not $DiscoveredTarget.HasExited) "discovery target exited during startup"
+
+    $DaemonProcess = Start-Daemon -Port $ManagedPort -Managed
+    Wait-ForApi $DaemonProcess $ManagedPort
+    Wait-ForClientStatus $DiscoveredTarget.Id "not_loaded" $ManagedPort | Out-Null
+
+    $Result = Invoke-ApiPost `
+        -Path "/clients/$($DiscoveredTarget.Id)/load" `
+        -Port $ManagedPort
+    Assert-True ($Result.operation -eq "load") "managed load reported the wrong operation"
+    Assert-True $Result.darpc_loaded "managed load did not report darpc.dll loaded"
+    Wait-ForClientStatus $DiscoveredTarget.Id "connected" $ManagedPort | Out-Null
+
+    $Result = Invoke-ApiPost `
+        -Path "/clients/$($DiscoveredTarget.Id)/unload" `
+        -Port $ManagedPort
+    Assert-True ($Result.operation -eq "unload") "managed unload reported the wrong operation"
+    Assert-True (-not $Result.darpc_loaded) "managed unload left darpc.dll loaded"
+    Wait-ForClientStatus $DiscoveredTarget.Id "not_loaded" $ManagedPort | Out-Null
+
+    Invoke-ApiPost `
+        -Path "/clients/$($DiscoveredTarget.Id)/load" `
+        -Port $ManagedPort | Out-Null
+    Wait-ForClientStatus $DiscoveredTarget.Id "connected" $ManagedPort | Out-Null
+
+    $Result = Invoke-ApiPost -Path "/clients/launch" -Port $ManagedPort -Body "{}"
+    Assert-True ($Result.operation -eq "launch") "managed launch reported the wrong operation"
+    Assert-True $Result.darpc_loaded "managed launch did not initialize darpc.dll"
+    $LaunchedTarget = Get-Process -Id $Result.pid -ErrorAction Stop
+    Wait-ForClientStatus $LaunchedTarget.Id "connected" $ManagedPort | Out-Null
+
+    $RejectedStatus = $null
+    try {
+        Invoke-ApiPost `
+            -Path "/clients/launch" `
+            -Port $ManagedPort `
+            -Body '{"arguments":["not-supported"]}' | Out-Null
+    } catch {
+        $RejectedStatus = [int] $_.Exception.Response.StatusCode
+    }
+    Assert-True `
+        ($RejectedStatus -eq 422) `
+        "managed launch accepted arbitrary client arguments"
+
+    $Clients = Wait-ForConnectedClients `
+        @($DiscoveredTarget.Id, $LaunchedTarget.Id) `
+        $ManagedPort
+    Assert-ApiContract `
+        $Clients `
+        @($DiscoveredTarget.Id, $LaunchedTarget.Id) `
+        $ManagedPort
+
+    Stop-Daemon $DaemonProcess | Out-Null
+    $DaemonProcess = $null
+    Wait-ForDirectConnection $DiscoveredTarget.Id
+    Wait-ForDirectConnection $LaunchedTarget.Id
+} finally {
+    if ($null -ne $DaemonProcess) {
+        if (-not $DaemonProcess.HasExited) {
+            $DaemonProcess.Kill()
+            $DaemonProcess.WaitForExit()
+        }
+        $DaemonProcess.Dispose()
+    }
+    foreach ($Process in @($DiscoveredTarget, $LaunchedTarget)) {
+        if ($null -ne $Process -and -not $Process.HasExited) {
+            try {
+                Invoke-Loader -CommandArgs @("detach", "$($Process.Id)", $DarpcDll) | Out-Null
+            } catch {
+                # The target is test-owned and is stopped below even when cleanup fails.
+            }
+            Stop-Target $Process
+        }
+    }
+    if ($null -eq $PreviousDiscoveryWindow) {
+        Remove-Item Env:DARPC_DISCOVERY_TEST_WINDOW -ErrorAction SilentlyContinue
+    } else {
+        $env:DARPC_DISCOVERY_TEST_WINDOW = $PreviousDiscoveryWindow
+    }
+}
+
+Write-Host "Daemon discovery and management integration checks passed"
+exit 0

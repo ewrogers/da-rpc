@@ -24,6 +24,7 @@ implementation milestone is M7, the daemon client registry.
 | M4.1, optional launch patches | Complete | Exact 7.41 patch contracts, strict endpoint selection, safe pre-resume application, and live-client acceptance pass. |
 | M5, minimal binary protocol | Complete | Exact framing, identity handshake, diagnostics, checked codecs, and golden and boundary tests are implemented. |
 | M6, direct IPC diagnostics | Complete | The DLL pipe worker and direct hello, ping, and echo commands pass controlled and live-client Windows verification. |
+| M7, daemon client registry | Planned | Repeated explicit `--pid` targets, shared controller sessions, independent reconnecting workers, and identity-safe registry records. |
 
 ## Completed recently
 
@@ -188,6 +189,11 @@ implementation milestone is M7, the daemon client registry.
 - Parallels remote commands remain suitable for builds, controlled targets,
   inspection, and late attach. Live launch acceptance uses the active Windows
   interactive token and normal client exit.
+- M7 aggregates client identity and connection health only. The first real
+  client snapshot remains M13.
+- Character and user interface state remain per-client. A future shared-world
+  projection must preserve observation source, last-seen freshness, and stale
+  or uncertain status.
 
 ## Updating this file
 

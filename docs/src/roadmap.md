@@ -396,20 +396,34 @@ Done:
 
 Build:
 
-- The smallest `darpcd.exe` connection manager using the working pipe handshake.
-- An in-memory registry keyed by stable process and DLL instance identity.
-- Connection, disconnection, and compatibility status.
+- A shared controller connection that lets `darpc.exe` and `darpcd.exe` reuse
+  the working pipe handshake, sequencing, and compatibility checks.
+- A repeatable `--pid <pid>` target option, for example
+  `darpcd.exe --pid 3780 --pid 6244`, until automatic discovery is introduced
+  later. Zero and duplicate PIDs are rejected.
+- One independent connection worker per target PID with bounded health checks,
+  disconnect detection, and retry.
+- An in-memory registry keyed by process ID, process creation time, and DLL
+  instance ID.
+- Visible connecting, connected, disconnected, busy, and incompatible status
+  transitions.
 
 See:
 
 - Start the DLL and daemon in either order and observe one registered client.
 - Restart the daemon without reinjecting or restarting the game client.
+- Late-attach two logged-in clients and observe two independent registry
+  records.
 
 Done:
 
 - Stale process IDs and changed DLL instance IDs cannot reuse old state.
 - Incompatible handshakes remain visible but are not accepted as clients.
 - One broken connection cannot terminate another client or the daemon.
+- Stopping the daemon releases each pipe, and restarting it reconnects to the
+  same DLL instances without reinjection.
+- The registry contains connection identity and status only. This increment
+  installs no hooks, reads no game state, and defines no snapshot messages.
 
 ### M8: read-only HTTP API
 
@@ -547,6 +561,8 @@ Done:
 - Unsupported lifecycle states produce partial or unavailable values.
 - Snapshot work has a measured client-thread budget.
 - Restarting the daemon obtains a fresh equivalent snapshot without reinjection.
+- The daemon retains each snapshot as a client observation and does not treat
+  one client's visible map region as complete world truth.
 
 ### M14: event-driven updates
 
@@ -567,6 +583,8 @@ Done:
   for the fields in scope.
 - Sequence gaps and queue overflow trigger resynchronization.
 - A slow event subscriber cannot block the game or another subscriber.
+- Shareable map and entity observations retain their source client and
+  observation time so a later aggregate can represent freshness explicitly.
 
 ## Phase 6: add control one safe action at a time
 
@@ -638,6 +656,8 @@ Done:
 Build:
 
 - Multiple-client aggregation and independent action routing.
+- A derived shared-world view for compatible client observations, preserving
+  map identity, source clients, last-seen time, and stale or uncertain status.
 - Malformed-protocol corpus and parser fuzzing.
 - Queue saturation, daemon restart, pipe failure, injection failure, hook
   rollback, and client-lifecycle tests.
@@ -666,15 +686,18 @@ limits, and administrative capability boundaries before it is supported.
 
 ## Immediate next increment
 
-M1 should contain no hooks, no named pipes, no daemon, and no client memory
-access. Its entire goal is to make one x86 DLL lifecycle boring and repeatable:
+M7 should turn the proven direct connection into a small persistent daemon
+registry without pulling later state or discovery work forward:
 
-1. Build `darpc.dll`.
-2. Load it into an owned 32-bit host.
-3. Call initialization and observe the log.
-4. Call shutdown and observe the final log entry.
-5. Unload it and verify the module is gone.
-6. Repeat until the lifecycle is dependable.
+1. Extract the controller handshake and ordered connection into a shared
+   boundary used by both command-line components.
+2. Accept repeated `--pid <pid>` options, reject zero or duplicate PIDs, and
+   retry missing endpoints.
+3. Register successful handshakes by process creation time and DLL instance ID.
+4. Keep clients independent and expose concise status transitions.
+5. Verify both startup orders, daemon restart, changed identities, incompatible
+   peers, and a broken connection.
+6. Late-attach two live clients and confirm both reconnect without reinjection.
 
-M2 then changes only one fact: the same lifecycle occurs from another process
-through `loader.exe`.
+The first client snapshot remains M13. M7 aggregates client identities and
+connection health only.

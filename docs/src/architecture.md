@@ -32,6 +32,10 @@ layouts. It continues tracking state whether or not `darpcd.exe` is connected.
 `darpcd.exe` does not read client memory or independently reconstruct game state.
 It queries and aggregates the state supplied by each `darpc.dll`, listens for
 real-time updates, and presents stable models to API consumers.
+Character and user interface state remain client-scoped. A future shared-world
+projection may merge compatible map and entity observations, but it must retain
+their source and freshness instead of presenting partial client visibility as
+authoritative global state.
 
 `darpc.exe` normally uses the daemon HTTP API. Its explicit `ipc` command group
 may connect directly to one DLL for bounded development diagnostics while the

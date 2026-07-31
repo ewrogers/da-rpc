@@ -30,6 +30,36 @@ UI state may include open panes, dialogs, selections, focus, and other
 client-only values. These changes are invisible to a pure network proxy and may
 need to be obtained from both memory structures and local input events.
 
+## Per-client observations and shared world state
+
+Character, session, and local user interface state always belong to one client.
+Map and entity state are different: multiple active characters can observe the
+same game world, but each client sees only its current view and can stop
+receiving information about an entity after it leaves that view.
+
+The daemon may therefore derive a shared-world projection from compatible
+client observations, but that projection is not an unquestioned global truth.
+Every shareable observation must retain enough provenance to evaluate it:
+
+- World or server scope and map identity.
+- Stable entity identity where the client provides one.
+- Source client identity.
+- Last-observed time or state revision.
+- Whether the entity is currently visible, stale, removed by an authoritative
+  event, or otherwise uncertain.
+
+An entity disappearing from one character's view is not by itself proof that
+the entity left the world. A fresh observation from another active client on
+the same map may supersede an older one. Conflicts and expiration must use an
+explicit deterministic policy rather than silently choosing whichever client
+reported last.
+
+Queries must also state their perspective. For example, "monsters near player
+X" is anchored to player X's current position and may be enriched by fresh
+same-map observations from other clients, while exposing or filtering stale
+results deliberately. The per-client observations remain available even when
+the daemon offers this derived view.
+
 ## Snapshot and stream boundary
 
 Every new `darpcd.exe` connection receives a fresh complete snapshot followed by

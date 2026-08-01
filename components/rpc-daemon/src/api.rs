@@ -18,6 +18,7 @@ use axum::{
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
 };
+use darpc_game_client::CLIENT_VERSION;
 use darpc_protocol::{Hello, protocol_version_major, protocol_version_minor};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -486,8 +487,8 @@ struct ConnectionMetadata {
     dll_version: String,
     /// Supported executable fingerprint encoded as uppercase hexadecimal.
     executable_fingerprint: String,
-    /// Supported client layout identifier.
-    layout_id: u32,
+    /// Supported Dark Ages client version.
+    client_version: String,
 }
 
 impl ConnectionMetadata {
@@ -504,7 +505,7 @@ impl ConnectionMetadata {
                 hello.dll_version.major, hello.dll_version.minor, hello.dll_version.patch
             ),
             executable_fingerprint: hex(&hello.executable_fingerprint),
-            layout_id: hello.layout_id,
+            client_version: CLIENT_VERSION.into(),
         }
     }
 }
@@ -803,7 +804,7 @@ mod tests {
                 patch: 0,
             },
             executable_fingerprint: [0xCD; 32],
-            layout_id: 741,
+            client_version: 741,
         }
     }
 
@@ -945,6 +946,15 @@ mod tests {
         assert_eq!(
             clients["clients"][0]["connection"]["protocol_version"],
             "1.0"
+        );
+        assert_eq!(
+            clients["clients"][0]["connection"]["client_version"],
+            "7.41"
+        );
+        assert!(
+            clients["clients"][0]["connection"]
+                .get("layout_id")
+                .is_none()
         );
 
         let state = state();

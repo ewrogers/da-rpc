@@ -8,7 +8,7 @@ use std::{
 };
 
 pub const CLIENT_VERSION: &str = "7.41";
-pub const LAYOUT_ID: u32 = 741;
+pub const CLIENT_VERSION_CODE: u32 = 741;
 pub const WINDOW_CLASS: &str = "Darkages";
 pub const EXECUTABLE_SIZE: u64 = 3_112_960;
 pub const EXECUTABLE_SHA256: [u8; 32] = [

@@ -22,7 +22,7 @@ fn hello() -> Hello {
             patch: 3,
         },
         executable_fingerprint: [0xa5; 32],
-        layout_id: 741,
+        client_version: 741,
     }
 }
 

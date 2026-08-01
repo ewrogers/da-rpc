@@ -43,7 +43,7 @@ darpcd.exe --pid 3780 --pid 6648
 Each worker retries a missing or busy pipe, performs the shared controller
 handshake, and sends a bounded periodic `Ping` to detect a broken connection.
 An accepted release connection must report the supported x86 architecture,
-executable fingerprint, and layout ID. Registry identity combines the PID, raw
+executable fingerprint, and client version. Registry identity combines the PID, raw
 process creation time, and DLL instance ID. A reused PID or reloaded DLL
 therefore replaces the prior record instead of inheriting it.
 

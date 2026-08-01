@@ -86,7 +86,7 @@ struct Hello {
     dll_version_minor: u16,         // offset 35
     dll_version_patch: u16,         // offset 37
     executable_fingerprint: [u8; 32], // offset 39: SHA-256
-    layout_id: u32,                 // offset 71
+    client_version: u32,            // offset 71
 } // 75 bytes
 
 enum Architecture: u8 {
@@ -102,7 +102,7 @@ struct HelloAck {
 
 The instance ID identifies one initialized DLL lifetime. The process ID and raw
 creation time together distinguish PID reuse. The executable fingerprint,
-architecture, and layout ID identify the supported client contract.
+architecture, and client version identify the supported client contract.
 
 `HelloAck` copies the instance ID so an acknowledgement for one DLL instance
 cannot complete another instance's handshake. Application messages are invalid
@@ -201,7 +201,7 @@ b5 b6 b7 b8 b9 ba bb bc bd be bf e5 02 00 00
 
 The fixture uses protocol range 1.0 through 1.0, sequence `0x1234`, sender tick
 `0x78563412`, process ID `0x11223344`, process creation time
-`0x0102030405060708`, DLL version `0.1.0`, and layout ID `741`. Tests both encode
+`0x0102030405060708`, DLL version `0.1.0`, and client version code `741`. Tests both encode
 to these bytes and decode them back to the expected values.
 
 ## Accepted design decisions

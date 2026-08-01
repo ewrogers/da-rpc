@@ -154,7 +154,7 @@ milestone is M10, the hook qualification harness.
   replace changed identities and ignore stale disconnect events.
 - [x] Keep incompatible identity visible without accepting it as a client.
 - [x] Require the supported x86 architecture, executable fingerprint, and
-  layout ID before accepting a release connection.
+  client version before accepting a release connection.
 - [x] Verify daemon-first startup, two controlled targets, exclusive ownership,
   daemon restart, one-client replacement, and other-client independence.
 - [x] Late-attach release builds to two logged-in 7.41 clients, register both,

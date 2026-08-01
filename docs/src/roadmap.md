@@ -336,7 +336,7 @@ Build:
   `u32` sender tick in milliseconds, message discriminants, and payload limits.
 - A minimal `Hello` and `HelloAck` containing protocol range, DLL instance ID,
   process ID, process creation time, architecture, DLL version, executable
-  fingerprint, and layout ID.
+  fingerprint, and client version.
 - Minimal `Ping`, `Pong`, `EchoRequest`, and `EchoResponse` messages with
   explicit request correlation.
 - Checked manual encoding and decoding in `darpc-protocol`.

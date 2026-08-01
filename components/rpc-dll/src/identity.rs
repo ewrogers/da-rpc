@@ -1,6 +1,6 @@
 #[cfg(debug_assertions)]
 use darpc_game_client::DEBUG_UNSUPPORTED_CLIENT_BYPASS_ENVIRONMENT_VARIABLE;
-use darpc_game_client::{ClientExecutable, EXECUTABLE_SHA256, LAYOUT_ID};
+use darpc_game_client::{CLIENT_VERSION_CODE, ClientExecutable, EXECUTABLE_SHA256};
 use darpc_protocol::{Architecture, ComponentVersion, Hello, SUPPORTED_VERSIONS};
 use std::{env, io};
 use windows_sys::{
@@ -15,7 +15,7 @@ use windows_sys::{
 };
 
 pub(crate) fn hello() -> io::Result<Hello> {
-    let (executable_fingerprint, layout_id) = client_layout()?;
+    let (executable_fingerprint, client_version) = client_identity()?;
 
     Ok(Hello {
         protocol_versions: SUPPORTED_VERSIONS,
@@ -29,14 +29,14 @@ pub(crate) fn hello() -> io::Result<Hello> {
             patch: version_component(env!("CARGO_PKG_VERSION_PATCH"))?,
         },
         executable_fingerprint,
-        layout_id,
+        client_version,
     })
 }
 
-fn client_layout() -> io::Result<([u8; 32], u32)> {
+fn client_identity() -> io::Result<([u8; 32], u32)> {
     let executable_path = env::current_exe()?;
     match ClientExecutable::validate(&executable_path) {
-        Ok(_) => Ok((EXECUTABLE_SHA256, LAYOUT_ID)),
+        Ok(_) => Ok((EXECUTABLE_SHA256, CLIENT_VERSION_CODE)),
         Err(error) => {
             #[cfg(debug_assertions)]
             if env::var_os(DEBUG_UNSUPPORTED_CLIENT_BYPASS_ENVIRONMENT_VARIABLE).as_deref()

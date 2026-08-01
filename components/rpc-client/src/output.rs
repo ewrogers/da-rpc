@@ -55,7 +55,7 @@ impl CommandResult {
             } => format!(
                 concat!(
                     "ipc hello succeeded: pid={} protocol={} instance={} creation_time={} ",
-                    "architecture={} dll_version={}.{}.{} fingerprint={} layout_id={} ",
+                    "architecture={} dll_version={}.{}.{} fingerprint={} client_version={} ",
                     "sequence={} sender_tick_ms={}"
                 ),
                 requested_pid,
@@ -67,7 +67,7 @@ impl CommandResult {
                 hello.dll_version.minor,
                 hello.dll_version.patch,
                 hex(&hello.executable_fingerprint),
-                hello.layout_id,
+                hello.client_version,
                 sequence,
                 sender_tick_ms,
             ),
@@ -120,7 +120,7 @@ impl CommandResult {
                     "\"protocol_version\":{},\"dll_instance_id\":{},",
                     "\"process_creation_time\":{},\"architecture\":{},",
                     "\"dll_version\":{},\"executable_fingerprint\":{},",
-                    "\"layout_id\":{},\"sequence\":{},\"sender_tick_ms\":{}}}"
+                    "\"client_version\":{},\"sequence\":{},\"sender_tick_ms\":{}}}"
                 ),
                 requested_pid,
                 json_string(&protocol_version(*selected_version)),
@@ -132,7 +132,7 @@ impl CommandResult {
                     hello.dll_version.major, hello.dll_version.minor, hello.dll_version.patch
                 )),
                 json_string(&hex(&hello.executable_fingerprint)),
-                hello.layout_id,
+                hello.client_version,
                 sequence,
                 sender_tick_ms,
             ),

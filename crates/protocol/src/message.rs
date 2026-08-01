@@ -94,7 +94,7 @@ pub struct Hello {
     pub architecture: Architecture,
     pub dll_version: ComponentVersion,
     pub executable_fingerprint: [u8; 32],
-    pub layout_id: u32,
+    pub client_version: u32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -199,7 +199,7 @@ impl Message {
                 push_u16(&mut output, message.dll_version.minor);
                 push_u16(&mut output, message.dll_version.patch);
                 output.extend_from_slice(&message.executable_fingerprint);
-                push_u32(&mut output, message.layout_id);
+                push_u32(&mut output, message.client_version);
             }
             Self::HelloAck(message) => {
                 output.reserve(18);
@@ -242,7 +242,7 @@ impl Message {
                         patch: reader.read_u16()?,
                     },
                     executable_fingerprint: reader.read_array()?,
-                    layout_id: reader.read_u32()?,
+                    client_version: reader.read_u32()?,
                 })
             }
             MessageType::HelloAck => Self::HelloAck(HelloAck {

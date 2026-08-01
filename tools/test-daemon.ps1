@@ -264,6 +264,12 @@ function Assert-ApiContract {
         Assert-True `
             ($Client.connection.protocol_version -eq "1.0") `
             "PID $ProcessId had the wrong protocol version"
+        Assert-True `
+            ($Client.connection.client_version -eq "7.41") `
+            "PID $ProcessId had the wrong client version"
+        Assert-True `
+            ($null -eq $Client.connection.PSObject.Properties["layout_id"]) `
+            "PID $ProcessId exposed obsolete layout_id"
     }
 
     $OpenApi = Get-ApiJson -Path "/openapi.json" -Port $Port
@@ -296,6 +302,15 @@ function Assert-ApiContract {
     Assert-True `
         (@($OpenApi.components.schemas.LaunchOptions.required) -contains "client_path") `
         "OpenAPI did not require launch client_path"
+    $ConnectionProperties = @(
+        $OpenApi.components.schemas.ConnectionMetadata.properties.PSObject.Properties.Name
+    )
+    Assert-True `
+        ($ConnectionProperties -contains "client_version") `
+        "OpenAPI omitted client_version"
+    Assert-True `
+        ($ConnectionProperties -notcontains "layout_id") `
+        "OpenAPI exposed obsolete layout_id"
 
     $Docs = Invoke-WebRequest `
         -Uri "http://127.0.0.1:$Port/docs/" `

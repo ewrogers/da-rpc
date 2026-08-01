@@ -228,7 +228,7 @@ mod tests {
                 patch: 3,
             },
             executable_fingerprint: [0xCD; 32],
-            layout_id: 741,
+            client_version: 741,
         };
         let worker = thread::spawn(move || {
             server.accept().unwrap();

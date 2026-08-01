@@ -4,7 +4,7 @@ use crate::{
 };
 #[cfg(debug_assertions)]
 use darpc_game_client::DEBUG_UNSUPPORTED_CLIENT_BYPASS_ENVIRONMENT_VARIABLE;
-use darpc_game_client::{EXECUTABLE_SHA256, LAYOUT_ID};
+use darpc_game_client::{CLIENT_VERSION_CODE, EXECUTABLE_SHA256};
 use darpc_protocol::{Architecture, Hello, Message, Ping, Pong};
 use darpc_win32::controller::{ControllerError, ControllerSession};
 #[cfg(debug_assertions)]
@@ -129,7 +129,7 @@ fn validate_identity(hello: Hello) -> Result<(), String> {
     if env::var_os(DEBUG_UNSUPPORTED_CLIENT_BYPASS_ENVIRONMENT_VARIABLE).as_deref()
         == Some(std::ffi::OsStr::new("1"))
         && hello.executable_fingerprint == [0; 32]
-        && hello.layout_id == 0
+        && hello.client_version == 0
     {
         return Ok(());
     }
@@ -137,10 +137,10 @@ fn validate_identity(hello: Hello) -> Result<(), String> {
     if hello.executable_fingerprint != EXECUTABLE_SHA256 {
         return Err("unsupported client executable fingerprint".into());
     }
-    if hello.layout_id != LAYOUT_ID {
+    if hello.client_version != CLIENT_VERSION_CODE {
         return Err(format!(
-            "unsupported client layout {}; expected {LAYOUT_ID}",
-            hello.layout_id
+            "unsupported client version {}; expected {CLIENT_VERSION_CODE}",
+            hello.client_version
         ));
     }
     Ok(())
@@ -222,7 +222,7 @@ fn emit(events: &Sender<DaemonEvent>, event: ConnectionEvent) -> bool {
 #[cfg(test)]
 mod tests {
     use super::validate_identity;
-    use darpc_game_client::{EXECUTABLE_SHA256, LAYOUT_ID};
+    use darpc_game_client::{CLIENT_VERSION_CODE, EXECUTABLE_SHA256};
     use darpc_protocol::{Architecture, ComponentVersion, Hello, SUPPORTED_VERSIONS};
 
     fn hello() -> Hello {
@@ -238,7 +238,7 @@ mod tests {
                 patch: 0,
             },
             executable_fingerprint: EXECUTABLE_SHA256,
-            layout_id: LAYOUT_ID,
+            client_version: CLIENT_VERSION_CODE,
         }
     }
 
@@ -254,8 +254,8 @@ mod tests {
         wrong_fingerprint.executable_fingerprint[0] ^= 0xFF;
         assert!(validate_identity(wrong_fingerprint).is_err());
 
-        let mut wrong_layout = hello();
-        wrong_layout.layout_id = LAYOUT_ID + 1;
-        assert!(validate_identity(wrong_layout).is_err());
+        let mut wrong_version = hello();
+        wrong_version.client_version = CLIENT_VERSION_CODE + 1;
+        assert!(validate_identity(wrong_version).is_err());
     }
 }

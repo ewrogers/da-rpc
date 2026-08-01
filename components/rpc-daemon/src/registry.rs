@@ -246,7 +246,7 @@ pub(crate) fn render_event(event: &ConnectionEvent) -> String {
         } => format!(
             concat!(
                 "client pid={} status=connected creation_time={} instance={} protocol={}.{} ",
-                "architecture={} dll_version={}.{}.{} fingerprint={} layout_id={}"
+                "architecture={} dll_version={}.{}.{} fingerprint={} client_version={}"
             ),
             pid,
             hello.process_creation_time,
@@ -258,7 +258,7 @@ pub(crate) fn render_event(event: &ConnectionEvent) -> String {
             hello.dll_version.minor,
             hello.dll_version.patch,
             hex(&hello.executable_fingerprint),
-            hello.layout_id,
+            hello.client_version,
         ),
         ConnectionEvent::Disconnected {
             pid,
@@ -321,7 +321,7 @@ mod tests {
                 patch: 0,
             },
             executable_fingerprint: [0xCD; 32],
-            layout_id: 741,
+            client_version: 741,
         }
     }
 

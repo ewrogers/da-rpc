@@ -59,7 +59,7 @@ ConnectionMetadata {
     architecture: "x86" | "x86_64",
     dll_version: string,
     executable_fingerprint: string,
-    layout_id: u32,
+    client_version: string,
 }
 ```
 
@@ -67,7 +67,8 @@ ConnectionMetadata {
 a decimal string so JavaScript consumers do not lose precision. `instance_id`
 and `executable_fingerprint` are uppercase hexadecimal strings. Identity and
 connection metadata are `null` until the corresponding information has been
-observed.
+observed. `client_version` is the supported Dark Ages release in dotted form,
+such as `"7.41"`.
 
 The registry does not contain game-state fields yet.
 

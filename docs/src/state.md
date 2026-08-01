@@ -17,7 +17,7 @@ The snapshot should distinguish at least:
 - Character and session state.
 - Game-world and entity state.
 - Local user interface state.
-- Client and layout version information.
+- Client version information.
 
 ## Incremental updates
 

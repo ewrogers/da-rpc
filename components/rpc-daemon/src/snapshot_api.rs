@@ -7,7 +7,7 @@ use serde::Serialize;
 use utoipa::ToSchema;
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
-pub(crate) struct ClientSnapshot {
+pub(crate) struct ObservationMetadata {
     /// Source game process identifier.
     pid: u32,
     /// Wrapping state revision assigned by the injected DLL.
@@ -18,20 +18,124 @@ pub(crate) struct ClientSnapshot {
     capture_duration_us: u32,
     /// Non-address generation incremented when the world root changes.
     world_generation: u32,
-    lifecycle: ClientLifecycle,
-    character: Option<CharacterSnapshot>,
 }
 
-impl ClientSnapshot {
-    pub(crate) fn from_model(pid: u32, snapshot: &ModelClientSnapshot) -> Self {
+impl ObservationMetadata {
+    fn from_model(pid: u32, snapshot: &ModelClientSnapshot) -> Self {
         Self {
             pid,
             revision: snapshot.revision,
             captured_tick_ms: snapshot.captured_tick_ms,
             capture_duration_us: snapshot.capture_duration_us,
             world_generation: snapshot.world_generation,
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
+pub(crate) struct GameStatus {
+    observation: ObservationMetadata,
+    lifecycle: ClientLifecycle,
+    character: Option<CharacterStatus>,
+    map: Option<MapLocation>,
+}
+
+impl GameStatus {
+    pub(crate) fn from_model(pid: u32, snapshot: &ModelClientSnapshot) -> Self {
+        Self {
+            observation: ObservationMetadata::from_model(pid, snapshot),
             lifecycle: ClientLifecycle::from(snapshot.lifecycle),
-            character: snapshot.character.as_ref().map(CharacterSnapshot::from),
+            character: snapshot.character.as_ref().map(CharacterStatus::from),
+            map: snapshot.character.as_ref().and_then(|character| {
+                character.location.as_ref().map(|location| MapLocation {
+                    id: location.id,
+                    name: location.name.clone(),
+                    x: location.x,
+                    y: location.y,
+                    width: location.width,
+                    height: location.height,
+                })
+            }),
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
+pub(crate) struct Inventory {
+    observation: ObservationMetadata,
+    items: Option<Vec<InventoryItem>>,
+}
+
+impl Inventory {
+    pub(crate) fn from_model(pid: u32, snapshot: &ModelClientSnapshot) -> Self {
+        Self {
+            observation: ObservationMetadata::from_model(pid, snapshot),
+            items: snapshot.character.as_ref().and_then(|character| {
+                character
+                    .inventory
+                    .as_ref()
+                    .map(|items| items.iter().map(InventoryItem::from).collect())
+            }),
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
+pub(crate) struct Equipment {
+    observation: ObservationMetadata,
+    items: Option<Vec<EquipmentItem>>,
+}
+
+impl Equipment {
+    pub(crate) fn from_model(pid: u32, snapshot: &ModelClientSnapshot) -> Self {
+        Self {
+            observation: ObservationMetadata::from_model(pid, snapshot),
+            items: snapshot.character.as_ref().and_then(|character| {
+                character
+                    .equipment
+                    .as_ref()
+                    .map(|items| items.iter().map(EquipmentItem::from).collect())
+            }),
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
+pub(crate) struct Spellbook {
+    observation: ObservationMetadata,
+    spells: Option<Vec<Spell>>,
+}
+
+impl Spellbook {
+    pub(crate) fn from_model(pid: u32, snapshot: &ModelClientSnapshot) -> Self {
+        Self {
+            observation: ObservationMetadata::from_model(pid, snapshot),
+            spells: snapshot.character.as_ref().and_then(|character| {
+                character
+                    .spellbook
+                    .as_ref()
+                    .map(|spells| spells.iter().map(Spell::from).collect())
+            }),
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
+pub(crate) struct Skillbook {
+    observation: ObservationMetadata,
+    skills: Option<Vec<Skill>>,
+}
+
+impl Skillbook {
+    pub(crate) fn from_model(pid: u32, snapshot: &ModelClientSnapshot) -> Self {
+        Self {
+            observation: ObservationMetadata::from_model(pid, snapshot),
+            skills: snapshot.character.as_ref().and_then(|character| {
+                character
+                    .skillbook
+                    .as_ref()
+                    .map(|skills| skills.iter().map(Skill::from).collect())
+            }),
         }
     }
 }
@@ -59,7 +163,7 @@ impl From<ModelClientLifecycle> for ClientLifecycle {
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
-pub(crate) struct CharacterSnapshot {
+pub(crate) struct CharacterStatus {
     id: Option<u32>,
     name: Option<String>,
     gender: Option<CharacterGender>,
@@ -74,14 +178,9 @@ pub(crate) struct CharacterSnapshot {
     stats: CharacterStats,
     vitals: CharacterVitals,
     modifiers: Option<CharacterModifiers>,
-    location: Option<MapLocation>,
-    inventory: Option<Vec<InventoryItem>>,
-    equipment: Option<Vec<EquipmentItem>>,
-    spellbook: Option<Vec<Spell>>,
-    skillbook: Option<Vec<Skill>>,
 }
 
-impl From<&ModelCharacterSnapshot> for CharacterSnapshot {
+impl From<&ModelCharacterSnapshot> for CharacterStatus {
     fn from(value: &ModelCharacterSnapshot) -> Self {
         Self {
             id: value.id,
@@ -118,30 +217,6 @@ impl From<&ModelCharacterSnapshot> for CharacterSnapshot {
                 max_mana: value.vitals.max_mana,
             },
             modifiers: value.modifiers.map(CharacterModifiers::from),
-            location: value.location.as_ref().map(|location| MapLocation {
-                id: location.id,
-                name: location.name.clone(),
-                x: location.x,
-                y: location.y,
-                width: location.width,
-                height: location.height,
-            }),
-            inventory: value
-                .inventory
-                .as_ref()
-                .map(|items| items.iter().map(InventoryItem::from).collect()),
-            equipment: value
-                .equipment
-                .as_ref()
-                .map(|items| items.iter().map(EquipmentItem::from).collect()),
-            spellbook: value
-                .spellbook
-                .as_ref()
-                .map(|spells| spells.iter().map(Spell::from).collect()),
-            skillbook: value
-                .skillbook
-                .as_ref()
-                .map(|skills| skills.iter().map(Skill::from).collect()),
         }
     }
 }

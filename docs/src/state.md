@@ -21,6 +21,11 @@ snapshot contains:
 - Occupied spellbook and skillbook slots with names, icons, levels, target
   behavior, text-input prompts, lines, and available cooldown state.
 
+The DLL and binary protocol keep this as one complete atomic snapshot. The
+daemon retains that observation and projects it into separate REST resources
+for status, inventory, equipment, spellbook, and skillbook. Those HTTP views do
+not trigger additional client-memory reads.
+
 Empty collection slots are omitted. Inventory slot 60 is the client's currency
 display and is omitted because `gold` is represented once as character state.
 Optional values remain unavailable rather than receiving invented defaults.

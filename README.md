@@ -258,7 +258,11 @@ loopback. It exposes one current, unversioned API:
 ```text
 GET /health
 GET /clients
-GET /clients/{client}/snapshot
+GET /clients/{client}/status
+GET /clients/{client}/inventory
+GET /clients/{client}/equipment
+GET /clients/{client}/spellbook
+GET /clients/{client}/skillbook
 POST /clients/launch
 POST /clients/{client}/load
 POST /clients/{client}/unload
@@ -272,8 +276,8 @@ unavailable rather than silently choosing another one. `/clients` reports each
 discovered or explicitly configured PID, current endpoint name, and status,
 plus the DLL `instance_id` and process `created_time` once identity is
 available. A `{client}` path accepts either a PID or a case-insensitive current
-in-game character name. The snapshot route returns the daemon's latest complete
-observation for one client.
+in-game character name. The status and collection routes present focused views
+of the daemon's latest complete observation for one client.
 
 Managed launch requires `client_path` and accepts `allow_multiple`,
 `skip_intro`, `skip_notice`, and an optional `server` string in `host` or

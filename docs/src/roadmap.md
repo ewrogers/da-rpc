@@ -574,13 +574,14 @@ Build:
   preserving a valid underlying character snapshot.
 - Canonical item identity, stackability, typed equipment slots, spell prompts,
   and PID-or-current-character REST addressing.
-- Protocol 1.0 snapshot messages plus matching direct CLI, daemon registry,
-  REST, and OpenAPI models.
+- Protocol 1.0 snapshot messages plus matching direct CLI and daemon registry,
+  with focused status and collection resources in REST and OpenAPI.
 
 See:
 
 - Late-attach after login and compare the complete direct CLI snapshot with the
-  live client, then retrieve the same observation through the daemon API.
+  live client, then retrieve the same observation through the daemon's status
+  and collection resources.
 
 Done:
 

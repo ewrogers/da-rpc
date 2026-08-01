@@ -1,7 +1,7 @@
 # Web API
 
 > **Status:** The client registry, managed lifecycle routes, OpenAPI document,
-> interactive documentation, and current client snapshot query are implemented.
+> interactive documentation, and current client state queries are implemented.
 > Game actions, streaming APIs, and remote access remain planned.
 
 `darpcd.exe` exposes standard web interfaces so applications do not need to
@@ -18,7 +18,11 @@ port. The API has no URL version prefix.
 | --- | --- |
 | `GET /health` | Report daemon availability. |
 | `GET /clients` | List discovered and configured targets, identity, compatibility, and connection health. |
-| `GET /clients/{client}/snapshot` | Return the latest complete snapshot observed from one connected client. |
+| `GET /clients/{client}/status` | Return lifecycle, character status, and map state. |
+| `GET /clients/{client}/inventory` | Return occupied inventory slots. |
+| `GET /clients/{client}/equipment` | Return occupied equipment slots. |
+| `GET /clients/{client}/spellbook` | Return occupied spellbook slots. |
+| `GET /clients/{client}/skillbook` | Return occupied skillbook slots. |
 | `POST /clients/launch` | Launch the configured client and initialize the configured DLL. |
 | `POST /clients/{client}/load` | Load and initialize the configured DLL in a tracked client. |
 | `POST /clients/{client}/unload` | Shut down and unload the configured DLL from a tracked client. |
@@ -80,29 +84,43 @@ connection metadata are `null` until the corresponding information has been
 observed. `client_version` is the supported Dark Ages release in dotted form,
 such as `"7.41"`.
 
-## Client snapshots
+## Client state resources
 
-After connecting, the daemon requests a complete snapshot and retains it with
-the corresponding client identity. `GET /clients/{client}/snapshot` returns that
-latest observation. It returns `404 Not Found` for an unknown PID and `503
-Service Unavailable` when the target has not produced a snapshot, including a
-capture failure reason when one is available.
+After connecting, the daemon requests one complete snapshot and retains it with
+the corresponding client identity. The public API presents focused resource
+views of that retained observation instead of returning the entire snapshot in
+one response:
 
-The response identifies the source process and contains capture metadata,
-lifecycle, and an optional character. Character state includes identity,
-appearance, progression, attributes, vitals, modifiers, map location,
-inventory, equipment, spellbook, and skillbook. Appearance is flattened into
-`gender`, `hair_style`, `hair_color`, and `body_sprite`; all four are null when
-the local character is using a monster-disguise image session. `action_locked`
-reports the separate local movement, world-drop, exchange-start, and inventory
-rearrangement lock; it is not a promise that every possible action is blocked.
-`is_blinded` follows the client-retained `SStatus` blind code.
-Occupied slots are arrays; an absent array means the client could not expose
-that group, while an empty array means the group was read successfully and
-contained no occupied slots. Item sprites exclude the client's type flag bits,
-stackable item names exclude the rendered quantity suffix, and `can_stack`
-retains the independent client flag. Equipment `slot` is a stable snake-case
-name such as `left_ring` or `accessory1`.
+```text
+GameStatus { observation, lifecycle, character, map }
+Inventory { observation, items }
+Equipment { observation, items }
+Spellbook { observation, spells }
+Skillbook { observation, skills }
+```
+
+Every response includes `observation` metadata with the source PID, revision,
+capture tick, capture duration, and world generation. Consumers can correlate
+responses with the same revision. Separate HTTP requests can observe different
+revisions when the daemon receives a newer snapshot between requests.
+
+All five routes return `404 Not Found` for an unknown client and `503 Service
+Unavailable` when the target has not produced an observation, including a
+capture failure reason when one is available. A collection field is null when
+the client could not expose that group and an empty array when the group was
+read successfully but contained no occupied slots.
+
+Character status contains identity, appearance, progression, attributes,
+vitals, and modifiers. Map state is a separate top-level field in
+`GameStatus`. Appearance is flattened into `gender`, `hair_style`, `hair_color`,
+and `body_sprite`; all four are null when the local character is using a
+monster-disguise image session. `action_locked` reports the separate local
+movement, world-drop, exchange-start, and inventory rearrangement lock; it is
+not a promise that every possible action is blocked. `is_blinded` follows the
+client-retained `SStatus` blind code. Item sprites exclude the client's type
+flag bits, stackable item names exclude the rendered quantity suffix, and
+`can_stack` retains the independent client flag. Equipment `slot` is a stable
+snake-case name such as `left_ring` or `accessory1`.
 
 Text-input spells expose their ASCII-only prompt. Other spell target modes
 have a null prompt. Element and target-type names are exposed without duplicate
@@ -117,9 +135,9 @@ Known enum values are represented with readable snake-case names. Duplicate
 numeric identifiers for character class and gender are not exposed. Raw memory
 addresses and version-specific layout details are never exposed.
 
-Snapshot capture semantics, unavailable values, and collection behavior are
-documented in [Client state](state.md). The complete generated JSON schema is
-available in `/openapi.json` and Swagger UI.
+Snapshot capture semantics and unavailable values are documented in
+[Client state](state.md). The complete generated JSON schema is available in
+`/openapi.json` and Swagger UI.
 
 ## Managed lifecycle
 

@@ -10,10 +10,10 @@ use crate::{
     },
     snapshot_api::{
         CharacterClass as SnapshotCharacterClass, CharacterGender, CharacterModifiers,
-        CharacterProgression, CharacterSnapshot, CharacterStats, CharacterVitals,
-        ClientLifecycle as SnapshotClientLifecycle, ClientSnapshot as ApiClientSnapshot,
-        CooldownStatus, Element, EquipmentItem, EquipmentSlot, InventoryItem, MapLocation, Skill,
-        Spell, SpellTargetType,
+        CharacterProgression, CharacterStats, CharacterStatus, CharacterVitals,
+        ClientLifecycle as SnapshotClientLifecycle, CooldownStatus, Element, Equipment,
+        EquipmentItem, EquipmentSlot, GameStatus, Inventory, InventoryItem, MapLocation,
+        ObservationMetadata, Skill, Skillbook, Spell, SpellTargetType, Spellbook,
     },
 };
 use axum::{
@@ -119,7 +119,11 @@ fn router(state: ApiState) -> Router {
     Router::<ApiState>::new()
         .route("/health", get(health))
         .route("/clients", get(clients))
-        .route("/clients/{client}/snapshot", get(client_snapshot))
+        .route("/clients/{client}/status", get(client_status))
+        .route("/clients/{client}/inventory", get(client_inventory))
+        .route("/clients/{client}/equipment", get(client_equipment))
+        .route("/clients/{client}/spellbook", get(client_spellbook))
+        .route("/clients/{client}/skillbook", get(client_skillbook))
         .route("/clients/launch", post(launch))
         .route("/clients/{client}/load", post(load))
         .route("/clients/{client}/unload", post(unload))
@@ -202,34 +206,102 @@ async fn clients(State(state): State<ApiState>) -> Json<ClientList> {
 
 #[utoipa::path(
     get,
-    path = "/clients/{client}/snapshot",
+    path = "/clients/{client}/status",
     params(("client" = String, Path, description = "Process ID or current in-game character name")),
     responses(
-        (status = 200, description = "The latest complete client observation", body = ApiClientSnapshot),
+        (status = 200, description = "The latest character, map, and lifecycle status", body = GameStatus),
         (status = 400, description = "The process identifier was invalid", body = ErrorState),
         (status = 404, description = "The process is not a discovered or configured client", body = ErrorState),
-        (status = 503, description = "No client snapshot is currently available", body = ErrorState)
+        (status = 503, description = "No client observation is currently available", body = ErrorState)
     )
 )]
-async fn client_snapshot(
+async fn client_status(
     Path(identifier): Path<String>,
     State(state): State<ApiState>,
-) -> Result<Json<ApiClientSnapshot>, ApiError> {
+) -> Result<Json<GameStatus>, ApiError> {
     let registry = state.snapshot();
-    let client = resolve_client(&registry, &identifier)?;
-    let pid = client.pid;
-    let snapshot = client.game_snapshot.as_ref().ok_or_else(|| {
-        ApiError::new(
-            StatusCode::SERVICE_UNAVAILABLE,
-            "snapshot_unavailable",
-            client
-                .snapshot_reason
-                .as_deref()
-                .unwrap_or("the client has not published a snapshot yet"),
-            Some(pid),
-        )
-    })?;
-    Ok(Json(ApiClientSnapshot::from_model(pid, snapshot)))
+    let (pid, snapshot) = resolve_game_snapshot(&registry, &identifier)?;
+    Ok(Json(GameStatus::from_model(pid, snapshot)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/clients/{client}/inventory",
+    params(("client" = String, Path, description = "Process ID or current in-game character name")),
+    responses(
+        (status = 200, description = "The latest inventory observation", body = Inventory),
+        (status = 400, description = "The process identifier was invalid", body = ErrorState),
+        (status = 404, description = "The process is not a discovered or configured client", body = ErrorState),
+        (status = 503, description = "No client observation is currently available", body = ErrorState)
+    )
+)]
+async fn client_inventory(
+    Path(identifier): Path<String>,
+    State(state): State<ApiState>,
+) -> Result<Json<Inventory>, ApiError> {
+    let registry = state.snapshot();
+    let (pid, snapshot) = resolve_game_snapshot(&registry, &identifier)?;
+    Ok(Json(Inventory::from_model(pid, snapshot)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/clients/{client}/equipment",
+    params(("client" = String, Path, description = "Process ID or current in-game character name")),
+    responses(
+        (status = 200, description = "The latest equipment observation", body = Equipment),
+        (status = 400, description = "The process identifier was invalid", body = ErrorState),
+        (status = 404, description = "The process is not a discovered or configured client", body = ErrorState),
+        (status = 503, description = "No client observation is currently available", body = ErrorState)
+    )
+)]
+async fn client_equipment(
+    Path(identifier): Path<String>,
+    State(state): State<ApiState>,
+) -> Result<Json<Equipment>, ApiError> {
+    let registry = state.snapshot();
+    let (pid, snapshot) = resolve_game_snapshot(&registry, &identifier)?;
+    Ok(Json(Equipment::from_model(pid, snapshot)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/clients/{client}/spellbook",
+    params(("client" = String, Path, description = "Process ID or current in-game character name")),
+    responses(
+        (status = 200, description = "The latest spellbook observation", body = Spellbook),
+        (status = 400, description = "The process identifier was invalid", body = ErrorState),
+        (status = 404, description = "The process is not a discovered or configured client", body = ErrorState),
+        (status = 503, description = "No client observation is currently available", body = ErrorState)
+    )
+)]
+async fn client_spellbook(
+    Path(identifier): Path<String>,
+    State(state): State<ApiState>,
+) -> Result<Json<Spellbook>, ApiError> {
+    let registry = state.snapshot();
+    let (pid, snapshot) = resolve_game_snapshot(&registry, &identifier)?;
+    Ok(Json(Spellbook::from_model(pid, snapshot)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/clients/{client}/skillbook",
+    params(("client" = String, Path, description = "Process ID or current in-game character name")),
+    responses(
+        (status = 200, description = "The latest skillbook observation", body = Skillbook),
+        (status = 400, description = "The process identifier was invalid", body = ErrorState),
+        (status = 404, description = "The process is not a discovered or configured client", body = ErrorState),
+        (status = 503, description = "No client observation is currently available", body = ErrorState)
+    )
+)]
+async fn client_skillbook(
+    Path(identifier): Path<String>,
+    State(state): State<ApiState>,
+) -> Result<Json<Skillbook>, ApiError> {
+    let registry = state.snapshot();
+    let (pid, snapshot) = resolve_game_snapshot(&registry, &identifier)?;
+    Ok(Json(Skillbook::from_model(pid, snapshot)))
 }
 
 #[utoipa::path(
@@ -406,6 +478,26 @@ fn resolve_client<'a>(
     Ok(client)
 }
 
+fn resolve_game_snapshot<'a>(
+    registry: &'a RegistrySnapshot,
+    identifier: &str,
+) -> Result<(u32, &'a darpc_model::ClientSnapshot), ApiError> {
+    let client = resolve_client(registry, identifier)?;
+    let pid = client.pid;
+    let snapshot = client.game_snapshot.as_ref().ok_or_else(|| {
+        ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "observation_unavailable",
+            client
+                .snapshot_reason
+                .as_deref()
+                .unwrap_or("the client has not published an observation yet"),
+            Some(pid),
+        )
+    })?;
+    Ok((pid, snapshot))
+}
+
 fn current_character_name(client: &RegistryClientSnapshot) -> Option<&str> {
     if client.status != ClientSnapshotStatus::Connected {
         return None;
@@ -458,7 +550,18 @@ fn operation_in_progress(pid: u32) -> ApiError {
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(health, clients, client_snapshot, load, unload, launch),
+    paths(
+        health,
+        clients,
+        client_status,
+        client_inventory,
+        client_equipment,
+        client_spellbook,
+        client_skillbook,
+        load,
+        unload,
+        launch
+    ),
     components(schemas(
         HealthState,
         HealthStatus,
@@ -467,9 +570,10 @@ fn operation_in_progress(pid: u32) -> ApiError {
         ClientStatus,
         ClientIdentity,
         ConnectionMetadata,
-        ApiClientSnapshot,
+        ObservationMetadata,
+        GameStatus,
         SnapshotClientLifecycle,
-        CharacterSnapshot,
+        CharacterStatus,
         CharacterGender,
         SnapshotCharacterClass,
         CharacterProgression,
@@ -478,10 +582,14 @@ fn operation_in_progress(pid: u32) -> ApiError {
         CharacterModifiers,
         Element,
         MapLocation,
+        Inventory,
         InventoryItem,
+        Equipment,
         EquipmentItem,
         EquipmentSlot,
+        Spellbook,
         Spell,
+        Skillbook,
         Skill,
         CooldownStatus,
         SpellTargetType,
@@ -1165,7 +1273,7 @@ mod tests {
     }
 
     #[test]
-    fn serves_health_and_client_snapshots() {
+    fn serves_health_and_client_resources() {
         assert_eq!(json("/health")["status"], "ok");
 
         let clients = json("/clients");
@@ -1190,36 +1298,51 @@ mod tests {
                 .is_none()
         );
 
-        let snapshot = json("/clients/silo/snapshot");
-        assert_eq!(snapshot["pid"], 42);
-        assert_eq!(snapshot["lifecycle"], "in_game");
-        assert_eq!(snapshot["character"]["name"], "SiLo");
-        assert_eq!(snapshot["character"]["gender"], "male");
-        assert_eq!(snapshot["character"]["hair_style"], 17);
-        assert_eq!(snapshot["character"]["hair_color"], 6);
-        assert_eq!(snapshot["character"]["body_sprite"], 1);
-        assert_eq!(snapshot["character"]["action_locked"], true);
-        assert_eq!(snapshot["character"]["is_blinded"], true);
-        assert!(snapshot["character"].get("gender_id").is_none());
-        assert!(snapshot["character"].get("class_id").is_none());
-        assert_eq!(snapshot["character"]["progression"]["level"], 50);
-        assert_eq!(snapshot["character"]["location"]["x"], 11);
-        assert_eq!(snapshot["character"]["inventory"][0]["quantity"], 3);
-        assert_eq!(snapshot["character"]["inventory"][0]["can_stack"], true);
-        assert_eq!(snapshot["character"]["inventory"][0]["name"], "Dark Belt");
-        assert_eq!(snapshot["character"]["inventory"][0]["sprite"], 0x0123);
-        assert_eq!(snapshot["character"]["equipment"][0]["slot"], "armor");
+        let status = json("/clients/silo/status");
+        assert_eq!(status["observation"]["pid"], 42);
+        assert_eq!(status["observation"]["revision"], 3);
+        assert_eq!(status["lifecycle"], "in_game");
+        assert_eq!(status["character"]["name"], "SiLo");
+        assert_eq!(status["character"]["gender"], "male");
+        assert_eq!(status["character"]["hair_style"], 17);
+        assert_eq!(status["character"]["hair_color"], 6);
+        assert_eq!(status["character"]["body_sprite"], 1);
+        assert_eq!(status["character"]["action_locked"], true);
+        assert_eq!(status["character"]["is_blinded"], true);
+        assert!(status["character"].get("gender_id").is_none());
+        assert!(status["character"].get("class_id").is_none());
+        assert!(status["character"].get("inventory").is_none());
+        assert!(status["character"].get("equipment").is_none());
+        assert!(status["character"].get("spellbook").is_none());
+        assert!(status["character"].get("skillbook").is_none());
+        assert_eq!(status["character"]["progression"]["level"], 50);
+        assert_eq!(status["map"]["x"], 11);
+
+        let inventory = json("/clients/silo/inventory");
+        assert_eq!(inventory["observation"]["revision"], 3);
+        assert_eq!(inventory["items"][0]["quantity"], 3);
+        assert_eq!(inventory["items"][0]["can_stack"], true);
+        assert_eq!(inventory["items"][0]["name"], "Dark Belt");
+        assert_eq!(inventory["items"][0]["sprite"], 0x0123);
+
+        let equipment = json("/clients/silo/equipment");
+        assert_eq!(equipment["observation"]["revision"], 3);
+        assert_eq!(equipment["items"][0]["slot"], "armor");
+
+        let spellbook = json("/clients/silo/spellbook");
+        assert_eq!(spellbook["observation"]["revision"], 3);
+        assert_eq!(spellbook["spells"][0]["target_type"], "text_input");
+        assert_eq!(spellbook["spells"][0]["prompt"], "Who?");
+        assert!(spellbook["spells"][0].get("target_type_id").is_none());
+
+        let skillbook = json("/clients/silo/skillbook");
+        assert_eq!(skillbook["observation"]["revision"], 3);
+        assert_eq!(skillbook["skills"][0]["max_level"], 100);
+
         assert_eq!(
-            snapshot["character"]["spellbook"][0]["target_type"],
-            "text_input"
+            response("/clients/silo/snapshot").status(),
+            StatusCode::NOT_FOUND
         );
-        assert_eq!(snapshot["character"]["spellbook"][0]["prompt"], "Who?");
-        assert!(
-            snapshot["character"]["spellbook"][0]
-                .get("target_type_id")
-                .is_none()
-        );
-        assert_eq!(snapshot["character"]["skillbook"][0]["max_level"], 100);
 
         let state = state();
         let mut registry = Registry::new();
@@ -1336,7 +1459,16 @@ mod tests {
         assert_eq!(openapi["info"]["title"], "daRPC API");
         assert!(openapi["paths"]["/health"].is_object());
         assert!(openapi["paths"]["/clients"].is_object());
-        assert!(openapi["paths"]["/clients/{client}/snapshot"].is_object());
+        for path in [
+            "/clients/{client}/status",
+            "/clients/{client}/inventory",
+            "/clients/{client}/equipment",
+            "/clients/{client}/spellbook",
+            "/clients/{client}/skillbook",
+        ] {
+            assert!(openapi["paths"][path].is_object(), "OpenAPI omitted {path}");
+        }
+        assert!(openapi["paths"]["/clients/{client}/snapshot"].is_null());
         assert!(openapi["paths"]["/clients/launch"].is_object());
         assert!(openapi["paths"]["/clients/{client}/load"].is_object());
         assert!(openapi["paths"]["/clients/{client}/unload"].is_object());
@@ -1349,9 +1481,10 @@ mod tests {
             "ClientStatus",
             "ClientIdentity",
             "ConnectionMetadata",
-            "ClientSnapshot",
+            "ObservationMetadata",
+            "GameStatus",
             "ClientLifecycle",
-            "CharacterSnapshot",
+            "CharacterStatus",
             "CharacterGender",
             "CharacterClass",
             "CharacterProgression",
@@ -1360,10 +1493,14 @@ mod tests {
             "CharacterModifiers",
             "Element",
             "MapLocation",
+            "Inventory",
             "InventoryItem",
+            "Equipment",
             "EquipmentItem",
             "EquipmentSlot",
+            "Spellbook",
             "Spell",
+            "Skillbook",
             "Skill",
             "CooldownStatus",
             "SpellTargetType",
@@ -1389,15 +1526,23 @@ mod tests {
         assert!(schemas["UnloadResult"]["properties"]["was_unloaded"].is_object());
         assert!(schemas["UnloadResult"]["properties"]["changed"].is_null());
         assert!(
-            schemas["CharacterSnapshot"]["properties"]
+            schemas["CharacterStatus"]["properties"]
                 .get("gender_id")
                 .is_none()
         );
         assert!(
-            schemas["CharacterSnapshot"]["properties"]
+            schemas["CharacterStatus"]["properties"]
                 .get("class_id")
                 .is_none()
         );
+        for collection in ["inventory", "equipment", "spellbook", "skillbook"] {
+            assert!(
+                schemas["CharacterStatus"]["properties"]
+                    .get(collection)
+                    .is_none(),
+                "CharacterStatus still exposes {collection}"
+            );
+        }
         assert!(
             schemas["CharacterModifiers"]["properties"]
                 .get("attack_element_id")

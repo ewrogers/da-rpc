@@ -101,7 +101,7 @@ verify incrementally maintained state.
   select the supported client executable but expose no arbitrary argument
   forwarding.
 - The daemon aggregates client identity, connection health, and the latest
-  complete client snapshot.
+  complete client snapshot, then exposes focused status and collection views.
 - Character and user interface state remain per-client. A future shared-world
   projection must preserve observation source, last-seen freshness, and stale
   or uncertain status.

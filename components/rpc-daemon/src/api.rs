@@ -1252,6 +1252,13 @@ mod tests {
         assert!(schemas["LoadResult"]["properties"]["changed"].is_null());
         assert!(schemas["UnloadResult"]["properties"]["was_unloaded"].is_object());
         assert!(schemas["UnloadResult"]["properties"]["changed"].is_null());
+        assert!(
+            schemas["ClientLifecycle"]["enum"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|value| value == "disconnected")
+        );
 
         let docs = response("/docs/");
         assert_eq!(docs.status(), StatusCode::OK);

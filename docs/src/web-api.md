@@ -86,6 +86,11 @@ spellbook, and skillbook. Occupied slots are arrays; an absent array means the
 client could not expose that group, while an empty array means the group was
 read successfully and contained no occupied slots.
 
+The `disconnected` lifecycle means that the active client is displaying its
+reconnect dialog. Character state remains present when the underlying world
+structures are still valid, so consumers should use the lifecycle rather than
+the presence of a character to decide whether the session is connected.
+
 Known enum values are represented with readable snake-case names. The
 corresponding numeric client identifier is also retained where unknown values
 must round-trip, such as `class_id`, `gender_id`, element IDs, and

@@ -8,6 +8,7 @@ pub enum RawLifecycle {
     Title,
     Transition,
     InGame,
+    Disconnected,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -100,6 +101,7 @@ pub enum StateReadError {
     PointersChanged,
     InvalidObjectTree,
     InvalidCollection,
+    InvalidPaneList,
 }
 
 impl fmt::Display for StateReadError {
@@ -119,6 +121,7 @@ impl fmt::Display for StateReadError {
             }
             Self::InvalidObjectTree => formatter.write_str("client object tree is invalid"),
             Self::InvalidCollection => formatter.write_str("client collection state is invalid"),
+            Self::InvalidPaneList => formatter.write_str("client event pane list is invalid"),
         }
     }
 }

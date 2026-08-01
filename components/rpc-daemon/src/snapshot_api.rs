@@ -43,6 +43,7 @@ pub(crate) enum ClientLifecycle {
     Title,
     Transition,
     InGame,
+    Disconnected,
 }
 
 impl From<ModelClientLifecycle> for ClientLifecycle {
@@ -52,6 +53,7 @@ impl From<ModelClientLifecycle> for ClientLifecycle {
             ModelClientLifecycle::Title => Self::Title,
             ModelClientLifecycle::Transition => Self::Transition,
             ModelClientLifecycle::InGame => Self::InGame,
+            ModelClientLifecycle::Disconnected => Self::Disconnected,
         }
     }
 }

@@ -204,6 +204,7 @@ fn lifecycle(value: ClientLifecycle) -> &'static str {
         ClientLifecycle::Title => "title",
         ClientLifecycle::Transition => "transition",
         ClientLifecycle::InGame => "in_game",
+        ClientLifecycle::Disconnected => "disconnected",
     }
 }
 

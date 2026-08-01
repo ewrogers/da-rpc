@@ -148,6 +148,8 @@ fn header_with_payload_len(message_type: u16, payload_len: u32) -> Vec<u8> {
 
 #[test]
 fn every_message_round_trips() {
+    let mut disconnected = snapshot();
+    disconnected.lifecycle = ClientLifecycle::Disconnected;
     let messages = [
         Message::Hello(hello()),
         Message::HelloAck(HelloAck {
@@ -179,6 +181,10 @@ fn every_message_round_trips() {
         Message::SnapshotResponse(SnapshotResponse {
             request_id: 9,
             result: SnapshotResult::Unavailable(SnapshotUnavailableReason::CaptureTimedOut),
+        }),
+        Message::SnapshotResponse(SnapshotResponse {
+            request_id: 10,
+            result: SnapshotResult::Ready(Box::new(disconnected)),
         }),
     ];
 

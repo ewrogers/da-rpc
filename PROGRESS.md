@@ -39,6 +39,8 @@ implementation milestone is M13, event-driven updates.
 - [x] Added scalar character, map, inventory, equipment, spellbook, and
   skillbook models across the DLL, protocol, direct CLI, daemon, REST, and
   OpenAPI.
+- [x] Added bounded reconnect-dialog detection and a `disconnected` lifecycle
+  that preserves valid character state beneath the dialog.
 - [x] Kept allocation, text conversion, serialization, IPC, and logging off the
   hook path through a fixed-capacity publication handoff.
 - [x] Verified the snapshot against a late-attached live client and measured
@@ -49,6 +51,8 @@ implementation milestone is M13, event-driven updates.
 - [x] Capture a complete current observation from an already logged-in client
   without a remote memory-reading thread or process-wide suspension.
 - [x] Represent lifecycle-unavailable groups explicitly and omit empty slots.
+- [x] Classify a visible, registered reconnect dialog ahead of the underlying
+  title or world scene.
 - [x] Exclude the inventory currency display slot because character gold is the
   canonical currency value.
 - [x] Validate strict snapshot codec round trips, malformed collection bounds,

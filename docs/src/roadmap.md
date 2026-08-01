@@ -570,6 +570,8 @@ Build:
 - Occupied inventory, equipment, spellbook, and skillbook slots.
 - Validated roots, offsets, bounds, fixed-capacity hook buffers, and world
   generation tracking.
+- Reconnect-dialog detection with `disconnected` lifecycle precedence while
+  preserving a valid underlying character snapshot.
 - Protocol 1.0 snapshot messages plus matching direct CLI, daemon registry,
   REST, and OpenAPI models.
 
@@ -582,6 +584,8 @@ Done:
 
 - Unsupported lifecycle states produce partial or unavailable values without
   invented defaults.
+- A visible, registered reconnect dialog reports `disconnected` even when a
+  complete world remains behind it.
 - Snapshot work has a measured client-thread duration and performs only bounded
   fixed-capacity copying in the tick hook.
 - Restarting the daemon obtains a fresh equivalent snapshot without reinjection.

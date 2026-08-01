@@ -256,6 +256,7 @@ fn lifecycle_wire(lifecycle: ClientLifecycle) -> u8 {
         ClientLifecycle::Title => 1,
         ClientLifecycle::Transition => 2,
         ClientLifecycle::InGame => 3,
+        ClientLifecycle::Disconnected => 4,
     }
 }
 
@@ -265,6 +266,7 @@ fn lifecycle_from_wire(value: u8) -> Result<ClientLifecycle, DecodeError> {
         1 => Ok(ClientLifecycle::Title),
         2 => Ok(ClientLifecycle::Transition),
         3 => Ok(ClientLifecycle::InGame),
+        4 => Ok(ClientLifecycle::Disconnected),
         actual => Err(DecodeError::InvalidClientLifecycle { actual }),
     }
 }

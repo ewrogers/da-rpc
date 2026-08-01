@@ -30,6 +30,20 @@ Map names normally come from the validated map pane. The bounded map-size event
 hook also copies an accepted map name into DLL-owned storage so a fresh event
 can supplement the memory baseline.
 
+## Lifecycle
+
+Snapshots classify the client as `unknown`, `title`, `transition`, `in_game`,
+or `disconnected`. A visible, registered reconnect dialog takes precedence over
+the scene beneath it and produces `disconnected`. When a valid world remains
+behind that dialog, the snapshot preserves the character and map state that can
+still be read. If no valid world is present, character state remains absent.
+
+Reconnect detection scans the active event-pane list during the same
+main-thread capture as the rest of the snapshot. The scan validates the list
+pointer, signed count, capacity, and a conservative entry limit, and it rechecks
+the list roots before publication. Pane pointers are never retained between
+captures.
+
 ## Capture concurrency
 
 The pipe worker requests a capture and waits with a fixed timeout. The next

@@ -4,6 +4,7 @@ pub enum ClientLifecycle {
     Title,
     Transition,
     InGame,
+    Disconnected,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

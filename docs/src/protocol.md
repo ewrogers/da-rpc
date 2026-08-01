@@ -187,6 +187,14 @@ struct SnapshotResponse {
     result: SnapshotResult;
 }
 
+enum ClientLifecycle: u8 {
+    Unknown      = 0,
+    Title        = 1,
+    Transition   = 2,
+    InGame       = 3,
+    Disconnected = 4,
+}
+
 struct ClientSnapshot {
     revision: u32;
     captured_tick_ms: u32;
@@ -230,6 +238,8 @@ active flag and an optional wrapping millisecond duration.
 Unavailable reason values distinguish an absent hook, a bounded capture
 timeout, and a failed state walk. A ready response may still contain absent
 groups when the client lifecycle or validated pointers do not expose them.
+`Disconnected` means that the client has an active reconnect dialog. It may
+still contain character state when the underlying world remains valid.
 Adding these operations does not change protocol version 1.0 because daRPC has
 not established a released compatibility boundary.
 

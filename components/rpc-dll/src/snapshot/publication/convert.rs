@@ -217,5 +217,6 @@ fn lifecycle(raw: RawLifecycle) -> ClientLifecycle {
         RawLifecycle::Title => ClientLifecycle::Title,
         RawLifecycle::Transition => ClientLifecycle::Transition,
         RawLifecycle::InGame => ClientLifecycle::InGame,
+        RawLifecycle::Disconnected => ClientLifecycle::Disconnected,
     }
 }

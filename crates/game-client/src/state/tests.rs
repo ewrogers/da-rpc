@@ -1,3 +1,4 @@
+use super::panes::{EVENT_DISPATCHER_RVA, RECONNECT_DIALOG_VTABLE_RVA};
 use super::{
     CHARACTER_NAME_RVA, EQUIPMENT_PANE_RVA, GUI_BACK_PANE_ADJUSTMENT, GUI_BACK_PANE_RVA,
     MAIN_MENU_PANE_RVA, MAIN_THREAD_ID_RVA, MAP_LOADING_PANE_RVA, MemoryReader, RawLifecycle,
@@ -28,6 +29,9 @@ const SKILL_POINTERS: u32 = 0x009B_0000;
 const SPELL_POINTERS: u32 = 0x009B_1000;
 const SKILL_ENTRY: u32 = 0x009C_0000;
 const SPELL_ENTRY: u32 = 0x009D_0000;
+const EVENT_DISPATCHER: u32 = 0x009E_0000;
+const EVENT_ENTRIES: u32 = 0x009E_1000;
+const RECONNECT_DIALOG: u32 = 0x009E_2000;
 
 struct FakeMemory {
     bytes: Vec<u8>,
@@ -234,6 +238,55 @@ fn title_state_has_no_character() {
     let snapshot = StateWalker::new(&memory, BASE).capture(THREAD_ID).unwrap();
     assert_eq!(snapshot.lifecycle, RawLifecycle::Title);
     assert!(snapshot.character.is_none());
+}
+
+#[test]
+fn reconnect_dialog_takes_precedence_over_the_stable_world() {
+    let mut memory = FakeMemory::gameplay();
+    memory.u32(BASE + EVENT_DISPATCHER_RVA, EVENT_DISPATCHER);
+    memory.u32(EVENT_DISPATCHER + 0x64, EVENT_ENTRIES);
+    memory.i32(EVENT_DISPATCHER + 0x68, 1);
+    memory.i32(EVENT_DISPATCHER + 0x6C, 1);
+    memory.u32(EVENT_ENTRIES, RECONNECT_DIALOG);
+    memory.u32(RECONNECT_DIALOG, BASE + RECONNECT_DIALOG_VTABLE_RVA);
+    memory.u8(RECONNECT_DIALOG + 0x130, 1);
+    memory.u8(RECONNECT_DIALOG + 0x188, 0x02);
+
+    let snapshot = StateWalker::new(&memory, BASE).capture(THREAD_ID).unwrap();
+    assert_eq!(snapshot.lifecycle, RawLifecycle::Disconnected);
+    assert!(snapshot.character.is_some());
+}
+
+#[test]
+fn hidden_or_unregistered_reconnect_dialog_is_not_disconnected() {
+    for (visible, flags) in [(0, 0x02), (1, 0)] {
+        let mut memory = FakeMemory::gameplay();
+        memory.u32(BASE + EVENT_DISPATCHER_RVA, EVENT_DISPATCHER);
+        memory.u32(EVENT_DISPATCHER + 0x64, EVENT_ENTRIES);
+        memory.i32(EVENT_DISPATCHER + 0x68, 1);
+        memory.i32(EVENT_DISPATCHER + 0x6C, 1);
+        memory.u32(EVENT_ENTRIES, RECONNECT_DIALOG);
+        memory.u32(RECONNECT_DIALOG, BASE + RECONNECT_DIALOG_VTABLE_RVA);
+        memory.u8(RECONNECT_DIALOG + 0x130, visible);
+        memory.u8(RECONNECT_DIALOG + 0x188, flags);
+
+        let snapshot = StateWalker::new(&memory, BASE).capture(THREAD_ID).unwrap();
+        assert_eq!(snapshot.lifecycle, RawLifecycle::InGame);
+    }
+}
+
+#[test]
+fn rejects_an_invalid_event_pane_list() {
+    let mut memory = FakeMemory::gameplay();
+    memory.u32(BASE + EVENT_DISPATCHER_RVA, EVENT_DISPATCHER);
+    memory.u32(EVENT_DISPATCHER + 0x64, EVENT_ENTRIES);
+    memory.i32(EVENT_DISPATCHER + 0x68, 2);
+    memory.i32(EVENT_DISPATCHER + 0x6C, 1);
+
+    assert_eq!(
+        StateWalker::new(&memory, BASE).capture(THREAD_ID),
+        Err(StateReadError::InvalidPaneList)
+    );
 }
 
 #[test]

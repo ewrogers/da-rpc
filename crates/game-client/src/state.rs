@@ -1,5 +1,6 @@
 mod abilities;
 mod collections;
+mod panes;
 mod types;
 
 pub use abilities::{ABILITY_SLOT_COUNT, RawSkill, RawSkillbook, RawSpell, RawSpellbook};
@@ -51,19 +52,29 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
         }
 
         let roots = self.capture_roots()?;
+        let reconnect_dialog_open = self.reconnect_dialog_is_open(roots.event_dispatcher)?;
         let world_user = if roots.world == 0 {
             0
         } else {
             self.read_u32(add(roots.world, 0x2CC)?)?
         };
-        let lifecycle = match (roots.main_menu != 0, roots.world != 0, world_user != 0) {
-            (true, false, false) => RawLifecycle::Title,
-            (false, true, true) => RawLifecycle::InGame,
-            (false, false, false) | (true, true, _) | (_, true, false) => RawLifecycle::Transition,
-            _ => RawLifecycle::Unknown,
+        let lifecycle = if reconnect_dialog_open {
+            RawLifecycle::Disconnected
+        } else {
+            match (roots.main_menu != 0, roots.world != 0, world_user != 0) {
+                (true, false, false) => RawLifecycle::Title,
+                (false, true, true) => RawLifecycle::InGame,
+                (false, false, false) | (true, true, _) | (_, true, false) => {
+                    RawLifecycle::Transition
+                }
+                _ => RawLifecycle::Unknown,
+            }
         };
 
-        let character = if lifecycle == RawLifecycle::InGame {
+        let character = if matches!(lifecycle, RawLifecycle::InGame | RawLifecycle::Disconnected)
+            && roots.world != 0
+            && world_user != 0
+        {
             Some(self.capture_character(&roots, world_user)?)
         } else {
             None
@@ -73,6 +84,7 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
         if current_roots.world_interface != roots.world_interface
             || current_roots.gui_back_interface != roots.gui_back_interface
             || current_roots.equipment != roots.equipment
+            || current_roots.event_dispatcher != roots.event_dispatcher
         {
             return Err(StateReadError::PointersChanged);
         }
@@ -93,6 +105,7 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
             gui_back_interface,
             gui_back: adjusted(gui_back_interface, GUI_BACK_PANE_ADJUSTMENT)?,
             equipment: self.read_module_u32(EQUIPMENT_PANE_RVA)?,
+            event_dispatcher: self.read_module_u32(panes::EVENT_DISPATCHER_RVA)?,
             main_menu: self.read_module_u32(MAIN_MENU_PANE_RVA)?,
             map_loading: self.read_module_u32(MAP_LOADING_PANE_RVA)?,
         })
@@ -356,6 +369,7 @@ struct Roots {
     gui_back_interface: u32,
     gui_back: u32,
     equipment: u32,
+    event_dispatcher: u32,
     main_menu: u32,
     map_loading: u32,
 }

@@ -1,6 +1,52 @@
 use std::{error::Error, fmt, io};
 
 #[derive(Debug)]
+pub struct InstallError {
+    source: io::Error,
+    unload_safe: bool,
+}
+
+impl InstallError {
+    pub const fn unload_is_safe(&self) -> bool {
+        self.unload_safe
+    }
+
+    pub fn into_io_error(self) -> io::Error {
+        self.source
+    }
+}
+
+impl From<DetourError> for InstallError {
+    fn from(error: DetourError) -> Self {
+        Self {
+            unload_safe: error.unload_is_safe(),
+            source: io::Error::other(error),
+        }
+    }
+}
+
+impl From<io::Error> for InstallError {
+    fn from(source: io::Error) -> Self {
+        Self {
+            source,
+            unload_safe: true,
+        }
+    }
+}
+
+impl fmt::Display for InstallError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.source.fmt(formatter)
+    }
+}
+
+impl Error for InstallError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        Some(&self.source)
+    }
+}
+
+#[derive(Debug)]
 pub enum DetourError {
     AlreadyReserved {
         target: usize,

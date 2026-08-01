@@ -9,8 +9,8 @@ remain concise.
 
 ## Current focus
 
-M11, the first client tick hook, is complete. The next planned implementation
-milestone is M12, the minimal late-attach snapshot.
+M12, the late-attach client snapshot, is complete. The next planned
+implementation milestone is M13, event-driven updates.
 
 ## Milestone snapshot
 
@@ -30,8 +30,33 @@ milestone is M12, the minimal late-attach snapshot.
 | M9.1, automatic managed loading | Complete | Opt-in one-shot loading covers existing and later discoveries while preserving explicit unload. |
 | M10, hook qualification harness | Complete | Transactional x86 detours, relocated trampolines, rollback, concurrency, panic containment, and shutdown pass owned native tests. |
 | M11, first client tick hook | Complete | Exact validation, safety hardening, direct health observation, repeated live attach and detach, and normal in-game acceptance pass. |
+| M12, late-attach client snapshot | Complete | Main-thread capture, the full initial character and collection surface, protocol and API presentation, and live-client comparison pass. |
 
 ## Completed recently
+
+- [x] Added a bounded main-thread state walk with validated roots, pointer
+  chains, collection capacities, slots, and world-generation detection.
+- [x] Added scalar character, map, inventory, equipment, spellbook, and
+  skillbook models across the DLL, protocol, direct CLI, daemon, REST, and
+  OpenAPI.
+- [x] Kept allocation, text conversion, serialization, IPC, and logging off the
+  hook path through a fixed-capacity publication handoff.
+- [x] Verified the snapshot against a late-attached live client and measured
+  capture duration and round-trip time.
+
+## M12 completion evidence
+
+- [x] Capture a complete current observation from an already logged-in client
+  without a remote memory-reading thread or process-wide suspension.
+- [x] Represent lifecycle-unavailable groups explicitly and omit empty slots.
+- [x] Exclude the inventory currency display slot because character gold is the
+  canonical currency value.
+- [x] Validate strict snapshot codec round trips, malformed collection bounds,
+  slots, duplicate slots, and string limits within protocol 1.0.
+- [x] Expose equivalent human and JSON direct CLI output and
+  `GET /clients/{pid}/snapshot` with generated OpenAPI schemas.
+- [x] Split state walking, collection conversion, protocol codecs, CLI output,
+  and HTTP models along focused domain boundaries.
 
 - [x] Added the exact supported-client `event_dispatcher_tick` target contract
   and a minimal `thiscall` detour that always calls the original function.
@@ -321,9 +346,8 @@ milestone is M12, the minimal late-attach snapshot.
   user-mode loader startup makes enumeration available.
 - A lifecycle relative virtual address is used only after the observed loaded
   module path matches the validated DLL path.
-- The stock client single-instance mutex keeps live M4 checks sequential.
-  Multi-process loader behavior uses controlled targets until the planned
-  startup patch exists.
+- Unflagged launches preserve the stock single-instance behavior. Explicit
+  `--allow-multiple` launches apply the validated startup patch before resume.
 - Parallels remote commands remain suitable for builds, controlled targets,
   inspection, and late attach. Live launch acceptance uses the active Windows
   interactive token and normal client exit.
@@ -332,8 +356,8 @@ milestone is M12, the minimal late-attach snapshot.
 - Loader and DLL lifecycle paths are server-side configuration. Launch requests
   select the supported client executable but expose no arbitrary argument
   forwarding.
-- M7 aggregates client identity and connection health only. The first real
-  client snapshot remains M12.
+- The daemon aggregates client identity, connection health, and the latest
+  complete client snapshot.
 - Character and user interface state remain per-client. A future shared-world
   projection must preserve observation source, last-seen freshness, and stale
   or uncertain status.

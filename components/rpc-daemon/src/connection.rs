@@ -5,7 +5,7 @@ use crate::{
 #[cfg(debug_assertions)]
 use darpc_game_client::DEBUG_UNSUPPORTED_CLIENT_BYPASS_ENVIRONMENT_VARIABLE;
 use darpc_game_client::{CLIENT_VERSION_CODE, EXECUTABLE_SHA256};
-use darpc_protocol::{Architecture, Hello, Message, Ping, Pong};
+use darpc_protocol::{Architecture, Hello, Message, Ping, Pong, SnapshotRequest, SnapshotResult};
 use darpc_win32::controller::{ControllerError, ControllerSession};
 #[cfg(debug_assertions)]
 use std::env;
@@ -25,6 +25,7 @@ const RETRY_INTERVAL: Duration = Duration::from_millis(500);
 const HEALTH_INTERVAL: Duration = Duration::from_secs(1);
 const INITIALIZATION_GRACE: Duration = Duration::from_secs(1);
 const STOP_POLL_INTERVAL: Duration = Duration::from_millis(50);
+const SNAPSHOT_REQUEST_ID: u32 = 1;
 
 pub(crate) struct Worker {
     stop: Arc<AtomicBool>,
@@ -87,6 +88,33 @@ fn run(pid: u32, events: Sender<DaemonEvent>, stop: &AtomicBool) {
                     return;
                 }
 
+                match request_snapshot(&mut session) {
+                    Ok(snapshot) => {
+                        if !emit(
+                            &events,
+                            ConnectionEvent::Snapshot {
+                                pid,
+                                identity,
+                                snapshot: Box::new(snapshot),
+                            },
+                        ) {
+                            return;
+                        }
+                    }
+                    Err(reason) => {
+                        if !emit(
+                            &events,
+                            ConnectionEvent::SnapshotUnavailable {
+                                pid,
+                                identity,
+                                reason,
+                            },
+                        ) {
+                            return;
+                        }
+                    }
+                }
+
                 if let Err(error) = monitor(&mut session, stop)
                     && !stop.load(Ordering::Acquire)
                     && !emit(
@@ -147,7 +175,7 @@ fn validate_identity(hello: Hello) -> Result<(), String> {
 }
 
 fn monitor(session: &mut ControllerSession, stop: &AtomicBool) -> Result<(), ControllerError> {
-    let mut request_id = 1_u32;
+    let mut request_id = SNAPSHOT_REQUEST_ID.wrapping_add(1);
     while !wait_for_stop(stop, HEALTH_INTERVAL) {
         session.send(Message::Ping(Ping { request_id }))?;
         let response = session.receive()?;
@@ -172,6 +200,35 @@ fn monitor(session: &mut ControllerSession, stop: &AtomicBool) -> Result<(), Con
         request_id = request_id.wrapping_add(1);
     }
     Ok(())
+}
+
+fn request_snapshot(
+    session: &mut ControllerSession,
+) -> Result<darpc_model::ClientSnapshot, String> {
+    session
+        .send(Message::SnapshotRequest(SnapshotRequest {
+            request_id: SNAPSHOT_REQUEST_ID,
+        }))
+        .map_err(|error| error.to_string())?;
+    let response = session.receive().map_err(|error| error.to_string())?;
+    match response.message {
+        Message::SnapshotResponse(response) if response.request_id == SNAPSHOT_REQUEST_ID => {
+            match response.result {
+                SnapshotResult::Ready(snapshot) => Ok(*snapshot),
+                SnapshotResult::Unavailable(reason) => {
+                    Err(format!("snapshot unavailable: {reason:?}"))
+                }
+            }
+        }
+        Message::SnapshotResponse(response) => Err(format!(
+            "SnapshotResponse request ID {} does not match {SNAPSHOT_REQUEST_ID}",
+            response.request_id
+        )),
+        message => Err(format!(
+            "expected SnapshotResponse, received {:?}",
+            message.message_type()
+        )),
+    }
 }
 
 fn wait_for_stop(stop: &AtomicBool, duration: Duration) -> bool {

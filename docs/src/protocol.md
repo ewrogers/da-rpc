@@ -67,6 +67,8 @@ enum MessageType: u16 {
     EchoResponse = 6,
     TickHealthRequest  = 7,
     TickHealthResponse = 8,
+    SnapshotRequest    = 9,
+    SnapshotResponse   = 10,
 }
 ```
 
@@ -167,6 +169,69 @@ struct TickHealthResponse {
 The response is a worker-thread snapshot of atomic hook state. Comparing two
 responses with `wrapping_sub` shows whether the client dispatcher advanced
 during the sample window without performing IPC or logging in the hook itself.
+
+## Client snapshot
+
+```rust,ignore
+struct SnapshotRequest {
+    request_id: u32;
+}
+
+enum SnapshotResult {
+    Unavailable(SnapshotUnavailableReason),
+    Ready(ClientSnapshot),
+}
+
+struct SnapshotResponse {
+    request_id: u32;
+    result: SnapshotResult;
+}
+
+struct ClientSnapshot {
+    revision: u32;
+    captured_tick_ms: u32;
+    capture_duration_us: u32;
+    world_generation: u32;
+    lifecycle: ClientLifecycle;
+    character: Option<CharacterSnapshot>;
+}
+
+struct CharacterSnapshot {
+    id: Option<u32>;
+    name: Option<utf8>;
+    gender: Option<Gender>;
+    class: CharacterClass;
+    gold: u32;
+    progression: CharacterProgression;
+    stats: CharacterStats;
+    vitals: CharacterVitals;
+    modifiers: Option<CharacterModifiers>;
+    location: Option<MapLocation>;
+    inventory: Option<Vec<InventoryItem>>;
+    equipment: Option<Vec<EquipmentItem>>;
+    spellbook: Option<Vec<Spell>>;
+    skillbook: Option<Vec<Skill>>;
+}
+```
+
+Optional values begin with a strict boolean byte. Strings use a `u16` UTF-8
+byte length. Present collections use a `u8` count followed by occupied entries;
+inventory permits at most 60 entries, equipment 18, and each ability book 90.
+Collection names are limited to 127 bytes, character names to 15 bytes, and map
+names to 255 bytes. Slots are one-based, unique within a collection, and
+strictly range checked.
+
+Snapshot scalars use explicit little-endian integer widths. Collection entries
+carry their slot, appearance identifier, optional name, and their domain fields:
+inventory quantity and durability, equipment durability, spell levels, lines,
+target type and cooldown, or skill levels and cooldown. A cooldown contains an
+active flag and an optional wrapping millisecond duration.
+
+Unavailable reason values distinguish an absent hook, a bounded capture
+timeout, and a failed state walk. A ready response may still contain absent
+groups when the client lifecycle or validated pointers do not expose them.
+Adding these operations does not change protocol version 1.0 because daRPC has
+not established a released compatibility boundary.
 
 ## Ordering and time
 

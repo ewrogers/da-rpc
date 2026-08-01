@@ -4,7 +4,8 @@ use crate::{
     output::CommandResult,
 };
 use darpc_protocol::{
-    EchoRequest, Message, Ping, TickHealthRequest, TickHealthResponse, elapsed_tick_ms,
+    EchoRequest, Message, Ping, SnapshotRequest, SnapshotResult, SnapshotUnavailableReason,
+    TickHealthRequest, TickHealthResponse, elapsed_tick_ms,
 };
 use darpc_win32::{
     controller::{ControllerError, ControllerSession},
@@ -89,6 +90,49 @@ pub(crate) fn execute(pid: u32, operation: IpcOperation) -> Result<CommandResult
                 sample_ms: elapsed_tick_ms(first_tick_ms, second_tick_ms),
             })
         }
+        IpcOperation::Snapshot => {
+            let request = session
+                .send(Message::SnapshotRequest(SnapshotRequest {
+                    request_id: REQUEST_ID,
+                }))
+                .map_err(|error| controller_error(pid, error))?;
+            let response = session
+                .receive()
+                .map_err(|error| controller_error(pid, error))?;
+            let received_tick_ms = sender_tick_ms();
+            match response.message {
+                Message::SnapshotResponse(message) if message.request_id == REQUEST_ID => {
+                    match message.result {
+                        SnapshotResult::Ready(snapshot) => Ok(CommandResult::Snapshot {
+                            pid,
+                            request_id: REQUEST_ID,
+                            snapshot,
+                            round_trip_ms: elapsed_tick_ms(
+                                request.sender_tick_ms,
+                                received_tick_ms,
+                            ),
+                        }),
+                        SnapshotResult::Unavailable(reason) => {
+                            Err(snapshot_unavailable(pid, reason))
+                        }
+                    }
+                }
+                Message::SnapshotResponse(message) => Err(protocol_error(
+                    pid,
+                    format!(
+                        "SnapshotResponse request ID {} does not match {REQUEST_ID}",
+                        message.request_id
+                    ),
+                )),
+                message => Err(protocol_error(
+                    pid,
+                    format!(
+                        "expected SnapshotResponse, received {:?}",
+                        message.message_type()
+                    ),
+                )),
+            }
+        }
         IpcOperation::Echo(text) => {
             let request_text = text.clone();
             let request = session
@@ -135,6 +179,24 @@ pub(crate) fn execute(pid: u32, operation: IpcOperation) -> Result<CommandResult
             }
         }
     }
+}
+
+fn snapshot_unavailable(pid: u32, reason: SnapshotUnavailableReason) -> ClientError {
+    let (kind, message) = match reason {
+        SnapshotUnavailableReason::HookUnavailable => (
+            ErrorKind::Incompatible,
+            "the client tick hook is unavailable",
+        ),
+        SnapshotUnavailableReason::CaptureTimedOut => (
+            ErrorKind::Timeout,
+            "the client did not capture a snapshot before the deadline",
+        ),
+        SnapshotUnavailableReason::CaptureFailed => (
+            ErrorKind::Io,
+            "the client rejected the snapshot memory walk",
+        ),
+    };
+    ClientError::new(kind, message).with_pid(pid)
 }
 
 fn request_tick_health(

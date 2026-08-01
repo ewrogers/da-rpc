@@ -4,6 +4,7 @@ mod error;
 #[cfg(windows)]
 mod ipc;
 mod output;
+mod snapshot_output;
 
 use darpc_protocol::MAX_ECHO_TEXT_LEN;
 use error::{ClientError, ErrorKind, Result};
@@ -15,6 +16,7 @@ usage:
     darpc [--output <table|json>] ipc hello --pid <pid>
     darpc [--output <table|json>] ipc ping --pid <pid>
     darpc [--output <table|json>] ipc tick-health --pid <pid>
+    darpc [--output <table|json>] ipc snapshot --pid <pid>
     darpc [--output <table|json>] ipc echo --pid <pid> <text>";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -27,6 +29,7 @@ enum IpcOperation {
     Hello,
     Ping,
     TickHealth,
+    Snapshot,
     Echo(String),
 }
 
@@ -45,6 +48,10 @@ impl Command {
                 operation: IpcOperation::TickHealth,
                 ..
             } => "ipc.tick-health",
+            Self::Ipc {
+                operation: IpcOperation::Snapshot,
+                ..
+            } => "ipc.snapshot",
             Self::Ipc {
                 operation: IpcOperation::Echo(_),
                 ..
@@ -147,6 +154,7 @@ fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
         "hello" => IpcOperation::Hello,
         "ping" => IpcOperation::Ping,
         "tick-health" => IpcOperation::TickHealth,
+        "snapshot" => IpcOperation::Snapshot,
         "echo" => {
             let text = arguments
                 .next()
@@ -247,6 +255,16 @@ mod tests {
                 Command::Ipc {
                     pid: 9,
                     operation: IpcOperation::TickHealth,
+                }
+            )
+        );
+        assert_eq!(
+            parse(arguments(&["ipc", "snapshot", "--pid", "10"])).unwrap(),
+            (
+                OutputFormat::Table,
+                Command::Ipc {
+                    pid: 10,
+                    operation: IpcOperation::Snapshot,
                 }
             )
         );

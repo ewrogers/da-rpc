@@ -9,7 +9,7 @@ boundaries:
 | `darpc-protocol` | Versioned binary interprocess communication framing and codecs. |
 | `darpc-win32` | Shared Windows platform boundaries. |
 | `darpc-game-client` | Supported game-client layouts and application binary interface boundaries. |
-| `rpc-client` | Command-line IPC diagnostic and daemon API client. |
+| `rpc-client` | Direct single-client binary protocol command-line interface. |
 | `rpc-dll` | Injected client component. |
 | `loader` | Client launcher and injector. |
 | `rpc-daemon` | Client aggregator and web API daemon. |
@@ -19,7 +19,7 @@ keeps its verified fingerprint, layouts, addresses, and application binary
 interface assumptions together. Supporting another build requires updating or
 forking that contract rather than adding parallel version-named crates.
 
-The planned runtime targets are:
+The runtime targets are:
 
 | Component | Rust target |
 | --- | --- |

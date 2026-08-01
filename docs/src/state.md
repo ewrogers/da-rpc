@@ -4,27 +4,60 @@ Local state is one of the main advantages of direct client integration.
 `darpc.dll` maintains the authoritative daRPC view for its process and exposes
 that view to `darpcd.exe` without exposing raw pointers.
 
-## Initial snapshot
+## Current snapshot
 
 Attaching to an existing process requires more than observing future events.
-`darpc.dll` first reconstructs current state from validated pointers, relative
-virtual addresses, and version-specific data structures.
+`darpc.dll` reconstructs current state from validated relative virtual
+addresses, pointer chains, and version-specific structures. The implemented
+snapshot contains:
 
-Snapshot results must represent partial, unavailable, and unknown state
-explicitly. Missing information must not be replaced with invented defaults.
-The snapshot should distinguish at least:
+- Lifecycle, revision, capture tick and duration, and world generation.
+- Character identity, name, gender, class, gold, progression, attributes,
+  vitals, combat modifiers, and elemental affinities.
+- Map identity, name, coordinates, and dimensions.
+- Occupied inventory and equipment slots with appearance, names, quantities,
+  and durability where applicable.
+- Occupied spellbook and skillbook slots with names, icons, levels, target
+  behavior, lines, and available cooldown state.
 
-- Character and session state.
-- Game-world and entity state.
-- Local user interface state.
-- Client version information.
+Empty collection slots are omitted. Inventory slot 60 is the client's currency
+display and is omitted because `gold` is represented once as character state.
+Optional values remain unavailable rather than receiving invented defaults.
+For example, the client exposes whether a spell action delay is active but not
+its remaining duration, so the duration remains absent.
+
+Map names normally come from the validated map pane. The bounded map-size event
+hook also copies an accepted map name into DLL-owned storage so a fresh event
+can supplement the memory baseline.
+
+## Capture concurrency
+
+The pipe worker requests a capture and waits with a fixed timeout. The next
+client tick performs the memory walk on the client's main thread, where the
+relevant user interface structures are normally mutated. The walk validates
+roots, lengths, slots, and repeated root values before publishing a result.
+There is no process-wide suspension and no remote thread reads client state.
+
+The tick hook copies only bounded, pointer-free fixed-capacity data into a
+single DLL-owned publication slot. It does not allocate, serialize, log, or
+perform pipe input/output. The pipe worker claims that slot with acquire/release
+atomics, decodes client text, allocates domain collections, and serializes the
+protocol response. This ownership handoff prevents the worker from observing a
+partially written publication. Fields later discovered to be owned by another
+client thread will require their own synchronization or an event-owned copy.
 
 ## Incremental updates
 
-After the snapshot, relevant client events and packets update the local model.
+The current implementation captures a fresh complete snapshot on demand and
+when a daemon establishes a connection. Event-driven updates are the next
+layer: relevant client events and packets will update DLL-owned state groups,
+while an occasional full capture remains the reconciliation source of truth.
+This hybrid model supports low-latency change events without requiring a full
+memory walk every tick.
+
 Game-world and user interface changes may have different consistency and
-lifetime rules, so they should remain distinct in the state model even when
-they are exposed through one API.
+lifetime rules, so they remain distinct in the state model even when exposed
+through one API.
 
 UI state may include open panes, dialogs, selections, focus, and other
 client-only values. These changes are invisible to a pure network proxy and may
@@ -62,11 +95,11 @@ the daemon offers this derived view.
 
 ## Snapshot and stream boundary
 
-Every new `darpcd.exe` connection receives a fresh complete snapshot followed by
-later updates. `darpc.dll` must establish an ordered boundary so an update cannot
-be lost between capturing the snapshot and subscribing the daemon to events.
-The implementation may use a state revision, sequence number, or synchronized
-queue, but the protocol-visible ordering guarantee must be explicit.
+Every new `darpcd.exe` connection receives a fresh complete snapshot. Once
+incremental delivery is implemented, it will be followed by updates from an
+explicit ordered boundary so no change can be lost between capture and stream
+subscription. Snapshot revisions and protocol sequence numbers provide the
+existing foundations for that boundary.
 
 Events produced while `darpcd.exe` is down do not require an unbounded replay
 log. A new snapshot restores current durable state, and real-time delivery

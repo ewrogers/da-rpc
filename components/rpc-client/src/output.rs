@@ -1,4 +1,5 @@
-use crate::error::ClientError;
+use crate::{error::ClientError, snapshot_output};
+use darpc_model::ClientSnapshot;
 use darpc_protocol::{Architecture, Hello, protocol_version_major, protocol_version_minor};
 use std::fmt::Write as _;
 
@@ -36,6 +37,12 @@ pub(crate) enum CommandResult {
         tick_count: u32,
         tick_delta: u32,
         sample_ms: u32,
+    },
+    Snapshot {
+        pid: u32,
+        request_id: u32,
+        snapshot: Box<ClientSnapshot>,
+        round_trip_ms: u32,
     },
     Echo {
         pid: u32,
@@ -124,6 +131,12 @@ impl CommandResult {
                 tick_delta,
                 sample_ms,
             ),
+            Self::Snapshot {
+                pid,
+                request_id,
+                snapshot,
+                round_trip_ms,
+            } => snapshot_output::render_human(*pid, *request_id, *round_trip_ms, snapshot),
             Self::Echo {
                 pid,
                 request_id,
@@ -214,6 +227,12 @@ impl CommandResult {
                 tick_delta,
                 sample_ms,
             ),
+            Self::Snapshot {
+                pid,
+                request_id,
+                snapshot,
+                round_trip_ms,
+            } => snapshot_output::render_json(*pid, *request_id, *round_trip_ms, snapshot),
             Self::Echo {
                 pid,
                 request_id,
@@ -280,7 +299,7 @@ fn hex(bytes: &[u8]) -> String {
     output
 }
 
-fn json_string(value: &str) -> String {
+pub(crate) fn json_string(value: &str) -> String {
     let mut output = String::with_capacity(value.len() + 2);
     output.push('"');
     for character in value.chars() {

@@ -21,19 +21,20 @@ The command-line boundaries are:
 
 ## Direct IPC diagnostics
 
-The implemented diagnostics prove communication and expose the first hook's
-bounded health signal without reading game state:
+The implemented operations prove communication, expose hook health, and read a
+current client snapshot:
 
 ```text
 darpc ipc hello --pid <pid>
 darpc ipc ping --pid <pid>
 darpc ipc echo --pid <pid> "hello"
 darpc ipc tick-health --pid <pid>
+darpc ipc snapshot --pid <pid>
 ```
 
 These commands use the real PID-based named pipe, binary framing, protocol
-negotiation, request correlation, sequencing, and connection lifecycle. Only
-their payloads are synthetic:
+negotiation, request correlation, sequencing, and connection lifecycle. Their
+behavior is:
 
 - `hello` reports compatible DLL and process metadata.
 - `ping` verifies a complete request and response round trip and reports its
@@ -42,6 +43,9 @@ their payloads are synthetic:
 - `tick-health` samples the client tick counter twice, 250 milliseconds apart,
   and reports installation metadata, both counter values, their wrapping
   difference, and whether the counter advanced.
+- `snapshot` schedules a bounded capture on the client main thread and reports
+  lifecycle, character, map, inventory, equipment, spellbook, and skillbook
+  state plus capture timing and request round-trip time.
 
 The `ipc` group shares `darpc-protocol` with the DLL and daemon. It requires an
 explicit nonzero process ID and cannot manage multiple clients in one command.
@@ -56,6 +60,7 @@ darpc --output json ipc hello --pid <pid>
 darpc --output json ipc ping --pid <pid>
 darpc --output json ipc echo --pid <pid> "hello"
 darpc --output json ipc tick-health --pid <pid>
+darpc --output json ipc snapshot --pid <pid>
 ```
 
 Diagnostics belong on standard error so scripts can parse JSON from standard
@@ -81,8 +86,8 @@ protocol operation. Each command should:
 - Preserve equivalent human-readable and stable JSON representations.
 - Remain usable without `darpcd.exe`.
 
-Game-state reads and actions can extend the existing `ipc` hierarchy as their
-protocol messages become real. The CLI should not grow daemon discovery,
+Additional game-state reads and actions can extend the existing `ipc` hierarchy
+as their protocol messages become real. The CLI should not grow daemon discovery,
 aggregation, web configuration, or multi-client policy.
 
 ## Daemon access

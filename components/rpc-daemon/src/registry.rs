@@ -1,3 +1,4 @@
+use darpc_model::ClientSnapshot as GameSnapshot;
 use darpc_protocol::{Architecture, Hello, protocol_version_major, protocol_version_minor};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -36,6 +37,16 @@ pub(crate) enum ConnectionEvent {
         hello: Hello,
         selected_version: u16,
     },
+    Snapshot {
+        pid: u32,
+        identity: ClientIdentity,
+        snapshot: Box<GameSnapshot>,
+    },
+    SnapshotUnavailable {
+        pid: u32,
+        identity: ClientIdentity,
+        reason: String,
+    },
     Busy {
         pid: u32,
     },
@@ -59,6 +70,8 @@ impl ConnectionEvent {
             | Self::Initializing { pid }
             | Self::NotLoaded { pid }
             | Self::Connected { pid, .. }
+            | Self::Snapshot { pid, .. }
+            | Self::SnapshotUnavailable { pid, .. }
             | Self::Busy { pid }
             | Self::Disconnected { pid, .. }
             | Self::Incompatible { pid, .. } => *pid,
@@ -83,10 +96,12 @@ enum TargetStatus {
     },
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 struct ClientRecord {
     hello: Hello,
     selected_version: u16,
+    snapshot: Option<GameSnapshot>,
+    snapshot_reason: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -107,6 +122,8 @@ pub(crate) struct ClientSnapshot {
     pub(crate) identity: Option<ClientIdentity>,
     pub(crate) hello: Option<Hello>,
     pub(crate) selected_version: Option<u16>,
+    pub(crate) game_snapshot: Option<GameSnapshot>,
+    pub(crate) snapshot_reason: Option<String>,
     pub(crate) reason: Option<String>,
 }
 
@@ -132,6 +149,36 @@ impl Registry {
 
     pub(crate) fn apply(&mut self, event: &ConnectionEvent) -> bool {
         let pid = event.pid();
+        match event {
+            ConnectionEvent::Snapshot {
+                identity, snapshot, ..
+            } => {
+                let Some(record) = self.clients.get_mut(identity) else {
+                    return false;
+                };
+                if record.snapshot.as_ref() == Some(snapshot.as_ref())
+                    && record.snapshot_reason.is_none()
+                {
+                    return false;
+                }
+                record.snapshot = Some(snapshot.as_ref().clone());
+                record.snapshot_reason = None;
+                return true;
+            }
+            ConnectionEvent::SnapshotUnavailable {
+                identity, reason, ..
+            } => {
+                let Some(record) = self.clients.get_mut(identity) else {
+                    return false;
+                };
+                if record.snapshot_reason.as_ref() == Some(reason) {
+                    return false;
+                }
+                record.snapshot_reason = Some(reason.clone());
+                return true;
+            }
+            _ => {}
+        }
         let next = match event {
             ConnectionEvent::Connecting { .. } => TargetStatus::Connecting,
             ConnectionEvent::Initializing { .. } => TargetStatus::Initializing,
@@ -149,6 +196,8 @@ impl Registry {
                     ClientRecord {
                         hello: *hello,
                         selected_version: *selected_version,
+                        snapshot: None,
+                        snapshot_reason: None,
                     },
                 );
                 TargetStatus::Connected(identity)
@@ -175,6 +224,9 @@ impl Registry {
                 identity: *identity,
                 reason: reason.clone(),
             },
+            ConnectionEvent::Snapshot { .. } | ConnectionEvent::SnapshotUnavailable { .. } => {
+                unreachable!("snapshot events return before target status reconciliation")
+            }
         };
 
         if self.targets.get(&pid) == Some(&next) {
@@ -223,6 +275,8 @@ impl Registry {
                     identity,
                     hello: record.map(|record| record.hello),
                     selected_version: record.map(|record| record.selected_version),
+                    game_snapshot: record.and_then(|record| record.snapshot.clone()),
+                    snapshot_reason: record.and_then(|record| record.snapshot_reason.clone()),
                     reason,
                 }
             })
@@ -260,6 +314,13 @@ pub(crate) fn render_event(event: &ConnectionEvent) -> String {
             hex(&hello.executable_fingerprint),
             hello.client_version,
         ),
+        ConnectionEvent::Snapshot { pid, snapshot, .. } => format!(
+            "client pid={pid} snapshot=ready revision={} lifecycle={:?} duration_us={}",
+            snapshot.revision, snapshot.lifecycle, snapshot.capture_duration_us
+        ),
+        ConnectionEvent::SnapshotUnavailable { pid, reason, .. } => {
+            format!("client pid={pid} snapshot=unavailable reason={reason:?}")
+        }
         ConnectionEvent::Disconnected {
             pid,
             identity,
@@ -439,5 +500,27 @@ mod tests {
         assert!(registry.snapshot().clients.is_empty());
         assert!(registry.clients.is_empty());
         assert!(!registry.remove(42));
+    }
+
+    #[test]
+    fn retains_snapshot_unavailability_for_the_current_identity() {
+        let mut registry = Registry::new();
+        let hello = hello(1, 100);
+        let identity = ClientIdentity::from_hello(hello);
+        registry.apply(&ConnectionEvent::Connected {
+            pid: 42,
+            hello,
+            selected_version: SUPPORTED_VERSIONS.max,
+        });
+
+        assert!(registry.apply(&ConnectionEvent::SnapshotUnavailable {
+            pid: 42,
+            identity,
+            reason: "capture timed out".into(),
+        }));
+        assert_eq!(
+            registry.snapshot().clients[0].snapshot_reason.as_deref(),
+            Some("capture timed out")
+        );
     }
 }

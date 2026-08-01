@@ -5,8 +5,15 @@ use crate::{
         LifecycleOutcome, ManagementError, ServerEndpoint as ManagedServerEndpoint,
     },
     registry::{
-        ClientIdentity as RegistryClientIdentity, ClientSnapshot, ClientSnapshotStatus,
-        ConnectionEvent, RegistrySnapshot, architecture, hex,
+        ClientIdentity as RegistryClientIdentity, ClientSnapshot as RegistryClientSnapshot,
+        ClientSnapshotStatus, ConnectionEvent, RegistrySnapshot, architecture, hex,
+    },
+    snapshot_api::{
+        CharacterClass as SnapshotCharacterClass, CharacterGender, CharacterModifiers,
+        CharacterProgression, CharacterSnapshot, CharacterStats, CharacterVitals,
+        ClientLifecycle as SnapshotClientLifecycle, ClientSnapshot as ApiClientSnapshot,
+        CooldownStatus, Element, EquipmentItem, InventoryItem, MapLocation, Skill, Spell,
+        SpellTargetType,
     },
 };
 use axum::{
@@ -112,6 +119,7 @@ fn router(state: ApiState) -> Router {
     Router::<ApiState>::new()
         .route("/health", get(health))
         .route("/clients", get(clients))
+        .route("/clients/{pid}/snapshot", get(client_snapshot))
         .route("/clients/launch", post(launch))
         .route("/clients/{pid}/load", post(load))
         .route("/clients/{pid}/unload", post(unload))
@@ -190,6 +198,56 @@ async fn health() -> Json<HealthState> {
 async fn clients(State(state): State<ApiState>) -> Json<ClientList> {
     let snapshot = state.snapshot();
     Json(ClientList::from(snapshot.as_ref()))
+}
+
+#[utoipa::path(
+    get,
+    path = "/clients/{pid}/snapshot",
+    params(("pid" = u32, Path, description = "Discovered client process identifier")),
+    responses(
+        (status = 200, description = "The latest complete client observation", body = ApiClientSnapshot),
+        (status = 400, description = "The process identifier was invalid", body = ErrorState),
+        (status = 404, description = "The process is not a discovered or configured client", body = ErrorState),
+        (status = 503, description = "No client snapshot is currently available", body = ErrorState)
+    )
+)]
+async fn client_snapshot(
+    Path(pid): Path<u32>,
+    State(state): State<ApiState>,
+) -> Result<Json<ApiClientSnapshot>, ApiError> {
+    if pid == 0 {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_pid",
+            "PID must be greater than zero",
+            Some(pid),
+        ));
+    }
+    let registry = state.snapshot();
+    let client = registry
+        .clients
+        .iter()
+        .find(|client| client.pid == pid)
+        .ok_or_else(|| {
+            ApiError::new(
+                StatusCode::NOT_FOUND,
+                "client_not_found",
+                "the process is not a discovered or configured client",
+                Some(pid),
+            )
+        })?;
+    let snapshot = client.game_snapshot.as_ref().ok_or_else(|| {
+        ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "snapshot_unavailable",
+            client
+                .snapshot_reason
+                .as_deref()
+                .unwrap_or("the client has not published a snapshot yet"),
+            Some(pid),
+        )
+    })?;
+    Ok(Json(ApiClientSnapshot::from_model(pid, snapshot)))
 }
 
 #[utoipa::path(
@@ -360,7 +418,7 @@ fn operation_in_progress(pid: u32) -> ApiError {
 
 #[derive(OpenApi)]
 #[openapi(
-    paths(health, clients, load, unload, launch),
+    paths(health, clients, client_snapshot, load, unload, launch),
     components(schemas(
         HealthState,
         HealthStatus,
@@ -369,6 +427,23 @@ fn operation_in_progress(pid: u32) -> ApiError {
         ClientStatus,
         ClientIdentity,
         ConnectionMetadata,
+        ApiClientSnapshot,
+        SnapshotClientLifecycle,
+        CharacterSnapshot,
+        CharacterGender,
+        SnapshotCharacterClass,
+        CharacterProgression,
+        CharacterStats,
+        CharacterVitals,
+        CharacterModifiers,
+        Element,
+        MapLocation,
+        InventoryItem,
+        EquipmentItem,
+        Spell,
+        Skill,
+        CooldownStatus,
+        SpellTargetType,
         LaunchOptions,
         LoadResult,
         UnloadResult,
@@ -419,8 +494,8 @@ struct ClientState {
     reason: Option<String>,
 }
 
-impl From<&ClientSnapshot> for ClientState {
-    fn from(client: &ClientSnapshot) -> Self {
+impl From<&RegistryClientSnapshot> for ClientState {
+    fn from(client: &RegistryClientSnapshot) -> Self {
         Self {
             pid: client.pid,
             status: ClientStatus::from(client.status),
@@ -777,11 +852,18 @@ mod tests {
             LaunchOptions as ManagedLaunchOptions, LifecycleControl, LifecycleOperation,
             LifecycleOutcome, ManagementError,
         },
-        registry::{ConnectionEvent, Registry},
+        registry::{ClientIdentity as RegistryClientIdentity, ConnectionEvent, Registry},
     };
     use axum::{
         body::{Body, to_bytes},
         http::{Request, StatusCode},
+    };
+    use darpc_model::{
+        CharacterClass, CharacterProgression, CharacterSnapshot as ModelCharacterSnapshot,
+        CharacterStats, CharacterVitals, ClientLifecycle, ClientSnapshot as ModelClientSnapshot,
+        CooldownStatus as ModelCooldownStatus, EquipmentItem as ModelEquipmentItem,
+        InventoryItem as ModelInventoryItem, MapLocation, Skill as ModelSkill, Spell as ModelSpell,
+        SpellTargetType as ModelSpellTargetType,
     };
     use darpc_protocol::{Architecture, ComponentVersion, Hello, SUPPORTED_VERSIONS};
     use serde_json::Value;
@@ -808,12 +890,106 @@ mod tests {
         }
     }
 
+    fn game_snapshot() -> ModelClientSnapshot {
+        ModelClientSnapshot {
+            revision: 3,
+            captured_tick_ms: 500,
+            capture_duration_us: 75,
+            world_generation: 1,
+            lifecycle: ClientLifecycle::InGame,
+            character: Some(ModelCharacterSnapshot {
+                id: Some(1234),
+                name: Some("SiLo".into()),
+                gender: None,
+                class: CharacterClass::Wizard,
+                gold: 99,
+                progression: CharacterProgression {
+                    level: 50,
+                    ability_level: 2,
+                    experience: 1_000,
+                    ability_points: Some(10),
+                    experience_to_next_level: Some(20),
+                    ability_to_next_level: Some(30),
+                },
+                stats: CharacterStats {
+                    strength: 3,
+                    intelligence: 7,
+                    wisdom: 6,
+                    constitution: 5,
+                    dexterity: 4,
+                },
+                vitals: CharacterVitals {
+                    health: 80,
+                    max_health: 100,
+                    mana: 60,
+                    max_mana: 70,
+                },
+                modifiers: None,
+                location: Some(MapLocation {
+                    id: 3001,
+                    name: None,
+                    x: Some(11),
+                    y: Some(22),
+                    width: 100,
+                    height: 80,
+                }),
+                inventory: Some(vec![ModelInventoryItem {
+                    slot: 1,
+                    sprite: 0x8123,
+                    dye_color: 7,
+                    name: Some("Dark Belt [3]".into()),
+                    quantity: 3,
+                    durability: 41,
+                    max_durability: 50,
+                }]),
+                equipment: Some(vec![ModelEquipmentItem {
+                    slot: 2,
+                    sprite: 0x9234,
+                    dye_color: 2,
+                    name: Some("Hy-Brasyl Armor".into()),
+                    durability: 900,
+                    max_durability: 1_000,
+                }]),
+                spellbook: Some(vec![ModelSpell {
+                    slot: 7,
+                    icon: 0x0456,
+                    name: Some("Fas Spiorad".into()),
+                    level: 3,
+                    max_level: 5,
+                    lines: 4,
+                    target_type: ModelSpellTargetType::Target,
+                    cooldown: ModelCooldownStatus {
+                        active: true,
+                        remaining_ms: None,
+                    },
+                }]),
+                skillbook: Some(vec![ModelSkill {
+                    slot: 4,
+                    icon: 0x0123,
+                    name: Some("Assail".into()),
+                    level: 10,
+                    max_level: 100,
+                    cooldown: ModelCooldownStatus {
+                        active: true,
+                        remaining_ms: Some(750),
+                    },
+                }]),
+            }),
+        }
+    }
+
     fn state() -> ApiState {
         let mut registry = Registry::new();
+        let hello = hello();
         registry.apply(&ConnectionEvent::Connected {
             pid: 42,
-            hello: hello(),
+            hello,
             selected_version: SUPPORTED_VERSIONS.max,
+        });
+        registry.apply(&ConnectionEvent::Snapshot {
+            pid: 42,
+            identity: RegistryClientIdentity::from_hello(hello),
+            snapshot: Box::new(game_snapshot()),
         });
         let (events, _receiver) = mpsc::channel();
         ApiState::new(registry.snapshot(), Arc::new(FakeLifecycle), events)
@@ -957,6 +1133,20 @@ mod tests {
                 .is_none()
         );
 
+        let snapshot = json("/clients/42/snapshot");
+        assert_eq!(snapshot["pid"], 42);
+        assert_eq!(snapshot["lifecycle"], "in_game");
+        assert_eq!(snapshot["character"]["name"], "SiLo");
+        assert_eq!(snapshot["character"]["progression"]["level"], 50);
+        assert_eq!(snapshot["character"]["location"]["x"], 11);
+        assert_eq!(snapshot["character"]["inventory"][0]["quantity"], 3);
+        assert_eq!(snapshot["character"]["equipment"][0]["slot"], 2);
+        assert_eq!(
+            snapshot["character"]["spellbook"][0]["target_type"],
+            "target"
+        );
+        assert_eq!(snapshot["character"]["skillbook"][0]["max_level"], 100);
+
         let state = state();
         let mut registry = Registry::new();
         registry.apply(&ConnectionEvent::NotLoaded { pid: 7 });
@@ -1017,6 +1207,7 @@ mod tests {
         assert_eq!(openapi["info"]["title"], "daRPC API");
         assert!(openapi["paths"]["/health"].is_object());
         assert!(openapi["paths"]["/clients"].is_object());
+        assert!(openapi["paths"]["/clients/{pid}/snapshot"].is_object());
         assert!(openapi["paths"]["/clients/launch"].is_object());
         assert!(openapi["paths"]["/clients/{pid}/load"].is_object());
         assert!(openapi["paths"]["/clients/{pid}/unload"].is_object());
@@ -1029,6 +1220,17 @@ mod tests {
             "ClientStatus",
             "ClientIdentity",
             "ConnectionMetadata",
+            "ClientSnapshot",
+            "ClientLifecycle",
+            "CharacterSnapshot",
+            "CharacterGender",
+            "CharacterClass",
+            "CharacterProgression",
+            "CharacterStats",
+            "CharacterVitals",
+            "CharacterModifiers",
+            "Element",
+            "MapLocation",
             "LaunchOptions",
             "LoadResult",
             "LifecycleResult",

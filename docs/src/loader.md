@@ -45,7 +45,7 @@ supported fingerprint.
 
 ## Commands
 
-The M4 command surface is:
+The command surface is:
 
 ```text
 loader [--json] inspect <pid>
@@ -318,9 +318,9 @@ Complete the interactive portion of behavioral acceptance privately:
 4. Record whether all three runs behaved the same. Do not put credentials,
    private chat, or packet data in the record.
 
-Verify M4.1 with automated current-user launches where practical. Exercise each
-option independently, then launch two clients concurrently with
-`--allow-multiple --skip-intro --skip-notice` and, when needed,
+Verify optional launch patches with automated current-user launches where
+practical. Exercise each option independently, then launch two clients
+concurrently with `--allow-multiple --skip-intro --skip-notice` and, when needed,
 `--server <host[:port]>`. Confirm that the intro and notice are absent, both
 clients reach normal login, the selected endpoint is used, and ordinary login
 and exit behavior remain intact. An unflagged launch remains the comparison

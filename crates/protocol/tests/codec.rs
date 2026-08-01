@@ -1,7 +1,13 @@
+use darpc_model::{
+    CharacterClass, CharacterModifiers, CharacterProgression, CharacterSnapshot, CharacterStats,
+    CharacterVitals, ClientLifecycle, ClientSnapshot, CooldownStatus, Element, EquipmentItem,
+    Gender, InventoryItem, MapLocation, Skill, Spell, SpellTargetType,
+};
 use darpc_protocol::{
     Architecture, ComponentVersion, DecodeError, EchoRequest, EchoResponse, EncodeError,
     FRAME_HEADER_LEN, FRAME_MAGIC, FRAME_VERSION, Frame, FrameHeader, Hello, HelloAck,
     MAX_ECHO_TEXT_LEN, MAX_PAYLOAD_LEN, Message, MessageType, PROTOCOL_VERSION_1_0, Ping, Pong,
+    SnapshotRequest, SnapshotResponse, SnapshotResult, SnapshotUnavailableReason,
     TickHealthRequest, TickHealthResponse, VersionRange, decode_frame, decode_header, encode_frame,
     protocol_version, protocol_version_major, protocol_version_minor,
 };
@@ -23,6 +29,101 @@ fn hello() -> Hello {
         },
         executable_fingerprint: [0xa5; 32],
         client_version: 741,
+    }
+}
+
+fn snapshot() -> ClientSnapshot {
+    ClientSnapshot {
+        revision: 9,
+        captured_tick_ms: u32::MAX,
+        capture_duration_us: 321,
+        world_generation: 4,
+        lifecycle: ClientLifecycle::InGame,
+        character: Some(CharacterSnapshot {
+            id: Some(0x1122_3344),
+            name: Some("SiLo".into()),
+            gender: Some(Gender::Male),
+            class: CharacterClass::Wizard,
+            gold: 123_456,
+            progression: CharacterProgression {
+                level: 99,
+                ability_level: 7,
+                experience: 8_000_000,
+                ability_points: Some(66_000),
+                experience_to_next_level: Some(44_000),
+                ability_to_next_level: Some(55_000),
+            },
+            stats: CharacterStats {
+                strength: 30,
+                intelligence: 34,
+                wisdom: 32,
+                constitution: 33,
+                dexterity: 31,
+            },
+            vitals: CharacterVitals {
+                health: 1_000,
+                max_health: 1_100,
+                mana: 900,
+                max_mana: 950,
+            },
+            modifiers: Some(CharacterModifiers {
+                armor_class: -7,
+                damage: 8,
+                hit: 9,
+                magic_resistance: 30,
+                attack_element: Element::Fire,
+                defense_element: Element::Water,
+            }),
+            location: Some(MapLocation {
+                id: 3001,
+                name: None,
+                x: Some(11),
+                y: Some(22),
+                width: 100,
+                height: 80,
+            }),
+            inventory: Some(vec![InventoryItem {
+                slot: 1,
+                sprite: 0x8123,
+                dye_color: 7,
+                name: Some("Dark Belt [3]".into()),
+                quantity: 3,
+                durability: 41,
+                max_durability: 50,
+            }]),
+            equipment: Some(vec![EquipmentItem {
+                slot: 2,
+                sprite: 0x9234,
+                dye_color: 2,
+                name: Some("Hy-Brasyl Armor".into()),
+                durability: 900,
+                max_durability: 1_000,
+            }]),
+            spellbook: Some(vec![Spell {
+                slot: 7,
+                icon: 0x0456,
+                name: Some("Fas Spiorad".into()),
+                level: 3,
+                max_level: 5,
+                lines: 4,
+                target_type: SpellTargetType::Target,
+                cooldown: CooldownStatus {
+                    active: true,
+                    remaining_ms: None,
+                },
+            }]),
+            skillbook: Some(vec![Skill {
+                slot: 4,
+                icon: 0x0123,
+                name: Some("Assail".into()),
+                level: 10,
+                max_level: 100,
+                cooldown: CooldownStatus {
+                    active: true,
+                    remaining_ms: Some(750),
+                },
+            }]),
+        }),
     }
 }
 
@@ -70,6 +171,15 @@ fn every_message_round_trips() {
             relocated_bytes: 5,
             tick_count: u32::MAX,
         }),
+        Message::SnapshotRequest(SnapshotRequest { request_id: 7 }),
+        Message::SnapshotResponse(SnapshotResponse {
+            request_id: 8,
+            result: SnapshotResult::Ready(Box::new(snapshot())),
+        }),
+        Message::SnapshotResponse(SnapshotResponse {
+            request_id: 9,
+            result: SnapshotResult::Unavailable(SnapshotUnavailableReason::CaptureTimedOut),
+        }),
     ];
 
     for message in messages {
@@ -77,6 +187,153 @@ fn every_message_round_trips() {
         let bytes = encode_frame(&frame).unwrap();
         assert_eq!(decode_frame(&bytes).unwrap(), frame);
     }
+}
+
+#[test]
+fn snapshot_collections_are_strictly_validated() {
+    let mut invalid_slot = snapshot();
+    invalid_slot
+        .character
+        .as_mut()
+        .unwrap()
+        .inventory
+        .as_mut()
+        .unwrap()[0]
+        .slot = 0;
+    assert_eq!(
+        encode_frame(&Frame::new(
+            0,
+            0,
+            Message::SnapshotResponse(SnapshotResponse {
+                request_id: 1,
+                result: SnapshotResult::Ready(Box::new(invalid_slot)),
+            }),
+        )),
+        Err(EncodeError::InvalidSnapshotSlot { slot: 0, max: 60 })
+    );
+
+    let mut duplicate_slot = snapshot();
+    let inventory = duplicate_slot
+        .character
+        .as_mut()
+        .unwrap()
+        .inventory
+        .as_mut()
+        .unwrap();
+    inventory.push(inventory[0].clone());
+    assert_eq!(
+        encode_frame(&Frame::new(
+            0,
+            0,
+            Message::SnapshotResponse(SnapshotResponse {
+                request_id: 1,
+                result: SnapshotResult::Ready(Box::new(duplicate_slot)),
+            }),
+        )),
+        Err(EncodeError::DuplicateSnapshotSlot { slot: 1 })
+    );
+
+    let mut oversized = snapshot();
+    let item = oversized
+        .character
+        .as_ref()
+        .unwrap()
+        .inventory
+        .as_ref()
+        .unwrap()[0]
+        .clone();
+    oversized.character.as_mut().unwrap().inventory = Some(vec![item; 61]);
+    assert_eq!(
+        encode_frame(&Frame::new(
+            0,
+            0,
+            Message::SnapshotResponse(SnapshotResponse {
+                request_id: 1,
+                result: SnapshotResult::Ready(Box::new(oversized)),
+            }),
+        )),
+        Err(EncodeError::SnapshotCollectionTooLong {
+            length: 61,
+            max: 60,
+        })
+    );
+
+    let mut long_name = snapshot();
+    long_name
+        .character
+        .as_mut()
+        .unwrap()
+        .inventory
+        .as_mut()
+        .unwrap()[0]
+        .name = Some("x".repeat(128));
+    assert_eq!(
+        encode_frame(&Frame::new(
+            0,
+            0,
+            Message::SnapshotResponse(SnapshotResponse {
+                request_id: 1,
+                result: SnapshotResult::Ready(Box::new(long_name)),
+            }),
+        )),
+        Err(EncodeError::SnapshotStringTooLong {
+            length: 128,
+            max: 127,
+        })
+    );
+}
+
+#[test]
+fn malformed_snapshot_slots_are_rejected_when_decoding() {
+    let frame = Frame::new(
+        0,
+        0,
+        Message::SnapshotResponse(SnapshotResponse {
+            request_id: 1,
+            result: SnapshotResult::Ready(Box::new(snapshot())),
+        }),
+    );
+    let mut invalid = encode_frame(&frame).unwrap();
+    let slot = invalid
+        .windows(4)
+        .position(|bytes| bytes == [1, 0x23, 0x81, 7])
+        .expect("inventory marker is unique");
+    invalid[slot] = 0;
+    assert_eq!(
+        decode_frame(&invalid),
+        Err(DecodeError::InvalidSnapshotSlot { slot: 0, max: 60 })
+    );
+
+    let mut duplicate = snapshot();
+    let inventory = duplicate
+        .character
+        .as_mut()
+        .unwrap()
+        .inventory
+        .as_mut()
+        .unwrap();
+    let mut second = inventory[0].clone();
+    second.slot = 2;
+    second.sprite = 0xdead;
+    inventory.push(second);
+    let mut duplicate = encode_frame(&Frame::new(
+        0,
+        0,
+        Message::SnapshotResponse(SnapshotResponse {
+            request_id: 1,
+            result: SnapshotResult::Ready(Box::new(duplicate)),
+        }),
+    ))
+    .unwrap();
+    let slot = duplicate
+        .windows(3)
+        .position(|bytes| bytes == [2, 0xad, 0xde])
+        .expect("second inventory marker is unique");
+    duplicate[slot] = 1;
+    assert_eq!(
+        decode_frame(&duplicate),
+        Err(DecodeError::DuplicateSnapshotSlot { slot: 1 })
+    );
 }
 
 #[test]

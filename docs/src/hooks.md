@@ -2,8 +2,8 @@
 
 daRPC uses a small in-process x86 detour implementation in the `darpc-hook`
 crate. The implementation is qualified against owned code before it is used
-with the game client. The current runtime uses it for one minimal
-`event_dispatcher_tick` health hook.
+with the game client. The current runtime uses it for the client tick and map
+size handler hooks.
 
 ## Organization
 
@@ -39,6 +39,24 @@ and writes diagnostic samples to
 `%USERPROFILE%\darpc\logs\pid-<pid>.log`. `darpc.exe ipc tick-health --pid
 <pid>` samples twice and reports installation, relocated-byte, counter, and
 advancement fields. Logging and named-pipe work never execute in the hook.
+
+The same tick detour also observes pending snapshot requests. It performs the
+bounded main-thread memory copy described in [Client state](state.md), then
+publishes pointer-free fixed-capacity data for the pipe worker. Conversion and
+serialization remain outside the hook.
+
+## Map-size hook
+
+The map-size handler hook uses the same fingerprint, entry-byte, relocation,
+thread enlistment, activity tracking, and removal guarantees. Its synchronous
+callback copies only the map identifier and bounded inline name into atomic
+DLL-owned storage before calling the original handler. It retains no packet or
+client pointer after the callback. A panic is caught at the callback boundary
+and never crosses the native client application binary interface.
+
+The current snapshot walker normally reads the map name from the validated map
+pane. The event-owned copy supplements that baseline only when its world token
+and map identifier match the captured location.
 
 ## Preparation and relocation
 
@@ -142,7 +160,7 @@ Windows continuous integration runs the following on an x86 target:
 - proof that the observation counter stops changing after removal while target
   calls continue.
 
-These checks qualify the mechanism. The tick hook additionally requires an
+These checks qualify the mechanism. Each client hook additionally requires an
 exact client fingerprint, target address, entry-byte contract, native ABI,
-advancing live-client health samples, repeatable clean removal, and continued
-normal client behavior.
+repeatable clean removal, and continued normal client behavior. The tick hook
+also requires advancing live-client health samples.

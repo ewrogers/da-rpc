@@ -1,8 +1,18 @@
 //! Integration boundary for the supported Dark Ages 7.41 game client.
 
 mod runtime;
+mod state;
 
-pub use runtime::{EVENT_DISPATCHER_TICK_ENTRY, EVENT_DISPATCHER_TICK_RVA};
+pub use runtime::{
+    EVENT_DISPATCHER_TICK_ENTRY, EVENT_DISPATCHER_TICK_RVA, MAP_SIZE_HANDLER_ENTRY,
+    MAP_SIZE_HANDLER_RVA,
+};
+pub use state::{
+    ABILITY_SLOT_COUNT, EQUIPMENT_SLOT_COUNT, INVENTORY_SLOT_COUNT, MemoryReader, RawCharacter,
+    RawClientText, RawEquipment, RawEquipmentItem, RawInventory, RawInventoryItem, RawLifecycle,
+    RawLocation, RawMapName, RawModifiers, RawPaneProgression, RawSkill, RawSkillbook, RawSpell,
+    RawSpellbook, RawStateSnapshot, StateReadError, StateWalker,
+};
 
 use sha2::{Digest, Sha256};
 use std::{

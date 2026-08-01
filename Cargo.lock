@@ -170,6 +170,9 @@ version = "0.1.0"
 [[package]]
 name = "darpc-protocol"
 version = "0.1.0"
+dependencies = [
+ "darpc-model",
+]
 
 [[package]]
 name = "darpc-win32"
@@ -541,8 +544,10 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 name = "rpc-client"
 version = "0.1.0"
 dependencies = [
+ "darpc-model",
  "darpc-protocol",
  "darpc-win32",
+ "serde_json",
  "windows-sys",
 ]
 

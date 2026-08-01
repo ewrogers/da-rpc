@@ -1,0 +1,325 @@
+use crate::{
+    DecodeError, EncodeError,
+    message::{PayloadReader, push_bool, push_i32, push_u16, push_u32},
+};
+use darpc_model::{
+    CharacterClass, CharacterModifiers, CharacterProgression, CharacterSnapshot, CharacterStats,
+    CharacterVitals, ClientLifecycle, ClientSnapshot, Element, Gender, MapLocation,
+};
+
+pub const MAX_CHARACTER_NAME_LEN: usize = 15;
+pub const MAX_MAP_NAME_LEN: usize = 255;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SnapshotRequest {
+    pub request_id: u32,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SnapshotResponse {
+    pub request_id: u32,
+    pub result: SnapshotResult,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SnapshotResult {
+    Ready(Box<ClientSnapshot>),
+    Unavailable(SnapshotUnavailableReason),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SnapshotUnavailableReason {
+    HookUnavailable,
+    CaptureTimedOut,
+    CaptureFailed,
+}
+
+impl SnapshotUnavailableReason {
+    pub(crate) const fn wire_value(self) -> u8 {
+        match self {
+            Self::HookUnavailable => 1,
+            Self::CaptureTimedOut => 2,
+            Self::CaptureFailed => 3,
+        }
+    }
+
+    pub(crate) fn from_wire(value: u8) -> Result<Self, DecodeError> {
+        match value {
+            1 => Ok(Self::HookUnavailable),
+            2 => Ok(Self::CaptureTimedOut),
+            3 => Ok(Self::CaptureFailed),
+            actual => Err(DecodeError::InvalidSnapshotUnavailableReason { actual }),
+        }
+    }
+}
+
+pub(crate) fn encode(output: &mut Vec<u8>, snapshot: &ClientSnapshot) -> Result<(), EncodeError> {
+    push_u32(output, snapshot.revision);
+    push_u32(output, snapshot.captured_tick_ms);
+    push_u32(output, snapshot.capture_duration_us);
+    push_u32(output, snapshot.world_generation);
+    output.push(lifecycle_wire(snapshot.lifecycle));
+    push_bool(output, snapshot.character.is_some());
+    if let Some(character) = &snapshot.character {
+        encode_character(output, character)?;
+    }
+    Ok(())
+}
+
+pub(crate) fn decode(reader: &mut PayloadReader<'_>) -> Result<ClientSnapshot, DecodeError> {
+    let revision = reader.read_u32()?;
+    let captured_tick_ms = reader.read_u32()?;
+    let capture_duration_us = reader.read_u32()?;
+    let world_generation = reader.read_u32()?;
+    let lifecycle = lifecycle_from_wire(reader.read_u8()?)?;
+    let character = if reader.read_bool()? {
+        Some(decode_character(reader)?)
+    } else {
+        None
+    };
+    Ok(ClientSnapshot {
+        revision,
+        captured_tick_ms,
+        capture_duration_us,
+        world_generation,
+        lifecycle,
+        character,
+    })
+}
+
+fn encode_character(
+    output: &mut Vec<u8>,
+    character: &CharacterSnapshot,
+) -> Result<(), EncodeError> {
+    encode_optional_u32(output, character.id);
+    encode_optional_string(output, character.name.as_deref(), MAX_CHARACTER_NAME_LEN)?;
+    match character.gender {
+        Some(gender) => {
+            output.push(1);
+            output.push(gender.raw());
+        }
+        None => output.push(0),
+    }
+    output.push(character.class.raw());
+    push_u32(output, character.gold);
+
+    output.push(character.progression.level);
+    output.push(character.progression.ability_level);
+    push_u32(output, character.progression.experience);
+    let pane_progression = character.progression.ability_points.zip(
+        character
+            .progression
+            .experience_to_next_level
+            .zip(character.progression.ability_to_next_level),
+    );
+    push_bool(output, pane_progression.is_some());
+    if let Some((ability_points, (experience_to_next_level, ability_to_next_level))) =
+        pane_progression
+    {
+        push_u32(output, ability_points);
+        push_u32(output, experience_to_next_level);
+        push_u32(output, ability_to_next_level);
+    }
+
+    push_u16(output, character.stats.strength);
+    push_u16(output, character.stats.intelligence);
+    push_u16(output, character.stats.wisdom);
+    push_u16(output, character.stats.constitution);
+    push_u16(output, character.stats.dexterity);
+    push_u32(output, character.vitals.health);
+    push_u32(output, character.vitals.max_health);
+    push_u32(output, character.vitals.mana);
+    push_u32(output, character.vitals.max_mana);
+
+    push_bool(output, character.modifiers.is_some());
+    if let Some(modifiers) = character.modifiers {
+        output.push(modifiers.armor_class as u8);
+        output.push(modifiers.damage);
+        output.push(modifiers.hit);
+        push_u16(output, modifiers.magic_resistance);
+        push_u16(output, modifiers.attack_element.raw());
+        push_u16(output, modifiers.defense_element.raw());
+    }
+
+    push_bool(output, character.location.is_some());
+    if let Some(location) = &character.location {
+        push_u32(output, location.id);
+        encode_optional_string(output, location.name.as_deref(), MAX_MAP_NAME_LEN)?;
+        let position = location.x.zip(location.y);
+        push_bool(output, position.is_some());
+        if let Some((x, y)) = position {
+            push_i32(output, x);
+            push_i32(output, y);
+        }
+        push_i32(output, location.width);
+        push_i32(output, location.height);
+    }
+    collections::encode(output, character)?;
+    Ok(())
+}
+
+fn decode_character(reader: &mut PayloadReader<'_>) -> Result<CharacterSnapshot, DecodeError> {
+    let id = decode_optional_u32(reader)?;
+    let name = decode_optional_string(reader, MAX_CHARACTER_NAME_LEN)?;
+    let gender = if reader.read_bool()? {
+        Some(Gender::from_raw(reader.read_u8()?))
+    } else {
+        None
+    };
+    let class = CharacterClass::from_raw(reader.read_u8()?);
+    let gold = reader.read_u32()?;
+    let level = reader.read_u8()?;
+    let ability_level = reader.read_u8()?;
+    let experience = reader.read_u32()?;
+    let (ability_points, experience_to_next_level, ability_to_next_level) = if reader.read_bool()? {
+        (
+            Some(reader.read_u32()?),
+            Some(reader.read_u32()?),
+            Some(reader.read_u32()?),
+        )
+    } else {
+        (None, None, None)
+    };
+    let stats = CharacterStats {
+        strength: reader.read_u16()?,
+        intelligence: reader.read_u16()?,
+        wisdom: reader.read_u16()?,
+        constitution: reader.read_u16()?,
+        dexterity: reader.read_u16()?,
+    };
+    let vitals = CharacterVitals {
+        health: reader.read_u32()?,
+        max_health: reader.read_u32()?,
+        mana: reader.read_u32()?,
+        max_mana: reader.read_u32()?,
+    };
+    let modifiers = if reader.read_bool()? {
+        Some(CharacterModifiers {
+            armor_class: reader.read_i8()?,
+            damage: reader.read_u8()?,
+            hit: reader.read_u8()?,
+            magic_resistance: reader.read_u16()?,
+            attack_element: Element::from_raw(reader.read_u16()?),
+            defense_element: Element::from_raw(reader.read_u16()?),
+        })
+    } else {
+        None
+    };
+    let location = if reader.read_bool()? {
+        let id = reader.read_u32()?;
+        let name = decode_optional_string(reader, MAX_MAP_NAME_LEN)?;
+        let (x, y) = if reader.read_bool()? {
+            (Some(reader.read_i32()?), Some(reader.read_i32()?))
+        } else {
+            (None, None)
+        };
+        Some(MapLocation {
+            id,
+            name,
+            x,
+            y,
+            width: reader.read_i32()?,
+            height: reader.read_i32()?,
+        })
+    } else {
+        None
+    };
+    let collections = collections::decode(reader)?;
+    Ok(CharacterSnapshot {
+        id,
+        name,
+        gender,
+        class,
+        gold,
+        progression: CharacterProgression {
+            level,
+            ability_level,
+            experience,
+            ability_points,
+            experience_to_next_level,
+            ability_to_next_level,
+        },
+        stats,
+        vitals,
+        modifiers,
+        location,
+        inventory: collections.inventory,
+        equipment: collections.equipment,
+        spellbook: collections.spellbook,
+        skillbook: collections.skillbook,
+    })
+}
+
+fn lifecycle_wire(lifecycle: ClientLifecycle) -> u8 {
+    match lifecycle {
+        ClientLifecycle::Unknown => 0,
+        ClientLifecycle::Title => 1,
+        ClientLifecycle::Transition => 2,
+        ClientLifecycle::InGame => 3,
+    }
+}
+
+fn lifecycle_from_wire(value: u8) -> Result<ClientLifecycle, DecodeError> {
+    match value {
+        0 => Ok(ClientLifecycle::Unknown),
+        1 => Ok(ClientLifecycle::Title),
+        2 => Ok(ClientLifecycle::Transition),
+        3 => Ok(ClientLifecycle::InGame),
+        actual => Err(DecodeError::InvalidClientLifecycle { actual }),
+    }
+}
+
+fn encode_optional_u32(output: &mut Vec<u8>, value: Option<u32>) {
+    push_bool(output, value.is_some());
+    if let Some(value) = value {
+        push_u32(output, value);
+    }
+}
+
+fn decode_optional_u32(reader: &mut PayloadReader<'_>) -> Result<Option<u32>, DecodeError> {
+    if reader.read_bool()? {
+        Ok(Some(reader.read_u32()?))
+    } else {
+        Ok(None)
+    }
+}
+
+fn encode_optional_string(
+    output: &mut Vec<u8>,
+    value: Option<&str>,
+    max: usize,
+) -> Result<(), EncodeError> {
+    push_bool(output, value.is_some());
+    let Some(value) = value else {
+        return Ok(());
+    };
+    let bytes = value.as_bytes();
+    if bytes.len() > max {
+        return Err(EncodeError::SnapshotStringTooLong {
+            length: bytes.len(),
+            max,
+        });
+    }
+    let length = u16::try_from(bytes.len()).map_err(|_| EncodeError::LengthOverflow)?;
+    push_u16(output, length);
+    output.extend_from_slice(bytes);
+    Ok(())
+}
+
+fn decode_optional_string(
+    reader: &mut PayloadReader<'_>,
+    max: usize,
+) -> Result<Option<String>, DecodeError> {
+    if !reader.read_bool()? {
+        return Ok(None);
+    }
+    let length = usize::from(reader.read_u16()?);
+    if length > max {
+        return Err(DecodeError::SnapshotStringTooLong { length, max });
+    }
+    let value = std::str::from_utf8(reader.take(length)?)
+        .map_err(|_| DecodeError::InvalidUtf8)?
+        .to_owned();
+    Ok(Some(value))
+}
+mod collections;

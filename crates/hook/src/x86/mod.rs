@@ -2,7 +2,7 @@ mod error;
 mod memory;
 mod threads;
 
-pub use error::DetourError;
+pub use error::{DetourError, InstallError};
 
 use iced_x86::{
     BlockEncoder, BlockEncoderOptions, Decoder, DecoderOptions, FlowControl, Instruction,

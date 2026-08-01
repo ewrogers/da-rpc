@@ -102,7 +102,7 @@ directly for discovery, aggregation, action status, and multi-client behavior.
 | M9.1 | Automatic managed loading | An opt-in daemon policy loads each uninjected client once. | Complete |
 | M10 | Hook qualification harness | The hook mechanism preserves a controlled test function exactly. | Complete |
 | M11 | First client tick hook | Direct IPC reports client ticks while the game behaves normally. | Complete |
-| M12 | Minimal late-attach snapshot | The direct CLI and daemon API expose a small real-client state slice. | Planned |
+| M12 | Late-attach client snapshot | The direct CLI and daemon API expose current character, map, inventory, equipment, spell, and skill state. | Complete |
 | M13 | Event-driven updates | One normal game event updates state without another snapshot. | Planned |
 | M14 | Main-thread command queue | A diagnostic command completes on a client tick. | Planned |
 | M15 | First typed action | One low-risk action executes through a native client path. | Planned |
@@ -110,7 +110,7 @@ directly for discovery, aggregation, action status, and multi-client behavior.
 | M17 | Multi-client hardening and preview | Failure and soak evidence support a preview release. | Planned |
 | M18 | WebSocket and remote access | Added only for a proven use case and defined security model. | Deferred |
 
-M2 through M11 are complete. M12 is the next planned implementation milestone.
+M2 through M12 are complete. M13 is the next planned implementation milestone.
 M1 has been exercised manually, but its separate evidence checklist remains
 open until the lifecycle-host Windows continuous-integration coverage is
 present. The working checklist is maintained in the [repository progress
@@ -561,25 +561,29 @@ Done:
 
 ## Phase 5: expose real state incrementally
 
-### M12: minimal late-attach snapshot
+### M12: late-attach client snapshot
 
 Build:
 
-- A deliberately small state slice, such as client identity, character name,
-  and current map when available.
-- Validated roots, offsets, buffers, and root-generation tracking.
-- Snapshot messages with an explicit sequence boundary.
-- Matching direct CLI output, daemon state, and HTTP response.
+- Character identity, progression, attributes, vitals, modifiers, gold, and
+  current map state.
+- Occupied inventory, equipment, spellbook, and skillbook slots.
+- Validated roots, offsets, bounds, fixed-capacity hook buffers, and world
+  generation tracking.
+- Protocol 1.0 snapshot messages plus matching direct CLI, daemon registry,
+  REST, and OpenAPI models.
 
 See:
 
-- Late-attach after login and read the real state slice with direct CLI JSON or
-  the daemon HTTP API.
+- Late-attach after login and compare the complete direct CLI snapshot with the
+  live client, then retrieve the same observation through the daemon API.
 
 Done:
 
-- Unsupported lifecycle states produce partial or unavailable values.
-- Snapshot work has a measured client-thread budget.
+- Unsupported lifecycle states produce partial or unavailable values without
+  invented defaults.
+- Snapshot work has a measured client-thread duration and performs only bounded
+  fixed-capacity copying in the tick hook.
 - Restarting the daemon obtains a fresh equivalent snapshot without reinjection.
 - The daemon retains each snapshot as a client observation and does not treat
   one client's visible map region as complete world truth.

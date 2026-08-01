@@ -1,8 +1,8 @@
 # Web API
 
 > **Status:** The client registry, managed lifecycle routes, OpenAPI document,
-> and interactive documentation are implemented. Game-state queries, game
-> actions, streaming APIs, and remote access remain planned.
+> interactive documentation, and current client snapshot query are implemented.
+> Game actions, streaming APIs, and remote access remain planned.
 
 `darpcd.exe` exposes standard web interfaces so applications do not need to
 implement Windows injection, named-pipe IPC, or client-specific data layouts.
@@ -18,6 +18,7 @@ port. The API has no URL version prefix.
 | --- | --- |
 | `GET /health` | Report daemon availability. |
 | `GET /clients` | List discovered and configured targets, identity, compatibility, and connection health. |
+| `GET /clients/{pid}/snapshot` | Return the latest complete snapshot observed from one connected client. |
 | `POST /clients/launch` | Launch the configured client and initialize the configured DLL. |
 | `POST /clients/{pid}/load` | Load and initialize the configured DLL in a tracked client. |
 | `POST /clients/{pid}/unload` | Shut down and unload the configured DLL from a tracked client. |
@@ -70,7 +71,30 @@ connection metadata are `null` until the corresponding information has been
 observed. `client_version` is the supported Dark Ages release in dotted form,
 such as `"7.41"`.
 
-The registry does not contain game-state fields yet.
+## Client snapshots
+
+After connecting, the daemon requests a complete snapshot and retains it with
+the corresponding client identity. `GET /clients/{pid}/snapshot` returns that
+latest observation. It returns `404 Not Found` for an unknown PID and `503
+Service Unavailable` when the target has not produced a snapshot, including a
+capture failure reason when one is available.
+
+The response identifies the source process and contains capture metadata,
+lifecycle, and an optional character. Character state includes identity,
+progression, attributes, vitals, modifiers, map location, inventory, equipment,
+spellbook, and skillbook. Occupied slots are arrays; an absent array means the
+client could not expose that group, while an empty array means the group was
+read successfully and contained no occupied slots.
+
+Known enum values are represented with readable snake-case names. The
+corresponding numeric client identifier is also retained where unknown values
+must round-trip, such as `class_id`, `gender_id`, element IDs, and
+`target_type_id`. Raw memory addresses and version-specific layout details are
+never exposed.
+
+Snapshot capture semantics, unavailable values, and collection behavior are
+documented in [Client state](state.md). The complete generated JSON schema is
+available in `/openapi.json` and Swagger UI.
 
 ## Managed lifecycle
 

@@ -195,7 +195,7 @@ forwarding the connection. Arguments after `--` are forwarded unchanged to the
 client. See the [loader documentation](https://ewrogers.github.io/da-rpc/loader.html)
 for the detailed lifecycle, safety behavior, and result contract.
 
-## Direct IPC diagnostics
+## Direct IPC
 
 With `darpc.dll` initialized in a process and `darpcd.exe` disconnected, the
 64-bit client can exercise the PID-based pipe directly:
@@ -205,12 +205,14 @@ darpc.exe ipc hello --pid <pid>
 darpc.exe ipc ping --pid <pid>
 darpc.exe ipc echo --pid <pid> "hello"
 darpc.exe ipc tick-health --pid <pid>
+darpc.exe ipc snapshot --pid <pid>
 darpc.exe --output json ipc hello --pid <pid>
 ```
 
-These diagnostic commands perform the real binary handshake and validate
-ordering, correlation, and timing. `tick-health` samples the installed client
-tick hook twice and reports whether its bounded counter advances. See the
+These commands perform the real binary handshake and validate ordering,
+correlation, and timing. `tick-health` samples the installed client tick hook
+twice and reports whether its bounded counter advances. `snapshot` reads the
+current character, map, inventory, equipment, spellbook, and skillbook. See the
 [`darpc.exe` documentation](https://ewrogers.github.io/da-rpc/cli.html) for
 output fields and exit codes.
 
@@ -232,9 +234,9 @@ darpcd.exe --loader-path <loader.exe> --dll-path <darpc.dll>
 ```
 
 The daemon prints connection status transitions and reconnects when a pipe or
-DLL returns. It aggregates identity and connection health only until game-state
-snapshots are implemented. While it owns a pipe, direct `darpc.exe ipc`
-commands report that the endpoint is busy.
+DLL returns. After each connection it obtains and retains a fresh current-state
+snapshot. While it owns a pipe, direct `darpc.exe ipc` commands report that the
+endpoint is busy.
 
 `--auto-load` asks the daemon to load its configured DLL into each `not_loaded`
 client once per tracked process. It applies to clients present at startup and
@@ -256,6 +258,7 @@ loopback. It exposes one current, unversioned API:
 ```text
 GET /health
 GET /clients
+GET /clients/{pid}/snapshot
 POST /clients/launch
 POST /clients/{pid}/load
 POST /clients/{pid}/unload
@@ -267,7 +270,8 @@ The default interactive documentation URL is
 `http://127.0.0.1:2626/docs`. Startup fails clearly if the selected port is
 unavailable rather than silently choosing another one. `/clients` reports each
 discovered or explicitly configured PID and status, plus the DLL `instance_id`
-and process `created_time` once identity is available.
+and process `created_time` once identity is available. The snapshot route
+returns the daemon's latest complete observation for one client.
 
 Managed launch requires `client_path` and accepts `allow_multiple`,
 `skip_intro`, `skip_notice`, and an optional `server` string in `host` or

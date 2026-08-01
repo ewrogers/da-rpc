@@ -1,8 +1,8 @@
 # `darpcd.exe`
 
 > **Status:** Automatic client discovery, the identity registry, daemon-managed
-> load, unload, and launch, and the HTTP API are implemented. Game-state
-> snapshots, actions, and streaming APIs remain planned.
+> load, unload, and launch, current client snapshots, and the HTTP API are
+> implemented. Actions and streaming APIs remain planned.
 
 `darpcd.exe` is a 64-bit x86-64 Windows daemon that makes injected clients easy
 to use from local applications.
@@ -14,11 +14,12 @@ Its current responsibilities are to:
 - Connect and reconnect to available `darpc.dll` instances.
 - Invoke the configured `loader.exe` for explicit lifecycle operations.
 - Optionally load the configured DLL once into each uninjected client.
-- Aggregate client identity and connection health.
+- Aggregate client identity, connection health, and the latest snapshot from
+  each connected client.
 - Expose a loopback REST API, OpenAPI document, and Swagger UI.
 
-Game-state aggregation, real-time events, and routed game actions build on this
-boundary later. The daemon is not the authority for client memory or local
+Real-time events and routed game actions build on this boundary later. The
+daemon retains observations but is not the authority for client memory or local
 state.
 
 ## Discovery and registry
@@ -105,9 +106,11 @@ client pid=3780 status=incompatible instance=... reason="..."
 client pid=3780 status=removed
 ```
 
-The registry contains identity, compatibility, and connection health only.
-Once state messages exist, every new daemon connection will obtain a fresh
-snapshot and then follow updates from an ordered boundary.
+After the handshake, each worker requests a fresh snapshot and stores it with
+that client's identity and connection metadata. Reconnecting after a daemon
+restart therefore reconstructs daemon state without reinjecting the DLL. The
+current registry retains the latest complete observation; incremental updates
+and their ordered stream boundary are not implemented yet.
 
 ## Web interface
 

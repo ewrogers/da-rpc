@@ -6,6 +6,10 @@ use std::{error::Error, fmt};
 pub enum EncodeError {
     InvalidVersionRange { min: u16, max: u16 },
     EchoTooLong { length: usize, max: usize },
+    SnapshotStringTooLong { length: usize, max: usize },
+    SnapshotCollectionTooLong { length: usize, max: usize },
+    InvalidSnapshotSlot { slot: u8, max: u8 },
+    DuplicateSnapshotSlot { slot: u8 },
     PayloadTooLarge { length: usize, max: usize },
     LengthOverflow,
 }
@@ -25,6 +29,20 @@ impl fmt::Display for EncodeError {
             }
             Self::EchoTooLong { length, max } => {
                 write!(formatter, "echo text is {length} bytes; maximum is {max}")
+            }
+            Self::SnapshotStringTooLong { length, max } => write!(
+                formatter,
+                "snapshot string is {length} bytes; maximum is {max}"
+            ),
+            Self::SnapshotCollectionTooLong { length, max } => write!(
+                formatter,
+                "snapshot collection has {length} entries; maximum is {max}"
+            ),
+            Self::InvalidSnapshotSlot { slot, max } => {
+                write!(formatter, "snapshot slot {slot} is outside 1..={max}")
+            }
+            Self::DuplicateSnapshotSlot { slot } => {
+                write!(formatter, "snapshot slot {slot} appears more than once")
             }
             Self::PayloadTooLarge { length, max } => {
                 write!(formatter, "payload is {length} bytes; maximum is {max}")
@@ -90,6 +108,30 @@ pub enum DecodeError {
     EchoTooLong {
         length: usize,
         max: usize,
+    },
+    SnapshotStringTooLong {
+        length: usize,
+        max: usize,
+    },
+    SnapshotCollectionTooLong {
+        length: usize,
+        max: usize,
+    },
+    InvalidSnapshotSlot {
+        slot: u8,
+        max: u8,
+    },
+    DuplicateSnapshotSlot {
+        slot: u8,
+    },
+    InvalidSnapshotStatus {
+        actual: u8,
+    },
+    InvalidSnapshotUnavailableReason {
+        actual: u8,
+    },
+    InvalidClientLifecycle {
+        actual: u8,
     },
     InvalidUtf8,
 }
@@ -159,7 +201,30 @@ impl fmt::Display for DecodeError {
             Self::EchoTooLong { length, max } => {
                 write!(formatter, "echo text is {length} bytes; maximum is {max}")
             }
-            Self::InvalidUtf8 => formatter.write_str("echo text is not valid UTF-8"),
+            Self::SnapshotStringTooLong { length, max } => write!(
+                formatter,
+                "snapshot string is {length} bytes; maximum is {max}"
+            ),
+            Self::SnapshotCollectionTooLong { length, max } => write!(
+                formatter,
+                "snapshot collection has {length} entries; maximum is {max}"
+            ),
+            Self::InvalidSnapshotSlot { slot, max } => {
+                write!(formatter, "snapshot slot {slot} is outside 1..={max}")
+            }
+            Self::DuplicateSnapshotSlot { slot } => {
+                write!(formatter, "snapshot slot {slot} appears more than once")
+            }
+            Self::InvalidSnapshotStatus { actual } => {
+                write!(formatter, "invalid snapshot status {actual}")
+            }
+            Self::InvalidSnapshotUnavailableReason { actual } => {
+                write!(formatter, "invalid snapshot unavailable reason {actual}")
+            }
+            Self::InvalidClientLifecycle { actual } => {
+                write!(formatter, "invalid client lifecycle {actual}")
+            }
+            Self::InvalidUtf8 => formatter.write_str("message text is not valid UTF-8"),
         }
     }
 }

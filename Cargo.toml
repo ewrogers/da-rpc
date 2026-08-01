@@ -29,6 +29,7 @@ darpc-model = { path = "crates/model" }
 darpc-protocol = { path = "crates/protocol" }
 darpc-win32 = { path = "crates/win32" }
 sha2 = { version = "0.11", default-features = false }
+serde_json = "1"
 windows-sys = { version = "0.61", default-features = false }
 
 [workspace.lints.rust]

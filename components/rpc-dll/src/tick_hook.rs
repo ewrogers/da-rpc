@@ -1,10 +1,10 @@
 use darpc_game_client::{EVENT_DISPATCHER_TICK_ENTRY, EVENT_DISPATCHER_TICK_RVA};
 use darpc_hook::{
-    CodeRange, DetourActivity, DetourError, DetourSpec, InstalledDetour, PreparedDetour,
+    CodeRange, DetourActivity, DetourError, DetourSpec, InstallError, InstalledDetour,
+    PreparedDetour,
 };
 use std::{
-    error::Error,
-    fmt, io, panic,
+    io, panic,
     ptr::{self, NonNull},
     slice,
     sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
@@ -12,6 +12,8 @@ use std::{
     time::{Duration, Instant},
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+
+use crate::snapshot;
 
 pub(crate) const NAME: &str = "event_dispatcher_tick";
 
@@ -33,51 +35,6 @@ pub(crate) struct TickHook {
     install_warning: Option<io::Error>,
 }
 
-#[derive(Debug)]
-pub(crate) struct InstallError {
-    source: io::Error,
-    unload_safe: bool,
-}
-
-impl InstallError {
-    fn detour(error: DetourError) -> Self {
-        let unload_safe = error.unload_is_safe();
-        Self {
-            source: detour_error(error),
-            unload_safe,
-        }
-    }
-
-    pub(crate) const fn unload_is_safe(&self) -> bool {
-        self.unload_safe
-    }
-
-    pub(crate) fn into_io_error(self) -> io::Error {
-        self.source
-    }
-}
-
-impl From<io::Error> for InstallError {
-    fn from(source: io::Error) -> Self {
-        Self {
-            source,
-            unload_safe: true,
-        }
-    }
-}
-
-impl fmt::Display for InstallError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.source.fmt(formatter)
-    }
-}
-
-impl Error for InstallError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        Some(&self.source)
-    }
-}
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct TickHealth {
     pub(crate) installed: bool,
@@ -92,25 +49,23 @@ impl TickHook {
         let detour = NonNull::new(event_dispatcher_tick_detour as *mut u8)
             .ok_or_else(|| io::Error::other("tick detour address is null"))?;
         let detour_range = CodeRange::new(detour.as_ptr() as usize, DETOUR_RANGE_LEN)
-            .map_err(InstallError::detour)?;
+            .map_err(InstallError::from)?;
         let spec = DetourSpec::new(target, detour, detour_range, &TICK_HOOK_ACTIVITY)
-            .map_err(InstallError::detour)?;
+            .map_err(InstallError::from)?;
 
         // SAFETY: the supported executable fingerprint and exact target entry
         // bytes were validated. The detour preserves the target's thiscall ABI,
         // stays loaded with this DLL, and brackets its full execution with the
         // supplied activity counter.
-        let mut prepared =
-            unsafe { PreparedDetour::prepare(spec) }.map_err(InstallError::detour)?;
+        let mut prepared = unsafe { PreparedDetour::prepare(spec) }.map_err(InstallError::from)?;
         let relocated_bytes = u8::try_from(prepared.relocated_len())
             .map_err(|_| io::Error::other("relocated tick prologue exceeds u8"))?;
 
+        snapshot::reset();
         TICK_COUNT.store(0, Ordering::Release);
         TICK_RELOCATED_BYTES.store(u32::from(relocated_bytes), Ordering::Release);
         TICK_TRAMPOLINE.store(
-            prepared
-                .trampoline_address()
-                .map_err(InstallError::detour)?,
+            prepared.trampoline_address().map_err(InstallError::from)?,
             Ordering::Release,
         );
 
@@ -124,7 +79,7 @@ impl TickHook {
                 Err(error) => {
                     TICK_TRAMPOLINE.store(0, Ordering::Release);
                     TICK_RELOCATED_BYTES.store(0, Ordering::Release);
-                    return Err(InstallError::detour(error));
+                    return Err(InstallError::from(error));
                 }
             }
         };
@@ -224,6 +179,7 @@ unsafe extern "thiscall" fn event_dispatcher_tick_detour(_dispatcher: *mut core:
 extern "C" fn observe_tick() {
     let _ = panic::catch_unwind(|| {
         TICK_COUNT.fetch_add(1, Ordering::Relaxed);
+        snapshot::observe_tick();
     });
 }
 

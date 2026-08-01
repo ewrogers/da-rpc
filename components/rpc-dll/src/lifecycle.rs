@@ -12,6 +12,7 @@ use std::{
 use crate::{
     identity,
     ipc::IpcWorker,
+    map_size_hook::{self, MapSizeHook},
     tick_hook::{self, TickHook},
 };
 
@@ -20,6 +21,7 @@ static LIFECYCLE: Mutex<Option<Lifecycle>> = Mutex::new(None);
 struct Lifecycle {
     log: File,
     ipc: IpcWorker,
+    map_size_hook: Option<MapSizeHook>,
     tick_hook: Option<TickHook>,
 }
 
@@ -89,7 +91,7 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
     };
     let mut ipc = IpcWorker::start(identity.hello, log.try_clone()?)?;
     let mut hook_install_warning = None;
-    let tick_hook = if identity.supported_client {
+    let mut tick_hook = if identity.supported_client {
         match TickHook::install() {
             Ok(mut hook) => {
                 let _ = writeln!(
@@ -140,6 +142,68 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
         None
     };
 
+    let map_size_hook = if identity.supported_client && hook_install_warning.is_none() {
+        match MapSizeHook::install() {
+            Ok(mut hook) => {
+                let _ = writeln!(
+                    log,
+                    "event=hook_installed hook={} rva=0x{:08X} relocated_bytes={}",
+                    map_size_hook::NAME,
+                    darpc_game_client::MAP_SIZE_HANDLER_RVA,
+                    hook.relocated_bytes()
+                );
+                if let Some(warning) = hook.take_install_warning() {
+                    let _ = writeln!(
+                        log,
+                        "event=hook_install_warning hook={} error={warning}",
+                        map_size_hook::NAME
+                    );
+                    hook_install_warning = Some(warning);
+                }
+                Some(hook)
+            }
+            Err(error) => {
+                let mut unload_safe = error.unload_is_safe();
+                let _ = writeln!(
+                    log,
+                    "event=initialization_failed stage=hook_install hook={} error={error}",
+                    map_size_hook::NAME
+                );
+                let error = error.into_io_error();
+                let rollback_error = tick_hook.as_mut().and_then(|hook| hook.uninstall().err());
+                if rollback_error.is_some() {
+                    unload_safe = false;
+                }
+                let ipc_error = ipc.shutdown().err();
+                let source = match (rollback_error, ipc_error) {
+                    (None, None) => error,
+                    (hook_error, ipc_error) => io::Error::other(format!(
+                        "map-size hook installation failed: {error}; tick-hook rollback: {}; IPC rollback: {}",
+                        hook_error
+                            .map(|error| error.to_string())
+                            .unwrap_or_else(|| "ok".to_owned()),
+                        ipc_error
+                            .map(|error| error.to_string())
+                            .unwrap_or_else(|| "ok".to_owned())
+                    )),
+                };
+                return Err(InitializeError {
+                    source,
+                    unload_safe,
+                });
+            }
+        }
+    } else {
+        if !identity.supported_client {
+            let _ = writeln!(
+                log,
+                "event=hook_skipped hook={} reason=unsupported_client_debug_bypass",
+                map_size_hook::NAME
+            );
+        }
+        None
+    };
+
     if hook_install_warning.is_none() {
         let _ = writeln!(
             log,
@@ -152,6 +216,7 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
     *lifecycle = Some(Lifecycle {
         log,
         ipc,
+        map_size_hook,
         tick_hook,
     });
 
@@ -175,6 +240,27 @@ pub(crate) fn shutdown() -> io::Result<()> {
     };
 
     active.ipc.shutdown()?;
+
+    if let Some(hook) = active.map_size_hook.as_mut() {
+        match hook.uninstall() {
+            Ok(true) => {
+                writeln!(
+                    active.log,
+                    "event=hook_removed hook={}",
+                    map_size_hook::NAME
+                )?;
+            }
+            Ok(false) => {}
+            Err(error) => {
+                let _ = writeln!(
+                    active.log,
+                    "event=hook_remove_failed hook={} error={error}",
+                    map_size_hook::NAME
+                );
+                return Err(error);
+            }
+        }
+    }
 
     if let Some(hook) = active.tick_hook.as_mut() {
         let final_health = tick_hook::health();

@@ -4,6 +4,7 @@ mod error;
 mod frame;
 mod message;
 mod session;
+mod snapshot;
 
 pub use error::{DecodeError, EncodeError};
 pub use frame::{
@@ -19,6 +20,10 @@ pub use message::{
 pub use session::{
     EndpointRole, Handshake, HandshakePhase, MessageDirection, SequenceCounter, SequenceError,
     SessionError, negotiate_version,
+};
+pub use snapshot::{
+    MAX_CHARACTER_NAME_LEN, MAX_MAP_NAME_LEN, SnapshotRequest, SnapshotResponse, SnapshotResult,
+    SnapshotUnavailableReason,
 };
 
 /// Returns the elapsed millisecond ticks using the same wrapping arithmetic as

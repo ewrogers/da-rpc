@@ -12,7 +12,8 @@ then waits for one local controller without touching the game thread. `DllMain`
 does not start IPC or wait for the worker.
 
 Each connection begins with the DLL's `Hello` and must answer with a compatible
-`HelloAck`. The worker currently serves bounded `Ping` and `Echo` diagnostics.
+`HelloAck`. The worker serves bounded `Ping`, `Echo`, tick-health, and snapshot
+operations.
 It uses overlapped reads, writes, and accepts so `darpc_shutdown` can signal the
 worker, cancel pending input/output, and join it before unloading. If bounded
 shutdown cannot prove the worker stopped, shutdown fails and the loader leaves
@@ -40,10 +41,16 @@ interface state and are not completed by sending a network packet alone.
 
 ## State ownership
 
-When attached to a running client, `darpc.dll` reconstructs an initial state from
-known pointers, relative virtual addresses, and reverse-engineered client
-layouts. It then applies relevant events and packet changes to keep local game,
-world, character, and user interface state synchronized.
+When attached to a running client, `darpc.dll` reconstructs a snapshot from
+validated pointers, relative virtual addresses, and version-specific client
+layouts. Capture is scheduled through the client tick hook and runs on the
+client main thread. Bounded raw values are published to the pipe worker, which
+owns text decoding, allocation, and serialization. See [Client state](state.md)
+for the snapshot surface and concurrency model.
+
+Event-driven state maintenance is not implemented yet. The current DLL serves
+a fresh on-demand snapshot and preserves the revision and ordering foundations
+needed to add incremental updates without changing state ownership.
 
 This state tracking is independent of `darpcd.exe`. If the daemon stops, the DLL
 continues to update its state and keeps its named-pipe server ready for a new

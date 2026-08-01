@@ -5,5 +5,6 @@ mod x86;
 
 #[cfg(all(windows, target_arch = "x86"))]
 pub use x86::{
-    CodeRange, DetourActivity, DetourError, DetourSpec, InstalledDetour, PreparedDetour,
+    CodeRange, DetourActivity, DetourError, DetourSpec, InstallError, InstalledDetour,
+    PreparedDetour,
 };

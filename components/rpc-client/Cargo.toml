@@ -12,8 +12,10 @@ name = "darpc"
 path = "src/main.rs"
 
 [dependencies]
+darpc-model.workspace = true
 darpc-protocol.workspace = true
 darpc-win32.workspace = true
+serde_json.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = ["Win32_Foundation"] }

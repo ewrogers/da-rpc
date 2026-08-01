@@ -1,6 +1,7 @@
 use darpc_protocol::{
     EchoResponse, EndpointRole, Frame, Handshake, Hello, Message, MessageDirection, Pong,
-    SequenceCounter, TickHealthResponse,
+    SequenceCounter, SnapshotResponse, SnapshotResult, SnapshotUnavailableReason,
+    TickHealthResponse,
 };
 use darpc_win32::pipe::{PipeServer, StopEvent, pipe_name, sender_tick_ms};
 use std::{
@@ -11,10 +12,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::tick_hook;
+use crate::{snapshot, tick_hook};
 
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(10);
+const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(1);
 
 pub(crate) struct IpcWorker {
     stop: StopEvent,
@@ -167,6 +169,41 @@ fn serve_connection(server: &PipeServer, hello: &Hello, log: &mut File) -> io::R
                     installed: health.installed,
                     relocated_bytes: health.relocated_bytes,
                     tick_count: health.tick_count,
+                })
+            }
+            Message::SnapshotRequest(message) => {
+                let result = if !tick_hook::health().installed {
+                    SnapshotResult::Unavailable(SnapshotUnavailableReason::HookUnavailable)
+                } else {
+                    let generation = snapshot::request();
+                    match snapshot::wait(generation, SNAPSHOT_TIMEOUT) {
+                        Ok(snapshot) => {
+                            let _ = writeln!(
+                                log,
+                                concat!(
+                                    "event=snapshot_captured revision={} lifecycle={:?} ",
+                                    "world_generation={} duration_us={}"
+                                ),
+                                snapshot.revision,
+                                snapshot.lifecycle,
+                                snapshot.world_generation,
+                                snapshot.capture_duration_us
+                            );
+                            SnapshotResult::Ready(Box::new(snapshot))
+                        }
+                        Err(snapshot::WaitError::TimedOut) => {
+                            let _ = writeln!(log, "event=snapshot_failed reason=capture_timed_out");
+                            SnapshotResult::Unavailable(SnapshotUnavailableReason::CaptureTimedOut)
+                        }
+                        Err(snapshot::WaitError::Capture(error)) => {
+                            let _ = writeln!(log, "event=snapshot_failed reason={error}");
+                            SnapshotResult::Unavailable(SnapshotUnavailableReason::CaptureFailed)
+                        }
+                    }
+                };
+                Message::SnapshotResponse(SnapshotResponse {
+                    request_id: message.request_id,
+                    result,
                 })
             }
             message => {

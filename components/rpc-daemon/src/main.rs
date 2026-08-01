@@ -14,6 +14,8 @@ mod event;
 mod management;
 #[cfg(any(windows, test))]
 mod registry;
+#[cfg(any(windows, test))]
+mod snapshot_api;
 
 use std::{collections::BTreeSet, env, ffi::OsString, path::PathBuf, process::ExitCode};
 

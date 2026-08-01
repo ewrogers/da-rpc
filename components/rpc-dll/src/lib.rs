@@ -1,11 +1,19 @@
 //! Injected daRPC client component.
 
 #[cfg(windows)]
+mod client_text;
+#[cfg(windows)]
 mod identity;
 #[cfg(windows)]
 mod ipc;
 #[cfg(windows)]
 mod lifecycle;
+#[cfg(windows)]
+mod map_name;
+#[cfg(windows)]
+mod map_size_hook;
+#[cfg(windows)]
+mod snapshot;
 #[cfg(windows)]
 mod tick_hook;
 

@@ -1,4 +1,9 @@
-use crate::{DecodeError, EncodeError};
+use crate::{
+    DecodeError, EncodeError,
+    snapshot::{
+        self, SnapshotRequest, SnapshotResponse, SnapshotResult, SnapshotUnavailableReason,
+    },
+};
 
 pub const MAX_ECHO_TEXT_LEN: usize = 4 * 1024;
 pub const PROTOCOL_VERSION_1_0: u16 = protocol_version(1, 0);
@@ -149,6 +154,8 @@ pub enum MessageType {
     EchoResponse = 6,
     TickHealthRequest = 7,
     TickHealthResponse = 8,
+    SnapshotRequest = 9,
+    SnapshotResponse = 10,
 }
 
 impl MessageType {
@@ -167,6 +174,8 @@ impl MessageType {
             6 => Ok(Self::EchoResponse),
             7 => Ok(Self::TickHealthRequest),
             8 => Ok(Self::TickHealthResponse),
+            9 => Ok(Self::SnapshotRequest),
+            10 => Ok(Self::SnapshotResponse),
             actual => Err(DecodeError::UnknownMessageType { actual }),
         }
     }
@@ -182,6 +191,8 @@ pub enum Message {
     EchoResponse(EchoResponse),
     TickHealthRequest(TickHealthRequest),
     TickHealthResponse(TickHealthResponse),
+    SnapshotRequest(SnapshotRequest),
+    SnapshotResponse(SnapshotResponse),
 }
 
 impl Message {
@@ -196,6 +207,8 @@ impl Message {
             Self::EchoResponse(_) => MessageType::EchoResponse,
             Self::TickHealthRequest(_) => MessageType::TickHealthRequest,
             Self::TickHealthResponse(_) => MessageType::TickHealthResponse,
+            Self::SnapshotRequest(_) => MessageType::SnapshotRequest,
+            Self::SnapshotResponse(_) => MessageType::SnapshotResponse,
         }
     }
 
@@ -242,6 +255,20 @@ impl Message {
                 output.push(u8::from(message.installed));
                 output.push(message.relocated_bytes);
                 push_u32(&mut output, message.tick_count);
+            }
+            Self::SnapshotRequest(message) => push_u32(&mut output, message.request_id),
+            Self::SnapshotResponse(message) => {
+                push_u32(&mut output, message.request_id);
+                match &message.result {
+                    SnapshotResult::Ready(snapshot) => {
+                        output.push(1);
+                        snapshot::encode(&mut output, snapshot)?;
+                    }
+                    SnapshotResult::Unavailable(reason) => {
+                        output.push(0);
+                        output.push(reason.wire_value());
+                    }
+                }
             }
         }
         Ok(output)
@@ -301,6 +328,20 @@ impl Message {
                 relocated_bytes: reader.read_u8()?,
                 tick_count: reader.read_u32()?,
             }),
+            MessageType::SnapshotRequest => Self::SnapshotRequest(SnapshotRequest {
+                request_id: reader.read_u32()?,
+            }),
+            MessageType::SnapshotResponse => {
+                let request_id = reader.read_u32()?;
+                let result = match reader.read_u8()? {
+                    0 => SnapshotResult::Unavailable(SnapshotUnavailableReason::from_wire(
+                        reader.read_u8()?,
+                    )?),
+                    1 => SnapshotResult::Ready(Box::new(snapshot::decode(&mut reader)?)),
+                    actual => return Err(DecodeError::InvalidSnapshotStatus { actual }),
+                };
+                Self::SnapshotResponse(SnapshotResponse { request_id, result })
+            }
         };
         reader.finish()?;
         Ok(message)
@@ -339,11 +380,19 @@ fn decode_echo(reader: &mut PayloadReader<'_>) -> Result<(u32, String), DecodeEr
     Ok((request_id, text))
 }
 
-fn push_u16(output: &mut Vec<u8>, value: u16) {
+pub(crate) fn push_u16(output: &mut Vec<u8>, value: u16) {
     output.extend_from_slice(&value.to_le_bytes());
 }
 
-fn push_u32(output: &mut Vec<u8>, value: u32) {
+pub(crate) fn push_bool(output: &mut Vec<u8>, value: bool) {
+    output.push(u8::from(value));
+}
+
+pub(crate) fn push_i32(output: &mut Vec<u8>, value: i32) {
+    output.extend_from_slice(&value.to_le_bytes());
+}
+
+pub(crate) fn push_u32(output: &mut Vec<u8>, value: u32) {
     output.extend_from_slice(&value.to_le_bytes());
 }
 
@@ -351,7 +400,7 @@ fn push_u64(output: &mut Vec<u8>, value: u64) {
     output.extend_from_slice(&value.to_le_bytes());
 }
 
-struct PayloadReader<'a> {
+pub(crate) struct PayloadReader<'a> {
     message_type: MessageType,
     bytes: &'a [u8],
     offset: usize,
@@ -366,11 +415,15 @@ impl<'a> PayloadReader<'a> {
         }
     }
 
-    fn read_u8(&mut self) -> Result<u8, DecodeError> {
+    pub(crate) fn read_u8(&mut self) -> Result<u8, DecodeError> {
         Ok(self.take(1)?[0])
     }
 
-    fn read_bool(&mut self) -> Result<bool, DecodeError> {
+    pub(crate) fn read_i8(&mut self) -> Result<i8, DecodeError> {
+        Ok(self.read_u8()? as i8)
+    }
+
+    pub(crate) fn read_bool(&mut self) -> Result<bool, DecodeError> {
         match self.read_u8()? {
             0 => Ok(false),
             1 => Ok(true),
@@ -378,14 +431,19 @@ impl<'a> PayloadReader<'a> {
         }
     }
 
-    fn read_u16(&mut self) -> Result<u16, DecodeError> {
+    pub(crate) fn read_u16(&mut self) -> Result<u16, DecodeError> {
         let bytes = self.read_array()?;
         Ok(u16::from_le_bytes(bytes))
     }
 
-    fn read_u32(&mut self) -> Result<u32, DecodeError> {
+    pub(crate) fn read_u32(&mut self) -> Result<u32, DecodeError> {
         let bytes = self.read_array()?;
         Ok(u32::from_le_bytes(bytes))
+    }
+
+    pub(crate) fn read_i32(&mut self) -> Result<i32, DecodeError> {
+        let bytes = self.read_array()?;
+        Ok(i32::from_le_bytes(bytes))
     }
 
     fn read_u64(&mut self) -> Result<u64, DecodeError> {
@@ -400,7 +458,7 @@ impl<'a> PayloadReader<'a> {
         Ok(output)
     }
 
-    fn take(&mut self, length: usize) -> Result<&'a [u8], DecodeError> {
+    pub(crate) fn take(&mut self, length: usize) -> Result<&'a [u8], DecodeError> {
         let remaining = self.bytes.len().saturating_sub(self.offset);
         if length > remaining {
             return Err(DecodeError::TruncatedMessage {

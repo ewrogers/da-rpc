@@ -196,8 +196,8 @@ async fn clients(State(state): State<ApiState>) -> Json<ClientList> {
     path = "/clients/{pid}/load",
     params(("pid" = u32, Path, description = "Discovered client process identifier")),
     responses(
-        (status = 200, description = "The DLL was already loaded", body = LifecycleResult),
-        (status = 202, description = "The DLL was loaded and the daemon is connecting", body = LifecycleResult),
+        (status = 200, description = "The DLL was already loaded", body = LoadResult),
+        (status = 202, description = "The DLL was loaded and the daemon is connecting", body = LoadResult),
         (status = 400, description = "The process identifier was invalid", body = ErrorState),
         (status = 404, description = "The process is not a discovered or configured client", body = ErrorState),
         (status = 409, description = "The client is busy or another lifecycle operation is active", body = ErrorState),
@@ -209,18 +209,11 @@ async fn clients(State(state): State<ApiState>) -> Json<ClientList> {
 async fn load(
     Path(pid): Path<u32>,
     State(state): State<ApiState>,
-) -> Result<(StatusCode, Json<LifecycleResult>), ApiError> {
+) -> Result<(StatusCode, Json<LoadResult>), ApiError> {
     let status = tracked_status(&state, pid)?;
     match status {
         ClientSnapshotStatus::Connected => {
-            return Ok((
-                StatusCode::OK,
-                Json(LifecycleResult::unchanged(
-                    LifecycleOperation::Load,
-                    pid,
-                    true,
-                )),
-            ));
+            return Ok((StatusCode::OK, Json(LoadResult::unchanged(pid))));
         }
         ClientSnapshotStatus::Busy | ClientSnapshotStatus::Incompatible => {
             return Err(ApiError::new(
@@ -242,7 +235,7 @@ async fn load(
     let lifecycle = Arc::clone(&state.lifecycle);
     let outcome = run_lifecycle(move || lifecycle.load(pid)).await?;
     state.emit(DaemonEvent::Status(ConnectionEvent::Connecting { pid }))?;
-    Ok((StatusCode::ACCEPTED, Json(LifecycleResult::from(outcome))))
+    Ok((StatusCode::ACCEPTED, Json(LoadResult::from(outcome))))
 }
 
 #[utoipa::path(
@@ -250,7 +243,7 @@ async fn load(
     path = "/clients/{pid}/unload",
     params(("pid" = u32, Path, description = "Discovered client process identifier")),
     responses(
-        (status = 200, description = "The DLL is unloaded", body = LifecycleResult),
+        (status = 200, description = "The DLL is unloaded", body = UnloadResult),
         (status = 400, description = "The process identifier was invalid", body = ErrorState),
         (status = 404, description = "The process is not a discovered or configured client", body = ErrorState),
         (status = 409, description = "Another lifecycle operation is active", body = ErrorState),
@@ -262,17 +255,10 @@ async fn load(
 async fn unload(
     Path(pid): Path<u32>,
     State(state): State<ApiState>,
-) -> Result<(StatusCode, Json<LifecycleResult>), ApiError> {
+) -> Result<(StatusCode, Json<UnloadResult>), ApiError> {
     match tracked_status(&state, pid)? {
         ClientSnapshotStatus::NotLoaded => {
-            return Ok((
-                StatusCode::OK,
-                Json(LifecycleResult::unchanged(
-                    LifecycleOperation::Unload,
-                    pid,
-                    false,
-                )),
-            ));
+            return Ok((StatusCode::OK, Json(UnloadResult::unchanged(pid))));
         }
         ClientSnapshotStatus::Initializing => return Err(operation_in_progress(pid)),
         ClientSnapshotStatus::Connecting
@@ -286,7 +272,7 @@ async fn unload(
     let lifecycle = Arc::clone(&state.lifecycle);
     let outcome = run_lifecycle(move || lifecycle.unload(pid)).await?;
     state.emit(DaemonEvent::Status(ConnectionEvent::NotLoaded { pid }))?;
-    Ok((StatusCode::OK, Json(LifecycleResult::from(outcome))))
+    Ok((StatusCode::OK, Json(UnloadResult::from(outcome))))
 }
 
 #[utoipa::path(
@@ -383,6 +369,8 @@ fn operation_in_progress(pid: u32) -> ApiError {
         ClientIdentity,
         ConnectionMetadata,
         LaunchOptions,
+        LoadResult,
+        UnloadResult,
         LifecycleResult,
         LifecycleAction,
         ErrorState,
@@ -626,22 +614,65 @@ fn invalid_server(message: impl Into<String>) -> ApiError {
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
+struct LoadResult {
+    operation: LifecycleAction,
+    pid: u32,
+    was_loaded: bool,
+}
+
+impl LoadResult {
+    fn unchanged(pid: u32) -> Self {
+        Self {
+            operation: LifecycleAction::Load,
+            pid,
+            was_loaded: false,
+        }
+    }
+}
+
+impl From<LifecycleOutcome> for LoadResult {
+    fn from(outcome: LifecycleOutcome) -> Self {
+        Self {
+            operation: LifecycleAction::Load,
+            pid: outcome.pid,
+            was_loaded: outcome.changed,
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
+struct UnloadResult {
+    operation: LifecycleAction,
+    pid: u32,
+    was_unloaded: bool,
+}
+
+impl UnloadResult {
+    fn unchanged(pid: u32) -> Self {
+        Self {
+            operation: LifecycleAction::Unload,
+            pid,
+            was_unloaded: false,
+        }
+    }
+}
+
+impl From<LifecycleOutcome> for UnloadResult {
+    fn from(outcome: LifecycleOutcome) -> Self {
+        Self {
+            operation: LifecycleAction::Unload,
+            pid: outcome.pid,
+            was_unloaded: outcome.changed,
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
 struct LifecycleResult {
     operation: LifecycleAction,
     pid: u32,
     changed: bool,
     darpc_loaded: bool,
-}
-
-impl LifecycleResult {
-    fn unchanged(operation: LifecycleOperation, pid: u32, darpc_loaded: bool) -> Self {
-        Self {
-            operation: LifecycleAction::from(operation),
-            pid,
-            changed: false,
-            darpc_loaded,
-        }
-    }
 }
 
 impl From<LifecycleOutcome> for LifecycleResult {
@@ -890,6 +921,16 @@ mod tests {
             })
     }
 
+    fn response_json(response: axum::response::Response) -> Value {
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let bytes = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+                serde_json::from_slice(&bytes).unwrap()
+            })
+    }
+
     #[test]
     fn serves_health_and_client_snapshots() {
         assert_eq!(json("/health")["status"], "ok");
@@ -979,8 +1020,10 @@ mod tests {
             "ClientIdentity",
             "ConnectionMetadata",
             "LaunchOptions",
+            "LoadResult",
             "LifecycleResult",
             "LifecycleAction",
+            "UnloadResult",
             "ErrorState",
             "ErrorDetail",
         ] {
@@ -993,6 +1036,10 @@ mod tests {
                 .iter()
                 .any(|field| field == "client_path")
         );
+        assert!(schemas["LoadResult"]["properties"]["was_loaded"].is_object());
+        assert!(schemas["LoadResult"]["properties"]["changed"].is_null());
+        assert!(schemas["UnloadResult"]["properties"]["was_unloaded"].is_object());
+        assert!(schemas["UnloadResult"]["properties"]["changed"].is_null());
 
         let docs = response("/docs/");
         assert_eq!(docs.status(), StatusCode::OK);
@@ -1014,6 +1061,9 @@ mod tests {
         let (state, receiver) = state_with_status(ConnectionEvent::NotLoaded { pid: 42 });
         let response = post_json(state, "/clients/42/load", "");
         assert_eq!(response.status(), StatusCode::ACCEPTED);
+        let result = response_json(response);
+        assert_eq!(result["was_loaded"], true);
+        assert!(result.get("changed").is_none());
         assert!(matches!(
             receiver.recv().unwrap(),
             DaemonEvent::Status(ConnectionEvent::Initializing { pid: 42 })
@@ -1031,6 +1081,18 @@ mod tests {
         );
         assert_eq!(response.status(), StatusCode::CREATED);
         assert!(matches!(receiver.recv().unwrap(), DaemonEvent::Track(77)));
+    }
+
+    #[test]
+    fn reports_no_transition_when_the_dll_is_already_in_the_requested_state() {
+        let result = response_json(post_json(state(), "/clients/42/load", ""));
+        assert_eq!(result["was_loaded"], false);
+        assert!(result.get("changed").is_none());
+
+        let (state, _receiver) = state_with_status(ConnectionEvent::NotLoaded { pid: 42 });
+        let result = response_json(post_json(state, "/clients/42/unload", ""));
+        assert_eq!(result["was_unloaded"], false);
+        assert!(result.get("changed").is_none());
     }
 
     #[test]

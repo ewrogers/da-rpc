@@ -281,8 +281,10 @@ function Assert-ApiContract {
         "HealthState",
         "HealthStatus",
         "LaunchOptions",
+        "LoadResult",
         "LifecycleAction",
-        "LifecycleResult"
+        "LifecycleResult",
+        "UnloadResult"
     )) {
         Assert-True ($Schemas -contains $Schema) "OpenAPI omitted $Schema"
     }
@@ -526,14 +528,18 @@ try {
         -Path "/clients/$($DiscoveredTarget.Id)/load" `
         -Port $ManagedPort
     Assert-True ($Result.operation -eq "load") "managed load reported the wrong operation"
-    Assert-True $Result.darpc_loaded "managed load did not report darpc.dll loaded"
+    Assert-True $Result.was_loaded "managed load did not report a DLL transition"
+    Assert-True (-not ($Result.PSObject.Properties.Name -contains "changed")) `
+        "managed load exposed the redundant changed field"
     Wait-ForClientStatus $DiscoveredTarget.Id "connected" $ManagedPort | Out-Null
 
     $Result = Invoke-ApiPost `
         -Path "/clients/$($DiscoveredTarget.Id)/unload" `
         -Port $ManagedPort
     Assert-True ($Result.operation -eq "unload") "managed unload reported the wrong operation"
-    Assert-True (-not $Result.darpc_loaded) "managed unload left darpc.dll loaded"
+    Assert-True $Result.was_unloaded "managed unload did not report a DLL transition"
+    Assert-True (-not ($Result.PSObject.Properties.Name -contains "changed")) `
+        "managed unload exposed the redundant changed field"
     Wait-ForClientStatus $DiscoveredTarget.Id "not_loaded" $ManagedPort | Out-Null
 
     Invoke-ApiPost `

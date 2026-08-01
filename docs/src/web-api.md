@@ -126,11 +126,35 @@ Unknown fields are rejected. In particular, the API does not accept arbitrary
 client arguments or request-selected loader and DLL paths. The game client does
 not have a supported general-purpose argument surface.
 
-Successful lifecycle operations return:
+Successful load operations return:
+
+```text
+LoadResult {
+    operation: "load",
+    pid: u32,
+    was_loaded: bool,
+}
+```
+
+Successful unload operations return:
+
+```text
+UnloadResult {
+    operation: "unload",
+    pid: u32,
+    was_unloaded: bool,
+}
+```
+
+`was_loaded` and `was_unloaded` report whether that request performed the
+corresponding state transition. They are `false` when the DLL was already in
+the requested state.
+
+Successful launch operations return:
 
 ```text
 LifecycleResult {
-    operation: "load" | "unload" | "launch",
+    operation: "launch",
     pid: u32,
     changed: bool,
     darpc_loaded: bool,

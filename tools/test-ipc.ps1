@@ -93,7 +93,7 @@ function Wait-ForHello {
         $PreviousErrorActionPreference = $ErrorActionPreference
         try {
             $ErrorActionPreference = "Continue"
-            $Output = @(& $Darpc --output json ipc hello --pid $ProcessId 2>$null)
+            $Output = @(& $Darpc --output json hello --pid $ProcessId 2>$null)
             $ExitCode = $LASTEXITCODE
         } finally {
             $ErrorActionPreference = $PreviousErrorActionPreference
@@ -146,20 +146,20 @@ try {
     $Result = Invoke-Loader -CommandArgs @("attach", "$($Process.Id)", $DarpcDll)
     Assert-True $Result.darpc_loaded "attach did not observe darpc.dll"
 
-    $Hello = Invoke-Darpc -CommandArgs @("ipc", "hello", "--pid", "$($Process.Id)")
-    Assert-True ($Hello.command -eq "ipc.hello") "hello command identity was incorrect"
+    $Hello = Invoke-Darpc -CommandArgs @("hello", "--pid", "$($Process.Id)")
+    Assert-True ($Hello.command -eq "hello") "hello command identity was incorrect"
     Assert-True ($Hello.pid -eq $Process.Id) "hello reported the wrong PID"
     Assert-True ($Hello.protocol_version -eq "1.0") "hello negotiated an unexpected protocol"
     Assert-True ($Hello.architecture -eq "x86") "hello reported an unexpected architecture"
     Assert-True ($Hello.sequence -eq 0) "hello sequence was not zero"
 
-    $Ping = Invoke-Darpc -CommandArgs @("ipc", "ping", "--pid", "$($Process.Id)")
+    $Ping = Invoke-Darpc -CommandArgs @("ping", "--pid", "$($Process.Id)")
     Assert-True ($Ping.request_id -eq 1) "ping request ID was not one"
     Assert-True ($Ping.request_sequence -eq 1) "ping request sequence was not one"
     Assert-True ($Ping.response_sequence -eq 1) "ping response sequence was not one"
 
-    $TickHealth = Invoke-Darpc -CommandArgs @("ipc", "tick-health", "--pid", "$($Process.Id)")
-    Assert-True ($TickHealth.command -eq "ipc.tick-health") "tick health command identity was incorrect"
+    $TickHealth = Invoke-Darpc -CommandArgs @("tick-health", "--pid", "$($Process.Id)")
+    Assert-True ($TickHealth.command -eq "tick-health") "tick health command identity was incorrect"
     Assert-True (-not $TickHealth.installed) "controlled target unexpectedly installed the game tick hook"
     Assert-True (-not $TickHealth.advancing) "controlled target unexpectedly reported advancing ticks"
     Assert-True ($TickHealth.relocated_bytes -eq 0) "controlled target reported relocated tick bytes"
@@ -170,7 +170,7 @@ try {
     Assert-True ($Log -match "event=hook_health") "DLL log did not record worker-side hook health"
 
     $EchoText = "M6 byte-exact echo payload 0123"
-    $Echo = Invoke-Darpc -CommandArgs @("ipc", "echo", "--pid", "$($Process.Id)", $EchoText)
+    $Echo = Invoke-Darpc -CommandArgs @("echo", "--pid", "$($Process.Id)", $EchoText)
     Assert-True ($Echo.request_id -eq 1) "echo request ID was not one"
     Assert-True `
         ($Echo.text -ceq $EchoText) `
@@ -180,13 +180,13 @@ try {
 
     Write-Host "Testing missing and busy endpoint errors"
     $Missing = Invoke-Darpc `
-        -CommandArgs @("ipc", "hello", "--pid", "$PID") `
+        -CommandArgs @("hello", "--pid", "$PID") `
         -ExpectedExitCode 4
     Assert-True ($Missing.error.kind -eq "pipe_missing") "missing endpoint error was not distinct"
 
     $RawPipe = Connect-RawPipe -ProcessId $Process.Id
     $Busy = Invoke-Darpc `
-        -CommandArgs @("ipc", "hello", "--pid", "$($Process.Id)") `
+        -CommandArgs @("hello", "--pid", "$($Process.Id)") `
         -ExpectedExitCode 5
     Assert-True ($Busy.error.kind -eq "pipe_busy") "busy endpoint error was not distinct"
     Assert-True ($Busy.error.message -match "darpcd") "busy error did not explain daemon ownership"

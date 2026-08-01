@@ -201,12 +201,12 @@ With `darpc.dll` initialized in a process and `darpcd.exe` disconnected, the
 64-bit client can exercise the PID-based pipe directly:
 
 ```text
-darpc.exe ipc hello --pid <pid>
-darpc.exe ipc ping --pid <pid>
-darpc.exe ipc echo --pid <pid> "hello"
-darpc.exe ipc tick-health --pid <pid>
-darpc.exe ipc snapshot --pid <pid>
-darpc.exe --output json ipc hello --pid <pid>
+darpc.exe hello --pid <pid>
+darpc.exe ping --pid <pid>
+darpc.exe echo --pid <pid> "hello"
+darpc.exe tick-health --pid <pid>
+darpc.exe snapshot --pid <pid>
+darpc.exe --output json hello --pid <pid>
 ```
 
 These commands perform the real binary handshake and validate ordering,
@@ -235,7 +235,7 @@ darpcd.exe --loader-path <loader.exe> --dll-path <darpc.dll>
 
 The daemon prints connection status transitions and reconnects when a pipe or
 DLL returns. After each connection it obtains and retains a fresh current-state
-snapshot. While it owns a pipe, direct `darpc.exe ipc` commands report that the
+snapshot. While it owns a pipe, direct `darpc.exe` commands report that the
 endpoint is busy.
 
 `--auto-load` asks the daemon to load its configured DLL into each `not_loaded`
@@ -318,8 +318,8 @@ protocols, and planned Server-Sent Events and WebSocket interfaces.
 
 The [development roadmap](docs/src/roadmap.md) divides the work into small
 increments with a visible demonstration and exit checks for each milestone.
-The [command-line interface](docs/src/cli.md) documents implemented direct IPC
-diagnostics and the planned daemon command hierarchy.
+The [command-line interface](docs/src/cli.md) documents the implemented direct
+commands and their separation from the daemon HTTP API.
 
 Build and serve it locally with the pinned mdBook version:
 

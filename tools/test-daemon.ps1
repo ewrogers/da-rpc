@@ -77,7 +77,7 @@ function Invoke-DarpcExitCode {
     $PreviousErrorActionPreference = $ErrorActionPreference
     try {
         $ErrorActionPreference = "Continue"
-        & $Darpc --output json ipc hello --pid $ProcessId *> $null
+        & $Darpc --output json hello --pid $ProcessId *> $null
         return $LASTEXITCODE
     } finally {
         $ErrorActionPreference = $PreviousErrorActionPreference

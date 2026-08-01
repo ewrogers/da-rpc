@@ -23,7 +23,7 @@ remote clients and grants access to the process owner, Windows system, and
 administrators.
 
 The pipe exposes one instance because the DLL has one controller. During
-development, `darpc.exe ipc` can own it for direct diagnostics. In normal use,
+development, `darpc.exe` can own it for direct diagnostics. In normal use,
 `darpcd.exe` owns it; a second connector receives a distinct busy error and must
 not inject another DLL.
 

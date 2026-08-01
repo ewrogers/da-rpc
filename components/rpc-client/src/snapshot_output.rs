@@ -14,7 +14,7 @@ pub(crate) fn render_human(
 ) -> String {
     let mut output = format!(
         concat!(
-            "ipc snapshot succeeded: pid={} request_id={} ",
+            "snapshot succeeded: pid={} request_id={} ",
             "round_trip_ms={} revision={} captured_tick_ms={} ",
             "capture_duration_us={} world_generation={} lifecycle={}"
         ),
@@ -123,7 +123,7 @@ pub(crate) fn render_json(
 ) -> String {
     json!({
         "ok": true,
-        "command": "ipc.snapshot",
+        "command": "snapshot",
         "pid": pid,
         "request_id": request_id,
         "round_trip_ms": round_trip_ms,

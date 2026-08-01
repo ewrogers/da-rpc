@@ -13,19 +13,20 @@ use std::{env, ffi::OsString, process::ExitCode};
 
 const USAGE: &str = "\
 usage:
-    darpc [--output <table|json>] ipc hello --pid <pid>
-    darpc [--output <table|json>] ipc ping --pid <pid>
-    darpc [--output <table|json>] ipc tick-health --pid <pid>
-    darpc [--output <table|json>] ipc snapshot --pid <pid>
-    darpc [--output <table|json>] ipc echo --pid <pid> <text>";
+    darpc [--output <table|json>] hello --pid <pid>
+    darpc [--output <table|json>] ping --pid <pid>
+    darpc [--output <table|json>] tick-health --pid <pid>
+    darpc [--output <table|json>] snapshot --pid <pid>
+    darpc [--output <table|json>] echo --pid <pid> <text>";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-enum Command {
-    Ipc { pid: u32, operation: IpcOperation },
+struct Command {
+    pid: u32,
+    operation: Operation,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-enum IpcOperation {
+enum Operation {
     Hello,
     Ping,
     TickHealth,
@@ -35,27 +36,12 @@ enum IpcOperation {
 
 impl Command {
     const fn name(&self) -> &'static str {
-        match self {
-            Self::Ipc {
-                operation: IpcOperation::Hello,
-                ..
-            } => "ipc.hello",
-            Self::Ipc {
-                operation: IpcOperation::Ping,
-                ..
-            } => "ipc.ping",
-            Self::Ipc {
-                operation: IpcOperation::TickHealth,
-                ..
-            } => "ipc.tick-health",
-            Self::Ipc {
-                operation: IpcOperation::Snapshot,
-                ..
-            } => "ipc.snapshot",
-            Self::Ipc {
-                operation: IpcOperation::Echo(_),
-                ..
-            } => "ipc.echo",
+        match &self.operation {
+            Operation::Hello => "hello",
+            Operation::Ping => "ping",
+            Operation::TickHealth => "tick-health",
+            Operation::Snapshot => "snapshot",
+            Operation::Echo(_) => "echo",
         }
     }
 }
@@ -125,19 +111,6 @@ fn parse_output_format(arguments: &mut Vec<OsString>) -> Result<OutputFormat> {
 
 fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
     let mut arguments = arguments.into_iter();
-    match arguments
-        .next()
-        .and_then(|value| value.to_str().map(str::to_owned))
-    {
-        Some(domain) if domain == "ipc" => {}
-        Some(domain) => {
-            return Err(invalid_arguments(format!(
-                "unknown command group `{domain}`"
-            )));
-        }
-        None => return Err(ClientError::new(ErrorKind::InvalidArguments, USAGE)),
-    }
-
     let action = arguments
         .next()
         .and_then(|value| value.to_str().map(str::to_owned))
@@ -146,36 +119,36 @@ fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
         .next()
         .and_then(|value| value.to_str().map(str::to_owned));
     if pid_option.as_deref() != Some("--pid") {
-        return Err(invalid_arguments("IPC commands require `--pid <pid>`"));
+        return Err(invalid_arguments("commands require `--pid <pid>`"));
     }
     let pid = parse_pid(arguments.next())?;
 
     let operation = match action.as_str() {
-        "hello" => IpcOperation::Hello,
-        "ping" => IpcOperation::Ping,
-        "tick-health" => IpcOperation::TickHealth,
-        "snapshot" => IpcOperation::Snapshot,
+        "hello" => Operation::Hello,
+        "ping" => Operation::Ping,
+        "tick-health" => Operation::TickHealth,
+        "snapshot" => Operation::Snapshot,
         "echo" => {
             let text = arguments
                 .next()
                 .and_then(|value| value.into_string().ok())
-                .ok_or_else(|| invalid_arguments("ipc echo requires UTF-8 text"))?;
+                .ok_or_else(|| invalid_arguments("echo requires UTF-8 text"))?;
             if text.len() > MAX_ECHO_TEXT_LEN {
                 return Err(invalid_arguments(format!(
                     "echo text is {} bytes; maximum is {MAX_ECHO_TEXT_LEN}",
                     text.len()
                 )));
             }
-            IpcOperation::Echo(text)
+            Operation::Echo(text)
         }
-        _ => return Err(invalid_arguments(format!("unknown IPC action `{action}`"))),
+        _ => return Err(invalid_arguments(format!("unknown command `{action}`"))),
     };
 
     if arguments.next().is_some() {
         return Err(invalid_arguments("too many arguments"));
     }
 
-    Ok(Command::Ipc { pid, operation })
+    Ok(Command { pid, operation })
 }
 
 fn parse_pid(argument: Option<OsString>) -> Result<u32> {
@@ -201,9 +174,7 @@ fn invalid_arguments(message: impl Into<String>) -> ClientError {
 
 #[cfg(windows)]
 fn execute(command: Command) -> Result<CommandResult> {
-    match command {
-        Command::Ipc { pid, operation } => ipc::execute(pid, operation),
-    }
+    ipc::execute(command.pid, command.operation)
 }
 
 #[cfg(not(windows))]
@@ -216,7 +187,7 @@ fn execute(_command: Command) -> Result<CommandResult> {
 
 #[cfg(test)]
 mod tests {
-    use super::{Command, IpcOperation, OutputFormat, parse};
+    use super::{Command, Operation, OutputFormat, parse};
     use std::ffi::OsString;
 
     fn arguments(values: &[&str]) -> Vec<OsString> {
@@ -224,47 +195,47 @@ mod tests {
     }
 
     #[test]
-    fn parses_direct_ipc_commands() {
+    fn parses_direct_commands() {
         assert_eq!(
-            parse(arguments(&["ipc", "hello", "--pid", "42"])).unwrap(),
+            parse(arguments(&["hello", "--pid", "42"])).unwrap(),
             (
                 OutputFormat::Table,
-                Command::Ipc {
+                Command {
                     pid: 42,
-                    operation: IpcOperation::Hello,
+                    operation: Operation::Hello,
                 }
             )
         );
         assert_eq!(
             parse(arguments(&[
-                "--output", "json", "ipc", "echo", "--pid", "7", "hello"
+                "--output", "json", "echo", "--pid", "7", "hello"
             ]))
             .unwrap(),
             (
                 OutputFormat::Json,
-                Command::Ipc {
+                Command {
                     pid: 7,
-                    operation: IpcOperation::Echo("hello".into()),
+                    operation: Operation::Echo("hello".into()),
                 }
             )
         );
         assert_eq!(
-            parse(arguments(&["ipc", "tick-health", "--pid", "9"])).unwrap(),
+            parse(arguments(&["tick-health", "--pid", "9"])).unwrap(),
             (
                 OutputFormat::Table,
-                Command::Ipc {
+                Command {
                     pid: 9,
-                    operation: IpcOperation::TickHealth,
+                    operation: Operation::TickHealth,
                 }
             )
         );
         assert_eq!(
-            parse(arguments(&["ipc", "snapshot", "--pid", "10"])).unwrap(),
+            parse(arguments(&["snapshot", "--pid", "10"])).unwrap(),
             (
                 OutputFormat::Table,
-                Command::Ipc {
+                Command {
                     pid: 10,
-                    operation: IpcOperation::Snapshot,
+                    operation: Operation::Snapshot,
                 }
             )
         );
@@ -272,28 +243,19 @@ mod tests {
 
     #[test]
     fn rejects_invalid_pid_and_extra_arguments() {
-        assert!(parse(arguments(&["ipc", "ping", "--pid", "0"])).is_err());
-        assert!(parse(arguments(&["ipc", "hello", "--pid", "1", "extra"])).is_err());
+        assert!(parse(arguments(&["ping", "--pid", "0"])).is_err());
+        assert!(parse(arguments(&["hello", "--pid", "1", "extra"])).is_err());
     }
 
     #[test]
     fn prints_usage_once_for_incomplete_commands() {
-        let error = parse(arguments(&["ipc"])).unwrap_err();
+        let error = parse(arguments(&["hello"])).unwrap_err();
         assert_eq!(error.message().matches("usage:").count(), 1);
     }
 
     #[test]
     fn rejects_echo_over_the_wire_limit() {
         let text = "a".repeat(darpc_protocol::MAX_ECHO_TEXT_LEN + 1);
-        assert!(
-            parse(vec![
-                "ipc".into(),
-                "echo".into(),
-                "--pid".into(),
-                "1".into(),
-                text.into(),
-            ])
-            .is_err()
-        );
+        assert!(parse(vec!["echo".into(), "--pid".into(), "1".into(), text.into(),]).is_err());
     }
 }

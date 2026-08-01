@@ -70,7 +70,7 @@ impl CommandResult {
                 sender_tick_ms,
             } => format!(
                 concat!(
-                    "ipc hello succeeded: pid={} protocol={} instance={} creation_time={} ",
+                    "hello succeeded: pid={} protocol={} instance={} creation_time={} ",
                     "architecture={} dll_version={}.{}.{} fingerprint={} client_version={} ",
                     "sequence={} sender_tick_ms={}"
                 ),
@@ -97,7 +97,7 @@ impl CommandResult {
                 round_trip_ms,
             } => format!(
                 concat!(
-                    "ipc ping succeeded: pid={} request_id={} round_trip_ms={} ",
+                    "ping succeeded: pid={} request_id={} round_trip_ms={} ",
                     "request_sequence={} response_sequence={} request_tick_ms={} ",
                     "response_tick_ms={}"
                 ),
@@ -119,7 +119,7 @@ impl CommandResult {
                 sample_ms,
             } => format!(
                 concat!(
-                    "ipc tick-health succeeded: pid={} installed={} advancing={} ",
+                    "tick-health succeeded: pid={} installed={} advancing={} ",
                     "relocated_bytes={} first_ticks={} ticks={} delta_ticks={} sample_ms={}"
                 ),
                 pid,
@@ -143,7 +143,7 @@ impl CommandResult {
                 text,
                 round_trip_ms,
             } => format!(
-                "ipc echo succeeded: pid={pid} request_id={request_id} bytes={} round_trip_ms={round_trip_ms} text={}",
+                "echo succeeded: pid={pid} request_id={request_id} bytes={} round_trip_ms={round_trip_ms} text={}",
                 text.len(),
                 json_string(text)
             ),
@@ -160,7 +160,7 @@ impl CommandResult {
                 sender_tick_ms,
             } => format!(
                 concat!(
-                    "{{\"ok\":true,\"command\":\"ipc.hello\",\"pid\":{},",
+                    "{{\"ok\":true,\"command\":\"hello\",\"pid\":{},",
                     "\"protocol_version\":{},\"dll_instance_id\":{},",
                     "\"process_creation_time\":{},\"architecture\":{},",
                     "\"dll_version\":{},\"executable_fingerprint\":{},",
@@ -190,7 +190,7 @@ impl CommandResult {
                 round_trip_ms,
             } => format!(
                 concat!(
-                    "{{\"ok\":true,\"command\":\"ipc.ping\",\"pid\":{},",
+                    "{{\"ok\":true,\"command\":\"ping\",\"pid\":{},",
                     "\"request_id\":{},\"round_trip_ms\":{},",
                     "\"request_sequence\":{},\"response_sequence\":{},",
                     "\"request_tick_ms\":{},\"response_tick_ms\":{}}}"
@@ -213,7 +213,7 @@ impl CommandResult {
                 sample_ms,
             } => format!(
                 concat!(
-                    "{{\"ok\":true,\"command\":\"ipc.tick-health\",\"pid\":{},",
+                    "{{\"ok\":true,\"command\":\"tick-health\",\"pid\":{},",
                     "\"installed\":{},\"advancing\":{},\"relocated_bytes\":{},",
                     "\"first_tick_count\":{},\"tick_count\":{},\"tick_delta\":{},",
                     "\"sample_ms\":{}}}"
@@ -240,7 +240,7 @@ impl CommandResult {
                 round_trip_ms,
             } => format!(
                 concat!(
-                    "{{\"ok\":true,\"command\":\"ipc.echo\",\"pid\":{},",
+                    "{{\"ok\":true,\"command\":\"echo\",\"pid\":{},",
                     "\"request_id\":{},\"bytes\":{},\"round_trip_ms\":{},",
                     "\"text\":{}}}"
                 ),
@@ -335,7 +335,7 @@ mod tests {
         assert_eq!(
             result.render(OutputFormat::Json),
             concat!(
-                "{\"ok\":true,\"command\":\"ipc.echo\",\"pid\":42,",
+                "{\"ok\":true,\"command\":\"echo\",\"pid\":42,",
                 "\"request_id\":1,\"bytes\":12,\"round_trip_ms\":3,",
                 "\"text\":\"quote\\\" line\\n\"}"
             )
@@ -356,7 +356,7 @@ mod tests {
         assert_eq!(
             result.render(OutputFormat::Json),
             concat!(
-                "{\"ok\":true,\"command\":\"ipc.tick-health\",\"pid\":42,",
+                "{\"ok\":true,\"command\":\"tick-health\",\"pid\":42,",
                 "\"installed\":true,\"advancing\":true,\"relocated_bytes\":5,",
                 "\"first_tick_count\":4294967294,\"tick_count\":3,",
                 "\"tick_delta\":5,\"sample_ms\":250}"

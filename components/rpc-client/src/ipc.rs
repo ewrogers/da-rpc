@@ -1,5 +1,5 @@
 use crate::{
-    IpcOperation,
+    Operation,
     error::{ClientError, ErrorKind, Result},
     output::CommandResult,
 };
@@ -17,18 +17,18 @@ const REQUEST_ID: u32 = 1;
 const SECOND_REQUEST_ID: u32 = 2;
 const TICK_SAMPLE_INTERVAL: Duration = Duration::from_millis(250);
 
-pub(crate) fn execute(pid: u32, operation: IpcOperation) -> Result<CommandResult> {
+pub(crate) fn execute(pid: u32, operation: Operation) -> Result<CommandResult> {
     let mut session =
         ControllerSession::connect(pid).map_err(|error| controller_error(pid, error))?;
     match operation {
-        IpcOperation::Hello => Ok(CommandResult::Hello {
+        Operation::Hello => Ok(CommandResult::Hello {
             requested_pid: pid,
             hello: session.hello(),
             selected_version: session.selected_version(),
             sequence: session.hello_sequence(),
             sender_tick_ms: session.hello_tick_ms(),
         }),
-        IpcOperation::Ping => {
+        Operation::Ping => {
             let request = session
                 .send(Message::Ping(Ping {
                     request_id: REQUEST_ID,
@@ -65,7 +65,7 @@ pub(crate) fn execute(pid: u32, operation: IpcOperation) -> Result<CommandResult
                 )),
             }
         }
-        IpcOperation::TickHealth => {
+        Operation::TickHealth => {
             let (first, first_tick_ms) = request_tick_health(&mut session, pid, REQUEST_ID)?;
             thread::sleep(TICK_SAMPLE_INTERVAL);
             let (second, second_tick_ms) =
@@ -90,7 +90,7 @@ pub(crate) fn execute(pid: u32, operation: IpcOperation) -> Result<CommandResult
                 sample_ms: elapsed_tick_ms(first_tick_ms, second_tick_ms),
             })
         }
-        IpcOperation::Snapshot => {
+        Operation::Snapshot => {
             let request = session
                 .send(Message::SnapshotRequest(SnapshotRequest {
                     request_id: REQUEST_ID,
@@ -133,7 +133,7 @@ pub(crate) fn execute(pid: u32, operation: IpcOperation) -> Result<CommandResult
                 )),
             }
         }
-        IpcOperation::Echo(text) => {
+        Operation::Echo(text) => {
             let request_text = text.clone();
             let request = session
                 .send(Message::EchoRequest(EchoRequest {

@@ -36,7 +36,7 @@ memory, performs no I/O, and calls no unrelated client function.
 
 The DLL worker reads the atomic health state for `TickHealthRequest` messages
 and writes diagnostic samples to
-`%USERPROFILE%\darpc\logs\pid-<pid>.log`. `darpc.exe ipc tick-health --pid
+`%USERPROFILE%\darpc\logs\pid-<pid>.log`. `darpc.exe tick-health --pid
 <pid>` samples twice and reports installation, relocated-byte, counter, and
 advancement fields. Logging and named-pipe work never execute in the hook.
 

@@ -76,8 +76,8 @@ Three executables have distinct control and presentation roles:
 | `darpc.exe` | Developer and automation | Connects directly to one DLL, exchanges typed binary protocol messages, and prints human-readable or stable JSON results. |
 | `darpcd.exe` | Applications and HTTP clients | Owns multi-client connections, aggregation, discovery policy, and the public web API. |
 
-The explicit `ipc` command group replaces a separate pipe-probe executable. It
-shares `darpc-protocol` and proves the real named pipe and binary framing with
+The direct command set replaces a separate pipe-probe executable. It shares
+`darpc-protocol` and proves the real named pipe and binary framing with
 synthetic messages. Future [`darpc.exe` commands](cli.md) remain direct,
 single-client protocol operations and do not call the daemon HTTP API.
 `darpc.exe` and `darpcd.exe` are alternative pipe controllers because the DLL
@@ -367,16 +367,16 @@ Build:
 - Bounded overlapped I/O owned by a DLL worker, independent from game code.
 - Windows transport stamping with `timeGetTime` immediately before sending each
   frame, plus wrapping sequence advancement in each direction.
-- A `darpc.exe ipc` command group that shares `darpc-protocol` and connects
-  directly to one DLL by process ID.
+- Flat `darpc.exe` commands that share `darpc-protocol` and connect directly to
+  one DLL by process ID.
 - `hello`, `ping`, and `echo` commands using the real framing and named pipe.
 - A UTF-8 echo payload limited to 4 KiB and returned byte-for-byte.
 
 See:
 
-- Inject the DLL and run `darpc --output json ipc hello --pid <pid>`.
-- Measure a request round trip with `darpc ipc ping --pid <pid>`.
-- Receive `hello` from `darpc ipc echo --pid <pid> "hello"`.
+- Inject the DLL and run `darpc --output json hello --pid <pid>`.
+- Measure a request round trip with `darpc ping --pid <pid>`.
+- Receive `hello` from `darpc echo --pid <pid> "hello"`.
 - Run commands over replacement connections, then unload the DLL cleanly.
 
 Done:

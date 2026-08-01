@@ -1,6 +1,6 @@
 # `darpc.exe` command-line interface
 
-> **Status:** The direct `ipc` commands documented below are implemented.
+> **Status:** The direct commands documented below are implemented.
 
 `darpc.exe` is a direct, single-client command-line interface to an injected
 `darpc.dll`. It connects to the process-specific named pipe, exchanges typed
@@ -25,11 +25,11 @@ The implemented operations prove communication, expose hook health, and read a
 current client snapshot:
 
 ```text
-darpc ipc hello --pid <pid>
-darpc ipc ping --pid <pid>
-darpc ipc echo --pid <pid> "hello"
-darpc ipc tick-health --pid <pid>
-darpc ipc snapshot --pid <pid>
+darpc hello --pid <pid>
+darpc ping --pid <pid>
+darpc echo --pid <pid> "hello"
+darpc tick-health --pid <pid>
+darpc snapshot --pid <pid>
 ```
 
 These commands use the real PID-based named pipe, binary framing, protocol
@@ -47,20 +47,20 @@ behavior is:
   lifecycle, character, map, inventory, equipment, spellbook, and skillbook
   state plus capture timing and request round-trip time.
 
-The `ipc` group shares `darpc-protocol` with the DLL and daemon. It requires an
+The commands share `darpc-protocol` with the DLL and daemon. Each requires an
 explicit nonzero process ID and cannot manage multiple clients in one command.
 
 ## Output
 
-Human-readable output is the default. Put `--output json` before `ipc` to emit
-one stable JSON value on standard output:
+Human-readable output is the default. Put `--output json` before the command to
+emit one stable JSON value on standard output:
 
 ```text
-darpc --output json ipc hello --pid <pid>
-darpc --output json ipc ping --pid <pid>
-darpc --output json ipc echo --pid <pid> "hello"
-darpc --output json ipc tick-health --pid <pid>
-darpc --output json ipc snapshot --pid <pid>
+darpc --output json hello --pid <pid>
+darpc --output json ping --pid <pid>
+darpc --output json echo --pid <pid> "hello"
+darpc --output json tick-health --pid <pid>
+darpc --output json snapshot --pid <pid>
 ```
 
 Diagnostics belong on standard error so scripts can parse JSON from standard

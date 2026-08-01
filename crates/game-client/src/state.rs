@@ -9,8 +9,8 @@ pub use collections::{
     RawInventoryItem,
 };
 pub use types::{
-    MemoryReader, RawCharacter, RawClientText, RawLifecycle, RawLocation, RawMapName, RawModifiers,
-    RawPaneProgression, RawStateSnapshot, StateReadError,
+    MemoryReader, RawAppearance, RawCharacter, RawClientText, RawLifecycle, RawLocation,
+    RawMapName, RawModifiers, RawPaneProgression, RawStateSnapshot, StateReadError,
 };
 
 use types::MAX_MAP_NAME_BYTES;
@@ -129,9 +129,9 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
         } else {
             self.find_local_object(roots.world, self_id).ok().flatten()
         };
-        let (gender, x, y) = if let Some(object) = local_object {
+        let (appearance, x, y) = if let Some(object) = local_object {
             (
-                Some(self.read_u8(add(object, 0xA4)?)?),
+                self.capture_appearance(object)?,
                 Some(self.read_i32(add(object, 0x44)?)?),
                 Some(self.read_i32(add(object, 0x40)?)?),
             )
@@ -150,8 +150,10 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
             id: (self_id != 0).then_some(self_id),
             name,
             name_len: u8::try_from(name_len).expect("character name buffer length fits u8"),
-            gender,
+            appearance,
             class: self.read_u8(add(world_user, 0x1089)?)?,
+            action_locked: self.read_u8(add(world_user, 0x15C88)?)? & 0x01 != 0,
+            is_blinded: self.read_u8(add(world_user, 0x108D)?)? == 0x08,
             gold: self.read_u32(add(world_user, 0x105C)?)?,
             level: self.read_u8(add(world_user, 0x1058)?)?,
             ability_level: self.read_u8(add(world_user, 0x1059)?)?,
@@ -173,6 +175,19 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
             spellbook,
             skillbook,
         })
+    }
+
+    fn capture_appearance(&self, object: u32) -> Result<Option<RawAppearance>, StateReadError> {
+        if self.read_u8(add(object, 0x104)?)? == 0 {
+            return Ok(None);
+        }
+
+        Ok(Some(RawAppearance {
+            gender: self.read_u8(add(object, 0xA4)?)?,
+            hair_style: self.read_u16(add(object, 0xA6)?)?,
+            hair_color: self.read_u8(add(object, 0xA8)?)?,
+            body_sprite: self.read_u16(add(object, 0xAA)?)?,
+        }))
     }
 
     fn capture_pane_progression(

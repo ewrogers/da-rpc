@@ -63,9 +63,12 @@ pub(crate) struct CharacterSnapshot {
     id: Option<u32>,
     name: Option<String>,
     gender: Option<CharacterGender>,
-    gender_id: Option<u8>,
+    hair_style: Option<u16>,
+    hair_color: Option<u8>,
+    body_sprite: Option<u16>,
     class: CharacterClass,
-    class_id: u8,
+    action_locked: bool,
+    is_blinded: bool,
     gold: u32,
     progression: CharacterProgression,
     stats: CharacterStats,
@@ -83,10 +86,15 @@ impl From<&ModelCharacterSnapshot> for CharacterSnapshot {
         Self {
             id: value.id,
             name: value.name.clone(),
-            gender: value.gender.map(CharacterGender::from),
-            gender_id: value.gender.map(ModelGender::raw),
+            gender: value
+                .appearance
+                .map(|appearance| CharacterGender::from(appearance.gender)),
+            hair_style: value.appearance.map(|appearance| appearance.hair_style),
+            hair_color: value.appearance.map(|appearance| appearance.hair_color),
+            body_sprite: value.appearance.map(|appearance| appearance.body_sprite),
             class: CharacterClass::from(value.class),
-            class_id: value.class.raw(),
+            action_locked: value.action_locked,
+            is_blinded: value.is_blinded,
             gold: value.gold,
             progression: CharacterProgression {
                 level: value.progression.level,

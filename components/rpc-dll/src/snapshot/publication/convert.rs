@@ -5,9 +5,10 @@ use darpc_game_client::{
     RawModifiers, RawPaneProgression, RawSkill, RawSkillbook, RawSpell, RawSpellbook,
 };
 use darpc_model::{
-    CharacterClass, CharacterModifiers, CharacterProgression, CharacterSnapshot, CharacterStats,
-    CharacterVitals, ClientLifecycle, ClientSnapshot, CooldownStatus, Element, EquipmentItem,
-    EquipmentSlot, Gender, InventoryItem, MapLocation, Skill, Spell, SpellTargetType,
+    CharacterAppearance, CharacterClass, CharacterModifiers, CharacterProgression,
+    CharacterSnapshot, CharacterStats, CharacterVitals, ClientLifecycle, ClientSnapshot,
+    CooldownStatus, Element, EquipmentItem, EquipmentSlot, Gender, InventoryItem, MapLocation,
+    Skill, Spell, SpellTargetType,
 };
 
 const SPRITE_ID_MASK: u16 = 0x3FFF;
@@ -29,8 +30,15 @@ fn character_snapshot(raw: RawCharacter, world_token: u32, tick_ms: u32) -> Char
     CharacterSnapshot {
         id: raw.id,
         name: client_text::decode(&raw.name[..usize::from(raw.name_len)]),
-        gender: raw.gender.map(Gender::from_raw),
+        appearance: raw.appearance.map(|appearance| CharacterAppearance {
+            gender: Gender::from_raw(appearance.gender),
+            hair_style: appearance.hair_style,
+            hair_color: appearance.hair_color,
+            body_sprite: appearance.body_sprite,
+        }),
         class: CharacterClass::from_raw(raw.class),
+        action_locked: raw.action_locked,
+        is_blinded: raw.is_blinded,
         gold: raw.gold,
         progression: progression(&raw, raw.pane_progression),
         stats: CharacterStats {

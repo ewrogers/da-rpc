@@ -138,8 +138,10 @@ pub struct ClientSnapshot {
 pub struct CharacterSnapshot {
     pub id: Option<u32>,
     pub name: Option<String>,
-    pub gender: Option<Gender>,
+    pub appearance: Option<CharacterAppearance>,
     pub class: CharacterClass,
+    pub action_locked: bool,
+    pub is_blinded: bool,
     pub gold: u32,
     pub progression: CharacterProgression,
     pub stats: CharacterStats,
@@ -150,6 +152,14 @@ pub struct CharacterSnapshot {
     pub equipment: Option<Vec<EquipmentItem>>,
     pub spellbook: Option<Vec<Spell>>,
     pub skillbook: Option<Vec<Skill>>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CharacterAppearance {
+    pub gender: Gender,
+    pub hair_style: u16,
+    pub hair_color: u8,
+    pub body_sprite: u16,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

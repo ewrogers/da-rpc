@@ -904,11 +904,13 @@ mod tests {
         http::{Request, StatusCode},
     };
     use darpc_model::{
-        CharacterClass, CharacterProgression, CharacterSnapshot as ModelCharacterSnapshot,
-        CharacterStats, CharacterVitals, ClientLifecycle, ClientSnapshot as ModelClientSnapshot,
+        CharacterAppearance, CharacterClass, CharacterProgression,
+        CharacterSnapshot as ModelCharacterSnapshot, CharacterStats, CharacterVitals,
+        ClientLifecycle, ClientSnapshot as ModelClientSnapshot,
         CooldownStatus as ModelCooldownStatus, EquipmentItem as ModelEquipmentItem,
-        EquipmentSlot as ModelEquipmentSlot, InventoryItem as ModelInventoryItem, MapLocation,
-        Skill as ModelSkill, Spell as ModelSpell, SpellTargetType as ModelSpellTargetType,
+        EquipmentSlot as ModelEquipmentSlot, Gender, InventoryItem as ModelInventoryItem,
+        MapLocation, Skill as ModelSkill, Spell as ModelSpell,
+        SpellTargetType as ModelSpellTargetType,
     };
     use darpc_protocol::{Architecture, ComponentVersion, Hello, SUPPORTED_VERSIONS};
     use serde_json::Value;
@@ -945,8 +947,15 @@ mod tests {
             character: Some(ModelCharacterSnapshot {
                 id: Some(1234),
                 name: Some("SiLo".into()),
-                gender: None,
+                appearance: Some(CharacterAppearance {
+                    gender: Gender::Male,
+                    hair_style: 17,
+                    hair_color: 6,
+                    body_sprite: 1,
+                }),
                 class: CharacterClass::Wizard,
+                action_locked: true,
+                is_blinded: true,
                 gold: 99,
                 progression: CharacterProgression {
                     level: 50,
@@ -1185,6 +1194,14 @@ mod tests {
         assert_eq!(snapshot["pid"], 42);
         assert_eq!(snapshot["lifecycle"], "in_game");
         assert_eq!(snapshot["character"]["name"], "SiLo");
+        assert_eq!(snapshot["character"]["gender"], "male");
+        assert_eq!(snapshot["character"]["hair_style"], 17);
+        assert_eq!(snapshot["character"]["hair_color"], 6);
+        assert_eq!(snapshot["character"]["body_sprite"], 1);
+        assert_eq!(snapshot["character"]["action_locked"], true);
+        assert_eq!(snapshot["character"]["is_blinded"], true);
+        assert!(snapshot["character"].get("gender_id").is_none());
+        assert!(snapshot["character"].get("class_id").is_none());
         assert_eq!(snapshot["character"]["progression"]["level"], 50);
         assert_eq!(snapshot["character"]["location"]["x"], 11);
         assert_eq!(snapshot["character"]["inventory"][0]["quantity"], 3);
@@ -1371,6 +1388,16 @@ mod tests {
         assert!(schemas["LoadResult"]["properties"]["changed"].is_null());
         assert!(schemas["UnloadResult"]["properties"]["was_unloaded"].is_object());
         assert!(schemas["UnloadResult"]["properties"]["changed"].is_null());
+        assert!(
+            schemas["CharacterSnapshot"]["properties"]
+                .get("gender_id")
+                .is_none()
+        );
+        assert!(
+            schemas["CharacterSnapshot"]["properties"]
+                .get("class_id")
+                .is_none()
+        );
         assert!(
             schemas["CharacterModifiers"]["properties"]
                 .get("attack_element_id")

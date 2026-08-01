@@ -1,7 +1,8 @@
 use darpc_model::{
-    CharacterClass, CharacterModifiers, CharacterProgression, CharacterSnapshot, CharacterStats,
-    CharacterVitals, ClientLifecycle, ClientSnapshot, CooldownStatus, Element, EquipmentItem,
-    EquipmentSlot, Gender, InventoryItem, MapLocation, Skill, Spell, SpellTargetType,
+    CharacterAppearance, CharacterClass, CharacterModifiers, CharacterProgression,
+    CharacterSnapshot, CharacterStats, CharacterVitals, ClientLifecycle, ClientSnapshot,
+    CooldownStatus, Element, EquipmentItem, EquipmentSlot, Gender, InventoryItem, MapLocation,
+    Skill, Spell, SpellTargetType,
 };
 use darpc_protocol::{
     Architecture, ComponentVersion, DecodeError, EchoRequest, EchoResponse, EncodeError,
@@ -42,8 +43,15 @@ fn snapshot() -> ClientSnapshot {
         character: Some(CharacterSnapshot {
             id: Some(0x1122_3344),
             name: Some("SiLo".into()),
-            gender: Some(Gender::Male),
+            appearance: Some(CharacterAppearance {
+                gender: Gender::Male,
+                hair_style: 17,
+                hair_color: 6,
+                body_sprite: 1,
+            }),
             class: CharacterClass::Wizard,
+            action_locked: true,
+            is_blinded: true,
             gold: 123_456,
             progression: CharacterProgression {
                 level: 99,

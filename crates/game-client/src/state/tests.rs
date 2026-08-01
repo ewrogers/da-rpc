@@ -40,7 +40,7 @@ struct FakeMemory {
 impl FakeMemory {
     fn gameplay() -> Self {
         let mut memory = Self {
-            bytes: vec![0; 0x0060_0000],
+            bytes: vec![0; 0x0070_0000],
         };
         memory.u32(BASE + MAIN_THREAD_ID_RVA, THREAD_ID);
         memory.u32(
@@ -79,6 +79,8 @@ impl FakeMemory {
         memory.u32(WORLD_USER + 0x1080, 900);
         memory.u32(WORLD_USER + 0x1084, 950);
         memory.u8(WORLD_USER + 0x1089, 3);
+        memory.u8(WORLD_USER + 0x108D, 0x08);
+        memory.u8(WORLD_USER + 0x15C88, 1);
 
         memory.u32(GUI_BACK + 0x4FA0, STATUS);
         memory.u32(GUI_BACK + 0x4FA4, EXTRA_STATUS);
@@ -100,6 +102,10 @@ impl FakeMemory {
         memory.u8(OBJECT + 0x48, 1);
         memory.u8(OBJECT + 0x98, 1);
         memory.u8(OBJECT + 0xA4, 0);
+        memory.u16(OBJECT + 0xA6, 17);
+        memory.u8(OBJECT + 0xA8, 6);
+        memory.u16(OBJECT + 0xAA, 1);
+        memory.u8(OBJECT + 0x104, 1);
         memory.i32(OBJECT + 0x40, 22);
         memory.i32(OBJECT + 0x44, 11);
         memory
@@ -210,12 +216,18 @@ fn captures_the_scalar_gameplay_snapshot() {
     let location = character.location.unwrap();
     let progression = character.pane_progression.unwrap();
     let modifiers = character.modifiers.unwrap();
+    let appearance = character.appearance.unwrap();
 
     assert_eq!(snapshot.lifecycle, RawLifecycle::InGame);
     assert_eq!(character.id, Some(0x1122_3344));
     assert_eq!(&character.name[..usize::from(character.name_len)], b"SiLo");
-    assert_eq!(character.gender, Some(0));
+    assert_eq!(appearance.gender, 0);
+    assert_eq!(appearance.hair_style, 17);
+    assert_eq!(appearance.hair_color, 6);
+    assert_eq!(appearance.body_sprite, 1);
     assert_eq!(character.class, 3);
+    assert!(character.action_locked);
+    assert!(character.is_blinded);
     assert_eq!(character.gold, 123_456);
     assert_eq!(progression.ability_points, 66_000);
     assert_eq!(character.strength, 30);
@@ -228,6 +240,27 @@ fn captures_the_scalar_gameplay_snapshot() {
     assert_eq!(&map_name.bytes[..usize::from(map_name.length)], b"Mileth");
     assert_eq!((location.x, location.y), (Some(11), Some(22)));
     assert_eq!((location.width, location.height), (100, 80));
+}
+
+#[test]
+fn non_human_appearance_is_unavailable() {
+    let mut memory = FakeMemory::gameplay();
+    memory.u8(OBJECT + 0x104, 0);
+
+    let snapshot = StateWalker::new(&memory, BASE).capture(THREAD_ID).unwrap();
+    assert!(snapshot.character.unwrap().appearance.is_none());
+}
+
+#[test]
+fn action_lock_and_blinded_state_use_exact_client_values() {
+    let mut memory = FakeMemory::gameplay();
+    memory.u8(WORLD_USER + 0x108D, 0x07);
+    memory.u8(WORLD_USER + 0x15C88, 0x02);
+
+    let snapshot = StateWalker::new(&memory, BASE).capture(THREAD_ID).unwrap();
+    let character = snapshot.character.unwrap();
+    assert!(!character.action_locked);
+    assert!(!character.is_blinded);
 }
 
 #[test]

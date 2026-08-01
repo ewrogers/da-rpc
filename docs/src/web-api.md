@@ -90,13 +90,19 @@ capture failure reason when one is available.
 
 The response identifies the source process and contains capture metadata,
 lifecycle, and an optional character. Character state includes identity,
-progression, attributes, vitals, modifiers, map location, inventory, equipment,
-spellbook, and skillbook. Occupied slots are arrays; an absent array means the
-client could not expose that group, while an empty array means the group was
-read successfully and contained no occupied slots. Item sprites exclude the
-client's type flag bits, stackable item names exclude the rendered quantity
-suffix, and `can_stack` retains the independent client flag. Equipment `slot`
-is a stable snake-case name such as `left_ring` or `accessory1`.
+appearance, progression, attributes, vitals, modifiers, map location,
+inventory, equipment, spellbook, and skillbook. Appearance is flattened into
+`gender`, `hair_style`, `hair_color`, and `body_sprite`; all four are null when
+the local character is using a monster-disguise image session. `action_locked`
+reports the separate local movement, world-drop, exchange-start, and inventory
+rearrangement lock; it is not a promise that every possible action is blocked.
+`is_blinded` follows the client-retained `SStatus` blind code.
+Occupied slots are arrays; an absent array means the client could not expose
+that group, while an empty array means the group was read successfully and
+contained no occupied slots. Item sprites exclude the client's type flag bits,
+stackable item names exclude the rendered quantity suffix, and `can_stack`
+retains the independent client flag. Equipment `slot` is a stable snake-case
+name such as `left_ring` or `accessory1`.
 
 Text-input spells expose their ASCII-only prompt. Other spell target modes
 have a null prompt. Element and target-type names are exposed without duplicate
@@ -107,10 +113,9 @@ reconnect dialog. Character state remains present when the underlying world
 structures are still valid, so consumers should use the lifecycle rather than
 the presence of a character to decide whether the session is connected.
 
-Known enum values are represented with readable snake-case names. Numeric
-identifiers are retained only where unknown values must round-trip, such as
-`class_id` and `gender_id`. Raw memory addresses and version-specific layout
-details are never exposed.
+Known enum values are represented with readable snake-case names. Duplicate
+numeric identifiers for character class and gender are not exposed. Raw memory
+addresses and version-specific layout details are never exposed.
 
 Snapshot capture semantics, unavailable values, and collection behavior are
 documented in [Client state](state.md). The complete generated JSON schema is

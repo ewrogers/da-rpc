@@ -36,9 +36,9 @@ implementation milestone is M13, event-driven updates.
 
 - [x] Added a bounded main-thread state walk with validated roots, pointer
   chains, collection capacities, slots, and world-generation detection.
-- [x] Added scalar character, map, inventory, equipment, spellbook, and
-  skillbook models across the DLL, protocol, direct CLI, daemon, REST, and
-  OpenAPI.
+- [x] Added scalar character, appearance, action-lock and blinded state, map,
+  inventory, equipment, spellbook, and skillbook models across the DLL,
+  protocol, direct CLI, daemon, REST, and OpenAPI.
 - [x] Added bounded reconnect-dialog detection and a `disconnected` lifecycle
   that preserves valid character state beneath the dialog.
 - [x] Added current-character endpoint names, canonical item sprites and names,

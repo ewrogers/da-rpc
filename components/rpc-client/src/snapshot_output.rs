@@ -35,13 +35,24 @@ pub(crate) fn render_human(
         .id
         .map_or_else(|| "unavailable".into(), |value| value.to_string());
     let name = character.name.as_deref().unwrap_or("unavailable");
-    let gender = character.gender.map_or("unavailable", gender);
+    let appearance = character.appearance;
+    let gender = appearance.map_or("unavailable", |value| gender(value.gender));
     let _ = write!(
         output,
-        "\ncharacter: id={id} name={} gender={gender} class={} gold={}",
+        concat!(
+            "\ncharacter: id={} name={} gender={} class={} action_locked={} ",
+            "is_blinded={} gold={} hair_style={} hair_color={} body_sprite={}"
+        ),
+        id,
         json_string(name),
+        gender,
         character_class(character.class),
+        character.action_locked,
+        character.is_blinded,
         character.gold,
+        optional_number(appearance.map(|value| value.hair_style)),
+        optional_number(appearance.map(|value| value.hair_color)),
+        optional_number(appearance.map(|value| value.body_sprite)),
     );
     let progression = &character.progression;
     let _ = write!(
@@ -53,9 +64,9 @@ pub(crate) fn render_human(
         progression.level,
         progression.ability_level,
         progression.experience,
-        optional_u32(progression.ability_points),
-        optional_u32(progression.experience_to_next_level),
-        optional_u32(progression.ability_to_next_level),
+        optional_number(progression.ability_points),
+        optional_number(progression.experience_to_next_level),
+        optional_number(progression.ability_to_next_level),
     );
     let stats = character.stats;
     let _ = write!(
@@ -92,8 +103,8 @@ pub(crate) fn render_human(
             "\nlocation: id={} name={} x={} y={} width={} height={}",
             location.id,
             location.name.as_deref().unwrap_or("unavailable"),
-            optional_i32(location.x),
-            optional_i32(location.y),
+            optional_number(location.x),
+            optional_number(location.y),
             location.width,
             location.height,
         );
@@ -136,13 +147,17 @@ fn character_value(character: &CharacterSnapshot) -> serde_json::Value {
     let progression = character.progression;
     let stats = character.stats;
     let vitals = character.vitals;
+    let appearance = character.appearance;
     json!({
         "id": character.id,
         "name": character.name,
-        "gender": character.gender.map(gender),
-        "gender_id": character.gender.map(Gender::raw),
+        "gender": appearance.map(|value| gender(value.gender)),
+        "hair_style": appearance.map(|value| value.hair_style),
+        "hair_color": appearance.map(|value| value.hair_color),
+        "body_sprite": appearance.map(|value| value.body_sprite),
         "class": character_class(character.class),
-        "class_id": character.class.raw(),
+        "action_locked": character.action_locked,
+        "is_blinded": character.is_blinded,
         "gold": character.gold,
         "progression": {
             "level": progression.level,
@@ -242,11 +257,7 @@ fn element(value: Element) -> &'static str {
     }
 }
 
-fn optional_u32(value: Option<u32>) -> String {
-    value.map_or_else(|| "unavailable".into(), |value| value.to_string())
-}
-
-fn optional_i32(value: Option<i32>) -> String {
+fn optional_number(value: Option<impl ToString>) -> String {
     value.map_or_else(|| "unavailable".into(), |value| value.to_string())
 }
 mod collections;

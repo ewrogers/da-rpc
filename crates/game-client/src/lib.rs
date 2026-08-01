@@ -8,10 +8,10 @@ pub use runtime::{
     MAP_SIZE_HANDLER_RVA,
 };
 pub use state::{
-    ABILITY_SLOT_COUNT, EQUIPMENT_SLOT_COUNT, INVENTORY_SLOT_COUNT, MemoryReader, RawCharacter,
-    RawClientText, RawEquipment, RawEquipmentItem, RawInventory, RawInventoryItem, RawLifecycle,
-    RawLocation, RawMapName, RawModifiers, RawPaneProgression, RawSkill, RawSkillbook, RawSpell,
-    RawSpellbook, RawStateSnapshot, StateReadError, StateWalker,
+    ABILITY_SLOT_COUNT, EQUIPMENT_SLOT_COUNT, INVENTORY_SLOT_COUNT, MemoryReader, RawAppearance,
+    RawCharacter, RawClientText, RawEquipment, RawEquipmentItem, RawInventory, RawInventoryItem,
+    RawLifecycle, RawLocation, RawMapName, RawModifiers, RawPaneProgression, RawSkill,
+    RawSkillbook, RawSpell, RawSpellbook, RawStateSnapshot, StateReadError, StateWalker,
 };
 
 use sha2::{Digest, Sha256};

@@ -25,8 +25,10 @@ pub struct RawCharacter {
     pub id: Option<u32>,
     pub name: [u8; 16],
     pub name_len: u8,
-    pub gender: Option<u8>,
+    pub appearance: Option<RawAppearance>,
     pub class: u8,
+    pub action_locked: bool,
+    pub is_blinded: bool,
     pub gold: u32,
     pub level: u8,
     pub ability_level: u8,
@@ -47,6 +49,14 @@ pub struct RawCharacter {
     pub equipment: Option<super::RawEquipment>,
     pub spellbook: Option<super::RawSpellbook>,
     pub skillbook: Option<super::RawSkillbook>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RawAppearance {
+    pub gender: u8,
+    pub hair_style: u16,
+    pub hair_color: u8,
+    pub body_sprite: u16,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

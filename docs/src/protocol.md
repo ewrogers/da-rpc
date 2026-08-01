@@ -207,8 +207,10 @@ struct ClientSnapshot {
 struct CharacterSnapshot {
     id: Option<u32>;
     name: Option<utf8>;
-    gender: Option<Gender>;
+    appearance: Option<CharacterAppearance>;
     class: CharacterClass;
+    action_locked: bool;
+    is_blinded: bool;
     gold: u32;
     progression: CharacterProgression;
     stats: CharacterStats;
@@ -219,6 +221,13 @@ struct CharacterSnapshot {
     equipment: Option<Vec<EquipmentItem>>;
     spellbook: Option<Vec<Spell>>;
     skillbook: Option<Vec<Skill>>;
+}
+
+struct CharacterAppearance {
+    gender: Gender;
+    hair_style: u16;
+    hair_color: u8;
+    body_sprite: u16;
 }
 
 struct InventoryItem {

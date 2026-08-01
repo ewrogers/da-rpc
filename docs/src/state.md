@@ -12,8 +12,9 @@ addresses, pointer chains, and version-specific structures. The implemented
 snapshot contains:
 
 - Lifecycle, revision, capture tick and duration, and world generation.
-- Character identity, name, gender, class, gold, progression, attributes,
-  vitals, combat modifiers, and elemental affinities.
+- Character identity, name, gender, hairstyle, hair color, body sprite, class,
+  action lock, gold, progression, attributes, vitals, combat modifiers, and
+  elemental affinities.
 - Map identity, name, coordinates, and dimensions.
 - Occupied inventory and equipment slots with appearance, names, quantities,
   and durability where applicable.
@@ -25,6 +26,20 @@ display and is omitted because `gold` is represented once as character state.
 Optional values remain unavailable rather than receiving invented defaults.
 For example, the client exposes whether a spell action delay is active but not
 its remaining duration, so the duration remains absent.
+
+Gender, `hair_style`, `hair_color`, and `body_sprite` come from one stable local
+world-object appearance record. The hairstyle is the renderer's 16-bit head
+sprite selector, hair color is a palette index, and body sprite identifies the
+current human body form. All four values are unavailable together when the
+local object is using a monster-disguise image session.
+
+`action_locked` is the retained local action-state bit. It blocks movement,
+world drops, incoming exchange start, and inventory-slot rearrangement. It is
+not a general `can_act` value: normal turning and the usual item, skill, and
+spell activation paths do not consult this bit.
+
+`is_blinded` is true only when the retained `SStatus` blind code is `0x08`.
+Other values are not treated as blinded by the client.
 
 Inventory and equipment sprites are canonical resource identifiers with the
 client's item and monster classification bits removed. Stackable inventory

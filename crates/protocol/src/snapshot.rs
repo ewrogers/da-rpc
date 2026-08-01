@@ -3,8 +3,9 @@ use crate::{
     message::{PayloadReader, push_bool, push_i32, push_u16, push_u32},
 };
 use darpc_model::{
-    CharacterClass, CharacterModifiers, CharacterProgression, CharacterSnapshot, CharacterStats,
-    CharacterVitals, ClientLifecycle, ClientSnapshot, Element, Gender, MapLocation,
+    CharacterAppearance, CharacterClass, CharacterModifiers, CharacterProgression,
+    CharacterSnapshot, CharacterStats, CharacterVitals, ClientLifecycle, ClientSnapshot, Element,
+    Gender, MapLocation,
 };
 
 pub const MAX_CHARACTER_NAME_LEN: usize = 15;
@@ -93,14 +94,19 @@ fn encode_character(
 ) -> Result<(), EncodeError> {
     encode_optional_u32(output, character.id);
     encode_optional_string(output, character.name.as_deref(), MAX_CHARACTER_NAME_LEN)?;
-    match character.gender {
-        Some(gender) => {
+    match character.appearance {
+        Some(appearance) => {
             output.push(1);
-            output.push(gender.raw());
+            output.push(appearance.gender.raw());
+            push_u16(output, appearance.hair_style);
+            output.push(appearance.hair_color);
+            push_u16(output, appearance.body_sprite);
         }
         None => output.push(0),
     }
     output.push(character.class.raw());
+    push_bool(output, character.action_locked);
+    push_bool(output, character.is_blinded);
     push_u32(output, character.gold);
 
     output.push(character.progression.level);
@@ -161,12 +167,19 @@ fn encode_character(
 fn decode_character(reader: &mut PayloadReader<'_>) -> Result<CharacterSnapshot, DecodeError> {
     let id = decode_optional_u32(reader)?;
     let name = decode_optional_string(reader, MAX_CHARACTER_NAME_LEN)?;
-    let gender = if reader.read_bool()? {
-        Some(Gender::from_raw(reader.read_u8()?))
+    let appearance = if reader.read_bool()? {
+        Some(CharacterAppearance {
+            gender: Gender::from_raw(reader.read_u8()?),
+            hair_style: reader.read_u16()?,
+            hair_color: reader.read_u8()?,
+            body_sprite: reader.read_u16()?,
+        })
     } else {
         None
     };
     let class = CharacterClass::from_raw(reader.read_u8()?);
+    let action_locked = reader.read_bool()?;
+    let is_blinded = reader.read_bool()?;
     let gold = reader.read_u32()?;
     let level = reader.read_u8()?;
     let ability_level = reader.read_u8()?;
@@ -228,8 +241,10 @@ fn decode_character(reader: &mut PayloadReader<'_>) -> Result<CharacterSnapshot,
     Ok(CharacterSnapshot {
         id,
         name,
-        gender,
+        appearance,
         class,
+        action_locked,
+        is_blinded,
         gold,
         progression: CharacterProgression {
             level,

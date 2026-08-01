@@ -565,8 +565,8 @@ Done:
 
 Build:
 
-- Character identity, progression, attributes, vitals, modifiers, gold, and
-  current map state.
+- Character identity, appearance, local action lock, blinded state,
+  progression, attributes, vitals, modifiers, gold, and current map state.
 - Occupied inventory, equipment, spellbook, and skillbook slots.
 - Validated roots, offsets, bounds, fixed-capacity hook buffers, and world
   generation tracking.

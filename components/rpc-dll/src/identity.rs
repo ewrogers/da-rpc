@@ -14,35 +14,43 @@ use windows_sys::{
     core::GUID,
 };
 
-pub(crate) fn hello() -> io::Result<Hello> {
-    let (executable_fingerprint, client_version) = client_identity()?;
+pub(crate) struct CurrentIdentity {
+    pub(crate) hello: Hello,
+    pub(crate) supported_client: bool,
+}
 
-    Ok(Hello {
-        protocol_versions: SUPPORTED_VERSIONS,
-        dll_instance_id: instance_id()?,
-        process_id: std::process::id(),
-        process_creation_time: process_creation_time()?,
-        architecture: architecture()?,
-        dll_version: ComponentVersion {
-            major: version_component(env!("CARGO_PKG_VERSION_MAJOR"))?,
-            minor: version_component(env!("CARGO_PKG_VERSION_MINOR"))?,
-            patch: version_component(env!("CARGO_PKG_VERSION_PATCH"))?,
+pub(crate) fn current() -> io::Result<CurrentIdentity> {
+    let (executable_fingerprint, client_version, supported_client) = client_identity()?;
+
+    Ok(CurrentIdentity {
+        hello: Hello {
+            protocol_versions: SUPPORTED_VERSIONS,
+            dll_instance_id: instance_id()?,
+            process_id: std::process::id(),
+            process_creation_time: process_creation_time()?,
+            architecture: architecture()?,
+            dll_version: ComponentVersion {
+                major: version_component(env!("CARGO_PKG_VERSION_MAJOR"))?,
+                minor: version_component(env!("CARGO_PKG_VERSION_MINOR"))?,
+                patch: version_component(env!("CARGO_PKG_VERSION_PATCH"))?,
+            },
+            executable_fingerprint,
+            client_version,
         },
-        executable_fingerprint,
-        client_version,
+        supported_client,
     })
 }
 
-fn client_identity() -> io::Result<([u8; 32], u32)> {
+fn client_identity() -> io::Result<([u8; 32], u32, bool)> {
     let executable_path = env::current_exe()?;
     match ClientExecutable::validate(&executable_path) {
-        Ok(_) => Ok((EXECUTABLE_SHA256, CLIENT_VERSION_CODE)),
+        Ok(_) => Ok((EXECUTABLE_SHA256, CLIENT_VERSION_CODE, true)),
         Err(error) => {
             #[cfg(debug_assertions)]
             if env::var_os(DEBUG_UNSUPPORTED_CLIENT_BYPASS_ENVIRONMENT_VARIABLE).as_deref()
                 == Some(std::ffi::OsStr::new("1"))
             {
-                return Ok(([0; 32], 0));
+                return Ok(([0; 32], 0, false));
             }
 
             Err(io::Error::new(io::ErrorKind::InvalidData, error))

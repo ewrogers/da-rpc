@@ -569,6 +569,7 @@ name = "rpc-dll"
 version = "0.1.0"
 dependencies = [
  "darpc-game-client",
+ "darpc-hook",
  "darpc-model",
  "darpc-protocol",
  "darpc-win32",

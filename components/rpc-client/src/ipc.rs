@@ -3,13 +3,18 @@ use crate::{
     error::{ClientError, ErrorKind, Result},
     output::CommandResult,
 };
-use darpc_protocol::{EchoRequest, Message, Ping, elapsed_tick_ms};
+use darpc_protocol::{
+    EchoRequest, Message, Ping, TickHealthRequest, TickHealthResponse, elapsed_tick_ms,
+};
 use darpc_win32::{
     controller::{ControllerError, ControllerSession},
     pipe::sender_tick_ms,
 };
+use std::{thread, time::Duration};
 
 const REQUEST_ID: u32 = 1;
+const SECOND_REQUEST_ID: u32 = 2;
+const TICK_SAMPLE_INTERVAL: Duration = Duration::from_millis(250);
 
 pub(crate) fn execute(pid: u32, operation: IpcOperation) -> Result<CommandResult> {
     let mut session =
@@ -59,6 +64,31 @@ pub(crate) fn execute(pid: u32, operation: IpcOperation) -> Result<CommandResult
                 )),
             }
         }
+        IpcOperation::TickHealth => {
+            let (first, first_tick_ms) = request_tick_health(&mut session, pid, REQUEST_ID)?;
+            thread::sleep(TICK_SAMPLE_INTERVAL);
+            let (second, second_tick_ms) =
+                request_tick_health(&mut session, pid, SECOND_REQUEST_ID)?;
+
+            if first.installed != second.installed
+                || first.relocated_bytes != second.relocated_bytes
+            {
+                return Err(protocol_error(
+                    pid,
+                    "tick hook changed during health sampling",
+                ));
+            }
+
+            Ok(CommandResult::TickHealth {
+                pid,
+                installed: second.installed,
+                relocated_bytes: second.relocated_bytes,
+                first_tick_count: first.tick_count,
+                tick_count: second.tick_count,
+                tick_delta: second.tick_count.wrapping_sub(first.tick_count),
+                sample_ms: elapsed_tick_ms(first_tick_ms, second_tick_ms),
+            })
+        }
         IpcOperation::Echo(text) => {
             let request_text = text.clone();
             let request = session
@@ -104,6 +134,38 @@ pub(crate) fn execute(pid: u32, operation: IpcOperation) -> Result<CommandResult
                 )),
             }
         }
+    }
+}
+
+fn request_tick_health(
+    session: &mut ControllerSession,
+    pid: u32,
+    request_id: u32,
+) -> Result<(TickHealthResponse, u32)> {
+    session
+        .send(Message::TickHealthRequest(TickHealthRequest { request_id }))
+        .map_err(|error| controller_error(pid, error))?;
+    let response = session
+        .receive()
+        .map_err(|error| controller_error(pid, error))?;
+    match response.message {
+        Message::TickHealthResponse(message) if message.request_id == request_id => {
+            Ok((message, response.sender_tick_ms))
+        }
+        Message::TickHealthResponse(message) => Err(protocol_error(
+            pid,
+            format!(
+                "TickHealthResponse request ID {} does not match {request_id}",
+                message.request_id
+            ),
+        )),
+        message => Err(protocol_error(
+            pid,
+            format!(
+                "expected TickHealthResponse, received {:?}",
+                message.message_type()
+            ),
+        )),
     }
 }
 

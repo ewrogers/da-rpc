@@ -2,8 +2,8 @@ use darpc_protocol::{
     Architecture, ComponentVersion, DecodeError, EchoRequest, EchoResponse, EncodeError,
     FRAME_HEADER_LEN, FRAME_MAGIC, FRAME_VERSION, Frame, FrameHeader, Hello, HelloAck,
     MAX_ECHO_TEXT_LEN, MAX_PAYLOAD_LEN, Message, MessageType, PROTOCOL_VERSION_1_0, Ping, Pong,
-    VersionRange, decode_frame, decode_header, encode_frame, protocol_version,
-    protocol_version_major, protocol_version_minor,
+    TickHealthRequest, TickHealthResponse, VersionRange, decode_frame, decode_header, encode_frame,
+    protocol_version, protocol_version_major, protocol_version_minor,
 };
 
 fn hello() -> Hello {
@@ -62,6 +62,13 @@ fn every_message_round_trips() {
         Message::EchoResponse(EchoResponse {
             request_id: 4,
             text: "world".into(),
+        }),
+        Message::TickHealthRequest(TickHealthRequest { request_id: 5 }),
+        Message::TickHealthResponse(TickHealthResponse {
+            request_id: 6,
+            installed: true,
+            relocated_bytes: 5,
+            tick_count: u32::MAX,
         }),
     ];
 
@@ -198,6 +205,15 @@ fn fixed_payload_sizes_are_exact() {
         decode_frame(&long),
         Err(DecodeError::TrailingMessageBytes { .. })
     ));
+
+    let invalid_boolean = frame_for(
+        MessageType::TickHealthResponse,
+        &[1, 0, 0, 0, 2, 5, 9, 0, 0, 0],
+    );
+    assert_eq!(
+        decode_frame(&invalid_boolean),
+        Err(DecodeError::InvalidBoolean { actual: 2 })
+    );
 }
 
 #[test]

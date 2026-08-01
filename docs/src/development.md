@@ -73,10 +73,12 @@ cargo build -p rpc-client --target x86_64-pc-windows-msvc
 ```
 
 The script uses the inert `injection-target.exe` and a debug-only unsupported
-client bypass. It verifies hello, ping, byte-exact echo, missing and busy pipe
-errors, malformed-client isolation, reconnect, and bounded cancellation during
-shutdown. The bypass is unavailable in release builds and is never a substitute
-for validation against the supported client.
+client bypass. It verifies hello, ping, byte-exact echo, tick-hook
+health, missing and busy pipe errors, malformed-client isolation, reconnect,
+and bounded cancellation during shutdown. The controlled target reports the
+hook as not installed. Its DLL log must contain the skipped-hook and health
+sample records. The bypass is unavailable in release builds and is never a
+substitute for validation against the supported client.
 
 The daemon registry integration test uses two controlled targets and both
 runtime architectures:

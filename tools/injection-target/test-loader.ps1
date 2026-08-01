@@ -192,6 +192,25 @@ try {
     Stop-InjectionTarget $Process
 }
 
+Write-Host "Testing initialization failure that is unsafe to unload"
+$Process = Start-InjectionTarget "init-unsafe"
+try {
+    $Result = Invoke-Loader `
+        -CommandArgs @("attach", "$($Process.Id)", $FixtureDarpcDll) `
+        -ExpectedExitCode 11
+    Assert-True ($Result.error.kind -eq "initialization_failed") "unsafe initialization failure was not distinct"
+    Assert-True ($Result.error.message -match "remains loaded") "unsafe initialization failure did not explain retained DLL"
+    Assert-TargetRunning $Process "unsafe initialization failure"
+
+    $Result = Invoke-Loader -CommandArgs @("inspect", "$($Process.Id)")
+    Assert-True $Result.darpc_loaded "unsafe initialization failure unloaded darpc.dll"
+
+    $Result = Invoke-Loader -CommandArgs @("detach", "$($Process.Id)", $FixtureDarpcDll)
+    Assert-True (-not $Result.darpc_loaded) "cleanup detach left darpc.dll loaded"
+} finally {
+    Stop-InjectionTarget $Process
+}
+
 Write-Host "Testing shutdown failure"
 $Process = Start-InjectionTarget "shutdown-fail"
 try {

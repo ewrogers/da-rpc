@@ -6,6 +6,8 @@ mod identity;
 mod ipc;
 #[cfg(windows)]
 mod lifecycle;
+#[cfg(windows)]
+mod tick_hook;
 
 #[cfg(windows)]
 use windows_sys::{
@@ -40,8 +42,12 @@ pub extern "system" fn darpc_initialize(abi_version: u32) -> Status {
             return Status::UNSUPPORTED_ABI_VERSION;
         }
 
-        if lifecycle::initialize().is_err() {
-            return Status::INTERNAL_ERROR;
+        if let Err(error) = lifecycle::initialize() {
+            return if error.unload_is_safe() {
+                Status::INTERNAL_ERROR
+            } else {
+                Status::UNLOAD_UNSAFE
+            };
         }
 
         Status::OK

@@ -12,6 +12,7 @@ impl Status {
     pub const UNSUPPORTED_ABI_VERSION: Self = Self(1);
     pub const INVALID_ARGUMENT: Self = Self(2);
     pub const INTERNAL_ERROR: Self = Self(3);
+    pub const UNLOAD_UNSAFE: Self = Self(4);
 
     pub const fn as_u32(self) -> u32 {
         self.0

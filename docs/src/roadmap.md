@@ -101,7 +101,7 @@ directly for discovery, aggregation, action status, and multi-client behavior.
 | M9 | Discovery and managed launch | `darpcd.exe` reconciles candidates and invokes the loader explicitly. | Complete |
 | M9.1 | Automatic managed loading | An opt-in daemon policy loads each uninjected client once. | Complete |
 | M10 | Hook qualification harness | The hook mechanism preserves a controlled test function exactly. | Complete |
-| M11 | First client tick hook | The daemon reports client ticks while the game behaves normally. | Planned |
+| M11 | First client tick hook | Direct IPC reports client ticks while the game behaves normally. | Complete |
 | M12 | Minimal late-attach snapshot | The direct CLI and daemon API expose a small real-client state slice. | Planned |
 | M13 | Event-driven updates | One normal game event updates state without another snapshot. | Planned |
 | M14 | Main-thread command queue | A diagnostic command completes on a client tick. | Planned |
@@ -110,7 +110,7 @@ directly for discovery, aggregation, action status, and multi-client behavior.
 | M17 | Multi-client hardening and preview | Failure and soak evidence support a preview release. | Planned |
 | M18 | WebSocket and remote access | Added only for a proven use case and defined security model. | Deferred |
 
-M2 through M10 are complete. M11 is the next planned implementation milestone.
+M2 through M11 are complete. M12 is the next planned implementation milestone.
 M1 has been exercised manually, but its separate evidence checklist remains
 open until the lifecycle-host Windows continuous-integration coverage is
 present. The working checklist is maintained in the [repository progress

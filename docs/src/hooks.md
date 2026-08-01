@@ -2,7 +2,8 @@
 
 daRPC uses a small in-process x86 detour implementation in the `darpc-hook`
 crate. The implementation is qualified against owned code before it is used
-with the game client. No game-client hook is installed by the current runtime.
+with the game client. The current runtime uses it for one minimal
+`event_dispatcher_tick` health hook.
 
 ## Organization
 
@@ -16,9 +17,28 @@ target computes `left * 3 + right` with wrapping 32-bit arithmetic. The harness
 checks the same inputs before installation, through the detour, and after
 removal while retaining only a bounded observation counter.
 
-Future client hooks belong in `darpc.dll`. They must supply validated addresses,
-the exact native ABI, a detour code range, and an activity counter to the shared
+Client hooks belong in `darpc.dll`. They supply validated addresses, the exact
+native ABI, a detour code range, and an activity counter to the shared
 mechanism.
+
+## Client tick hook
+
+The DLL installs the tick hook only after validating the exact supported
+executable fingerprint. It derives the target from the executable module base
+and the version-specific relative virtual address, then verifies the expected
+entry bytes before preparing or changing code. A mismatch fails DLL
+initialization and rolls back the IPC worker.
+
+The x86 detour preserves the target's `thiscall` receiver, increments a
+wrapping atomic `u32` counter, calls the original function through its relocated
+trampoline, and returns normally. The hook path takes no lock, allocates no
+memory, performs no I/O, and calls no unrelated client function.
+
+The DLL worker reads the atomic health state for `TickHealthRequest` messages
+and writes diagnostic samples to
+`%USERPROFILE%\darpc\logs\pid-<pid>.log`. `darpc.exe ipc tick-health --pid
+<pid>` samples twice and reports installation, relocated-byte, counter, and
+advancement fields. Logging and named-pipe work never execute in the hook.
 
 ## Preparation and relocation
 
@@ -69,10 +89,21 @@ before thread enlistment. The commit path performs no Rust heap allocation.
 A process with more than 256 enlistable threads is rejected instead of growing
 storage while other threads are suspended.
 
+Every resume is checked and retried. A thread that exited while enlisted is no
+longer considered suspended; a live thread that still cannot be resumed is a
+lifecycle failure. Successful installation retains detour ownership even when
+resumption reports a warning. DLL initialization then returns `UNLOAD_UNSAFE`
+while keeping the lifecycle state, so the loader cannot accidentally discard a
+live trampoline or target reservation.
+
 If cache flushing or protection restoration fails after a target write, the
 transaction restores the original bytes, flushes them, and restores the prior
 protection before returning an error. A native unit test injects a failure
 immediately after the write and verifies byte-exact rollback.
+
+If rollback itself cannot be confirmed, DLL initialization returns the
+`UNLOAD_UNSAFE` lifecycle status. A late-attach loader leaves the DLL mapped
+instead of calling `FreeLibrary` against potentially referenced hook code.
 
 ## Detour lifetime
 
@@ -99,6 +130,8 @@ no panic or unwind may cross a native client ABI.
 Windows continuous integration runs the following on an x86 target:
 
 - decoder, code-range, reservation, and injected rollback unit tests;
+- deterministic target-instruction-pointer, active-call, and resume-failure
+  ownership tests;
 - Clippy for the hook crate and harness;
 - debug and release harness executions;
 - repeated preparation and removal checks;
@@ -109,5 +142,7 @@ Windows continuous integration runs the following on an x86 target:
 - proof that the observation counter stops changing after removal while target
   calls continue.
 
-These checks qualify the mechanism only. A client fingerprint, target address,
-function ABI, and live-client soak remain mandatory for every actual game hook.
+These checks qualify the mechanism. The tick hook additionally requires an
+exact client fingerprint, target address, entry-byte contract, native ABI,
+advancing live-client health samples, repeatable clean removal, and continued
+normal client behavior.

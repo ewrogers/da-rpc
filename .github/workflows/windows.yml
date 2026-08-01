@@ -114,6 +114,13 @@ jobs:
           ./tools/test-hook.ps1 -TargetDir ./target/i686-pc-windows-msvc/debug
           ./tools/test-hook.ps1 -TargetDir ./target/i686-pc-windows-msvc/release
 
+      - name: Run direct IPC integration checks
+        shell: pwsh
+        run: >
+          ./tools/test-ipc.ps1
+          -X86TargetDir ./target/i686-pc-windows-msvc/debug
+          -X64TargetDir ./target/debug
+
       - name: Run daemon integration checks
         shell: pwsh
         run: >

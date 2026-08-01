@@ -126,6 +126,19 @@ pub struct EchoResponse {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TickHealthRequest {
+    pub request_id: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TickHealthResponse {
+    pub request_id: u32,
+    pub installed: bool,
+    pub relocated_bytes: u8,
+    pub tick_count: u32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u16)]
 pub enum MessageType {
     Hello = 1,
@@ -134,6 +147,8 @@ pub enum MessageType {
     Pong = 4,
     EchoRequest = 5,
     EchoResponse = 6,
+    TickHealthRequest = 7,
+    TickHealthResponse = 8,
 }
 
 impl MessageType {
@@ -150,6 +165,8 @@ impl MessageType {
             4 => Ok(Self::Pong),
             5 => Ok(Self::EchoRequest),
             6 => Ok(Self::EchoResponse),
+            7 => Ok(Self::TickHealthRequest),
+            8 => Ok(Self::TickHealthResponse),
             actual => Err(DecodeError::UnknownMessageType { actual }),
         }
     }
@@ -163,6 +180,8 @@ pub enum Message {
     Pong(Pong),
     EchoRequest(EchoRequest),
     EchoResponse(EchoResponse),
+    TickHealthRequest(TickHealthRequest),
+    TickHealthResponse(TickHealthResponse),
 }
 
 impl Message {
@@ -175,6 +194,8 @@ impl Message {
             Self::Pong(_) => MessageType::Pong,
             Self::EchoRequest(_) => MessageType::EchoRequest,
             Self::EchoResponse(_) => MessageType::EchoResponse,
+            Self::TickHealthRequest(_) => MessageType::TickHealthRequest,
+            Self::TickHealthResponse(_) => MessageType::TickHealthResponse,
         }
     }
 
@@ -213,6 +234,14 @@ impl Message {
             }
             Self::EchoResponse(message) => {
                 encode_echo(&mut output, message.request_id, &message.text)?;
+            }
+            Self::TickHealthRequest(message) => push_u32(&mut output, message.request_id),
+            Self::TickHealthResponse(message) => {
+                output.reserve(10);
+                push_u32(&mut output, message.request_id);
+                output.push(u8::from(message.installed));
+                output.push(message.relocated_bytes);
+                push_u32(&mut output, message.tick_count);
             }
         }
         Ok(output)
@@ -263,6 +292,15 @@ impl Message {
                 let (request_id, text) = decode_echo(&mut reader)?;
                 Self::EchoResponse(EchoResponse { request_id, text })
             }
+            MessageType::TickHealthRequest => Self::TickHealthRequest(TickHealthRequest {
+                request_id: reader.read_u32()?,
+            }),
+            MessageType::TickHealthResponse => Self::TickHealthResponse(TickHealthResponse {
+                request_id: reader.read_u32()?,
+                installed: reader.read_bool()?,
+                relocated_bytes: reader.read_u8()?,
+                tick_count: reader.read_u32()?,
+            }),
         };
         reader.finish()?;
         Ok(message)
@@ -330,6 +368,14 @@ impl<'a> PayloadReader<'a> {
 
     fn read_u8(&mut self) -> Result<u8, DecodeError> {
         Ok(self.take(1)?[0])
+    }
+
+    fn read_bool(&mut self) -> Result<bool, DecodeError> {
+        match self.read_u8()? {
+            0 => Ok(false),
+            1 => Ok(true),
+            actual => Err(DecodeError::InvalidBoolean { actual }),
+        }
     }
 
     fn read_u16(&mut self) -> Result<u16, DecodeError> {

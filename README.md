@@ -8,7 +8,8 @@ The project is in early development and does not yet provide a working client
 state integration. Injection, launch-time patches, direct named-pipe
 diagnostics, automatic client discovery, and daemon-managed client lifecycle
 operations are implemented. The x86 detour mechanism is qualified against an
-owned concurrent test harness, but no game-client hook is installed yet.
+owned concurrent test harness, and the first game-client tick hook is
+implemented and qualified through controlled and live-client testing.
 
 Read the [daRPC Book](https://ewrogers.github.io/da-rpc/) for the architecture,
 current implementation status, protocol, safety requirements, and development
@@ -203,13 +204,15 @@ With `darpc.dll` initialized in a process and `darpcd.exe` disconnected, the
 darpc.exe ipc hello --pid <pid>
 darpc.exe ipc ping --pid <pid>
 darpc.exe ipc echo --pid <pid> "hello"
+darpc.exe ipc tick-health --pid <pid>
 darpc.exe --output json ipc hello --pid <pid>
 ```
 
 These diagnostic commands perform the real binary handshake and validate
-ordering, correlation, and timing without reading game state or installing
-hooks. See the [`darpc.exe` documentation](https://ewrogers.github.io/da-rpc/cli.html)
-for output fields and exit codes.
+ordering, correlation, and timing. `tick-health` samples the installed client
+tick hook twice and reports whether its bounded counter advances. See the
+[`darpc.exe` documentation](https://ewrogers.github.io/da-rpc/cli.html) for
+output fields and exit codes.
 
 `darpc.exe` does not call the daemon HTTP API. It remains usable with only the
 loader and an injected DLL. Multi-client aggregation is available directly

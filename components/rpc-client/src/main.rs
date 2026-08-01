@@ -14,6 +14,7 @@ const USAGE: &str = "\
 usage:
     darpc [--output <table|json>] ipc hello --pid <pid>
     darpc [--output <table|json>] ipc ping --pid <pid>
+    darpc [--output <table|json>] ipc tick-health --pid <pid>
     darpc [--output <table|json>] ipc echo --pid <pid> <text>";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -25,6 +26,7 @@ enum Command {
 enum IpcOperation {
     Hello,
     Ping,
+    TickHealth,
     Echo(String),
 }
 
@@ -39,6 +41,10 @@ impl Command {
                 operation: IpcOperation::Ping,
                 ..
             } => "ipc.ping",
+            Self::Ipc {
+                operation: IpcOperation::TickHealth,
+                ..
+            } => "ipc.tick-health",
             Self::Ipc {
                 operation: IpcOperation::Echo(_),
                 ..
@@ -140,6 +146,7 @@ fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
     let operation = match action.as_str() {
         "hello" => IpcOperation::Hello,
         "ping" => IpcOperation::Ping,
+        "tick-health" => IpcOperation::TickHealth,
         "echo" => {
             let text = arguments
                 .next()
@@ -230,6 +237,16 @@ mod tests {
                 Command::Ipc {
                     pid: 7,
                     operation: IpcOperation::Echo("hello".into()),
+                }
+            )
+        );
+        assert_eq!(
+            parse(arguments(&["ipc", "tick-health", "--pid", "9"])).unwrap(),
+            (
+                OutputFormat::Table,
+                Command::Ipc {
+                    pid: 9,
+                    operation: IpcOperation::TickHealth,
                 }
             )
         );

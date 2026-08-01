@@ -1,8 +1,11 @@
 use super::{CodeRange, DetourError};
+#[cfg(test)]
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::{io, mem};
 use windows_sys::Win32::{
     Foundation::{
         CloseHandle, ERROR_INVALID_PARAMETER, ERROR_NO_MORE_FILES, HANDLE, INVALID_HANDLE_VALUE,
+        STILL_ACTIVE,
     },
     System::{
         Diagnostics::{
@@ -13,13 +16,20 @@ use windows_sys::Win32::{
             },
         },
         Threading::{
-            GetCurrentProcessId, GetCurrentThreadId, OpenThread, ResumeThread, SuspendThread,
-            THREAD_GET_CONTEXT, THREAD_QUERY_INFORMATION, THREAD_SUSPEND_RESUME,
+            GetCurrentProcessId, GetCurrentThreadId, GetExitCodeThread, OpenThread, ResumeThread,
+            SuspendThread, THREAD_GET_CONTEXT, THREAD_QUERY_INFORMATION, THREAD_SUSPEND_RESUME,
         },
     },
 };
 
 const MAX_SUSPENDED_THREADS: usize = 256;
+
+#[cfg(test)]
+static TEST_INSTRUCTION_POINTER: AtomicUsize = AtomicUsize::new(0);
+#[cfg(test)]
+static TEST_RESUME_WARNING: AtomicBool = AtomicBool::new(false);
+#[cfg(test)]
+static TEST_THREAD_ID: AtomicUsize = AtomicUsize::new(0);
 
 pub(super) struct SuspendedThreads {
     threads: Vec<SuspendedThread>,
@@ -50,6 +60,13 @@ impl SuspendedThreads {
                         .any(|thread| thread.id == thread_id)
                 {
                     continue;
+                }
+                #[cfg(test)]
+                {
+                    let test_thread_id = TEST_THREAD_ID.load(Ordering::Acquire) as u32;
+                    if test_thread_id != 0 && thread_id != test_thread_id {
+                        continue;
+                    }
                 }
                 if suspended.threads.len() == MAX_SUSPENDED_THREADS {
                     return Err(DetourError::TooManyThreads {
@@ -87,10 +104,16 @@ impl SuspendedThreads {
         Ok(())
     }
 
-    pub(super) fn resume(mut self) {
+    pub(super) fn resume(mut self) -> Option<DetourError> {
+        let mut first_error = None;
         for thread in self.threads.iter_mut().rev() {
-            thread.resume();
+            if let Some(error) = thread.resume()
+                && first_error.is_none()
+            {
+                first_error = Some(error);
+            }
         }
+        first_error
     }
 }
 
@@ -146,6 +169,14 @@ impl SuspendedThread {
     }
 
     fn instruction_pointer(&self) -> Result<usize, DetourError> {
+        #[cfg(test)]
+        {
+            let instruction_pointer = TEST_INSTRUCTION_POINTER.load(Ordering::Acquire);
+            if instruction_pointer != 0 {
+                return Ok(instruction_pointer);
+            }
+        }
+
         // SAFETY: an all-zero x86 CONTEXT is valid once ContextFlags is set.
         let mut context: CONTEXT = unsafe { mem::zeroed() };
         context.ContextFlags = CONTEXT_CONTROL_X86;
@@ -159,31 +190,77 @@ impl SuspendedThread {
         Ok(context.Eip as usize)
     }
 
-    fn resume(&mut self) {
+    fn resume(&mut self) -> Option<DetourError> {
         if !self.suspended {
-            return;
+            return None;
         }
 
+        let mut last_error = None;
         for _ in 0..3 {
             // SAFETY: this object owns one successful suspension and the live
             // thread handle grants THREAD_SUSPEND_RESUME.
             if unsafe { ResumeThread(self.handle) } != u32::MAX {
                 self.suspended = false;
-                return;
+                #[cfg(test)]
+                if TEST_RESUME_WARNING.swap(false, Ordering::AcqRel) {
+                    return Some(DetourError::ThreadResumeFailed {
+                        thread_id: self.id,
+                        source: io::Error::other("injected post-resume warning"),
+                    });
+                }
+                return None;
             }
+            last_error = Some(io::Error::last_os_error());
         }
+
+        let mut exit_code = STILL_ACTIVE as u32;
+        // SAFETY: this object owns a live thread handle with query access and
+        // exit_code points to writable storage.
+        if unsafe { GetExitCodeThread(self.handle, &mut exit_code) } != 0
+            && exit_code != STILL_ACTIVE as u32
+        {
+            self.suspended = false;
+            return None;
+        }
+
+        Some(DetourError::ThreadResumeFailed {
+            thread_id: self.id,
+            source: last_error.unwrap_or_else(io::Error::last_os_error),
+        })
     }
 }
 
 impl Drop for SuspendedThread {
     fn drop(&mut self) {
-        self.resume();
+        let _ = self.resume();
         // SAFETY: this object owns the matching live thread handle. Explicit
         // resume is attempted before handle closure, including on error paths.
         unsafe {
             CloseHandle(self.handle);
         }
     }
+}
+
+#[cfg(test)]
+pub(super) fn set_test_instruction_pointer(instruction_pointer: usize) {
+    TEST_INSTRUCTION_POINTER.store(instruction_pointer, Ordering::Release);
+}
+
+#[cfg(test)]
+pub(super) fn inject_test_resume_warning() {
+    TEST_RESUME_WARNING.store(true, Ordering::Release);
+}
+
+#[cfg(test)]
+pub(super) fn set_test_thread_id(thread_id: u32) {
+    TEST_THREAD_ID.store(thread_id as usize, Ordering::Release);
+}
+
+#[cfg(test)]
+pub(super) fn clear_test_overrides() {
+    TEST_INSTRUCTION_POINTER.store(0, Ordering::Release);
+    TEST_RESUME_WARNING.store(false, Ordering::Release);
+    TEST_THREAD_ID.store(0, Ordering::Release);
 }
 
 fn enumerate_thread_ids(process_id: u32, output: &mut Vec<u32>) -> Result<(), DetourError> {

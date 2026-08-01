@@ -139,8 +139,10 @@ $RawPipe = $null
 try {
     Start-Sleep -Milliseconds 200
     Assert-TargetRunning $Process "startup"
+    $LogPath = Join-Path $env:USERPROFILE "darpc\logs\pid-$($Process.Id).log"
+    Remove-Item -LiteralPath $LogPath -Force -ErrorAction SilentlyContinue
 
-    Write-Host "Testing direct hello, ping, and byte-exact echo"
+    Write-Host "Testing direct hello, ping, tick health, and byte-exact echo"
     $Result = Invoke-Loader -CommandArgs @("attach", "$($Process.Id)", $DarpcDll)
     Assert-True $Result.darpc_loaded "attach did not observe darpc.dll"
 
@@ -155,6 +157,17 @@ try {
     Assert-True ($Ping.request_id -eq 1) "ping request ID was not one"
     Assert-True ($Ping.request_sequence -eq 1) "ping request sequence was not one"
     Assert-True ($Ping.response_sequence -eq 1) "ping response sequence was not one"
+
+    $TickHealth = Invoke-Darpc -CommandArgs @("ipc", "tick-health", "--pid", "$($Process.Id)")
+    Assert-True ($TickHealth.command -eq "ipc.tick-health") "tick health command identity was incorrect"
+    Assert-True (-not $TickHealth.installed) "controlled target unexpectedly installed the game tick hook"
+    Assert-True (-not $TickHealth.advancing) "controlled target unexpectedly reported advancing ticks"
+    Assert-True ($TickHealth.relocated_bytes -eq 0) "controlled target reported relocated tick bytes"
+    Assert-True ($TickHealth.tick_count -eq 0) "controlled target reported game ticks"
+
+    $Log = Get-Content -Raw -LiteralPath $LogPath
+    Assert-True ($Log -match "event=hook_skipped") "DLL log did not record the controlled hook skip"
+    Assert-True ($Log -match "event=hook_health") "DLL log did not record worker-side hook health"
 
     $EchoText = "M6 byte-exact echo payload 0123"
     $Echo = Invoke-Darpc -CommandArgs @("ipc", "echo", "--pid", "$($Process.Id)", $EchoText)

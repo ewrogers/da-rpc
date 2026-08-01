@@ -14,6 +14,7 @@ pub extern "system" fn darpc_initialize(abi_version: u32) -> Status {
 
     match test_mode().as_deref() {
         Some("init-fail") => Status::INTERNAL_ERROR,
+        Some("init-unsafe") => Status::UNLOAD_UNSAFE,
         Some("init-timeout") => {
             thread::sleep(TIMEOUT_DELAY);
             Status::OK

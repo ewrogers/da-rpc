@@ -84,6 +84,9 @@ pub enum DecodeError {
     InvalidArchitecture {
         actual: u8,
     },
+    InvalidBoolean {
+        actual: u8,
+    },
     EchoTooLong {
         length: usize,
         max: usize,
@@ -149,6 +152,9 @@ impl fmt::Display for DecodeError {
             }
             Self::InvalidArchitecture { actual } => {
                 write!(formatter, "invalid architecture value {actual}")
+            }
+            Self::InvalidBoolean { actual } => {
+                write!(formatter, "invalid Boolean value {actual}")
             }
             Self::EchoTooLong { length, max } => {
                 write!(formatter, "echo text is {length} bytes; maximum is {max}")

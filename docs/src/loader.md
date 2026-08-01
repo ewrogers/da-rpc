@@ -162,11 +162,16 @@ The implemented attach path:
 5. Loads the DLL and verifies its module base through target module
    enumeration.
 6. Calls `darpc_initialize` with the supported ABI version.
-7. Unloads the DLL when initialization completes with a non-success status.
+7. Unloads the DLL when initialization completes with an ordinary non-success
+   status and the DLL reports that unloading is safe.
 8. Re-inspects the target module list before reporting success.
 
 If completion of the initialization thread is uncertain, the loader leaves the
-DLL loaded rather than risk unloading code that may still be executing.
+DLL loaded rather than risk unloading code that may still be executing. The DLL
+also has a distinct `UNLOAD_UNSAFE` lifecycle status for a hook commit whose
+rollback or thread resumption could not be proven safe. Late attach reports the
+failure but deliberately skips `FreeLibrary` for that status. A suspended child
+that returns the same status is terminated by the launch owner.
 
 ## Detach lifecycle
 

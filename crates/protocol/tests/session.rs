@@ -116,7 +116,7 @@ fn invalid_and_unsupported_versions_are_distinct() {
     assert_eq!(
         negotiate_version(VersionRange {
             min: PROTOCOL_VERSION_1_0,
-            max: 0x0101,
+            max: PROTOCOL_VERSION_1_0,
         }),
         Ok(PROTOCOL_VERSION_1_0)
     );

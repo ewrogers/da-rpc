@@ -41,7 +41,6 @@ A negotiated protocol version is one `u16` split into major and minor bytes:
 let version: u16 = ((major as u16) << 8) | minor as u16;
 
 const VERSION_1_0: u16 = 0x0100;
-const VERSION_1_1: u16 = 0x0101;
 const VERSION_2_0: u16 = 0x0200;
 ```
 
@@ -51,9 +50,10 @@ advertises an inclusive, continuous range and the controller selects the
 highest version in the overlap. A peer must not advertise one continuous range
 across an incompatible major boundary. No overlap rejects the connection.
 
-The only currently supported version is 1.0 (`0x0100`). This encoding leaves
-room for additive features without describing every change as an incompatible
-"version 2."
+The only currently supported version is 1.0 (`0x0100`). The project has not
+released a compatibility boundary yet, so the implemented message set remains
+within 1.0. A later version should be introduced only when compatibility with a
+released consumer requires it.
 
 ## Message types
 
@@ -65,6 +65,8 @@ enum MessageType: u16 {
     Pong         = 4,
     EchoRequest  = 5,
     EchoResponse = 6,
+    TickHealthRequest  = 7,
+    TickHealthResponse = 8,
 }
 ```
 
@@ -147,6 +149,25 @@ Request IDs wrap as `u32` and provide request/response correlation. They are
 separate from frame sequence numbers because unsolicited events may be
 interleaved and one future request may produce more than one frame.
 
+## Tick-hook health
+
+```rust,ignore
+struct TickHealthRequest {
+    request_id: u32,  // offset 0
+} // 4 bytes
+
+struct TickHealthResponse {
+    request_id: u32,      // offset 0: copied from TickHealthRequest
+    installed: bool,      // offset 4: u8, exactly 0 or 1
+    relocated_bytes: u8,  // offset 5: complete target bytes in trampoline
+    tick_count: u32,      // offset 6: wrapping observation counter
+} // 10 bytes
+```
+
+The response is a worker-thread snapshot of atomic hook state. Comparing two
+responses with `wrapping_sub` shows whether the client dispatcher advanced
+during the sample window without performing IPC or logging in the hook itself.
+
 ## Ordering and time
 
 Each sender maintains its own sequence counter for each connection. It starts
@@ -177,7 +198,8 @@ response ticks remain visible for comparison and diagnosis.
 Protocol handling is deliberately strict. The codec rejects invalid magic,
 unsupported frame versions, unknown message types, nonzero flags, invalid
 architecture values, invalid version ranges, invalid UTF-8, truncated fields,
-oversized lengths, arithmetic overflow, and trailing bytes. Lengths are checked
+invalid boolean bytes, oversized lengths, arithmetic overflow, and trailing
+bytes. Lengths are checked
 before allocation. The session layer rejects unsupported negotiated versions,
 invalid message order, mismatched instance IDs, and sequence gaps.
 

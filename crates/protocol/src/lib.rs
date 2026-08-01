@@ -12,8 +12,9 @@ pub use frame::{
 };
 pub use message::{
     Architecture, ComponentVersion, EchoRequest, EchoResponse, Hello, HelloAck, MAX_ECHO_TEXT_LEN,
-    Message, MessageType, PROTOCOL_VERSION_1_0, Ping, Pong, SUPPORTED_VERSIONS, VersionRange,
-    protocol_version, protocol_version_major, protocol_version_minor,
+    Message, MessageType, PROTOCOL_VERSION_1_0, Ping, Pong, SUPPORTED_VERSIONS, TickHealthRequest,
+    TickHealthResponse, VersionRange, protocol_version, protocol_version_major,
+    protocol_version_minor,
 };
 pub use session::{
     EndpointRole, Handshake, HandshakePhase, MessageDirection, SequenceCounter, SequenceError,

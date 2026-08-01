@@ -27,6 +27,10 @@ pub enum DetourError {
     ActiveDetourCalls {
         count: u32,
     },
+    ThreadResumeFailed {
+        thread_id: u32,
+        source: io::Error,
+    },
     Windows {
         operation: &'static str,
         source: io::Error,
@@ -50,6 +54,17 @@ impl DetourError {
         matches!(
             self,
             Self::BusyInstructionPointer { .. } | Self::ActiveDetourCalls { .. }
+        )
+    }
+
+    pub fn unload_is_safe(&self) -> bool {
+        !matches!(
+            self,
+            Self::ThreadResumeFailed { .. }
+                | Self::CommitFailed {
+                    rollback: Some(_),
+                    ..
+                }
         )
     }
 }
@@ -100,6 +115,9 @@ impl fmt::Display for DetourError {
             Self::ActiveDetourCalls { count } => {
                 write!(formatter, "{count} detour call(s) remain active")
             }
+            Self::ThreadResumeFailed { thread_id, source } => {
+                write!(formatter, "failed to resume thread {thread_id}: {source}")
+            }
             Self::Windows { operation, source } => write!(formatter, "{operation}: {source}"),
             Self::CommitFailed {
                 operation,
@@ -119,7 +137,9 @@ impl fmt::Display for DetourError {
 impl Error for DetourError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::Windows { source, .. } | Self::CommitFailed { source, .. } => Some(source),
+            Self::ThreadResumeFailed { source, .. }
+            | Self::Windows { source, .. }
+            | Self::CommitFailed { source, .. } => Some(source),
             _ => None,
         }
     }

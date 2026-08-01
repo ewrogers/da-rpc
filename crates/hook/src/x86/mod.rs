@@ -196,15 +196,21 @@ impl PreparedDetour {
                     )
                 }
             })();
-            threads.resume();
-            operation
+            let resume_error = threads.resume();
+            match operation {
+                Ok(()) => Ok(resume_error),
+                Err(error) => Err(resume_error.unwrap_or(error)),
+            }
         })();
 
-        if let Err(error) = commit {
-            self.trampoline = Some(trampoline);
-            self.reservation = Some(reservation);
-            return Err(error);
-        }
+        let resume_warning = match commit {
+            Ok(resume_warning) => resume_warning,
+            Err(error) => {
+                self.trampoline = Some(trampoline);
+                self.reservation = Some(reservation);
+                return Err(error);
+            }
+        };
 
         Ok(InstalledDetour {
             target: self.target,
@@ -218,6 +224,7 @@ impl PreparedDetour {
             trampoline: Some(trampoline),
             reservation: Some(reservation),
             installed: true,
+            resume_warning,
         })
     }
 }
@@ -235,11 +242,22 @@ pub struct InstalledDetour {
     trampoline: Option<ExecutableMemory>,
     reservation: Option<Reservation>,
     installed: bool,
+    resume_warning: Option<DetourError>,
 }
+
+// SAFETY: an installed detour owns process-wide code and allocation state but
+// no thread-affine resource. Its commit methods enlist every other process
+// thread and may be invoked from any dedicated management thread that satisfies
+// the documented call-path restriction.
+unsafe impl Send for InstalledDetour {}
 
 impl InstalledDetour {
     pub fn is_installed(&self) -> bool {
         self.installed
+    }
+
+    pub fn take_resume_warning(&mut self) -> Option<DetourError> {
+        self.resume_warning.take()
     }
 
     pub fn uninstall(&mut self) -> Result<bool, DetourError> {
@@ -247,7 +265,7 @@ impl InstalledDetour {
             return Ok(false);
         }
 
-        {
+        let resume_error = {
             let threads = SuspendedThreads::capture()?;
             let operation = (|| {
                 let active_calls = self.activity.active_calls();
@@ -274,12 +292,18 @@ impl InstalledDetour {
                     )
                 }
             })();
-            threads.resume();
-            operation?;
-        }
+            let resume_error = threads.resume();
+            if let Err(error) = operation {
+                return Err(resume_error.unwrap_or(error));
+            }
+            resume_error
+        };
 
         self.installed = false;
         self.reservation.take();
+        if let Some(error) = resume_error {
+            return Err(error);
+        }
         Ok(true)
     }
 }
@@ -392,11 +416,82 @@ fn reservations() -> &'static Mutex<BTreeSet<usize>> {
 mod tests {
     use super::{
         CodeRange, CommitFault, DetourActivity, DetourError, DetourSpec, ExecutableMemory,
-        PreparedDetour, replace_code,
+        PreparedDetour, replace_code, threads,
     };
-    use std::{ptr::NonNull, slice};
+    use std::{
+        io,
+        ptr::NonNull,
+        slice,
+        sync::{Mutex, atomic::Ordering, mpsc},
+        thread::{self, JoinHandle},
+    };
+    use windows_sys::Win32::System::Threading::GetCurrentThreadId;
 
     static ACTIVITY: DetourActivity = DetourActivity::new();
+    static ACTIVE_TEST_ACTIVITY: DetourActivity = DetourActivity::new();
+    static THREAD_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    struct TestThread {
+        stop: Option<mpsc::Sender<()>>,
+        join: Option<JoinHandle<()>>,
+    }
+
+    impl TestThread {
+        fn start() -> Self {
+            let (id_sender, id_receiver) = mpsc::sync_channel(1);
+            let (stop, stopped) = mpsc::channel();
+            let join = thread::spawn(move || {
+                // SAFETY: GetCurrentThreadId has no preconditions.
+                id_sender.send(unsafe { GetCurrentThreadId() }).unwrap();
+                let _ = stopped.recv();
+            });
+            let id = id_receiver.recv().expect("receive test thread id");
+            threads::set_test_thread_id(id);
+            Self {
+                stop: Some(stop),
+                join: Some(join),
+            }
+        }
+    }
+
+    impl Drop for TestThread {
+        fn drop(&mut self) {
+            threads::clear_test_overrides();
+            if let Some(stop) = self.stop.take() {
+                let _ = stop.send(());
+            }
+            if let Some(join) = self.join.take() {
+                let _ = join.join();
+            }
+        }
+    }
+
+    fn prepared_detour(
+        activity: &'static DetourActivity,
+    ) -> (ExecutableMemory, PreparedDetour, [u8; 6]) {
+        let mut memory = ExecutableMemory::allocate().expect("allocate code");
+        let original = [0xB8, 0x2A, 0, 0, 0, 0xC3];
+        let mut code = [0xCC_u8; 64];
+        code[..original.len()].copy_from_slice(&original);
+        code[32] = 0xC3;
+        memory.write(&code).expect("write code");
+        memory.seal(code.len()).expect("seal code");
+
+        let target = memory.address();
+        let detour =
+            NonNull::new((target.as_ptr() as usize + 32) as *mut u8).expect("non-null detour");
+        let spec = DetourSpec::new(
+            target,
+            detour,
+            CodeRange::new(detour.as_ptr() as usize, 1).expect("detour range"),
+            activity,
+        )
+        .expect("valid spec");
+        // SAFETY: the owned allocation contains readable executable x86 code
+        // at both declared addresses for the lifetime of the preparation.
+        let prepared = unsafe { PreparedDetour::prepare(spec) }.expect("prepare detour");
+        (memory, prepared, original)
+    }
 
     #[test]
     fn code_ranges_are_checked_and_half_open() {
@@ -432,6 +527,83 @@ mod tests {
         // SAFETY: the allocation remains readable for original.len() bytes.
         let actual = unsafe { slice::from_raw_parts(memory.address().as_ptr(), original.len()) };
         assert_eq!(actual, original);
+    }
+
+    #[test]
+    fn install_rejects_target_instruction_pointer_without_changing_code() {
+        let _serial = THREAD_TEST_LOCK.lock().expect("thread test lock");
+        let _thread = TestThread::start();
+        let (memory, mut prepared, original) = prepared_detour(&ACTIVITY);
+        threads::set_test_instruction_pointer(memory.address().as_ptr() as usize);
+
+        let error = prepared
+            .install()
+            .err()
+            .expect("busy target unexpectedly installed");
+        assert!(matches!(error, DetourError::BusyInstructionPointer { .. }));
+        // SAFETY: memory owns a readable allocation spanning original.
+        let actual = unsafe { slice::from_raw_parts(memory.address().as_ptr(), original.len()) };
+        assert_eq!(actual, original);
+
+        threads::set_test_instruction_pointer(0);
+        let mut installed = prepared.install().expect("install after retry");
+        assert!(installed.uninstall().expect("uninstall after retry"));
+    }
+
+    #[test]
+    fn active_detour_call_blocks_uninstall_and_preserves_patch() {
+        let _serial = THREAD_TEST_LOCK.lock().expect("thread test lock");
+        let _thread = TestThread::start();
+        let (memory, mut prepared, original) = prepared_detour(&ACTIVE_TEST_ACTIVITY);
+        let mut installed = prepared.install().expect("install detour");
+
+        ACTIVE_TEST_ACTIVITY.0.store(1, Ordering::Release);
+        let error = installed
+            .uninstall()
+            .expect_err("active detour unexpectedly uninstalled");
+        ACTIVE_TEST_ACTIVITY.0.store(0, Ordering::Release);
+
+        assert!(matches!(error, DetourError::ActiveDetourCalls { count: 1 }));
+        assert!(installed.is_installed());
+        // SAFETY: memory owns a readable allocation spanning original.
+        let patched = unsafe { slice::from_raw_parts(memory.address().as_ptr(), original.len()) };
+        assert_eq!(patched[0], 0xE9);
+
+        assert!(installed.uninstall().expect("uninstall after call exit"));
+        // SAFETY: memory owns a readable allocation spanning original.
+        let restored = unsafe { slice::from_raw_parts(memory.address().as_ptr(), original.len()) };
+        assert_eq!(restored, original);
+    }
+
+    #[test]
+    fn install_preserves_ownership_when_resume_reports_failure() {
+        let _serial = THREAD_TEST_LOCK.lock().expect("thread test lock");
+        let _thread = TestThread::start();
+        let (memory, mut prepared, original) = prepared_detour(&ACTIVITY);
+        threads::inject_test_resume_warning();
+
+        let mut installed = prepared.install().expect("install detour");
+        assert!(installed.is_installed());
+        let warning = installed
+            .take_resume_warning()
+            .expect("missing resume warning");
+        assert!(matches!(&warning, DetourError::ThreadResumeFailed { .. }));
+        assert!(!warning.unload_is_safe());
+        // SAFETY: memory owns a readable allocation spanning original.
+        let patched = unsafe { slice::from_raw_parts(memory.address().as_ptr(), original.len()) };
+        assert_eq!(patched[0], 0xE9);
+
+        assert!(installed.uninstall().expect("uninstall detour"));
+    }
+
+    #[test]
+    fn ambiguous_commit_rollback_is_not_safe_to_unload() {
+        let error = DetourError::CommitFailed {
+            operation: "injected commit",
+            source: io::Error::other("injected write failure"),
+            rollback: Some(io::Error::other("injected rollback failure")),
+        };
+        assert!(!error.unload_is_safe());
     }
 
     #[test]

@@ -1,5 +1,9 @@
 //! Integration boundary for the supported Dark Ages 7.41 game client.
 
+mod runtime;
+
+pub use runtime::{EVENT_DISPATCHER_TICK_ENTRY, EVENT_DISPATCHER_TICK_RVA};
+
 use sha2::{Digest, Sha256};
 use std::{
     fmt::Write as _,

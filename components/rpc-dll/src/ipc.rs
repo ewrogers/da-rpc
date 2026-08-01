@@ -1,6 +1,6 @@
 use darpc_protocol::{
     EchoResponse, EndpointRole, Frame, Handshake, Hello, Message, MessageDirection, Pong,
-    SequenceCounter,
+    SequenceCounter, TickHealthResponse,
 };
 use darpc_win32::pipe::{PipeServer, StopEvent, pipe_name, sender_tick_ms};
 use std::{
@@ -10,6 +10,8 @@ use std::{
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
+
+use crate::tick_hook;
 
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -101,7 +103,7 @@ fn run(stop: StopEvent, hello: Hello, mut log: File, ready: mpsc::SyncSender<io:
         }
 
         let _ = writeln!(log, "event=ipc_connected pid={}", hello.process_id);
-        let result = serve_connection(&server, &hello);
+        let result = serve_connection(&server, &hello, &mut log);
         let _ = server.disconnect();
 
         match result {
@@ -116,7 +118,7 @@ fn run(stop: StopEvent, hello: Hello, mut log: File, ready: mpsc::SyncSender<io:
     let _ = writeln!(log, "event=ipc_stopped pid={}", hello.process_id);
 }
 
-fn serve_connection(server: &PipeServer, hello: &Hello) -> io::Result<()> {
+fn serve_connection(server: &PipeServer, hello: &Hello, log: &mut File) -> io::Result<()> {
     let mut handshake = Handshake::new(EndpointRole::Dll);
     let mut incoming_sequence = SequenceCounter::new();
     let mut outgoing_sequence = SequenceCounter::new();
@@ -135,7 +137,6 @@ fn serve_connection(server: &PipeServer, hello: &Hello) -> io::Result<()> {
             "client did not complete the Hello handshake",
         ));
     }
-
     loop {
         let message = receive(server, &mut handshake, &mut incoming_sequence)?;
         let response = match message {
@@ -146,6 +147,28 @@ fn serve_connection(server: &PipeServer, hello: &Hello) -> io::Result<()> {
                 request_id: message.request_id,
                 text: message.text,
             }),
+            Message::TickHealthRequest(message) => {
+                let health = tick_hook::health();
+                let sample_tick_ms = sender_tick_ms();
+                let _ = writeln!(
+                    log,
+                    concat!(
+                        "event=hook_health hook={} installed={} relocated_bytes={} ",
+                        "ticks={} sample_tick_ms={}"
+                    ),
+                    tick_hook::NAME,
+                    health.installed,
+                    health.relocated_bytes,
+                    health.tick_count,
+                    sample_tick_ms
+                );
+                Message::TickHealthResponse(TickHealthResponse {
+                    request_id: message.request_id,
+                    installed: health.installed,
+                    relocated_bytes: health.relocated_bytes,
+                    tick_count: health.tick_count,
+                })
+            }
             message => {
                 return Err(io::Error::new(
                     io::ErrorKind::InvalidData,

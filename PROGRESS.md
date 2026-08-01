@@ -9,8 +9,8 @@ remain concise.
 
 ## Current focus
 
-M10, the hook qualification harness, is complete. The next planned
-implementation milestone is M11, the first client tick hook.
+M11, the first client tick hook, is complete. The next planned implementation
+milestone is M12, the minimal late-attach snapshot.
 
 ## Milestone snapshot
 
@@ -29,8 +29,35 @@ implementation milestone is M11, the first client tick hook.
 | M9, discovery and managed launch | Complete | Exact-window discovery and API-managed load, unload, and constrained launch pass native Windows integration coverage. |
 | M9.1, automatic managed loading | Complete | Opt-in one-shot loading covers existing and later discoveries while preserving explicit unload. |
 | M10, hook qualification harness | Complete | Transactional x86 detours, relocated trampolines, rollback, concurrency, panic containment, and shutdown pass owned native tests. |
+| M11, first client tick hook | Complete | Exact validation, safety hardening, direct health observation, repeated live attach and detach, and normal in-game acceptance pass. |
 
 ## Completed recently
+
+- [x] Added the exact supported-client `event_dispatcher_tick` target contract
+  and a minimal `thiscall` detour that always calls the original function.
+- [x] Added protocol 1.0 tick-hook health messages, direct human and JSON CLI
+  output, and worker-side file tracing without hook-path I/O.
+- [x] Kept protocol 1.0 compatible and added strict round-trip,
+  malformed-value, controlled-target, and native x86 coverage.
+- [x] Reported thread-resume failures, retained installed-detour ownership
+  across post-commit warnings, and prevented late-attach unload when rollback
+  safety cannot be established.
+- [x] Added deterministic target-instruction-pointer, active-call, resume
+  warning, and unload-safety tests.
+
+## M11 completion evidence
+
+- [x] Validate the executable fingerprint, target relative virtual address, and
+  entry bytes before hook installation.
+- [x] Keep the hook path bounded to atomic activity and tick counters plus the
+  original trampoline call.
+- [x] Publish hook health only from the DLL worker and expose two-sample
+  advancement through `darpc.exe ipc tick-health`.
+- [x] Refuse the hook on the controlled unsupported-client fixture while
+  retaining IPC diagnostics.
+- [x] Observe advancing ticks through direct IPC on the supported live client.
+- [x] Complete a repeatable live soak covering input, rendering, network
+  activity, clean hook removal, DLL unload, and continued client operation.
 
 - [x] Added the reusable `darpc-hook` x86 detour boundary without game-specific
   addresses or state logic.

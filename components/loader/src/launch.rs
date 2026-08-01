@@ -380,8 +380,9 @@ mod platform {
             time::{SystemTime, UNIX_EPOCH},
         };
         use windows_sys::Win32::{
+            Foundation::WAIT_TIMEOUT,
             Security::SECURITY_ATTRIBUTES,
-            System::Threading::{CreateEventW, GetExitCodeProcess},
+            System::Threading::{CreateEventW, GetExitCodeProcess, WaitForSingleObject},
         };
 
         #[test]
@@ -395,7 +396,7 @@ mod platform {
 
             // SAFETY: security_attributes is live and explicitly marks the
             // returned unnamed event handle inheritable.
-            let event = unsafe { CreateEventW(&security_attributes, 1, 1, ptr::null()) };
+            let event = unsafe { CreateEventW(&security_attributes, 1, 0, ptr::null()) };
             assert!(!event.is_null(), "failed to create inheritable event");
 
             // SAFETY: CreateEventW returned a non-null owned handle, which is
@@ -443,6 +444,14 @@ mod platform {
             };
             assert_ne!(succeeded, 0, "failed to read handle probe exit code");
             assert_eq!(exit_code, 0, "inheritable handle was visible in child");
+            // SAFETY: event owns a live waitable handle and a zero timeout does
+            // not block. A signaled event proves the child received this same
+            // kernel object, rather than merely reusing its numeric value.
+            assert_eq!(
+                unsafe { WaitForSingleObject(event.as_raw_handle(), 0) },
+                WAIT_TIMEOUT,
+                "inheritable event reached the child"
+            );
 
             fs::remove_file(test_directory.join("handle.txt"))
                 .expect("failed to remove handle probe");
@@ -453,6 +462,7 @@ mod platform {
         #[ignore = "runs only as a child of process_creation_does_not_inherit_handles"]
         fn inheritable_handle_is_unavailable_in_child() {
             use windows_sys::Win32::Foundation::GetHandleInformation;
+            use windows_sys::Win32::System::Threading::SetEvent;
 
             let handle = fs::read_to_string("handle.txt")
                 .expect("failed to read handle probe")
@@ -464,7 +474,12 @@ mod platform {
             // SAFETY: handle is treated only as an opaque candidate value and
             // flags is writable. Failure is the expected result.
             let succeeded = unsafe { GetHandleInformation(handle, &mut flags) };
-            assert_eq!(succeeded, 0, "inheritable handle reached the child");
+            if succeeded != 0 {
+                // SAFETY: a successful handle query established a live child
+                // handle. If it is the inherited event, signaling it is
+                // observable through the parent's handle.
+                unsafe { SetEvent(handle) };
+            }
         }
     }
 }

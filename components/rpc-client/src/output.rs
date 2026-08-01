@@ -28,6 +28,15 @@ pub(crate) enum CommandResult {
         response_tick_ms: u32,
         round_trip_ms: u32,
     },
+    TickHealth {
+        pid: u32,
+        installed: bool,
+        relocated_bytes: u8,
+        first_tick_count: u32,
+        tick_count: u32,
+        tick_delta: u32,
+        sample_ms: u32,
+    },
     Echo {
         pid: u32,
         request_id: u32,
@@ -92,6 +101,28 @@ impl CommandResult {
                 response_sequence,
                 request_tick_ms,
                 response_tick_ms,
+            ),
+            Self::TickHealth {
+                pid,
+                installed,
+                relocated_bytes,
+                first_tick_count,
+                tick_count,
+                tick_delta,
+                sample_ms,
+            } => format!(
+                concat!(
+                    "ipc tick-health succeeded: pid={} installed={} advancing={} ",
+                    "relocated_bytes={} first_ticks={} ticks={} delta_ticks={} sample_ms={}"
+                ),
+                pid,
+                installed,
+                *installed && *tick_delta != 0,
+                relocated_bytes,
+                first_tick_count,
+                tick_count,
+                tick_delta,
+                sample_ms,
             ),
             Self::Echo {
                 pid,
@@ -158,6 +189,30 @@ impl CommandResult {
                 response_sequence,
                 request_tick_ms,
                 response_tick_ms,
+            ),
+            Self::TickHealth {
+                pid,
+                installed,
+                relocated_bytes,
+                first_tick_count,
+                tick_count,
+                tick_delta,
+                sample_ms,
+            } => format!(
+                concat!(
+                    "{{\"ok\":true,\"command\":\"ipc.tick-health\",\"pid\":{},",
+                    "\"installed\":{},\"advancing\":{},\"relocated_bytes\":{},",
+                    "\"first_tick_count\":{},\"tick_count\":{},\"tick_delta\":{},",
+                    "\"sample_ms\":{}}}"
+                ),
+                pid,
+                installed,
+                *installed && *tick_delta != 0,
+                relocated_bytes,
+                first_tick_count,
+                tick_count,
+                tick_delta,
+                sample_ms,
             ),
             Self::Echo {
                 pid,
@@ -264,6 +319,28 @@ mod tests {
                 "{\"ok\":true,\"command\":\"ipc.echo\",\"pid\":42,",
                 "\"request_id\":1,\"bytes\":12,\"round_trip_ms\":3,",
                 "\"text\":\"quote\\\" line\\n\"}"
+            )
+        );
+    }
+
+    #[test]
+    fn tick_health_json_reports_progress() {
+        let result = CommandResult::TickHealth {
+            pid: 42,
+            installed: true,
+            relocated_bytes: 5,
+            first_tick_count: u32::MAX - 1,
+            tick_count: 3,
+            tick_delta: 5,
+            sample_ms: 250,
+        };
+        assert_eq!(
+            result.render(OutputFormat::Json),
+            concat!(
+                "{\"ok\":true,\"command\":\"ipc.tick-health\",\"pid\":42,",
+                "\"installed\":true,\"advancing\":true,\"relocated_bytes\":5,",
+                "\"first_tick_count\":4294967294,\"tick_count\":3,",
+                "\"tick_delta\":5,\"sample_ms\":250}"
             )
         );
     }

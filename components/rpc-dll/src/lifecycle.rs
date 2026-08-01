@@ -1,5 +1,7 @@
 use std::{
     env,
+    error::Error,
+    fmt,
     fs::{self, File, OpenOptions},
     io::{self, Write},
     path::PathBuf,
@@ -7,16 +9,54 @@ use std::{
     sync::Mutex,
 };
 
-use crate::{identity, ipc::IpcWorker};
+use crate::{
+    identity,
+    ipc::IpcWorker,
+    tick_hook::{self, TickHook},
+};
 
 static LIFECYCLE: Mutex<Option<Lifecycle>> = Mutex::new(None);
 
 struct Lifecycle {
     log: File,
     ipc: IpcWorker,
+    tick_hook: Option<TickHook>,
 }
 
-pub(crate) fn initialize() -> io::Result<()> {
+#[derive(Debug)]
+pub(crate) struct InitializeError {
+    source: io::Error,
+    unload_safe: bool,
+}
+
+impl InitializeError {
+    pub(crate) const fn unload_is_safe(&self) -> bool {
+        self.unload_safe
+    }
+}
+
+impl From<io::Error> for InitializeError {
+    fn from(source: io::Error) -> Self {
+        Self {
+            source,
+            unload_safe: true,
+        }
+    }
+}
+
+impl fmt::Display for InitializeError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.source.fmt(formatter)
+    }
+}
+
+impl Error for InitializeError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        Some(&self.source)
+    }
+}
+
+pub(crate) fn initialize() -> Result<(), InitializeError> {
     let mut lifecycle = LIFECYCLE
         .lock()
         .map_err(|_| io::Error::other("lifecycle lock is poisoned"))?;
@@ -37,17 +77,90 @@ pub(crate) fn initialize() -> io::Result<()> {
         .append(true)
         .open(log_path)?;
 
-    let hello = identity::hello()?;
-    let ipc = IpcWorker::start(hello, log.try_clone()?)?;
+    let identity = match identity::current() {
+        Ok(identity) => identity,
+        Err(error) => {
+            let _ = writeln!(
+                log,
+                "event=initialization_failed stage=client_validation error={error}"
+            );
+            return Err(error.into());
+        }
+    };
+    let mut ipc = IpcWorker::start(identity.hello, log.try_clone()?)?;
+    let mut hook_install_warning = None;
+    let tick_hook = if identity.supported_client {
+        match TickHook::install() {
+            Ok(mut hook) => {
+                let _ = writeln!(
+                    log,
+                    "event=hook_installed hook={} rva=0x{:08X} relocated_bytes={}",
+                    tick_hook::NAME,
+                    darpc_game_client::EVENT_DISPATCHER_TICK_RVA,
+                    hook.relocated_bytes()
+                );
+                if let Some(warning) = hook.take_install_warning() {
+                    let _ = writeln!(
+                        log,
+                        "event=hook_install_warning hook={} error={warning}",
+                        tick_hook::NAME
+                    );
+                    hook_install_warning = Some(warning);
+                }
+                Some(hook)
+            }
+            Err(error) => {
+                let unload_safe = error.unload_is_safe();
+                let _ = writeln!(
+                    log,
+                    "event=initialization_failed stage=hook_install hook={} error={error}",
+                    tick_hook::NAME
+                );
+                let error = error.into_io_error();
+                if let Err(shutdown_error) = ipc.shutdown() {
+                    return Err(InitializeError {
+                        source: io::Error::other(format!(
+                            "tick hook installation failed: {error}; IPC rollback failed: {shutdown_error}"
+                        )),
+                        unload_safe,
+                    });
+                }
+                return Err(InitializeError {
+                    source: error,
+                    unload_safe,
+                });
+            }
+        }
+    } else {
+        let _ = writeln!(
+            log,
+            "event=hook_skipped hook={} reason=unsupported_client_debug_bypass",
+            tick_hook::NAME
+        );
+        None
+    };
 
-    let _ = writeln!(
+    if hook_install_warning.is_none() {
+        let _ = writeln!(
+            log,
+            "event=initialized pid={} version={}",
+            process::id(),
+            env!("CARGO_PKG_VERSION")
+        );
+    }
+
+    *lifecycle = Some(Lifecycle {
         log,
-        "event=initialized pid={} version={}",
-        process::id(),
-        env!("CARGO_PKG_VERSION")
-    );
+        ipc,
+        tick_hook,
+    });
 
-    *lifecycle = Some(Lifecycle { log, ipc });
+    if let Some(warning) = hook_install_warning {
+        return Err(InitializeError {
+            source: warning,
+            unload_safe: false,
+        });
+    }
 
     Ok(())
 }
@@ -62,6 +175,29 @@ pub(crate) fn shutdown() -> io::Result<()> {
     };
 
     active.ipc.shutdown()?;
+
+    if let Some(hook) = active.tick_hook.as_mut() {
+        let final_health = tick_hook::health();
+        match hook.uninstall() {
+            Ok(true) => {
+                writeln!(
+                    active.log,
+                    "event=hook_removed hook={} ticks={}",
+                    tick_hook::NAME,
+                    final_health.tick_count
+                )?;
+            }
+            Ok(false) => {}
+            Err(error) => {
+                let _ = writeln!(
+                    active.log,
+                    "event=hook_remove_failed hook={} error={error}",
+                    tick_hook::NAME
+                );
+                return Err(error);
+            }
+        }
+    }
 
     writeln!(
         active.log,

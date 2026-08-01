@@ -175,6 +175,15 @@ fn attach_with_inspection(
     if status != Status::OK.as_u32() {
         let initialize_error = format!("darpc_initialize failed: status={status}");
 
+        if status == Status::UNLOAD_UNSAFE.as_u32() {
+            return Err(LoaderError::new(
+                ErrorKind::InitializationFailed,
+                format!(
+                    "{initialize_error}; {DARPC_MODULE_NAME} remains loaded because hook rollback safety could not be established"
+                ),
+            ));
+        }
+
         if let Err(error) = remote_dll::unload(process, module) {
             return Err(LoaderError::new(
                 ErrorKind::InitializationFailed,

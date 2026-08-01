@@ -21,12 +21,14 @@ The command-line boundaries are:
 
 ## Direct IPC diagnostics
 
-The implemented diagnostics prove communication without hooks or game state:
+The implemented diagnostics prove communication and expose the first hook's
+bounded health signal without reading game state:
 
 ```text
 darpc ipc hello --pid <pid>
 darpc ipc ping --pid <pid>
 darpc ipc echo --pid <pid> "hello"
+darpc ipc tick-health --pid <pid>
 ```
 
 These commands use the real PID-based named pipe, binary framing, protocol
@@ -37,6 +39,9 @@ their payloads are synthetic:
 - `ping` verifies a complete request and response round trip and reports its
   elapsed time.
 - `echo` returns its UTF-8 payload byte-for-byte, with a 4 KiB input limit.
+- `tick-health` samples the client tick counter twice, 250 milliseconds apart,
+  and reports installation metadata, both counter values, their wrapping
+  difference, and whether the counter advanced.
 
 The `ipc` group shares `darpc-protocol` with the DLL and daemon. It requires an
 explicit nonzero process ID and cannot manage multiple clients in one command.
@@ -50,6 +55,7 @@ one stable JSON value on standard output:
 darpc --output json ipc hello --pid <pid>
 darpc --output json ipc ping --pid <pid>
 darpc --output json ipc echo --pid <pid> "hello"
+darpc --output json ipc tick-health --pid <pid>
 ```
 
 Diagnostics belong on standard error so scripts can parse JSON from standard

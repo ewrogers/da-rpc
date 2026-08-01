@@ -57,7 +57,7 @@ The pipe result determines the next step:
 | Connection and handshake succeed | A compatible `darpc.dll` is available. | Request a snapshot and begin listening for updates. |
 | Pipe is busy | An endpoint exists but cannot accept this connection yet. | Retry without injecting. |
 | Pipe is missing during a short grace period | The DLL may still be initializing. | Wait for the next reconciliation. |
-| Pipe remains missing | The process may not be injected. | Report `not_loaded` and allow an explicit API load. |
+| Pipe remains missing | The process may not be injected. | Report `not_loaded`; allow an explicit API load or one opt-in automatic load attempt. |
 | Handshake fails | An endpoint exists but is incompatible or invalid. | Report the error and do not inject automatically. |
 
 `loader.exe` must repeat its own compatibility and already-loaded checks before
@@ -65,8 +65,11 @@ injection, even when `darpcd.exe` reports a candidate.
 
 The HTTP API exposes explicit load and unload operations for tracked PIDs and a
 launch operation for a request-selected executable that the loader must
-validate. Discovery itself never injects, unloads, or launches anything.
-Handshake failures therefore cannot cause an automatic reinjection loop.
+validate. By default, discovery never triggers injection. With `--auto-load`,
+the daemon consumes a target's first `not_loaded` state and schedules one
+validated loader attempt outside the reconciliation loop. It does not retry the
+same tracked process after a failure or explicit unload. Handshake failures
+therefore cannot cause an automatic reinjection loop.
 
 ## Daemon recovery
 

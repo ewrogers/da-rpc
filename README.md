@@ -219,6 +219,7 @@ PIDs remain available for controlled targets or clients without a window:
 ```text
 darpcd.exe
 darpcd.exe --pid 3780 --pid 6648
+darpcd.exe --auto-load
 darpcd.exe --loader-path <loader.exe> --dll-path <darpc.dll>
 ```
 
@@ -226,6 +227,12 @@ The daemon prints connection status transitions and reconnects when a pipe or
 DLL returns. It aggregates identity and connection health only until game-state
 snapshots are implemented. While it owns a pipe, direct `darpc.exe ipc`
 commands report that the endpoint is busy.
+
+`--auto-load` asks the daemon to load its configured DLL into each `not_loaded`
+client once per tracked process. It applies to clients present at startup and
+clients discovered later. An explicit unload remains unloaded for the rest of
+that tracked process lifetime; restarting the daemon with `--auto-load` makes
+the process eligible again. Validation and failures remain isolated per client.
 
 The loader and DLL default to files beside `darpcd.exe` and can be overridden
 only through daemon configuration. Each launch request supplies the full path

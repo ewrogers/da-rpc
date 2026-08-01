@@ -2,6 +2,8 @@
 
 #[cfg(any(windows, test))]
 mod api;
+#[cfg(any(windows, test))]
+mod auto_load;
 #[cfg(windows)]
 mod connection;
 #[cfg(windows)]
@@ -17,7 +19,7 @@ use std::{collections::BTreeSet, env, ffi::OsString, path::PathBuf, process::Exi
 
 const DEFAULT_PORT: u16 = 2626;
 const USAGE: &str = concat!(
-    "usage: darpcd [--pid <pid> ...] [--port <port>] ",
+    "usage: darpcd [--pid <pid> ...] [--port <port>] [--auto-load] ",
     "[--loader-path <path>] [--dll-path <path>]"
 );
 
@@ -25,6 +27,7 @@ const USAGE: &str = concat!(
 struct Options {
     pids: Vec<u32>,
     port: u16,
+    auto_load: bool,
     loader_path: Option<PathBuf>,
     dll_path: Option<PathBuf>,
 }
@@ -52,6 +55,7 @@ fn parse_options(arguments: impl IntoIterator<Item = OsString>) -> Result<Option
     let mut pids = Vec::new();
     let mut unique = BTreeSet::new();
     let mut port = None;
+    let mut auto_load = false;
     let mut loader_path = None;
     let mut dll_path = None;
 
@@ -90,6 +94,11 @@ fn parse_options(arguments: impl IntoIterator<Item = OsString>) -> Result<Option
                 return Err("port must be greater than zero".into());
             }
             port = Some(parsed);
+        } else if option == "--auto-load" {
+            if auto_load {
+                return Err("--auto-load may be provided only once".into());
+            }
+            auto_load = true;
         } else if option == "--loader-path" {
             parse_path_option(&mut arguments, &mut loader_path, "--loader-path")?;
         } else if option == "--dll-path" {
@@ -102,6 +111,7 @@ fn parse_options(arguments: impl IntoIterator<Item = OsString>) -> Result<Option
     Ok(Options {
         pids,
         port: port.unwrap_or(DEFAULT_PORT),
+        auto_load,
         loader_path,
         dll_path,
     })
@@ -128,12 +138,13 @@ fn parse_path_option(
 #[cfg(windows)]
 fn run(options: Options) -> Result<(), String> {
     use api::ApiState;
+    use auto_load::{Action as AutoLoadAction, Policy as AutoLoadPolicy};
     use connection::Worker;
     use event::DaemonEvent;
-    use management::LoaderControl;
+    use management::{LifecycleControl, LoaderControl};
     use registry::Registry;
     use std::{
-        collections::{BTreeMap, BTreeSet},
+        collections::BTreeMap,
         io::Write as _,
         sync::{Arc, mpsc},
         time::{Duration, Instant},
@@ -153,7 +164,8 @@ fn run(options: Options) -> Result<(), String> {
     let dll_path = options
         .dll_path
         .unwrap_or_else(|| component_directory.join("darpc.dll"));
-    let lifecycle = Arc::new(LoaderControl::new(loader_path.clone(), dll_path.clone()));
+    let lifecycle: Arc<dyn LifecycleControl> =
+        Arc::new(LoaderControl::new(loader_path.clone(), dll_path.clone()));
 
     let explicit_pids = options.pids.into_iter().collect::<BTreeSet<_>>();
     let discovered_pids = discovery::client_pids()
@@ -168,12 +180,20 @@ fn run(options: Options) -> Result<(), String> {
         track_client(pid, &sender, &mut workers, &mut registry);
     }
 
-    let api_state = ApiState::new(registry.snapshot(), lifecycle, sender.clone());
+    let api_state = ApiState::new(registry.snapshot(), Arc::clone(&lifecycle), sender.clone());
     let _api_worker = api::start(options.port, api_state.clone())
         .map_err(|error| format!("failed to listen on 127.0.0.1:{}: {error}", options.port))?;
     println!("HTTP API listening on http://127.0.0.1:{}", options.port);
     println!("loader path: {}", loader_path.display());
     println!("DLL path: {}", dll_path.display());
+    println!(
+        "auto-load: {}",
+        if options.auto_load {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    );
     for client in registry.snapshot().clients {
         println!("client pid={} status=connecting", client.pid);
     }
@@ -181,21 +201,106 @@ fn run(options: Options) -> Result<(), String> {
 
     let mut next_discovery = Instant::now() + DISCOVERY_INTERVAL;
     let mut launch_grace = BTreeMap::<u32, Instant>::new();
+    let mut auto_load = AutoLoadPolicy::new(options.auto_load);
 
     loop {
         let timeout = next_discovery.saturating_duration_since(Instant::now());
         match receiver.recv_timeout(timeout) {
             Ok(DaemonEvent::Connection(event)) => {
                 if workers.contains_key(&event.pid()) {
-                    publish_event(&mut registry, &api_state, &event);
+                    match auto_load.observe(&event) {
+                        AutoLoadAction::Publish => {
+                            publish_event(&mut registry, &api_state, &event);
+                        }
+                        AutoLoadAction::Suppress => {}
+                        AutoLoadAction::Start(attempt) => {
+                            let pid = event.pid();
+                            publish_event(
+                                &mut registry,
+                                &api_state,
+                                &registry::ConnectionEvent::Initializing { pid },
+                            );
+                            if let Err(error) = auto_load::spawn(
+                                pid,
+                                attempt,
+                                Arc::clone(&lifecycle),
+                                sender.clone(),
+                            ) {
+                                auto_load.finish(pid, attempt);
+                                eprintln!(
+                                    "darpcd: client pid={pid} auto-load failed to start: {error}"
+                                );
+                                publish_event(
+                                    &mut registry,
+                                    &api_state,
+                                    &registry::ConnectionEvent::NotLoaded { pid },
+                                );
+                            }
+                        }
+                    }
                 }
             }
             Ok(DaemonEvent::Status(event)) => {
                 if workers.contains_key(&event.pid()) {
+                    if matches!(event, registry::ConnectionEvent::Initializing { .. }) {
+                        auto_load.suppress(event.pid());
+                    }
                     publish_event(&mut registry, &api_state, &event);
                 }
             }
+            Ok(DaemonEvent::AutoLoadFinished {
+                pid,
+                attempt,
+                result,
+            }) => {
+                if !auto_load.finish(pid, attempt) || !workers.contains_key(&pid) {
+                    continue;
+                }
+                match result {
+                    Ok(outcome) if outcome.pid == pid && outcome.darpc_loaded => {
+                        println!(
+                            "client pid={pid} auto-load={}",
+                            if outcome.changed {
+                                "loaded"
+                            } else {
+                                "already_loaded"
+                            }
+                        );
+                        publish_event(
+                            &mut registry,
+                            &api_state,
+                            &registry::ConnectionEvent::Connecting { pid },
+                        );
+                    }
+                    Ok(outcome) => {
+                        eprintln!(
+                            concat!(
+                                "darpcd: client pid={} auto-load returned invalid state ",
+                                "result_pid={} darpc_loaded={}"
+                            ),
+                            pid, outcome.pid, outcome.darpc_loaded
+                        );
+                        publish_event(
+                            &mut registry,
+                            &api_state,
+                            &registry::ConnectionEvent::NotLoaded { pid },
+                        );
+                    }
+                    Err(error) => {
+                        eprintln!(
+                            "darpcd: client pid={pid} auto-load failed code={} message={:?}",
+                            error.code, error.message
+                        );
+                        publish_event(
+                            &mut registry,
+                            &api_state,
+                            &registry::ConnectionEvent::NotLoaded { pid },
+                        );
+                    }
+                }
+            }
             Ok(DaemonEvent::Track(pid)) => {
+                auto_load.suppress(pid);
                 launch_grace.insert(pid, Instant::now() + LAUNCH_DISCOVERY_GRACE);
                 track_client(pid, &sender, &mut workers, &mut registry);
                 api_state.publish(registry.snapshot());
@@ -238,6 +343,7 @@ fn run(options: Options) -> Result<(), String> {
                 worker.stop();
             }
             changed |= registry.remove(pid);
+            auto_load.forget(pid);
             println!("client pid={pid} status=removed");
         }
         if changed {
@@ -310,6 +416,7 @@ mod tests {
             Options {
                 pids: vec![42, 7],
                 port: DEFAULT_PORT,
+                auto_load: false,
                 loader_path: None,
                 dll_path: None,
             }
@@ -319,6 +426,7 @@ mod tests {
             Options {
                 pids: vec![42],
                 port: 3000,
+                auto_load: false,
                 loader_path: None,
                 dll_path: None,
             }
@@ -338,11 +446,17 @@ mod tests {
             Options {
                 pids: Vec::new(),
                 port: DEFAULT_PORT,
+                auto_load: false,
                 loader_path: Some("tools/loader.exe".into()),
                 dll_path: Some("tools/darpc.dll".into()),
             }
         );
         assert!(parse_options(Vec::<OsString>::new()).is_ok());
+        assert!(
+            parse_options(arguments(&["--auto-load"]))
+                .unwrap()
+                .auto_load
+        );
     }
 
     #[test]
@@ -351,6 +465,7 @@ mod tests {
         assert!(parse_options(arguments(&["--pid", "7", "--pid", "7"])).is_err());
         assert!(parse_options(arguments(&["--pids", "7,8"])).is_err());
         assert!(parse_options(arguments(&["--client-path", "Darkages.exe"])).is_err());
+        assert!(parse_options(arguments(&["--auto-load", "--auto-load"])).is_err());
         assert!(parse_options(arguments(&["--pid", "7", "--port"])).is_err());
         assert!(parse_options(arguments(&["--pid", "7", "--port", "0"])).is_err());
         assert!(parse_options(arguments(&["--pid", "7", "--port", "65536"])).is_err());

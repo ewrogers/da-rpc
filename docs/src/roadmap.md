@@ -99,6 +99,7 @@ directly for discovery, aggregation, action status, and multi-client behavior.
 | M7 | Daemon client registry | `darpcd.exe` connects, tracks the DLL, and recovers after restart. | Complete |
 | M8 | Read-only HTTP API | A browser or HTTP client lists the injected client. | Complete |
 | M9 | Discovery and managed launch | `darpcd.exe` reconciles candidates and invokes the loader explicitly. | Complete |
+| M9.1 | Automatic managed loading | An opt-in daemon policy loads each uninjected client once. | Complete |
 | M10 | Hook qualification harness | The hook mechanism preserves a controlled test function exactly. | Planned |
 | M11 | First client tick hook | The daemon reports client ticks while the game behaves normally. | Planned |
 | M12 | Minimal late-attach snapshot | The direct CLI and daemon API expose a small real-client state slice. | Planned |
@@ -109,7 +110,7 @@ directly for discovery, aggregation, action status, and multi-client behavior.
 | M17 | Multi-client hardening and preview | Failure and soak evidence support a preview release. | Planned |
 | M18 | WebSocket and remote access | Added only for a proven use case and defined security model. | Deferred |
 
-M2 through M9 are complete. M10 is the next planned implementation milestone.
+M2 through M9.1 are complete. M10 is the next planned implementation milestone.
 M1 has been exercised manually, but its separate evidence checklist remains
 open until the lifecycle-host Windows continuous-integration coverage is
 present. The working checklist is maintained in the [repository progress
@@ -480,6 +481,29 @@ Done:
 This completes the first useful process-management vertical slice. The daemon,
 loader, DLL, and HTTP API now work together without any game hook.
 
+### M9.1: automatic managed loading
+
+Build:
+
+- An opt-in `--auto-load` daemon policy for existing and later discoveries.
+- One asynchronous loader attempt per tracked process without blocking
+  discovery or other clients.
+- Explicit lifecycle precedence so an API unload is not immediately reversed.
+
+See:
+
+- Start the daemon with `--auto-load`, observe existing and later uninjected
+  clients connect, then explicitly unload one and confirm it remains unloaded.
+
+Done:
+
+- Automatic loading remains disabled unless explicitly requested.
+- Only `not_loaded` targets are eligible, and normal loader validation remains
+  mandatory.
+- Busy, connected, initializing, and incompatible targets are not injected.
+- A failure or in-flight attempt cannot create a repeated discovery-loop load
+  storm or interfere with another client.
+
 ## Phase 4: qualify hooks before reading state
 
 ### M10: hook qualification harness
@@ -677,19 +701,8 @@ limits, and administrative capability boundaries before it is supported.
 
 ## Immediate next increment
 
-M9 should add discovery and explicit managed injection without treating a
-window match as proof of compatibility:
-
-1. Reconcile top-level windows with the verified game window class and derive
-   candidate process IDs.
-2. Represent not-loaded, initializing, busy, connected, and incompatible
-   candidates through the daemon HTTP API.
-3. Add explicit management requests that allow the daemon to invoke the
-   trusted `loader.exe` for inspection or attachment without accepting an
-   arbitrary DLL path.
-4. Preserve independent state and retry behavior for multiple candidates.
-5. Verify discovery and attachment first with controlled targets, then with an
-   uninjected live client.
-
-Snapshots remain M12. M9 is limited to process discovery, lifecycle management,
-identity, and connection health.
+M10 should qualify the hook mechanism against an owned deterministic x86 test
+function before any game-client hook is installed. It must prove transactional
+installation and removal, exact original-call behavior, safe instruction
+relocation, concurrent-call safety, rollback, and shutdown. Real client state
+remains deferred until M11 and M12.

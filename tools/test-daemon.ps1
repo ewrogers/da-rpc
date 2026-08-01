@@ -17,6 +17,7 @@ $Daemon = Join-Path $X64TargetDir "darpcd.exe"
 $DefaultPort = 2626
 $OverridePort = 3626
 $ManagedPort = 4626
+$AutoLoadPort = 5626
 
 foreach ($Path in @($Loader, $Target, $DarpcDll, $Darpc, $Daemon)) {
     if (-not (Test-Path -PathType Leaf $Path)) {
@@ -87,7 +88,8 @@ function Start-Daemon {
     param(
         [int[]] $ProcessIds = @(),
         [Nullable[int]] $Port = $null,
-        [switch] $Managed
+        [switch] $Managed,
+        [switch] $AutoLoad
     )
 
     $StartInfo = [System.Diagnostics.ProcessStartInfo]::new()
@@ -108,6 +110,9 @@ function Start-Daemon {
         )) {
             [void] $Arguments.Add($Argument)
         }
+    }
+    if ($AutoLoad) {
+        [void] $Arguments.Add("--auto-load")
     }
     $StartInfo.Arguments = ConvertTo-ProcessArguments $Arguments
     $StartInfo.UseShellExecute = $false
@@ -503,6 +508,86 @@ try {
             }
             Stop-Target $Process
         }
+    }
+}
+
+Write-Host "Testing automatic managed loading"
+$PreviousDiscoveryWindow = $env:DARPC_DISCOVERY_TEST_WINDOW
+$ExistingTarget = $null
+$FutureTarget = $null
+$DaemonProcess = $null
+try {
+    $env:DARPC_DISCOVERY_TEST_WINDOW = "1"
+    $ExistingTarget = Start-Process `
+        $Target `
+        -ArgumentList "--wait-ms", "60000" `
+        -PassThru
+    Start-Sleep -Milliseconds 200
+    Assert-True (-not $ExistingTarget.HasExited) "existing auto-load target exited during startup"
+
+    $DaemonProcess = Start-Daemon `
+        -ProcessIds @($PID) `
+        -Port $AutoLoadPort `
+        -Managed `
+        -AutoLoad
+    Wait-ForApi $DaemonProcess $AutoLoadPort
+    Wait-ForClientStatus $ExistingTarget.Id "connected" $AutoLoadPort | Out-Null
+    Wait-ForClientStatus $PID "not_loaded" $AutoLoadPort | Out-Null
+
+    $FutureTarget = Start-Process `
+        $Target `
+        -ArgumentList "--wait-ms", "60000" `
+        -PassThru
+    Wait-ForClientStatus $FutureTarget.Id "connected" $AutoLoadPort | Out-Null
+
+    $Result = Invoke-ApiPost `
+        -Path "/clients/$($ExistingTarget.Id)/unload" `
+        -Port $AutoLoadPort
+    Assert-True $Result.was_unloaded "explicit unload did not remove the automatically loaded DLL"
+    Wait-ForClientStatus $ExistingTarget.Id "not_loaded" $AutoLoadPort | Out-Null
+    Start-Sleep -Milliseconds 1500
+    $Client = Wait-ForClientStatus $ExistingTarget.Id "not_loaded" $AutoLoadPort
+    Assert-True `
+        ($Client.status -eq "not_loaded") `
+        "auto-load reversed an explicit unload"
+
+    $DaemonProcess.Kill()
+    $DaemonProcess.WaitForExit()
+    $AutoLoadOutput = $DaemonProcess.StandardOutput.ReadToEnd()
+    $AutoLoadErrors = $DaemonProcess.StandardError.ReadToEnd()
+    $DaemonProcess.Dispose()
+    $DaemonProcess = $null
+    foreach ($Process in @($ExistingTarget, $FutureTarget)) {
+        Assert-True `
+            ($AutoLoadOutput -match "client pid=$($Process.Id) auto-load=loaded") `
+            "PID $($Process.Id) did not report one automatic load"
+    }
+    $FailurePattern = "client pid=$PID auto-load failed"
+    Assert-True `
+        ([regex]::Matches($AutoLoadErrors, $FailurePattern).Count -eq 1) `
+        "the incompatible candidate did not fail automatic loading exactly once"
+} finally {
+    if ($null -ne $DaemonProcess) {
+        if (-not $DaemonProcess.HasExited) {
+            $DaemonProcess.Kill()
+            $DaemonProcess.WaitForExit()
+        }
+        $DaemonProcess.Dispose()
+    }
+    foreach ($Process in @($ExistingTarget, $FutureTarget)) {
+        if ($null -ne $Process -and -not $Process.HasExited) {
+            try {
+                Invoke-Loader -CommandArgs @("detach", "$($Process.Id)", $DarpcDll) | Out-Null
+            } catch {
+                # The target is test-owned and is stopped below even when cleanup fails.
+            }
+            Stop-Target $Process
+        }
+    }
+    if ($null -eq $PreviousDiscoveryWindow) {
+        Remove-Item Env:DARPC_DISCOVERY_TEST_WINDOW -ErrorAction SilentlyContinue
+    } else {
+        $env:DARPC_DISCOVERY_TEST_WINDOW = $PreviousDiscoveryWindow
     }
 }
 

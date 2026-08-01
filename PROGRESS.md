@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-07-31
+Last updated: 2026-08-01
 
 This is the working task tracker for the
 [roadmap](docs/src/roadmap.md). The roadmap defines milestone scope and
@@ -9,7 +9,7 @@ remain concise.
 
 ## Current focus
 
-M9, discovery and managed launch, is complete. The next planned implementation
+M9.1, automatic managed loading, is complete. The next planned implementation
 milestone is M10, the hook qualification harness.
 
 ## Milestone snapshot
@@ -27,8 +27,26 @@ milestone is M10, the hook qualification harness.
 | M7, daemon client registry | Complete | Repeated explicit `--pid` targets, shared controller sessions, independent reconnecting workers, and identity-safe registry records pass controlled and live-client verification. |
 | M8, read-only HTTP API | Complete | Loopback Axum routes, client identity snapshots, generated OpenAPI, and vendored Swagger UI pass controlled and live-client verification. |
 | M9, discovery and managed launch | Complete | Exact-window discovery and API-managed load, unload, and constrained launch pass native Windows integration coverage. |
+| M9.1, automatic managed loading | Complete | Opt-in one-shot loading covers existing and later discoveries while preserving explicit unload. |
 
 ## Completed recently
+
+- [x] Added opt-in daemon `--auto-load` for existing and later `not_loaded`
+  clients.
+- [x] Limited automatic loading to one background attempt per tracked process
+  and suppressed repeated worker events while that attempt is active.
+- [x] Preserved explicit unload and isolated automatic loader failures per
+  client.
+
+## M9.1 completion evidence
+
+- [x] Parse and document `--auto-load` while leaving default behavior explicit.
+- [x] Reuse daemon-owned lifecycle control and mandatory loader validation.
+- [x] Cover disabled, repeated, in-flight, already handled, explicit lifecycle,
+  and removed-process policy behavior with focused tests.
+- [x] Verify existing discovery, later discovery, automatic connection, and
+  persistent explicit unload with controlled x86 processes on Windows while an
+  incompatible candidate fails once without affecting them.
 
 - [x] Added `darpc_initialize` and `darpc_shutdown` with a versioned ABI and
   structured statuses.

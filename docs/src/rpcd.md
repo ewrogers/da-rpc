@@ -13,6 +13,7 @@ Its current responsibilities are to:
 - Track uninjected processes as loader candidates.
 - Connect and reconnect to available `darpc.dll` instances.
 - Invoke the configured `loader.exe` for explicit lifecycle operations.
+- Optionally load the configured DLL once into each uninjected client.
 - Aggregate client identity and connection health.
 - Expose a loopback REST API, OpenAPI document, and Swagger UI.
 
@@ -28,6 +29,7 @@ Start the daemon without a PID to discover clients from their verified
 ```text
 darpcd.exe
 darpcd.exe --port 3626
+darpcd.exe --auto-load
 ```
 
 Repeat `--pid <pid>` to retain additional controlled targets or processes that
@@ -50,6 +52,17 @@ a client and is never reinjected automatically. A discovered target is removed
 after its game window disappears. An explicit PID remains configured until the
 daemon exits.
 
+`--auto-load` applies the configured loader and DLL to every `not_loaded`
+target once per tracked process. This includes targets present at daemon startup
+and targets discovered later. Connecting, connected, busy, initializing, and
+incompatible targets are not injected. Each target is handled independently,
+so one validation or loader failure does not stop discovery or other clients.
+
+Automatic loading records the attempt before starting the loader. It therefore
+does not retry on every discovery pass, and an explicit unload remains unloaded
+for the rest of that tracked process lifetime. Removing and rediscovering the
+process, or restarting the daemon with `--auto-load`, makes it eligible again.
+
 ## Managed lifecycle
 
 The loader and DLL paths default to `loader.exe` and `darpc.dll` beside
@@ -59,6 +72,9 @@ elsewhere:
 ```text
 darpcd.exe --loader-path <loader.exe> --dll-path <darpc.dll>
 ```
+
+These paths are also used by `--auto-load`; the flag never accepts a different
+DLL or bypasses normal loader validation.
 
 Each launch request supplies the full executable path for the intended
 installation. The daemon assumes no client base directory; `loader.exe` uses

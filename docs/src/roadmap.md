@@ -103,7 +103,7 @@ directly for discovery, aggregation, action status, and multi-client behavior.
 | M10 | Hook qualification harness | The hook mechanism preserves a controlled test function exactly. | Complete |
 | M11 | First client tick hook | Direct IPC reports client ticks while the game behaves normally. | Complete |
 | M12 | Late-attach client snapshot | The direct CLI and daemon API expose current character, map, inventory, equipment, spell, and skill state. | Complete |
-| M13 | Event-driven updates | One normal game event updates state without another snapshot. | Planned |
+| M13 | Event-driven updates | One normal game event updates state without another snapshot. | Scope refinement |
 | M14 | Main-thread command queue | A diagnostic command completes on a client tick. | Planned |
 | M15 | First typed action | One low-risk action executes through a native client path. | Planned |
 | M16 | Packet observation and local rules | Bounded plaintext telemetry and fail-open decisions work locally. | Planned |
@@ -716,8 +716,10 @@ limits, and administrative capability boundaries before it is supported.
 
 ## Immediate next increment
 
-M11 should install the first minimal hook only after validating the exact client
-fingerprint and `event_dispatcher_tick` relative virtual address. It must retain
-the qualified transaction and shutdown rules, perform no I/O in the detour, and
-prove normal client behavior through a repeatable live-client soak. Real client
-state remains deferred until M12.
+M13 should observe one narrow, understood event family through the qualified
+hooking boundary. The hook must preserve original behavior and copy only
+bounded, pointer-free data without allocation, IPC, or logging. DLL-owned state
+then receives ordered absolute updates, while the daemon exposes a bounded
+Server-Sent Events stream and resynchronizes after a sequence gap or overflow.
+The exact first event family and public event shape should be confirmed before
+implementation.

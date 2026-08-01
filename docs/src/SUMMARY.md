@@ -3,6 +3,7 @@
 [Introduction](introduction.md)
 [Roadmap](roadmap.md)
 [Architecture](architecture.md)
+[Hook safety](hooks.md)
 
 - [`darpc.dll`](rpc-dll.md)
 - [`loader.exe`](loader.md)

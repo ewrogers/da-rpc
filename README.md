@@ -7,7 +7,8 @@ integrating developer tools with the 32-bit Windows client of *Dark Ages*.
 The project is in early development and does not yet provide a working client
 state integration. Injection, launch-time patches, direct named-pipe
 diagnostics, automatic client discovery, and daemon-managed client lifecycle
-operations are implemented.
+operations are implemented. The x86 detour mechanism is qualified against an
+owned concurrent test harness, but no game-client hook is installed yet.
 
 Read the [daRPC Book](https://ewrogers.github.io/da-rpc/) for the architecture,
 current implementation status, protocol, safety requirements, and development
@@ -43,6 +44,7 @@ daemon connection later.
 | --- | --- | --- |
 | `lifecycle-host.exe` | 32-bit Windows x86 | Loads `darpc.dll` locally, exercises its lifecycle contract, and verifies repeated loading and unloading. |
 | `injection-target.exe` | 32-bit Windows x86 | Provides an inert, persistent process for safe loader attach and detach testing. |
+| `hook-harness.exe` | 32-bit Windows x86 | Qualifies transactional detours, relocated trampolines, concurrent calls, rollback, and removal without touching the game client. |
 
 These harnesses support local development and integration testing. They are not
 runtime components distributed to end users.
@@ -58,15 +60,18 @@ components/
 
 crates/
   game-client/  Supported game layouts, addresses, and client ABI boundaries
+  hook/         transactional in-process x86 detours and trampolines
   model/        shared domain state, actions, and updates
   protocol/     versioned binary IPC framing and codecs
   win32/        shared Windows platform boundaries
 
 tools/
+  hook-harness/     controlled x86 detour qualification harness
   injection-target/ inert process for loader integration testing
   lifecycle-host/   local DLL lifecycle integration harness
   loader-fixture-dll/ controlled failure DLL for loader integration testing
   test-daemon.ps1   daemon discovery, lifecycle, and reconnect integration test
+  test-hook.ps1     debug and release hook qualification test
   test-ipc.ps1      direct IPC and shutdown integration test
 
 docs/           architecture and developer documentation

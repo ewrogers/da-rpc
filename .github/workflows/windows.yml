@@ -44,9 +44,11 @@ jobs:
         run: >
           cargo clippy
           -p darpc-game-client
+          -p darpc-hook
           -p loader
           -p rpc-dll
           -p injection-target
+          -p hook-harness
           -p loader-fixture-dll
           --target i686-pc-windows-msvc
           --all-targets
@@ -66,8 +68,10 @@ jobs:
         run: >
           cargo test
           -p darpc-game-client
+          -p darpc-hook
           -p loader
           -p injection-target
+          -p hook-harness
           --target i686-pc-windows-msvc
 
       - name: Run x64 unit tests
@@ -84,8 +88,16 @@ jobs:
           -p loader
           -p rpc-dll
           -p injection-target
+          -p hook-harness
           -p loader-fixture-dll
           --target i686-pc-windows-msvc
+
+      - name: Build release hook harness
+        run: >
+          cargo build
+          -p hook-harness
+          --target i686-pc-windows-msvc
+          --release
 
       - name: Build x64 integration artifacts
         run: cargo build -p rpc-client -p rpc-daemon
@@ -95,6 +107,12 @@ jobs:
         run: >
           ./tools/injection-target/test-loader.ps1
           -TargetDir ./target/i686-pc-windows-msvc/debug
+
+      - name: Run hook qualification checks
+        shell: pwsh
+        run: |
+          ./tools/test-hook.ps1 -TargetDir ./target/i686-pc-windows-msvc/debug
+          ./tools/test-hook.ps1 -TargetDir ./target/i686-pc-windows-msvc/release
 
       - name: Run daemon integration checks
         shell: pwsh

@@ -9,8 +9,8 @@ remain concise.
 
 ## Current focus
 
-M9.1, automatic managed loading, is complete. The next planned implementation
-milestone is M10, the hook qualification harness.
+M10, the hook qualification harness, is complete. The next planned
+implementation milestone is M11, the first client tick hook.
 
 ## Milestone snapshot
 
@@ -28,8 +28,16 @@ milestone is M10, the hook qualification harness.
 | M8, read-only HTTP API | Complete | Loopback Axum routes, client identity snapshots, generated OpenAPI, and vendored Swagger UI pass controlled and live-client verification. |
 | M9, discovery and managed launch | Complete | Exact-window discovery and API-managed load, unload, and constrained launch pass native Windows integration coverage. |
 | M9.1, automatic managed loading | Complete | Opt-in one-shot loading covers existing and later discoveries while preserving explicit unload. |
+| M10, hook qualification harness | Complete | Transactional x86 detours, relocated trampolines, rollback, concurrency, panic containment, and shutdown pass owned native tests. |
 
 ## Completed recently
+
+- [x] Added the reusable `darpc-hook` x86 detour boundary without game-specific
+  addresses or state logic.
+- [x] Qualified a relocated relative call, original-call preservation,
+  transactional rollback, concurrent calls, and safe removal in owned code.
+- [x] Added native x86 unit tests plus debug and release harness coverage to
+  Windows continuous integration.
 
 - [x] Added opt-in daemon `--auto-load` for existing and later `not_loaded`
   clients.
@@ -37,6 +45,23 @@ milestone is M10, the hook qualification harness.
   and suppressed repeated worker events while that attempt is active.
 - [x] Preserved explicit unload and isolated automatic loader failures per
   client.
+
+## M10 completion evidence
+
+- [x] Added the x86-only `darpc-hook` crate with explicit prepared and installed
+  detour states.
+- [x] Decode complete target instructions and relocate them with `iced-x86`
+  before changing target code.
+- [x] Keep trampoline memory writable only during preparation, then seal it
+  executable and read-only and flush the instruction cache.
+- [x] Enlist every other process thread to commit or restore a complete x86
+  jump while rejecting instruction pointers in protected code ranges.
+- [x] Track active detour calls and require quiescence before removal.
+- [x] Restore byte-exact original code after an injected post-write failure.
+- [x] Verify repeated preparation, repeated removal, original-call recursion,
+  panic containment, four concurrent callers, and no post-removal observations.
+- [x] Run the controlled harness from native x86 debug and release builds
+  without loading or modifying the game client.
 
 ## M9.1 completion evidence
 

@@ -6,10 +6,12 @@ members = [
     "components/rpc-dll",
     "components/rpc-daemon",
     "crates/game-client",
+    "crates/hook",
     "crates/model",
     "crates/protocol",
     "crates/win32",
     "tools/injection-target",
+    "tools/hook-harness",
     "tools/lifecycle-host",
     "tools/loader-fixture-dll",
 ]
@@ -22,6 +24,7 @@ repository = "https://github.com/ewrogers/da-rpc"
 
 [workspace.dependencies]
 darpc-game-client = { path = "crates/game-client" }
+darpc-hook = { path = "crates/hook" }
 darpc-model = { path = "crates/model" }
 darpc-protocol = { path = "crates/protocol" }
 darpc-win32 = { path = "crates/win32" }

@@ -100,7 +100,7 @@ directly for discovery, aggregation, action status, and multi-client behavior.
 | M8 | Read-only HTTP API | A browser or HTTP client lists the injected client. | Complete |
 | M9 | Discovery and managed launch | `darpcd.exe` reconciles candidates and invokes the loader explicitly. | Complete |
 | M9.1 | Automatic managed loading | An opt-in daemon policy loads each uninjected client once. | Complete |
-| M10 | Hook qualification harness | The hook mechanism preserves a controlled test function exactly. | Planned |
+| M10 | Hook qualification harness | The hook mechanism preserves a controlled test function exactly. | Complete |
 | M11 | First client tick hook | The daemon reports client ticks while the game behaves normally. | Planned |
 | M12 | Minimal late-attach snapshot | The direct CLI and daemon API expose a small real-client state slice. | Planned |
 | M13 | Event-driven updates | One normal game event updates state without another snapshot. | Planned |
@@ -110,7 +110,7 @@ directly for discovery, aggregation, action status, and multi-client behavior.
 | M17 | Multi-client hardening and preview | Failure and soak evidence support a preview release. | Planned |
 | M18 | WebSocket and remote access | Added only for a proven use case and defined security model. | Deferred |
 
-M2 through M9.1 are complete. M10 is the next planned implementation milestone.
+M2 through M10 are complete. M11 is the next planned implementation milestone.
 M1 has been exercised manually, but its separate evidence checklist remains
 open until the lifecycle-host Windows continuous-integration coverage is
 present. The working checklist is maintained in the [repository progress
@@ -530,7 +530,12 @@ Done:
 - Concurrent threads cannot observe a partially written hook, and instruction
   pointers inside a replaced range are safely rejected or redirected.
 - No panic or unwind crosses the native boundary.
-- Shutdown proves no thread can call the detour after unload.
+- Shutdown proves no thread can call the detour after removal, so owner unload
+  can proceed safely.
+
+Implemented in `darpc-hook` and the owned `hook-harness.exe`. Windows checks run
+the harness in debug and release builds without installing any game-client
+hook. Detailed invariants are documented in [Hook safety](hooks.md).
 
 ### M11: first client tick hook
 
@@ -701,8 +706,8 @@ limits, and administrative capability boundaries before it is supported.
 
 ## Immediate next increment
 
-M10 should qualify the hook mechanism against an owned deterministic x86 test
-function before any game-client hook is installed. It must prove transactional
-installation and removal, exact original-call behavior, safe instruction
-relocation, concurrent-call safety, rollback, and shutdown. Real client state
-remains deferred until M11 and M12.
+M11 should install the first minimal hook only after validating the exact client
+fingerprint and `event_dispatcher_tick` relative virtual address. It must retain
+the qualified transaction and shutdown rules, perform no I/O in the detour, and
+prove normal client behavior through a repeatable live-client soak. Real client
+state remains deferred until M12.

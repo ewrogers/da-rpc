@@ -48,6 +48,12 @@ to the daemon HTTP API.
 a process as an injection candidate, but the loader must still validate that
 the target is compatible before modifying it.
 
+The `darpc-hook` support crate owns the reusable, in-process x86 detour
+boundary. It has no game addresses or state knowledge. `darpc.dll` will supply
+validated client-specific targets and detours when live hooks are introduced.
+The separate `hook-harness.exe` exercises that boundary against owned code.
+See [Hook safety](hooks.md) for its transaction and shutdown contracts.
+
 ## Web boundary
 
 The daemon web boundary uses Axum. Its current read-only surface binds to

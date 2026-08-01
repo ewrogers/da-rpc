@@ -1,0 +1,27 @@
+[package]
+name = "darpc-hook"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[target.'cfg(all(windows, target_arch = "x86"))'.dependencies]
+iced-x86 = { version = "1.21", default-features = false, features = [
+    "std",
+    "decoder",
+    "block_encoder",
+    "instr_info",
+] }
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Kernel",
+    "Win32_System_Memory",
+    "Win32_System_Threading",
+] }
+
+[lints]
+workspace = true

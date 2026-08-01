@@ -117,6 +117,7 @@ impl FakeMemory {
         memory.u32(INVENTORY_ENTRY + 0x238, 41);
         memory.u32(INVENTORY_ENTRY + 0x23C, 50);
         memory.u32(INVENTORY_ENTRY + 0x240, 3);
+        memory.u8(INVENTORY_ENTRY + 0x244, 1);
         memory.u32(INVENTORY_PANE + 0x1A0 + 59 * 4, INVENTORY_GOLD_ENTRY);
         memory.u16(INVENTORY_GOLD_ENTRY + 0x190, 0x8088);
         memory.bytes(INVENTORY_GOLD_ENTRY + 0x192, b"Gold (123456)\0");
@@ -149,8 +150,9 @@ impl FakeMemory {
         memory.u32(SPELL_POINTERS, SPELL_ENTRY);
         memory.u8(SPELL_ENTRY + 0x190, 7);
         memory.u16(SPELL_ENTRY + 0x192, 0x0456);
-        memory.u8(SPELL_ENTRY + 0x194, 2);
+        memory.u8(SPELL_ENTRY + 0x194, 1);
         memory.bytes(SPELL_ENTRY + 0x195, b"Fas Spiorad (Lev:3/5)\0");
+        memory.bytes(SPELL_ENTRY + 0x215, b"Target \xFFname?\0");
         memory.u8(SPELL_ENTRY + 0x295, 4);
         memory.u8(SPELL_ENTRY + 0x297, 1);
         memory.i32(SPELL_ENTRY + 0x2B0, 3);
@@ -331,6 +333,7 @@ fn captures_inventory_and_equipment_slots() {
         ),
         (3, 41, 50)
     );
+    assert!(inventory.can_stack);
     assert!(inventory_items[59].is_none());
     assert_eq!(
         (equipment.slot, equipment.sprite, equipment.dye_color),
@@ -361,7 +364,12 @@ fn captures_spellbook_and_skillbook_slots() {
     assert!(skill.cooldown_visual_active);
     assert_eq!(
         (spell.slot, spell.icon, spell.argument_type),
-        (7, 0x0456, 2)
+        (7, 0x0456, 1)
+    );
+    let prompt = spell.prompt.unwrap();
+    assert_eq!(
+        &prompt.bytes[..usize::from(prompt.length)],
+        b"Target \xFFname?"
     );
     assert_eq!(spell.cast_lines, 4);
     assert!(spell.action_delay_active);

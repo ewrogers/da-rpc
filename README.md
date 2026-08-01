@@ -258,10 +258,10 @@ loopback. It exposes one current, unversioned API:
 ```text
 GET /health
 GET /clients
-GET /clients/{pid}/snapshot
+GET /clients/{client}/snapshot
 POST /clients/launch
-POST /clients/{pid}/load
-POST /clients/{pid}/unload
+POST /clients/{client}/load
+POST /clients/{client}/unload
 GET /openapi.json
 GET /docs
 ```
@@ -269,9 +269,11 @@ GET /docs
 The default interactive documentation URL is
 `http://127.0.0.1:2626/docs`. Startup fails clearly if the selected port is
 unavailable rather than silently choosing another one. `/clients` reports each
-discovered or explicitly configured PID and status, plus the DLL `instance_id`
-and process `created_time` once identity is available. The snapshot route
-returns the daemon's latest complete observation for one client.
+discovered or explicitly configured PID, current endpoint name, and status,
+plus the DLL `instance_id` and process `created_time` once identity is
+available. A `{client}` path accepts either a PID or a case-insensitive current
+in-game character name. The snapshot route returns the daemon's latest complete
+observation for one client.
 
 Managed launch requires `client_path` and accepts `allow_multiple`,
 `skip_intro`, `skip_notice`, and an optional `server` string in `host` or

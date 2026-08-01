@@ -41,6 +41,8 @@ implementation milestone is M13, event-driven updates.
   OpenAPI.
 - [x] Added bounded reconnect-dialog detection and a `disconnected` lifecycle
   that preserves valid character state beneath the dialog.
+- [x] Added current-character endpoint names, canonical item sprites and names,
+  stackability, typed equipment slots, and text-input spell prompts.
 - [x] Kept allocation, text conversion, serialization, IPC, and logging off the
   hook path through a fixed-capacity publication handoff.
 - [x] Verified the snapshot against a late-attached live client and measured
@@ -58,7 +60,7 @@ implementation milestone is M13, event-driven updates.
 - [x] Validate strict snapshot codec round trips, malformed collection bounds,
   slots, duplicate slots, and string limits within protocol 1.0.
 - [x] Expose equivalent human and JSON direct CLI output and
-  `GET /clients/{pid}/snapshot` with generated OpenAPI schemas.
+  `GET /clients/{client}/snapshot` with generated OpenAPI schemas.
 - [x] Split state walking, collection conversion, protocol codecs, CLI output,
   and HTTP models along focused domain boundaries.
 

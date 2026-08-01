@@ -22,6 +22,7 @@ pub struct RawInventoryItem {
     pub dye_color: u8,
     pub name: RawClientText<128>,
     pub quantity: u32,
+    pub can_stack: bool,
     pub durability: u32,
     pub max_durability: u32,
 }
@@ -82,6 +83,7 @@ impl<M: MemoryReader> StateWalker<'_, M> {
                 dye_color: bytes[0x82],
                 name: raw_text(&bytes[0x02..0x82])?,
                 quantity: u32_at(&bytes, 0xB0),
+                can_stack: bytes[0xB4] != 0,
                 durability: u32_at(&bytes, 0xA8),
                 max_durability: u32_at(&bytes, 0xAC),
             });

@@ -18,6 +18,7 @@ pub(super) fn inventory_value(item: &InventoryItem) -> serde_json::Value {
         "dye_color": item.dye_color,
         "name": item.name,
         "quantity": item.quantity,
+        "can_stack": item.can_stack,
         "durability": item.durability,
         "max_durability": item.max_durability,
     })
@@ -25,7 +26,7 @@ pub(super) fn inventory_value(item: &InventoryItem) -> serde_json::Value {
 
 pub(super) fn equipment_value(item: &EquipmentItem) -> serde_json::Value {
     json!({
-        "slot": item.slot,
+        "slot": item.slot.as_str(),
         "sprite": item.sprite,
         "dye_color": item.dye_color,
         "name": item.name,
@@ -43,7 +44,7 @@ pub(super) fn spell_value(spell: &Spell) -> serde_json::Value {
         "max_level": spell.max_level,
         "lines": spell.lines,
         "target_type": target_type(spell.target_type),
-        "target_type_id": spell.target_type.raw(),
+        "prompt": spell.prompt,
         "cooldown": {
             "active": spell.cooldown.active,
             "remaining_ms": spell.cooldown.remaining_ms,
@@ -76,7 +77,7 @@ fn render_inventory(output: &mut String, items: Option<&[InventoryItem]>) {
         let _ = write!(
             output,
             concat!(
-                "\n  slot={}: name={} sprite={} dye_color={} quantity={} ",
+                "\n  slot={}: name={} sprite={} dye_color={} quantity={} can_stack={} ",
                 "durability={}/{}"
             ),
             item.slot,
@@ -84,6 +85,7 @@ fn render_inventory(output: &mut String, items: Option<&[InventoryItem]>) {
             item.sprite,
             item.dye_color,
             item.quantity,
+            item.can_stack,
             item.durability,
             item.max_durability,
         );
@@ -101,7 +103,7 @@ fn render_equipment(output: &mut String, items: Option<&[EquipmentItem]>) {
         let _ = write!(
             output,
             "\n  slot={}: name={} sprite={} dye_color={} durability={}/{}",
-            item.slot,
+            item.slot.as_str(),
             json_string(name),
             item.sprite,
             item.dye_color,
@@ -122,7 +124,7 @@ fn render_spells(output: &mut String, spells: Option<&[Spell]>) {
         let _ = write!(
             output,
             concat!(
-                "\n  slot={}: name={} icon={} level={}/{} lines={} target_type={} ",
+                "\n  slot={}: name={} icon={} level={}/{} lines={} target_type={} prompt={} ",
                 "cooldown_active={} cooldown_remaining_ms={}"
             ),
             spell.slot,
@@ -132,6 +134,7 @@ fn render_spells(output: &mut String, spells: Option<&[Spell]>) {
             spell.max_level,
             spell.lines,
             target_type(spell.target_type),
+            json_string(spell.prompt.as_deref().unwrap_or("unavailable")),
             spell.cooldown.active,
             optional_ms(spell.cooldown.remaining_ms),
         );

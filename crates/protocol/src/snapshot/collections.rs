@@ -4,7 +4,8 @@ use crate::{
     message::{PayloadReader, push_bool, push_u16, push_u32},
 };
 use darpc_model::{
-    CharacterSnapshot, CooldownStatus, EquipmentItem, InventoryItem, Skill, Spell, SpellTargetType,
+    CharacterSnapshot, CooldownStatus, EquipmentItem, EquipmentSlot, InventoryItem, Skill, Spell,
+    SpellTargetType,
 };
 
 const INVENTORY_SLOT_COUNT: usize = 60;
@@ -54,6 +55,7 @@ fn encode_inventory(
         output.push(item.dye_color);
         encode_optional_string(output, item.name.as_deref(), MAX_COLLECTION_NAME_LEN)?;
         push_u32(output, item.quantity);
+        push_bool(output, item.can_stack);
         push_u32(output, item.durability);
         push_u32(output, item.max_durability);
     }
@@ -76,6 +78,7 @@ fn decode_inventory(
             dye_color: reader.read_u8()?,
             name: decode_optional_string(reader, MAX_COLLECTION_NAME_LEN)?,
             quantity: reader.read_u32()?,
+            can_stack: reader.read_bool()?,
             durability: reader.read_u32()?,
             max_durability: reader.read_u32()?,
         });
@@ -92,8 +95,9 @@ fn encode_equipment(
     };
     let mut slots = [false; EQUIPMENT_SLOT_COUNT];
     for item in items {
-        encode_slot(item.slot, &mut slots)?;
-        output.push(item.slot);
+        let slot = item.slot.raw();
+        encode_slot(slot, &mut slots)?;
+        output.push(slot);
         push_u16(output, item.sprite);
         output.push(item.dye_color);
         encode_optional_string(output, item.name.as_deref(), MAX_COLLECTION_NAME_LEN)?;
@@ -114,7 +118,7 @@ fn decode_equipment(
     for _ in 0..count {
         let slot = decode_slot(reader, &mut slots)?;
         items.push(EquipmentItem {
-            slot,
+            slot: EquipmentSlot::from_raw(slot).expect("validated equipment slot is known"),
             sprite: reader.read_u16()?,
             dye_color: reader.read_u8()?,
             name: decode_optional_string(reader, MAX_COLLECTION_NAME_LEN)?,
@@ -139,6 +143,7 @@ fn encode_spells(output: &mut Vec<u8>, spells: Option<&[Spell]>) -> Result<(), E
         output.push(spell.max_level);
         output.push(spell.lines);
         output.push(spell.target_type.raw());
+        encode_optional_string(output, spell.prompt.as_deref(), MAX_COLLECTION_NAME_LEN)?;
         encode_cooldown(output, spell.cooldown);
     }
     Ok(())
@@ -160,6 +165,7 @@ fn decode_spells(reader: &mut PayloadReader<'_>) -> Result<Option<Vec<Spell>>, D
             max_level: reader.read_u8()?,
             lines: reader.read_u8()?,
             target_type: SpellTargetType::from_raw(reader.read_u8()?),
+            prompt: decode_optional_string(reader, MAX_COLLECTION_NAME_LEN)?,
             cooldown: decode_cooldown(reader)?,
         });
     }

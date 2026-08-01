@@ -12,8 +12,8 @@ use crate::{
         CharacterClass as SnapshotCharacterClass, CharacterGender, CharacterModifiers,
         CharacterProgression, CharacterSnapshot, CharacterStats, CharacterVitals,
         ClientLifecycle as SnapshotClientLifecycle, ClientSnapshot as ApiClientSnapshot,
-        CooldownStatus, Element, EquipmentItem, InventoryItem, MapLocation, Skill, Spell,
-        SpellTargetType,
+        CooldownStatus, Element, EquipmentItem, EquipmentSlot, InventoryItem, MapLocation, Skill,
+        Spell, SpellTargetType,
     },
 };
 use axum::{
@@ -119,10 +119,10 @@ fn router(state: ApiState) -> Router {
     Router::<ApiState>::new()
         .route("/health", get(health))
         .route("/clients", get(clients))
-        .route("/clients/{pid}/snapshot", get(client_snapshot))
+        .route("/clients/{client}/snapshot", get(client_snapshot))
         .route("/clients/launch", post(launch))
-        .route("/clients/{pid}/load", post(load))
-        .route("/clients/{pid}/unload", post(unload))
+        .route("/clients/{client}/load", post(load))
+        .route("/clients/{client}/unload", post(unload))
         .route("/docs", get(swagger_redirect))
         .route("/docs/", get(swagger_index))
         .route("/docs/ayu.css", get(swagger_theme))
@@ -202,8 +202,8 @@ async fn clients(State(state): State<ApiState>) -> Json<ClientList> {
 
 #[utoipa::path(
     get,
-    path = "/clients/{pid}/snapshot",
-    params(("pid" = u32, Path, description = "Discovered client process identifier")),
+    path = "/clients/{client}/snapshot",
+    params(("client" = String, Path, description = "Process ID or current in-game character name")),
     responses(
         (status = 200, description = "The latest complete client observation", body = ApiClientSnapshot),
         (status = 400, description = "The process identifier was invalid", body = ErrorState),
@@ -212,30 +212,12 @@ async fn clients(State(state): State<ApiState>) -> Json<ClientList> {
     )
 )]
 async fn client_snapshot(
-    Path(pid): Path<u32>,
+    Path(identifier): Path<String>,
     State(state): State<ApiState>,
 ) -> Result<Json<ApiClientSnapshot>, ApiError> {
-    if pid == 0 {
-        return Err(ApiError::new(
-            StatusCode::BAD_REQUEST,
-            "invalid_pid",
-            "PID must be greater than zero",
-            Some(pid),
-        ));
-    }
     let registry = state.snapshot();
-    let client = registry
-        .clients
-        .iter()
-        .find(|client| client.pid == pid)
-        .ok_or_else(|| {
-            ApiError::new(
-                StatusCode::NOT_FOUND,
-                "client_not_found",
-                "the process is not a discovered or configured client",
-                Some(pid),
-            )
-        })?;
+    let client = resolve_client(&registry, &identifier)?;
+    let pid = client.pid;
     let snapshot = client.game_snapshot.as_ref().ok_or_else(|| {
         ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
@@ -252,8 +234,8 @@ async fn client_snapshot(
 
 #[utoipa::path(
     post,
-    path = "/clients/{pid}/load",
-    params(("pid" = u32, Path, description = "Discovered client process identifier")),
+    path = "/clients/{client}/load",
+    params(("client" = String, Path, description = "Process ID or current in-game character name")),
     responses(
         (status = 200, description = "The DLL was already loaded", body = LoadResult),
         (status = 202, description = "The DLL was loaded and the daemon is connecting", body = LoadResult),
@@ -266,10 +248,10 @@ async fn client_snapshot(
     )
 )]
 async fn load(
-    Path(pid): Path<u32>,
+    Path(identifier): Path<String>,
     State(state): State<ApiState>,
 ) -> Result<(StatusCode, Json<LoadResult>), ApiError> {
-    let status = tracked_status(&state, pid)?;
+    let (pid, status) = tracked_status(&state, &identifier)?;
     match status {
         ClientSnapshotStatus::Connected => {
             return Ok((StatusCode::OK, Json(LoadResult::unchanged(pid))));
@@ -299,8 +281,8 @@ async fn load(
 
 #[utoipa::path(
     post,
-    path = "/clients/{pid}/unload",
-    params(("pid" = u32, Path, description = "Discovered client process identifier")),
+    path = "/clients/{client}/unload",
+    params(("client" = String, Path, description = "Process ID or current in-game character name")),
     responses(
         (status = 200, description = "The DLL is unloaded", body = UnloadResult),
         (status = 400, description = "The process identifier was invalid", body = ErrorState),
@@ -312,10 +294,11 @@ async fn load(
     )
 )]
 async fn unload(
-    Path(pid): Path<u32>,
+    Path(identifier): Path<String>,
     State(state): State<ApiState>,
 ) -> Result<(StatusCode, Json<UnloadResult>), ApiError> {
-    match tracked_status(&state, pid)? {
+    let (pid, status) = tracked_status(&state, &identifier)?;
+    match status {
         ClientSnapshotStatus::NotLoaded => {
             return Ok((StatusCode::OK, Json(UnloadResult::unchanged(pid))));
         }
@@ -366,29 +349,86 @@ async fn launch(
     Ok((StatusCode::CREATED, Json(LifecycleResult::from(outcome))))
 }
 
-fn tracked_status(state: &ApiState, pid: u32) -> Result<ClientSnapshotStatus, ApiError> {
-    if pid == 0 {
+fn resolve_client<'a>(
+    registry: &'a RegistrySnapshot,
+    identifier: &str,
+) -> Result<&'a RegistryClientSnapshot, ApiError> {
+    if identifier.bytes().all(|byte| byte.is_ascii_digit()) {
+        let pid = identifier.parse::<u32>().map_err(|_| {
+            ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "invalid_client",
+                "numeric client identifiers must be valid nonzero process IDs",
+                None,
+            )
+        })?;
+        if pid == 0 {
+            return Err(ApiError::new(
+                StatusCode::BAD_REQUEST,
+                "invalid_client",
+                "numeric client identifiers must be valid nonzero process IDs",
+                Some(pid),
+            ));
+        }
+        return registry
+            .clients
+            .iter()
+            .find(|client| client.pid == pid)
+            .ok_or_else(|| {
+                ApiError::new(
+                    StatusCode::NOT_FOUND,
+                    "client_not_found",
+                    format!("process {pid} is not a discovered or configured client"),
+                    Some(pid),
+                )
+            });
+    }
+
+    let mut matches = registry.clients.iter().filter(|client| {
+        current_character_name(client).is_some_and(|name| name.eq_ignore_ascii_case(identifier))
+    });
+    let Some(client) = matches.next() else {
         return Err(ApiError::new(
-            StatusCode::BAD_REQUEST,
-            "invalid_pid",
-            "process ID must be greater than zero",
+            StatusCode::NOT_FOUND,
+            "client_not_found",
+            format!("no connected in-game client is named {identifier:?}"),
+            None,
+        ));
+    };
+    if matches.next().is_some() {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "ambiguous_client",
+            format!("more than one connected in-game client is named {identifier:?}"),
             None,
         ));
     }
-    state
-        .snapshot()
-        .clients
-        .iter()
-        .find(|client| client.pid == pid)
-        .map(|client| client.status)
-        .ok_or_else(|| {
-            ApiError::new(
-                StatusCode::NOT_FOUND,
-                "client_not_found",
-                format!("process {pid} is not a discovered or configured client"),
-                Some(pid),
-            )
-        })
+    Ok(client)
+}
+
+fn current_character_name(client: &RegistryClientSnapshot) -> Option<&str> {
+    if client.status != ClientSnapshotStatus::Connected {
+        return None;
+    }
+    let snapshot = client.game_snapshot.as_ref()?;
+    if snapshot.lifecycle != darpc_model::ClientLifecycle::InGame {
+        return None;
+    }
+    snapshot
+        .character
+        .as_ref()?
+        .name
+        .as_deref()
+        .filter(|name| !name.is_empty())
+}
+
+fn tracked_status(
+    state: &ApiState,
+    identifier: &str,
+) -> Result<(u32, ClientSnapshotStatus), ApiError> {
+    let registry = state.snapshot();
+    let client = resolve_client(&registry, identifier)?;
+    Ok((client.pid, client.status))
 }
 
 async fn run_lifecycle(
@@ -440,6 +480,7 @@ fn operation_in_progress(pid: u32) -> ApiError {
         MapLocation,
         InventoryItem,
         EquipmentItem,
+        EquipmentSlot,
         Spell,
         Skill,
         CooldownStatus,
@@ -484,6 +525,8 @@ impl From<&RegistrySnapshot> for ClientList {
 struct ClientState {
     /// Configured operating-system process identifier.
     pid: u32,
+    /// Current endpoint identifier: in-game character name or process ID.
+    name: String,
     /// Current daemon connection state for this target.
     status: ClientStatus,
     /// Stable process and DLL identity, once observed.
@@ -498,6 +541,8 @@ impl From<&RegistryClientSnapshot> for ClientState {
     fn from(client: &RegistryClientSnapshot) -> Self {
         Self {
             pid: client.pid,
+            name: current_character_name(client)
+                .map_or_else(|| client.pid.to_string(), str::to_owned),
             status: ClientStatus::from(client.status),
             identity: client.identity.map(ClientIdentity::from),
             connection: client
@@ -845,7 +890,7 @@ struct ErrorDetail {
 
 #[cfg(test)]
 mod tests {
-    use super::{ApiState, ClientList, LaunchOptions, router};
+    use super::{ApiState, ClientList, LaunchOptions, resolve_client, router};
     use crate::{
         event::DaemonEvent,
         management::{
@@ -862,8 +907,8 @@ mod tests {
         CharacterClass, CharacterProgression, CharacterSnapshot as ModelCharacterSnapshot,
         CharacterStats, CharacterVitals, ClientLifecycle, ClientSnapshot as ModelClientSnapshot,
         CooldownStatus as ModelCooldownStatus, EquipmentItem as ModelEquipmentItem,
-        InventoryItem as ModelInventoryItem, MapLocation, Skill as ModelSkill, Spell as ModelSpell,
-        SpellTargetType as ModelSpellTargetType,
+        EquipmentSlot as ModelEquipmentSlot, InventoryItem as ModelInventoryItem, MapLocation,
+        Skill as ModelSkill, Spell as ModelSpell, SpellTargetType as ModelSpellTargetType,
     };
     use darpc_protocol::{Architecture, ComponentVersion, Hello, SUPPORTED_VERSIONS};
     use serde_json::Value;
@@ -935,16 +980,17 @@ mod tests {
                 }),
                 inventory: Some(vec![ModelInventoryItem {
                     slot: 1,
-                    sprite: 0x8123,
+                    sprite: 0x0123,
                     dye_color: 7,
-                    name: Some("Dark Belt [3]".into()),
+                    name: Some("Dark Belt".into()),
                     quantity: 3,
+                    can_stack: true,
                     durability: 41,
                     max_durability: 50,
                 }]),
                 equipment: Some(vec![ModelEquipmentItem {
-                    slot: 2,
-                    sprite: 0x9234,
+                    slot: ModelEquipmentSlot::Armor,
+                    sprite: 0x1234,
                     dye_color: 2,
                     name: Some("Hy-Brasyl Armor".into()),
                     durability: 900,
@@ -957,7 +1003,8 @@ mod tests {
                     level: 3,
                     max_level: 5,
                     lines: 4,
-                    target_type: ModelSpellTargetType::Target,
+                    target_type: ModelSpellTargetType::TextInput,
+                    prompt: Some("Who?".into()),
                     cooldown: ModelCooldownStatus {
                         active: true,
                         remaining_ms: None,
@@ -1114,6 +1161,7 @@ mod tests {
 
         let clients = json("/clients");
         assert_eq!(clients["clients"][0]["pid"], 42);
+        assert_eq!(clients["clients"][0]["name"], "SiLo");
         assert_eq!(clients["clients"][0]["status"], "connected");
         assert_eq!(
             clients["clients"][0]["identity"]["created_time"],
@@ -1133,17 +1181,26 @@ mod tests {
                 .is_none()
         );
 
-        let snapshot = json("/clients/42/snapshot");
+        let snapshot = json("/clients/silo/snapshot");
         assert_eq!(snapshot["pid"], 42);
         assert_eq!(snapshot["lifecycle"], "in_game");
         assert_eq!(snapshot["character"]["name"], "SiLo");
         assert_eq!(snapshot["character"]["progression"]["level"], 50);
         assert_eq!(snapshot["character"]["location"]["x"], 11);
         assert_eq!(snapshot["character"]["inventory"][0]["quantity"], 3);
-        assert_eq!(snapshot["character"]["equipment"][0]["slot"], 2);
+        assert_eq!(snapshot["character"]["inventory"][0]["can_stack"], true);
+        assert_eq!(snapshot["character"]["inventory"][0]["name"], "Dark Belt");
+        assert_eq!(snapshot["character"]["inventory"][0]["sprite"], 0x0123);
+        assert_eq!(snapshot["character"]["equipment"][0]["slot"], "armor");
         assert_eq!(
             snapshot["character"]["spellbook"][0]["target_type"],
-            "target"
+            "text_input"
+        );
+        assert_eq!(snapshot["character"]["spellbook"][0]["prompt"], "Who?");
+        assert!(
+            snapshot["character"]["spellbook"][0]
+                .get("target_type_id")
+                .is_none()
         );
         assert_eq!(snapshot["character"]["skillbook"][0]["max_level"], 100);
 
@@ -1152,6 +1209,61 @@ mod tests {
         registry.apply(&ConnectionEvent::NotLoaded { pid: 7 });
         state.publish(registry.snapshot());
         assert_eq!(state.snapshot().clients[0].pid, 7);
+    }
+
+    #[test]
+    fn disconnected_snapshots_fall_back_to_the_process_id() {
+        let mut registry = Registry::new();
+        let hello = hello();
+        registry.apply(&ConnectionEvent::Connected {
+            pid: 42,
+            hello,
+            selected_version: SUPPORTED_VERSIONS.max,
+        });
+        let mut snapshot = game_snapshot();
+        snapshot.lifecycle = ClientLifecycle::Disconnected;
+        registry.apply(&ConnectionEvent::Snapshot {
+            pid: 42,
+            identity: RegistryClientIdentity::from_hello(hello),
+            snapshot: Box::new(snapshot),
+        });
+
+        let snapshot = registry.snapshot();
+        let clients = serde_json::to_value(ClientList::from(&snapshot)).unwrap();
+        assert_eq!(clients["clients"][0]["name"], "42");
+        assert_eq!(resolve_client(&snapshot, "42").unwrap().pid, 42);
+        assert_eq!(
+            resolve_client(&snapshot, "silo").unwrap_err().status,
+            StatusCode::NOT_FOUND
+        );
+    }
+
+    #[test]
+    fn duplicate_active_character_names_are_ambiguous() {
+        let mut registry = Registry::new();
+        for (pid, instance) in [(42, 0xAB), (43, 0xAC)] {
+            let mut hello = hello();
+            hello.process_id = pid;
+            hello.process_creation_time += u64::from(pid);
+            hello.dll_instance_id = [instance; 16];
+            registry.apply(&ConnectionEvent::Connected {
+                pid,
+                hello,
+                selected_version: SUPPORTED_VERSIONS.max,
+            });
+            registry.apply(&ConnectionEvent::Snapshot {
+                pid,
+                identity: RegistryClientIdentity::from_hello(hello),
+                snapshot: Box::new(game_snapshot()),
+            });
+        }
+
+        assert_eq!(
+            resolve_client(&registry.snapshot(), "SILO")
+                .unwrap_err()
+                .status,
+            StatusCode::CONFLICT
+        );
     }
 
     #[test]
@@ -1207,10 +1319,10 @@ mod tests {
         assert_eq!(openapi["info"]["title"], "daRPC API");
         assert!(openapi["paths"]["/health"].is_object());
         assert!(openapi["paths"]["/clients"].is_object());
-        assert!(openapi["paths"]["/clients/{pid}/snapshot"].is_object());
+        assert!(openapi["paths"]["/clients/{client}/snapshot"].is_object());
         assert!(openapi["paths"]["/clients/launch"].is_object());
-        assert!(openapi["paths"]["/clients/{pid}/load"].is_object());
-        assert!(openapi["paths"]["/clients/{pid}/unload"].is_object());
+        assert!(openapi["paths"]["/clients/{client}/load"].is_object());
+        assert!(openapi["paths"]["/clients/{client}/unload"].is_object());
         let schemas = openapi["components"]["schemas"].as_object().unwrap();
         for name in [
             "HealthState",
@@ -1231,6 +1343,13 @@ mod tests {
             "CharacterModifiers",
             "Element",
             "MapLocation",
+            "InventoryItem",
+            "EquipmentItem",
+            "EquipmentSlot",
+            "Spell",
+            "Skill",
+            "CooldownStatus",
+            "SpellTargetType",
             "LaunchOptions",
             "LoadResult",
             "LifecycleResult",
@@ -1252,6 +1371,21 @@ mod tests {
         assert!(schemas["LoadResult"]["properties"]["changed"].is_null());
         assert!(schemas["UnloadResult"]["properties"]["was_unloaded"].is_object());
         assert!(schemas["UnloadResult"]["properties"]["changed"].is_null());
+        assert!(
+            schemas["CharacterModifiers"]["properties"]
+                .get("attack_element_id")
+                .is_none()
+        );
+        assert!(
+            schemas["CharacterModifiers"]["properties"]
+                .get("defense_element_id")
+                .is_none()
+        );
+        assert!(
+            schemas["Spell"]["properties"]
+                .get("target_type_id")
+                .is_none()
+        );
         assert!(
             schemas["ClientLifecycle"]["enum"]
                 .as_array()

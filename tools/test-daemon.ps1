@@ -278,8 +278,8 @@ function Assert-ApiContract {
     Assert-True ($Paths -contains "/health") "OpenAPI omitted /health"
     Assert-True ($Paths -contains "/clients") "OpenAPI omitted /clients"
     Assert-True ($Paths -contains "/clients/launch") "OpenAPI omitted /clients/launch"
-    Assert-True ($Paths -contains "/clients/{pid}/load") "OpenAPI omitted client load"
-    Assert-True ($Paths -contains "/clients/{pid}/unload") "OpenAPI omitted client unload"
+    Assert-True ($Paths -contains "/clients/{client}/load") "OpenAPI omitted client load"
+    Assert-True ($Paths -contains "/clients/{client}/unload") "OpenAPI omitted client unload"
     $Schemas = @($OpenApi.components.schemas.PSObject.Properties.Name)
     foreach ($Schema in @(
         "ClientIdentity",

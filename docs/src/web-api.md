@@ -18,10 +18,10 @@ port. The API has no URL version prefix.
 | --- | --- |
 | `GET /health` | Report daemon availability. |
 | `GET /clients` | List discovered and configured targets, identity, compatibility, and connection health. |
-| `GET /clients/{pid}/snapshot` | Return the latest complete snapshot observed from one connected client. |
+| `GET /clients/{client}/snapshot` | Return the latest complete snapshot observed from one connected client. |
 | `POST /clients/launch` | Launch the configured client and initialize the configured DLL. |
-| `POST /clients/{pid}/load` | Load and initialize the configured DLL in a tracked client. |
-| `POST /clients/{pid}/unload` | Shut down and unload the configured DLL from a tracked client. |
+| `POST /clients/{client}/load` | Load and initialize the configured DLL in a tracked client. |
+| `POST /clients/{client}/unload` | Shut down and unload the configured DLL from a tracked client. |
 | `GET /openapi.json` | Return the generated OpenAPI document. |
 | `GET /docs` | Open the self-hosted interactive Swagger UI. |
 
@@ -43,6 +43,7 @@ ClientList {
 
 ClientState {
     pid: u32,
+    name: string,
     status: "connecting" | "not_loaded" | "initializing" | "connected" |
             "busy" | "disconnected" | "incompatible",
     identity: ClientIdentity?,
@@ -64,6 +65,14 @@ ConnectionMetadata {
 }
 ```
 
+Every `{client}` path accepts a decimal PID or a case-insensitive current
+character name. PID addressing is always available. Name addressing is
+available only for a connected snapshot whose lifecycle is `in_game`; title,
+transition, disconnected, and stale observations fall back to the decimal PID.
+`ClientState.name` exposes the currently eligible path value. A duplicate
+active name is rejected as ambiguous rather than selecting an arbitrary
+process.
+
 `created_time` is the unsigned 64-bit Windows process creation time encoded as
 a decimal string so JavaScript consumers do not lose precision. `instance_id`
 and `executable_fingerprint` are uppercase hexadecimal strings. Identity and
@@ -74,7 +83,7 @@ such as `"7.41"`.
 ## Client snapshots
 
 After connecting, the daemon requests a complete snapshot and retains it with
-the corresponding client identity. `GET /clients/{pid}/snapshot` returns that
+the corresponding client identity. `GET /clients/{client}/snapshot` returns that
 latest observation. It returns `404 Not Found` for an unknown PID and `503
 Service Unavailable` when the target has not produced a snapshot, including a
 capture failure reason when one is available.
@@ -84,18 +93,24 @@ lifecycle, and an optional character. Character state includes identity,
 progression, attributes, vitals, modifiers, map location, inventory, equipment,
 spellbook, and skillbook. Occupied slots are arrays; an absent array means the
 client could not expose that group, while an empty array means the group was
-read successfully and contained no occupied slots.
+read successfully and contained no occupied slots. Item sprites exclude the
+client's type flag bits, stackable item names exclude the rendered quantity
+suffix, and `can_stack` retains the independent client flag. Equipment `slot`
+is a stable snake-case name such as `left_ring` or `accessory1`.
+
+Text-input spells expose their ASCII-only prompt. Other spell target modes
+have a null prompt. Element and target-type names are exposed without duplicate
+numeric identifier fields.
 
 The `disconnected` lifecycle means that the active client is displaying its
 reconnect dialog. Character state remains present when the underlying world
 structures are still valid, so consumers should use the lifecycle rather than
 the presence of a character to decide whether the session is connected.
 
-Known enum values are represented with readable snake-case names. The
-corresponding numeric client identifier is also retained where unknown values
-must round-trip, such as `class_id`, `gender_id`, element IDs, and
-`target_type_id`. Raw memory addresses and version-specific layout details are
-never exposed.
+Known enum values are represented with readable snake-case names. Numeric
+identifiers are retained only where unknown values must round-trip, such as
+`class_id` and `gender_id`. Raw memory addresses and version-specific layout
+details are never exposed.
 
 Snapshot capture semantics, unavailable values, and collection behavior are
 documented in [Client state](state.md). The complete generated JSON schema is

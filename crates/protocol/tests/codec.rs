@@ -1,7 +1,7 @@
 use darpc_model::{
     CharacterClass, CharacterModifiers, CharacterProgression, CharacterSnapshot, CharacterStats,
     CharacterVitals, ClientLifecycle, ClientSnapshot, CooldownStatus, Element, EquipmentItem,
-    Gender, InventoryItem, MapLocation, Skill, Spell, SpellTargetType,
+    EquipmentSlot, Gender, InventoryItem, MapLocation, Skill, Spell, SpellTargetType,
 };
 use darpc_protocol::{
     Architecture, ComponentVersion, DecodeError, EchoRequest, EchoResponse, EncodeError,
@@ -84,16 +84,17 @@ fn snapshot() -> ClientSnapshot {
             }),
             inventory: Some(vec![InventoryItem {
                 slot: 1,
-                sprite: 0x8123,
+                sprite: 0x0123,
                 dye_color: 7,
-                name: Some("Dark Belt [3]".into()),
+                name: Some("Dark Belt".into()),
                 quantity: 3,
+                can_stack: true,
                 durability: 41,
                 max_durability: 50,
             }]),
             equipment: Some(vec![EquipmentItem {
-                slot: 2,
-                sprite: 0x9234,
+                slot: EquipmentSlot::Armor,
+                sprite: 0x1234,
                 dye_color: 2,
                 name: Some("Hy-Brasyl Armor".into()),
                 durability: 900,
@@ -106,7 +107,8 @@ fn snapshot() -> ClientSnapshot {
                 level: 3,
                 max_level: 5,
                 lines: 4,
-                target_type: SpellTargetType::Target,
+                target_type: SpellTargetType::TextInput,
+                prompt: Some("Who?".into()),
                 cooldown: CooldownStatus {
                     active: true,
                     remaining_ms: None,
@@ -302,7 +304,7 @@ fn malformed_snapshot_slots_are_rejected_when_decoding() {
     let mut invalid = encode_frame(&frame).unwrap();
     let slot = invalid
         .windows(4)
-        .position(|bytes| bytes == [1, 0x23, 0x81, 7])
+        .position(|bytes| bytes == [1, 0x23, 0x01, 7])
         .expect("inventory marker is unique");
     invalid[slot] = 0;
     assert_eq!(

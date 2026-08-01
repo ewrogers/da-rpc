@@ -35,6 +35,7 @@ pub struct RawSpell {
     pub icon: u16,
     pub name: RawClientText<128>,
     pub argument_type: u8,
+    pub prompt: Option<RawClientText<128>>,
     pub cast_lines: u8,
     pub action_delay_active: bool,
     pub name_suffix_left: i32,
@@ -109,12 +110,18 @@ impl<M: MemoryReader> StateWalker<'_, M> {
             let mut bytes = [0_u8; SPELL_PANE_SIZE];
             self.read_bytes(add(pointer, ABILITY_PANE_OFFSET)?, &mut bytes)?;
             let slot = bytes[0];
+            let argument_type = bytes[0x04];
             let destination = ability_slot(&mut spells, slot)?;
             *destination = Some(RawSpell {
                 slot,
                 icon: u16::from_le_bytes([bytes[2], bytes[3]]),
                 name: raw_text(&bytes[0x05..0x85])?,
-                argument_type: bytes[0x04],
+                argument_type,
+                prompt: if argument_type == 1 {
+                    raw_optional_text(&bytes[0x85..0x105])?
+                } else {
+                    None
+                },
                 cast_lines: bytes[0x105],
                 action_delay_active: bytes[0x107] != 0,
                 name_suffix_left: i32_at(&bytes, 0x120),
@@ -174,6 +181,12 @@ fn ability_slot<T>(
 }
 
 fn raw_text<const N: usize>(bytes: &[u8]) -> Result<RawClientText<N>, StateReadError> {
+    raw_optional_text(bytes)?.ok_or(StateReadError::InvalidCollection)
+}
+
+fn raw_optional_text<const N: usize>(
+    bytes: &[u8],
+) -> Result<Option<RawClientText<N>>, StateReadError> {
     let bytes: [u8; N] = bytes
         .try_into()
         .map_err(|_| StateReadError::InvalidCollection)?;
@@ -182,12 +195,12 @@ fn raw_text<const N: usize>(bytes: &[u8]) -> Result<RawClientText<N>, StateReadE
         .position(|byte| *byte == 0)
         .ok_or(StateReadError::InvalidCollection)?;
     if length == 0 {
-        return Err(StateReadError::InvalidCollection);
+        return Ok(None);
     }
-    Ok(RawClientText {
+    Ok(Some(RawClientText {
         bytes,
         length: u8::try_from(length).map_err(|_| StateReadError::InvalidCollection)?,
-    })
+    }))
 }
 
 fn u32_at(bytes: &[u8], offset: usize) -> u32 {

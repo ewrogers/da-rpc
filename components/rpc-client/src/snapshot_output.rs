@@ -171,9 +171,7 @@ fn character_value(character: &CharacterSnapshot) -> serde_json::Value {
             "hit": value.hit,
             "magic_resistance": value.magic_resistance,
             "attack_element": element(value.attack_element),
-            "attack_element_id": value.attack_element.raw(),
             "defense_element": element(value.defense_element),
-            "defense_element_id": value.defense_element.raw(),
         })),
         "location": character.location.as_ref().map(|value| json!({
             "id": value.id,

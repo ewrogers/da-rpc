@@ -220,6 +220,59 @@ struct CharacterSnapshot {
     spellbook: Option<Vec<Spell>>;
     skillbook: Option<Vec<Skill>>;
 }
+
+struct InventoryItem {
+    slot: u8;
+    sprite: u16;
+    dye_color: u8;
+    name: Option<utf8>;
+    quantity: u32;
+    can_stack: bool;
+    durability: u32;
+    max_durability: u32;
+}
+
+enum EquipmentSlot: u8 {
+    Weapon       = 1,
+    Armor        = 2,
+    Shield       = 3,
+    Helmet       = 4,
+    Earrings     = 5,
+    Necklace     = 6,
+    LeftRing     = 7,
+    RightRing    = 8,
+    LeftGauntlet = 9,
+    RightGauntlet = 10,
+    Belt         = 11,
+    Greaves      = 12,
+    Boots        = 13,
+    Accessory1   = 14,
+    Overcoat     = 15,
+    OverHelm     = 16,
+    Accessory2   = 17,
+    Accessory3   = 18,
+}
+
+struct EquipmentItem {
+    slot: EquipmentSlot;
+    sprite: u16;
+    dye_color: u8;
+    name: Option<utf8>;
+    durability: u32;
+    max_durability: u32;
+}
+
+struct Spell {
+    slot: u8;
+    icon: u16;
+    name: Option<utf8>;
+    level: u8;
+    max_level: u8;
+    lines: u8;
+    target_type: u8;
+    prompt: Option<utf8>;
+    cooldown: CooldownStatus;
+}
 ```
 
 Optional values begin with a strict boolean byte. Strings use a `u16` UTF-8
@@ -231,9 +284,11 @@ strictly range checked.
 
 Snapshot scalars use explicit little-endian integer widths. Collection entries
 carry their slot, appearance identifier, optional name, and their domain fields:
-inventory quantity and durability, equipment durability, spell levels, lines,
-target type and cooldown, or skill levels and cooldown. A cooldown contains an
-active flag and an optional wrapping millisecond duration.
+inventory quantity, stackability, and durability, equipment durability, spell
+levels, lines, target type, optional text-input prompt, and cooldown, or skill
+levels and cooldown. Equipment slots use numeric values 1 through 18 on the
+wire and typed names in public presentation. A cooldown contains an active flag
+and an optional wrapping millisecond duration.
 
 Unavailable reason values distinguish an absent hook, a bounded capture
 timeout, and a failed state walk. A ready response may still contain absent

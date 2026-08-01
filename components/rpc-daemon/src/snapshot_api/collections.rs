@@ -1,7 +1,7 @@
 use darpc_model::{
     CooldownStatus as ModelCooldownStatus, EquipmentItem as ModelEquipmentItem,
-    InventoryItem as ModelInventoryItem, Skill as ModelSkill, Spell as ModelSpell,
-    SpellTargetType as ModelSpellTargetType,
+    EquipmentSlot as ModelEquipmentSlot, InventoryItem as ModelInventoryItem, Skill as ModelSkill,
+    Spell as ModelSpell, SpellTargetType as ModelSpellTargetType,
 };
 use serde::Serialize;
 use utoipa::ToSchema;
@@ -29,6 +29,7 @@ pub(crate) struct InventoryItem {
     dye_color: u8,
     name: Option<String>,
     quantity: u32,
+    can_stack: bool,
     durability: u32,
     max_durability: u32,
 }
@@ -41,6 +42,7 @@ impl From<&ModelInventoryItem> for InventoryItem {
             dye_color: value.dye_color,
             name: value.name.clone(),
             quantity: value.quantity,
+            can_stack: value.can_stack,
             durability: value.durability,
             max_durability: value.max_durability,
         }
@@ -49,7 +51,7 @@ impl From<&ModelInventoryItem> for InventoryItem {
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
 pub(crate) struct EquipmentItem {
-    slot: u8,
+    slot: EquipmentSlot,
     sprite: u16,
     dye_color: u8,
     name: Option<String>,
@@ -60,7 +62,7 @@ pub(crate) struct EquipmentItem {
 impl From<&ModelEquipmentItem> for EquipmentItem {
     fn from(value: &ModelEquipmentItem) -> Self {
         Self {
-            slot: value.slot,
+            slot: EquipmentSlot::from(value.slot),
             sprite: value.sprite,
             dye_color: value.dye_color,
             name: value.name.clone(),
@@ -79,7 +81,7 @@ pub(crate) struct Spell {
     max_level: u8,
     lines: u8,
     target_type: SpellTargetType,
-    target_type_id: u8,
+    prompt: Option<String>,
     cooldown: CooldownStatus,
 }
 
@@ -93,8 +95,56 @@ impl From<&ModelSpell> for Spell {
             max_level: value.max_level,
             lines: value.lines,
             target_type: SpellTargetType::from(value.target_type),
-            target_type_id: value.target_type.raw(),
+            prompt: value.prompt.clone(),
             cooldown: CooldownStatus::from(value.cooldown),
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum EquipmentSlot {
+    Weapon,
+    Armor,
+    Shield,
+    Helmet,
+    Earrings,
+    Necklace,
+    LeftRing,
+    RightRing,
+    LeftGauntlet,
+    RightGauntlet,
+    Belt,
+    Greaves,
+    Boots,
+    Accessory1,
+    Overcoat,
+    OverHelm,
+    Accessory2,
+    Accessory3,
+}
+
+impl From<ModelEquipmentSlot> for EquipmentSlot {
+    fn from(value: ModelEquipmentSlot) -> Self {
+        match value {
+            ModelEquipmentSlot::Weapon => Self::Weapon,
+            ModelEquipmentSlot::Armor => Self::Armor,
+            ModelEquipmentSlot::Shield => Self::Shield,
+            ModelEquipmentSlot::Helmet => Self::Helmet,
+            ModelEquipmentSlot::Earrings => Self::Earrings,
+            ModelEquipmentSlot::Necklace => Self::Necklace,
+            ModelEquipmentSlot::LeftRing => Self::LeftRing,
+            ModelEquipmentSlot::RightRing => Self::RightRing,
+            ModelEquipmentSlot::LeftGauntlet => Self::LeftGauntlet,
+            ModelEquipmentSlot::RightGauntlet => Self::RightGauntlet,
+            ModelEquipmentSlot::Belt => Self::Belt,
+            ModelEquipmentSlot::Greaves => Self::Greaves,
+            ModelEquipmentSlot::Boots => Self::Boots,
+            ModelEquipmentSlot::Accessory1 => Self::Accessory1,
+            ModelEquipmentSlot::Overcoat => Self::Overcoat,
+            ModelEquipmentSlot::OverHelm => Self::OverHelm,
+            ModelEquipmentSlot::Accessory2 => Self::Accessory2,
+            ModelEquipmentSlot::Accessory3 => Self::Accessory3,
         }
     }
 }

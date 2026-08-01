@@ -217,9 +217,7 @@ pub(crate) struct CharacterModifiers {
     /// Display percentage, not the client's internal ten-percent unit count.
     magic_resistance: u16,
     attack_element: Element,
-    attack_element_id: u16,
     defense_element: Element,
-    defense_element_id: u16,
 }
 
 impl From<darpc_model::CharacterModifiers> for CharacterModifiers {
@@ -230,9 +228,7 @@ impl From<darpc_model::CharacterModifiers> for CharacterModifiers {
             hit: value.hit,
             magic_resistance: value.magic_resistance,
             attack_element: Element::from(value.attack_element),
-            attack_element_id: value.attack_element.raw(),
             defense_element: Element::from(value.defense_element),
-            defense_element_id: value.defense_element.raw(),
         }
     }
 }
@@ -284,5 +280,5 @@ pub(crate) struct MapLocation {
 mod collections;
 
 pub(crate) use collections::{
-    CooldownStatus, EquipmentItem, InventoryItem, Skill, Spell, SpellTargetType,
+    CooldownStatus, EquipmentItem, EquipmentSlot, InventoryItem, Skill, Spell, SpellTargetType,
 };

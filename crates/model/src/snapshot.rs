@@ -218,5 +218,5 @@ mod tests {
 mod collections;
 
 pub use collections::{
-    CooldownStatus, EquipmentItem, InventoryItem, Skill, Spell, SpellTargetType,
+    CooldownStatus, EquipmentItem, EquipmentSlot, InventoryItem, Skill, Spell, SpellTargetType,
 };

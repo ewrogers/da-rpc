@@ -572,6 +572,8 @@ Build:
   generation tracking.
 - Reconnect-dialog detection with `disconnected` lifecycle precedence while
   preserving a valid underlying character snapshot.
+- Canonical item identity, stackability, typed equipment slots, spell prompts,
+  and PID-or-current-character REST addressing.
 - Protocol 1.0 snapshot messages plus matching direct CLI, daemon registry,
   REST, and OpenAPI models.
 

@@ -18,13 +18,21 @@ snapshot contains:
 - Occupied inventory and equipment slots with appearance, names, quantities,
   and durability where applicable.
 - Occupied spellbook and skillbook slots with names, icons, levels, target
-  behavior, lines, and available cooldown state.
+  behavior, text-input prompts, lines, and available cooldown state.
 
 Empty collection slots are omitted. Inventory slot 60 is the client's currency
 display and is omitted because `gold` is represented once as character state.
 Optional values remain unavailable rather than receiving invented defaults.
 For example, the client exposes whether a spell action delay is active but not
 its remaining duration, so the duration remains absent.
+
+Inventory and equipment sprites are canonical resource identifiers with the
+client's item and monster classification bits removed. Stackable inventory
+entries expose `can_stack`, keep quantity as its own field, and remove the
+client-rendered `[ quantity ]` suffix from the domain name. Equipment uses typed
+slot names from `weapon` through `accessory3` rather than exposing numeric
+positions. A text-input spell retains an ASCII-only prompt; other target modes
+do not expose one.
 
 Map names normally come from the validated map pane. The bounded map-size event
 hook also copies an accepted map name into DLL-owned storage so a fresh event

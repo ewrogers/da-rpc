@@ -1,9 +1,10 @@
 # Client state
 
 daRPC keeps a current view of each connected game client. This includes the
-character sheet, map position, inventory, equipment, abilities, and active
-spell effects. The view belongs to `darpc.dll` inside that client process, then
-travels to `darpcd.exe` as safe values instead of raw memory addresses.
+character sheet, map position, inventory, equipment, abilities, active spell
+effects, and world objects known to that client. The view belongs to `darpc.dll`
+inside that client process, then travels to `darpcd.exe` as safe values instead
+of raw memory addresses.
 
 State comes from two complementary sources:
 
@@ -28,11 +29,13 @@ snapshot includes:
 - Occupied spellbook and skillbook slots with names, icons, levels, target
   behavior, text-input prompts, lines, and available cooldown state.
 - Active spell effects with their icon and relative remaining-duration band.
+- Known players, monsters, Mundanes, and ground items with their available
+  identity, appearance, position, direction, and item stack order.
 
 The Dynamic Link Library (DLL) and binary protocol move this as one complete
 snapshot. The daemon stores it and presents separate REST resources for status,
-inventory, equipment, spellbook, skillbook, and effects. Reading one of those
-HTTP resources does not make the game client scan memory again.
+inventory, equipment, spellbook, skillbook, effects, and world objects. Reading
+one of those HTTP resources does not make the game client scan memory again.
 
 Full snapshots run when daRPC needs a reliable baseline, such as on a new daemon
 connection or after it detects a missed update. They do not run on every game
@@ -70,6 +73,11 @@ Some fields need additional context:
   an exact remaining duration.
 - Map names normally come from the visible map pane. An accepted map-change
   event can provide the name when a fresh event is newer than that memory view.
+- Ground-item `z_index` is local to one tile. Zero is the bottom item and higher
+  values are drawn above it.
+- A creature's numeric sprite may be absent immediately after late attach when
+  retained client memory exposes only its loaded image session. A later draw
+  event supplies the numeric sprite without another full snapshot.
 
 ## Client lifecycle
 
@@ -99,13 +107,16 @@ structures.
 The game-thread portion is deliberately small:
 
 1. Validate the known roots, pointer chains, lengths, and slots.
-2. Copy bounded, pointer-free values into memory owned by the DLL.
+2. Copy bounded, pointer-free values directly into memory owned by the DLL.
 3. Publish the completed copy as one unit.
 
-It does not allocate, format text, write logs, serialize messages, or perform
+The snapshot has a dedicated, preallocated 64 KiB buffer plus a separate fixed
+world-object buffer. Neither is placed on the game's stack. The game-thread path
+does not allocate, format text, write logs, serialize messages, or perform
 named-pipe input/output. A separate pipe worker claims the completed copy,
-builds the domain collections, and sends the protocol response. The ownership
-handoff prevents that worker from seeing a half-written snapshot.
+builds the domain collections, and sends the protocol response. The atomic
+ownership handoff prevents that worker from seeing a half-written snapshot or
+the game thread from overwriting a snapshot being read.
 
 If a future field belongs to a different game thread, it will need its own safe
 copy or synchronization rule before daRPC can expose it.
@@ -114,8 +125,9 @@ copy or synchronization rule before daRPC can expose it.
 
 After the initial snapshot, daRPC observes selected server events after the game
 client has handled them. The currently supported event families are
-`SStatus`, `SSpelled`, the action-state portion of `SUserAppearance`,
-`SMove`, and `SUserPosition`.
+`SStatus`, `SSpelled`, the action-state portion of `SUserAppearance`, `SMove`,
+`SUserPosition`, `SDrawObjects`, `SDrawHumanObjects`, `SMoveObject`,
+`SChangeDirection`, and `SRemoveObjects`.
 
 Together, these events keep the following values current:
 
@@ -124,10 +136,12 @@ Together, these events keep the following values current:
 - `is_action_restricted`.
 - Accepted map coordinates.
 - Active spell effects.
+- Known world-object appearance, removal, movement, and direction.
 
 The event observer also runs on the game thread, so it performs only bounded
-work. It copies at most 128 bytes from a recognized event, parses fixed-size
-fields, ignores values that did not change, and publishes pointer-free updates.
+work. It copies at most 8 KiB from a recognized event into guarded static
+scratch memory, ignores values that did not change, and publishes pointer-free
+updates. Nested observation is skipped instead of sharing that scratch memory.
 The original game handler always runs first, and daRPC preserves its return
 value.
 
@@ -173,6 +187,31 @@ After the snapshot, `SSpelled` keeps those slots current:
 These changes update the retained effects resource and become
 `effect_added`, `effect_changed`, or `effect_removed` events without
 another full memory walk.
+
+## World objects
+
+Each client maintains its own observed object collection. It contains players,
+creatures, and ground items identified by the client object ID:
+
+- Players expose an available name, tile position, and facing direction.
+- Creatures are classified as a monster or Mundane. They expose an available
+  name and sprite, tile position, and facing direction.
+- Ground items expose a sprite, tile position, and per-tile `z_index`.
+
+The initial snapshot walks the client's bounded object tree and copies no
+addresses out of the game thread. It also fills the local player's name from the
+character snapshot when the retained world object has no separate name.
+
+Later draw packets add or replace objects. Movement and direction packets update
+living objects, and remove packets delete explicit IDs. Accepted self movement
+also updates the local player's position and retires cached observations that
+have moved outside the client's bounded observation area. A map transition
+clears the collection atomically before objects on the new map are accepted.
+
+This is an observation, not permanent world truth. An object may leave one
+client's area while another client can still see it. The daemon therefore keeps
+the collection attached to its source client and does not merge it into a
+global entity list.
 
 ## Event queue and recovery
 

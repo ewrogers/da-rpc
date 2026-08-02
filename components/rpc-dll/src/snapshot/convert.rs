@@ -2,18 +2,23 @@ use super::publication::ReadyPublication;
 use crate::{client_text, map_name};
 use darpc_game_client::{
     RawCharacter, RawClientText, RawEffects, RawEquipment, RawInventory, RawLifecycle, RawLocation,
-    RawModifiers, RawPaneProgression, RawSkill, RawSkillbook, RawSpell, RawSpellbook,
+    RawModifiers, RawObjects, RawPaneProgression, RawSkill, RawSkillbook, RawSpell, RawSpellbook,
+    RawWorldObject,
 };
 use darpc_model::{
     CharacterAppearance, CharacterClass, CharacterModifiers, CharacterProgression,
     CharacterSnapshot, CharacterStats, CharacterVitals, ClientLifecycle, ClientSnapshot,
-    CooldownStatus, Effect, EffectDuration, Element, EquipmentItem, EquipmentSlot, Gender,
-    InventoryItem, MapLocation, Skill, Spell, SpellTargetType,
+    CooldownStatus, CreatureKind, Direction, Effect, EffectDuration, Element, EquipmentItem,
+    EquipmentSlot, Gender, InventoryItem, MapLocation, Skill, Spell, SpellTargetType, WorldObject,
 };
 
 const SPRITE_ID_MASK: u16 = 0x3FFF;
 
-pub(super) fn snapshot(ready: ReadyPublication) -> ClientSnapshot {
+pub(super) fn snapshot(
+    ready: ReadyPublication,
+    raw: &darpc_game_client::RawStateSnapshot,
+    raw_objects: &RawObjects,
+) -> ClientSnapshot {
     ClientSnapshot {
         revision: ready.revision,
         event_sequence: ready.event_sequence,
@@ -21,14 +26,84 @@ pub(super) fn snapshot(ready: ReadyPublication) -> ClientSnapshot {
         updated_tick_ms: ready.updated_tick_ms,
         capture_duration_us: ready.capture_duration_us,
         world_generation: ready.world_generation,
-        lifecycle: lifecycle(ready.raw.lifecycle),
-        character: ready.raw.character.map(|character| {
-            character_snapshot(character, ready.raw.world_token, ready.captured_tick_ms)
-        }),
+        lifecycle: lifecycle(raw.lifecycle),
+        character: raw
+            .character_available
+            .then(|| character_snapshot(&raw.character, raw.world_token, ready.captured_tick_ms)),
+        objects: matches!(
+            raw.lifecycle,
+            RawLifecycle::InGame | RawLifecycle::Disconnected
+        )
+        .then(|| objects(raw_objects)),
     }
 }
 
-fn character_snapshot(raw: RawCharacter, world_token: u32, tick_ms: u32) -> CharacterSnapshot {
+fn objects(raw: &RawObjects) -> Vec<WorldObject> {
+    let mut objects = raw
+        .entries
+        .iter()
+        .copied()
+        .take(usize::from(raw.count))
+        .flatten()
+        .map(|object| match object {
+            RawWorldObject::Player {
+                id,
+                name,
+                name_len,
+                x,
+                y,
+                direction,
+            } => WorldObject::Player {
+                id,
+                name: client_text::decode(&name[..usize::from(name_len)]),
+                x,
+                y,
+                direction: Direction::from_raw(direction)
+                    .expect("captured player direction is valid"),
+            },
+            RawWorldObject::Creature {
+                id,
+                is_npc,
+                sprite,
+                name,
+                name_len,
+                x,
+                y,
+                direction,
+            } => WorldObject::Creature {
+                id,
+                kind: if is_npc {
+                    CreatureKind::Npc
+                } else {
+                    CreatureKind::Monster
+                },
+                sprite,
+                name: client_text::decode(&name[..usize::from(name_len)]),
+                x,
+                y,
+                direction: Direction::from_raw(direction)
+                    .expect("captured creature direction is valid"),
+            },
+            RawWorldObject::Item {
+                id,
+                sprite,
+                x,
+                y,
+                z_index,
+            } => WorldObject::Item {
+                id,
+                sprite: sprite & SPRITE_ID_MASK,
+                x,
+                y,
+                z_index,
+            },
+        })
+        .collect::<Vec<_>>();
+    objects.sort_unstable_by_key(WorldObject::id);
+    objects
+}
+
+fn character_snapshot(raw: &RawCharacter, world_token: u32, tick_ms: u32) -> CharacterSnapshot {
     CharacterSnapshot {
         id: raw.id,
         name: client_text::decode(&raw.name[..usize::from(raw.name_len)]),
@@ -44,7 +119,7 @@ fn character_snapshot(raw: RawCharacter, world_token: u32, tick_ms: u32) -> Char
         gold: raw.gold,
         weight: raw.weight,
         max_weight: raw.max_weight,
-        progression: progression(&raw, raw.pane_progression),
+        progression: progression(raw, raw.pane_progression),
         stats: CharacterStats {
             strength: raw.strength,
             intelligence: raw.intelligence,
@@ -62,10 +137,12 @@ fn character_snapshot(raw: RawCharacter, world_token: u32, tick_ms: u32) -> Char
         location: raw
             .location
             .map(|location| map_location(location, world_token)),
-        inventory: raw.inventory.map(inventory),
-        equipment: raw.equipment.map(equipment),
-        spellbook: raw.spellbook.map(spellbook),
-        skillbook: raw.skillbook.map(|book| skillbook(book, tick_ms)),
+        inventory: raw.inventory_available.then(|| inventory(&raw.inventory)),
+        equipment: raw.equipment_available.then(|| equipment(&raw.equipment)),
+        spellbook: raw.spellbook_available.then(|| spellbook(&raw.spellbook)),
+        skillbook: raw
+            .skillbook_available
+            .then(|| skillbook(&raw.skillbook, tick_ms)),
         effects: raw.effects.map(effects),
     }
 }
@@ -121,9 +198,10 @@ fn map_location(raw: RawLocation, world_token: u32) -> MapLocation {
     }
 }
 
-fn inventory(raw: RawInventory) -> Vec<InventoryItem> {
+fn inventory(raw: &RawInventory) -> Vec<InventoryItem> {
     raw.items
-        .into_iter()
+        .iter()
+        .copied()
         .flatten()
         .map(|item| InventoryItem {
             slot: item.slot,
@@ -138,9 +216,10 @@ fn inventory(raw: RawInventory) -> Vec<InventoryItem> {
         .collect()
 }
 
-fn equipment(raw: RawEquipment) -> Vec<EquipmentItem> {
+fn equipment(raw: &RawEquipment) -> Vec<EquipmentItem> {
     raw.items
-        .into_iter()
+        .iter()
+        .copied()
         .flatten()
         .map(|item| EquipmentItem {
             slot: EquipmentSlot::from_raw(item.slot).expect("captured equipment slot is valid"),
@@ -153,8 +232,8 @@ fn equipment(raw: RawEquipment) -> Vec<EquipmentItem> {
         .collect()
 }
 
-fn spellbook(raw: RawSpellbook) -> Vec<Spell> {
-    raw.spells.into_iter().flatten().map(spell).collect()
+fn spellbook(raw: &RawSpellbook) -> Vec<Spell> {
+    raw.spells.iter().copied().flatten().map(spell).collect()
 }
 
 fn spell(raw: RawSpell) -> Spell {
@@ -181,9 +260,10 @@ fn spell(raw: RawSpell) -> Spell {
     }
 }
 
-fn skillbook(raw: RawSkillbook, tick_ms: u32) -> Vec<Skill> {
+fn skillbook(raw: &RawSkillbook, tick_ms: u32) -> Vec<Skill> {
     raw.skills
-        .into_iter()
+        .iter()
+        .copied()
         .flatten()
         .map(|raw_skill| skill(raw_skill, tick_ms))
         .collect()

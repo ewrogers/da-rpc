@@ -1,13 +1,13 @@
 use crate::{
     registry::{ClientIdentity, hex},
-    snapshot::{EffectDuration, Element},
+    snapshot::{EffectDuration, Element, WorldObject},
 };
 use async_stream::stream;
 use axum::response::{
     IntoResponse,
     sse::{Event, KeepAlive, Sse},
 };
-use darpc_model::{Effect, StateEvent, StateUpdate};
+use darpc_model::{CreatureKind, Effect, ObjectUpdate, StateEvent, StateUpdate};
 use serde::Serialize;
 use std::{convert::Infallible, time::Duration};
 use tokio::sync::broadcast;
@@ -103,6 +103,22 @@ pub(crate) enum ClientEvent {
     EffectAdded(EffectAdded),
     EffectRemoved(EffectRemoved),
     EffectChanged(EffectChanged),
+    PlayerAppeared(ObjectChanged),
+    PlayerDisappeared(ObjectChanged),
+    PlayerMoved(ObjectChanged),
+    PlayerDirectionChanged(ObjectChanged),
+    MonsterAppeared(ObjectChanged),
+    MonsterDisappeared(ObjectChanged),
+    MonsterMoved(ObjectChanged),
+    MonsterDirectionChanged(ObjectChanged),
+    NpcAppeared(ObjectChanged),
+    NpcDisappeared(ObjectChanged),
+    NpcMoved(ObjectChanged),
+    NpcDirectionChanged(ObjectChanged),
+    ItemAppeared(ObjectChanged),
+    ItemDisappeared(ObjectChanged),
+    ItemMoved(ObjectChanged),
+    ObjectsCleared(ObjectsCleared),
     StreamResyncRequired(StreamResyncRequired),
     StreamClosed(StreamClosed),
 }
@@ -123,6 +139,22 @@ impl ClientEvent {
             Self::EffectAdded(_) => "effect_added",
             Self::EffectRemoved(_) => "effect_removed",
             Self::EffectChanged(_) => "effect_changed",
+            Self::PlayerAppeared(_) => "player_appeared",
+            Self::PlayerDisappeared(_) => "player_disappeared",
+            Self::PlayerMoved(_) => "player_moved",
+            Self::PlayerDirectionChanged(_) => "player_direction_changed",
+            Self::MonsterAppeared(_) => "monster_appeared",
+            Self::MonsterDisappeared(_) => "monster_disappeared",
+            Self::MonsterMoved(_) => "monster_moved",
+            Self::MonsterDirectionChanged(_) => "monster_direction_changed",
+            Self::NpcAppeared(_) => "npc_appeared",
+            Self::NpcDisappeared(_) => "npc_disappeared",
+            Self::NpcMoved(_) => "npc_moved",
+            Self::NpcDirectionChanged(_) => "npc_direction_changed",
+            Self::ItemAppeared(_) => "item_appeared",
+            Self::ItemDisappeared(_) => "item_disappeared",
+            Self::ItemMoved(_) => "item_moved",
+            Self::ObjectsCleared(_) => "objects_cleared",
             Self::StreamResyncRequired(_) => "stream.resync_required",
             Self::StreamClosed(_) => "stream.closed",
         }
@@ -143,6 +175,22 @@ impl ClientEvent {
             Self::EffectAdded(value) => value.observation.event_sequence,
             Self::EffectRemoved(value) => value.observation.event_sequence,
             Self::EffectChanged(value) => value.observation.event_sequence,
+            Self::PlayerAppeared(value)
+            | Self::PlayerDisappeared(value)
+            | Self::PlayerMoved(value)
+            | Self::PlayerDirectionChanged(value)
+            | Self::MonsterAppeared(value)
+            | Self::MonsterDisappeared(value)
+            | Self::MonsterMoved(value)
+            | Self::MonsterDirectionChanged(value)
+            | Self::NpcAppeared(value)
+            | Self::NpcDisappeared(value)
+            | Self::NpcMoved(value)
+            | Self::NpcDirectionChanged(value)
+            | Self::ItemAppeared(value)
+            | Self::ItemDisappeared(value)
+            | Self::ItemMoved(value) => value.observation.event_sequence,
+            Self::ObjectsCleared(value) => value.observation.event_sequence,
             Self::StreamResyncRequired(value) => value.last_event_sequence,
             Self::StreamClosed(value) => value.last_event_sequence,
         }
@@ -300,6 +348,17 @@ pub(crate) struct ActionRestrictionChanged {
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
+pub(crate) struct ObjectChanged {
+    observation: EventObservation,
+    object: WorldObject,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub(crate) struct ObjectsCleared {
+    observation: EventObservation,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
 pub(crate) struct StreamResyncRequired {
     pid: u32,
     instance_id: String,
@@ -427,6 +486,12 @@ fn expand(pid: u32, identity: ClientIdentity, event: StateEvent) -> Vec<ClientEv
             });
             return events;
         }
+        StateUpdate::Object(update) => {
+            if let Some(event) = object_event(observation, update) {
+                events.push(event);
+            }
+            return events;
+        }
     };
     if let Some(core) = update.core {
         events.push(ClientEvent::StatsChanged(StatsChanged {
@@ -497,6 +562,86 @@ fn expand(pid: u32, identity: ClientIdentity, event: StateEvent) -> Vec<ClientEv
         ));
     }
     events
+}
+
+#[derive(Clone, Copy)]
+enum ObjectChangeKind {
+    Appeared,
+    Disappeared,
+    Moved,
+    DirectionChanged,
+}
+
+#[derive(Clone, Copy)]
+enum ObjectCategory {
+    Player,
+    Monster,
+    Npc,
+    Item,
+}
+
+fn object_event(observation: EventObservation, update: ObjectUpdate) -> Option<ClientEvent> {
+    let (kind, object) = match update {
+        ObjectUpdate::Appeared(object) => (ObjectChangeKind::Appeared, object),
+        ObjectUpdate::Disappeared(object) => (ObjectChangeKind::Disappeared, object),
+        ObjectUpdate::Moved(object) => (ObjectChangeKind::Moved, object),
+        ObjectUpdate::DirectionChanged(object) => (ObjectChangeKind::DirectionChanged, object),
+        ObjectUpdate::Cleared => {
+            return Some(ClientEvent::ObjectsCleared(ObjectsCleared { observation }));
+        }
+    };
+    let category = match &object {
+        darpc_model::WorldObject::Player { .. } => ObjectCategory::Player,
+        darpc_model::WorldObject::Creature {
+            kind: CreatureKind::Monster,
+            ..
+        } => ObjectCategory::Monster,
+        darpc_model::WorldObject::Creature {
+            kind: CreatureKind::Npc,
+            ..
+        } => ObjectCategory::Npc,
+        darpc_model::WorldObject::Item { .. } => ObjectCategory::Item,
+    };
+    let changed = ObjectChanged {
+        observation,
+        object: WorldObject::from(&object),
+    };
+    Some(match (category, kind) {
+        (ObjectCategory::Player, ObjectChangeKind::Appeared) => {
+            ClientEvent::PlayerAppeared(changed)
+        }
+        (ObjectCategory::Player, ObjectChangeKind::Disappeared) => {
+            ClientEvent::PlayerDisappeared(changed)
+        }
+        (ObjectCategory::Player, ObjectChangeKind::Moved) => ClientEvent::PlayerMoved(changed),
+        (ObjectCategory::Player, ObjectChangeKind::DirectionChanged) => {
+            ClientEvent::PlayerDirectionChanged(changed)
+        }
+        (ObjectCategory::Monster, ObjectChangeKind::Appeared) => {
+            ClientEvent::MonsterAppeared(changed)
+        }
+        (ObjectCategory::Monster, ObjectChangeKind::Disappeared) => {
+            ClientEvent::MonsterDisappeared(changed)
+        }
+        (ObjectCategory::Monster, ObjectChangeKind::Moved) => ClientEvent::MonsterMoved(changed),
+        (ObjectCategory::Monster, ObjectChangeKind::DirectionChanged) => {
+            ClientEvent::MonsterDirectionChanged(changed)
+        }
+        (ObjectCategory::Npc, ObjectChangeKind::Appeared) => ClientEvent::NpcAppeared(changed),
+        (ObjectCategory::Npc, ObjectChangeKind::Disappeared) => {
+            ClientEvent::NpcDisappeared(changed)
+        }
+        (ObjectCategory::Npc, ObjectChangeKind::Moved) => ClientEvent::NpcMoved(changed),
+        (ObjectCategory::Npc, ObjectChangeKind::DirectionChanged) => {
+            ClientEvent::NpcDirectionChanged(changed)
+        }
+        (ObjectCategory::Item, ObjectChangeKind::Appeared) => ClientEvent::ItemAppeared(changed),
+        (ObjectCategory::Item, ObjectChangeKind::Disappeared) => {
+            ClientEvent::ItemDisappeared(changed)
+        }
+        (ObjectCategory::Item, ObjectChangeKind::Moved) => ClientEvent::ItemMoved(changed),
+        (ObjectCategory::Item, ObjectChangeKind::DirectionChanged) => return None,
+    })
 }
 
 const fn next_nonzero(value: u32) -> u32 {
@@ -647,6 +792,95 @@ mod tests {
                     revision: sequence,
                     tick_ms: sequence,
                     update: StateUpdate::Effect(update),
+                },
+            );
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].name(), expected);
+        }
+    }
+
+    #[test]
+    fn object_updates_keep_the_requested_public_event_names() {
+        use darpc_model::{Direction, WorldObject as ModelWorldObject};
+
+        let identity = ClientIdentity {
+            pid: 42,
+            process_creation_time: 100,
+            dll_instance_id: [1; 16],
+        };
+        let player = ModelWorldObject::Player {
+            id: 1,
+            name: Some("Monitor".into()),
+            x: 10,
+            y: 20,
+            direction: Direction::East,
+        };
+        let monster = ModelWorldObject::Creature {
+            id: 2,
+            kind: CreatureKind::Monster,
+            sprite: Some(7),
+            name: None,
+            x: 11,
+            y: 20,
+            direction: Direction::South,
+        };
+        let npc = ModelWorldObject::Creature {
+            id: 3,
+            kind: CreatureKind::Npc,
+            sprite: Some(8),
+            name: Some("Maria".into()),
+            x: 12,
+            y: 20,
+            direction: Direction::North,
+        };
+        let item = ModelWorldObject::Item {
+            id: 4,
+            sprite: 327,
+            x: 13,
+            y: 20,
+            z_index: 0,
+        };
+        let cases = vec![
+            (ObjectUpdate::Appeared(player.clone()), "player_appeared"),
+            (
+                ObjectUpdate::Disappeared(player.clone()),
+                "player_disappeared",
+            ),
+            (ObjectUpdate::Moved(player.clone()), "player_moved"),
+            (
+                ObjectUpdate::DirectionChanged(player),
+                "player_direction_changed",
+            ),
+            (ObjectUpdate::Appeared(monster.clone()), "monster_appeared"),
+            (
+                ObjectUpdate::Disappeared(monster.clone()),
+                "monster_disappeared",
+            ),
+            (ObjectUpdate::Moved(monster.clone()), "monster_moved"),
+            (
+                ObjectUpdate::DirectionChanged(monster),
+                "monster_direction_changed",
+            ),
+            (ObjectUpdate::Appeared(npc.clone()), "npc_appeared"),
+            (ObjectUpdate::Disappeared(npc.clone()), "npc_disappeared"),
+            (ObjectUpdate::Moved(npc.clone()), "npc_moved"),
+            (ObjectUpdate::DirectionChanged(npc), "npc_direction_changed"),
+            (ObjectUpdate::Appeared(item.clone()), "item_appeared"),
+            (ObjectUpdate::Disappeared(item.clone()), "item_disappeared"),
+            (ObjectUpdate::Moved(item), "item_moved"),
+            (ObjectUpdate::Cleared, "objects_cleared"),
+        ];
+
+        for (index, (update, expected)) in cases.into_iter().enumerate() {
+            let sequence = u32::try_from(index + 1).unwrap();
+            let events = expand(
+                42,
+                identity,
+                StateEvent {
+                    sequence,
+                    revision: sequence,
+                    tick_ms: sequence,
+                    update: StateUpdate::Object(update),
                 },
             );
             assert_eq!(events.len(), 1);

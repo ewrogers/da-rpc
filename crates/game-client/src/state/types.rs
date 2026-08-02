@@ -17,7 +17,20 @@ pub struct RawStateSnapshot {
     /// This value must never leave the injected process.
     pub world_token: u32,
     pub lifecycle: RawLifecycle,
-    pub character: Option<RawCharacter>,
+    pub character_available: bool,
+    pub character: RawCharacter,
+}
+
+impl RawStateSnapshot {
+    #[must_use]
+    pub const fn empty() -> Self {
+        Self {
+            world_token: 0,
+            lifecycle: RawLifecycle::Unknown,
+            character_available: false,
+            character: RawCharacter::empty(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -47,11 +60,57 @@ pub struct RawCharacter {
     pub max_mana: u32,
     pub modifiers: Option<RawModifiers>,
     pub location: Option<RawLocation>,
-    pub inventory: Option<super::RawInventory>,
-    pub equipment: Option<super::RawEquipment>,
-    pub spellbook: Option<super::RawSpellbook>,
-    pub skillbook: Option<super::RawSkillbook>,
+    pub inventory_available: bool,
+    pub inventory: super::RawInventory,
+    pub equipment_available: bool,
+    pub equipment: super::RawEquipment,
+    pub spellbook_available: bool,
+    pub spellbook: super::RawSpellbook,
+    pub skillbook_available: bool,
+    pub skillbook: super::RawSkillbook,
     pub effects: Option<super::RawEffects>,
+}
+
+impl RawCharacter {
+    #[must_use]
+    pub const fn empty() -> Self {
+        Self {
+            id: None,
+            name: [0; 16],
+            name_len: 0,
+            appearance: None,
+            class: 0,
+            is_action_restricted: false,
+            is_blinded: false,
+            gold: 0,
+            weight: 0,
+            max_weight: 0,
+            level: 0,
+            ability_level: 0,
+            experience: 0,
+            pane_progression: None,
+            strength: 0,
+            intelligence: 0,
+            wisdom: 0,
+            constitution: 0,
+            dexterity: 0,
+            health: 0,
+            max_health: 0,
+            mana: 0,
+            max_mana: 0,
+            modifiers: None,
+            location: None,
+            inventory_available: false,
+            inventory: super::RawInventory::empty(),
+            equipment_available: false,
+            equipment: super::RawEquipment::empty(),
+            spellbook_available: false,
+            spellbook: super::RawSpellbook::empty(),
+            skillbook_available: false,
+            skillbook: super::RawSkillbook::empty(),
+            effects: None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

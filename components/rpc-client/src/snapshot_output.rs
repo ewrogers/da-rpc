@@ -115,6 +115,7 @@ pub(crate) fn render_human(
         output.push_str("\nlocation: unavailable");
     }
     render_collections(&mut output, character);
+    crate::object_output::render_human(&mut output, snapshot.objects.as_deref());
     output
 }
 
@@ -143,6 +144,9 @@ fn snapshot_value(snapshot: &ClientSnapshot) -> serde_json::Value {
         "world_generation": snapshot.world_generation,
         "lifecycle": lifecycle(snapshot.lifecycle),
         "character": snapshot.character.as_ref().map(character_value),
+        "objects": snapshot.objects.as_ref().map(|objects| {
+            objects.iter().map(crate::object_output::json_value).collect::<Vec<_>>()
+        }),
     })
 }
 

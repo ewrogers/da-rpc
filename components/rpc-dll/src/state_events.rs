@@ -1,6 +1,10 @@
 #![cfg_attr(not(windows), allow(dead_code))]
 
-use darpc_game_client::{RawCharacter, RawModifiers, RawStateSnapshot};
+use crate::{
+    world::{ObjectCache, QueuedObjectUpdate},
+    world_packet::WorldUpdate,
+};
+use darpc_game_client::{RawCharacter, RawModifiers, RawObjects, RawStateSnapshot, RawWorldObject};
 use darpc_model::{
     CharacterModifiers, CharacterStats, CoreStatus, CurrentVitals, Effect, EffectDuration,
     EffectUpdate, Element, LocationUpdate, MapChange, ProgressionStatus, StateEvent, StateUpdate,
@@ -23,6 +27,7 @@ const POLL_INTERVAL: Duration = Duration::from_millis(2);
 static REVISION: AtomicU32 = AtomicU32::new(0);
 static EVENT_SEQUENCE: AtomicU32 = AtomicU32::new(0);
 static CACHE: MainThreadCache = MainThreadCache::new();
+static OBJECTS: MainThreadObjects = MainThreadObjects::new();
 static QUEUE: EventQueue<EVENT_QUEUE_CAPACITY> = EventQueue::new();
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -39,6 +44,8 @@ pub(crate) fn reset() {
     // SAFETY: reset runs before the event hook is installed and after the IPC
     // consumer has stopped, so no other thread accesses the cache.
     unsafe { CACHE.replace(StateCache::default()) };
+    // SAFETY: reset has the same exclusive lifecycle access described above.
+    unsafe { OBJECTS.clear() };
 }
 
 #[must_use]
@@ -54,10 +61,17 @@ pub(crate) fn stage_map_transition(map_id: u32, width: i32, height: i32, name: &
     unsafe { CACHE.stage_map_transition(map_id, width, height, name) };
 }
 
-pub(crate) fn snapshot_boundary(raw: &RawStateSnapshot, tick_ms: u32) -> SnapshotBoundary {
+pub(crate) fn snapshot_boundary(
+    raw: &RawStateSnapshot,
+    objects: &RawObjects,
+    tick_ms: u32,
+) -> SnapshotBoundary {
     // SAFETY: snapshot capture and event observation both run on the client
     // main thread, so cache mutation cannot overlap.
     unsafe { CACHE.replace(StateCache::from_raw(raw)) };
+    // SAFETY: snapshot capture and event observation are serialized on the
+    // client main thread.
+    unsafe { OBJECTS.replace(objects) };
     SnapshotBoundary {
         revision: next_nonzero(&REVISION),
         event_sequence: EVENT_SEQUENCE.load(Ordering::Acquire),
@@ -78,10 +92,17 @@ pub(crate) fn observe_status(update: StatusUpdate, tick_ms: u32) {
 pub(crate) fn observe_user_position(x: i32, y: i32, tick_ms: u32) {
     // SAFETY: the event hook runs on the client main thread, which is the sole
     // cache producer.
-    let Some(update) = (unsafe { CACHE.user_position(x, y) }) else {
+    let Some((update, map_changed)) = (unsafe { CACHE.user_position(x, y) }) else {
         return;
     };
     push_event(QueuedStateUpdate::Location(update), tick_ms);
+    if map_changed {
+        if let Some(update) = unsafe { OBJECTS.clear() } {
+            push_event(QueuedStateUpdate::Object(update), tick_ms);
+        }
+    } else {
+        observe_self_position(x, y, tick_ms);
+    }
 }
 
 pub(crate) fn observe_move(x: i32, y: i32, tick_ms: u32) {
@@ -91,6 +112,7 @@ pub(crate) fn observe_move(x: i32, y: i32, tick_ms: u32) {
         return;
     };
     push_event(QueuedStateUpdate::Location(update), tick_ms);
+    observe_self_position(x, y, tick_ms);
 }
 
 pub(crate) fn observe_effect(icon: u16, duration: Option<EffectDuration>, tick_ms: u32) {
@@ -100,6 +122,54 @@ pub(crate) fn observe_effect(icon: u16, duration: Option<EffectDuration>, tick_m
         return;
     };
     push_event(QueuedStateUpdate::Effect(update), tick_ms);
+}
+
+pub(crate) fn observe_world(update: WorldUpdate, objects: &RawObjects, tick_ms: u32) {
+    match update {
+        WorldUpdate::Draw => {
+            for object in objects
+                .entries
+                .iter()
+                .take(usize::from(objects.count))
+                .flatten()
+                .copied()
+            {
+                if let Some(update) = unsafe { OBJECTS.draw(object) } {
+                    push_event(QueuedStateUpdate::Object(update), tick_ms);
+                }
+            }
+        }
+        WorldUpdate::Move {
+            id,
+            x,
+            y,
+            direction,
+        } => {
+            if let Some(update) = unsafe { OBJECTS.move_object(id, x, y, direction) } {
+                push_event(QueuedStateUpdate::Object(update), tick_ms);
+            }
+        }
+        WorldUpdate::Direction { id, direction } => {
+            if let Some(update) = unsafe { OBJECTS.change_direction(id, direction) } {
+                push_event(QueuedStateUpdate::Object(update), tick_ms);
+            }
+        }
+        WorldUpdate::Remove { id } => {
+            if let Some(update) = unsafe { OBJECTS.remove(id) } {
+                push_event(QueuedStateUpdate::Object(update), tick_ms);
+            }
+        }
+    }
+}
+
+fn observe_self_position(x: i32, y: i32, tick_ms: u32) {
+    let self_id = unsafe { CACHE.self_id() };
+    if let Some(update) = unsafe { OBJECTS.move_self(self_id, x, y) } {
+        push_event(QueuedStateUpdate::Object(update), tick_ms);
+    }
+    while let Some(update) = unsafe { OBJECTS.take_outside(x, y) } {
+        push_event(QueuedStateUpdate::Object(update), tick_ms);
+    }
 }
 
 fn push_event(update: QueuedStateUpdate, tick_ms: u32) {
@@ -167,6 +237,7 @@ impl QueuedStateEvent {
             QueuedStateUpdate::Status(update) => StateUpdate::Status(update),
             QueuedStateUpdate::Location(update) => StateUpdate::Location(update.into_model()),
             QueuedStateUpdate::Effect(update) => StateUpdate::Effect(update),
+            QueuedStateUpdate::Object(update) => StateUpdate::Object(update.into_model()),
         };
         StateEvent {
             sequence: self.sequence,
@@ -182,6 +253,7 @@ enum QueuedStateUpdate {
     Status(StatusUpdate),
     Location(QueuedLocationUpdate),
     Effect(EffectUpdate),
+    Object(QueuedObjectUpdate),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -380,6 +452,7 @@ impl<const N: usize> EventQueue<N> {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct StateCache {
+    self_id: Option<u32>,
     core: Option<CoreStatus>,
     vitals: Option<CurrentVitals>,
     progression: Option<ProgressionStatus>,
@@ -395,12 +468,16 @@ struct StateCache {
 
 impl StateCache {
     fn from_raw(raw: &RawStateSnapshot) -> Self {
-        raw.character
-            .map_or_else(Self::default, Self::from_character)
+        if raw.character_available {
+            Self::from_character(&raw.character)
+        } else {
+            Self::default()
+        }
     }
 
-    fn from_character(raw: RawCharacter) -> Self {
+    fn from_character(raw: &RawCharacter) -> Self {
         Self {
+            self_id: raw.id,
             core: Some(CoreStatus {
                 level: raw.level,
                 ability_level: raw.ability_level,
@@ -473,7 +550,7 @@ impl StateCache {
         }
     }
 
-    fn user_position(&mut self, x: i32, y: i32) -> Option<QueuedLocationUpdate> {
+    fn user_position(&mut self, x: i32, y: i32) -> Option<(QueuedLocationUpdate, bool)> {
         let map = self.pending_map.take();
         if map.is_none() && self.position == Some((x, y)) {
             return None;
@@ -482,7 +559,8 @@ impl StateCache {
         if let Some(map) = map {
             self.map = Some(map.into());
         }
-        Some(QueuedLocationUpdate { x, y, map })
+        let map_changed = map.is_some();
+        Some((QueuedLocationUpdate { x, y, map }, map_changed))
     }
 
     fn move_position(&mut self, x: i32, y: i32) -> Option<QueuedLocationUpdate> {
@@ -553,6 +631,7 @@ unsafe impl Sync for MainThreadCache {}
 impl MainThreadCache {
     const fn new() -> Self {
         Self(UnsafeCell::new(StateCache {
+            self_id: None,
             core: None,
             vitals: None,
             progression: None,
@@ -572,6 +651,11 @@ impl MainThreadCache {
         unsafe { *self.0.get() = cache };
     }
 
+    unsafe fn self_id(&self) -> Option<u32> {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&*self.0.get()).self_id }
+    }
+
     unsafe fn filter_status(&self, update: StatusUpdate) -> StatusUpdate {
         // SAFETY: the caller guarantees exclusive main-thread access.
         unsafe { (&mut *self.0.get()).filter_status(update) }
@@ -587,7 +671,7 @@ impl MainThreadCache {
         unsafe { (&mut *self.0.get()).stage_map_transition(map_id, width, height, name) };
     }
 
-    unsafe fn user_position(&self, x: i32, y: i32) -> Option<QueuedLocationUpdate> {
+    unsafe fn user_position(&self, x: i32, y: i32) -> Option<(QueuedLocationUpdate, bool)> {
         // SAFETY: the caller guarantees exclusive main-thread access.
         unsafe { (&mut *self.0.get()).user_position(x, y) }
     }
@@ -600,6 +684,64 @@ impl MainThreadCache {
     unsafe fn effect(&self, icon: u16, duration: Option<EffectDuration>) -> Option<EffectUpdate> {
         // SAFETY: the caller guarantees exclusive main-thread access.
         unsafe { (&mut *self.0.get()).effect(icon, duration) }
+    }
+}
+
+struct MainThreadObjects(UnsafeCell<ObjectCache>);
+
+// SAFETY: access is restricted to the client main thread except during reset,
+// which runs only while the producer hook is absent.
+unsafe impl Sync for MainThreadObjects {}
+
+impl MainThreadObjects {
+    const fn new() -> Self {
+        Self(UnsafeCell::new(ObjectCache::empty()))
+    }
+
+    unsafe fn replace(&self, objects: &RawObjects) {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&mut *self.0.get()).replace(objects) };
+    }
+
+    unsafe fn draw(&self, object: RawWorldObject) -> Option<QueuedObjectUpdate> {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&mut *self.0.get()).upsert(object) }
+    }
+
+    unsafe fn move_object(
+        &self,
+        id: u32,
+        x: i32,
+        y: i32,
+        direction: Option<u8>,
+    ) -> Option<QueuedObjectUpdate> {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&mut *self.0.get()).move_object(id, x, y, direction) }
+    }
+
+    unsafe fn change_direction(&self, id: u32, direction: u8) -> Option<QueuedObjectUpdate> {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&mut *self.0.get()).change_direction(id, direction) }
+    }
+
+    unsafe fn remove(&self, id: u32) -> Option<QueuedObjectUpdate> {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&mut *self.0.get()).remove(id) }
+    }
+
+    unsafe fn move_self(&self, id: Option<u32>, x: i32, y: i32) -> Option<QueuedObjectUpdate> {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&mut *self.0.get()).move_self(id, x, y) }
+    }
+
+    unsafe fn take_outside(&self, x: i32, y: i32) -> Option<QueuedObjectUpdate> {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&mut *self.0.get()).take_outside(x, y) }
+    }
+
+    unsafe fn clear(&self) -> Option<QueuedObjectUpdate> {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&mut *self.0.get()).clear() }
     }
 }
 
@@ -682,7 +824,9 @@ mod tests {
         cache.stage_map_transition(3001, 100, 80, b"Mileth");
         assert_eq!(cache.move_position(11, 20), None);
 
-        let update = cache.user_position(43, 40).unwrap().into_model();
+        let (update, map_changed) = cache.user_position(43, 40).unwrap();
+        let update = update.into_model();
+        assert!(map_changed);
         assert_eq!(update.x, 43);
         assert_eq!(update.y, 40);
         assert_eq!(
@@ -713,7 +857,9 @@ mod tests {
         cache.stage_map_transition(498, 20, 15, b"Rucesion Inn");
         assert!(cache.pending_map.is_none());
 
-        let update = cache.user_position(2, 8).unwrap().into_model();
+        let (update, map_changed) = cache.user_position(2, 8).unwrap();
+        let update = update.into_model();
+        assert!(!map_changed);
         assert_eq!((update.x, update.y), (2, 8));
         assert_eq!(update.map, None);
     }

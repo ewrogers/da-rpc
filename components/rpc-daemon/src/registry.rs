@@ -489,6 +489,7 @@ mod tests {
                 skillbook: None,
                 effects: Some(Vec::new()),
             }),
+            objects: Some(Vec::new()),
         }
     }
 

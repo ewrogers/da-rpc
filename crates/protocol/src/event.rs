@@ -5,8 +5,8 @@ use crate::{
 };
 use darpc_model::{
     CharacterModifiers, CharacterStats, CoreStatus, CurrentVitals, Effect, EffectDuration,
-    EffectUpdate, Element, LocationUpdate, MapChange, ProgressionStatus, StateEvent, StateUpdate,
-    StatusUpdate,
+    EffectUpdate, Element, LocationUpdate, MapChange, ObjectUpdate, ProgressionStatus, StateEvent,
+    StateUpdate, StatusUpdate,
 };
 
 pub const MAX_EVENTS_PER_POLL: u16 = 192;
@@ -130,6 +130,10 @@ fn encode_event(output: &mut Vec<u8>, event: &StateEvent) -> Result<(), EncodeEr
             output.push(3);
             encode_effect(output, *update);
         }
+        StateUpdate::Object(update) => {
+            output.push(4);
+            encode_object_update(output, update)?;
+        }
     }
     Ok(())
 }
@@ -142,6 +146,7 @@ fn decode_event(reader: &mut PayloadReader<'_>) -> Result<StateEvent, DecodeErro
         1 => StateUpdate::Status(decode_status(reader)?),
         2 => StateUpdate::Location(decode_location(reader)?),
         3 => StateUpdate::Effect(decode_effect(reader)?),
+        4 => StateUpdate::Object(decode_object_update(reader)?),
         actual => return Err(DecodeError::InvalidStateUpdateType { actual }),
     };
     Ok(StateEvent {
@@ -150,6 +155,47 @@ fn decode_event(reader: &mut PayloadReader<'_>) -> Result<StateEvent, DecodeErro
         tick_ms,
         update,
     })
+}
+
+fn encode_object_update(output: &mut Vec<u8>, update: &ObjectUpdate) -> Result<(), EncodeError> {
+    let object = match update {
+        ObjectUpdate::Appeared(object) => {
+            output.push(1);
+            object
+        }
+        ObjectUpdate::Disappeared(object) => {
+            output.push(2);
+            object
+        }
+        ObjectUpdate::Moved(object) => {
+            output.push(3);
+            object
+        }
+        ObjectUpdate::DirectionChanged(object) => {
+            output.push(4);
+            object
+        }
+        ObjectUpdate::Cleared => {
+            output.push(5);
+            return Ok(());
+        }
+    };
+    crate::snapshot::objects::encode_object(output, object)
+}
+
+fn decode_object_update(reader: &mut PayloadReader<'_>) -> Result<ObjectUpdate, DecodeError> {
+    let kind = reader.read_u8()?;
+    if kind == 5 {
+        return Ok(ObjectUpdate::Cleared);
+    }
+    let object = crate::snapshot::objects::decode_object(reader)?;
+    match kind {
+        1 => Ok(ObjectUpdate::Appeared(object)),
+        2 => Ok(ObjectUpdate::Disappeared(object)),
+        3 => Ok(ObjectUpdate::Moved(object)),
+        4 => Ok(ObjectUpdate::DirectionChanged(object)),
+        actual => Err(DecodeError::InvalidObjectUpdateType { actual }),
+    }
 }
 
 fn encode_effect(output: &mut Vec<u8>, update: EffectUpdate) {

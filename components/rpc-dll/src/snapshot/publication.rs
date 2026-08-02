@@ -1,12 +1,12 @@
 use super::convert;
 
-use darpc_game_client::{RawStateSnapshot, StateReadError};
+use darpc_game_client::{RawObjects, RawStateSnapshot, StateReadError};
 use darpc_model::ClientSnapshot;
 use darpc_win32::pipe::sender_tick_ms;
 use std::{
     cell::UnsafeCell,
     fmt,
-    mem::MaybeUninit,
+    mem::{MaybeUninit, size_of},
     sync::atomic::{AtomicU8, AtomicU32, Ordering},
 };
 
@@ -14,6 +14,9 @@ const SLOT_EMPTY: u8 = 0;
 const SLOT_WRITING: u8 = 1;
 const SLOT_READY: u8 = 2;
 const SLOT_READING: u8 = 3;
+pub(super) const SNAPSHOT_BUFFER_BYTES: usize = 64 * 1024;
+
+const _: () = assert!(size_of::<RawStateSnapshot>() <= SNAPSHOT_BUFFER_BYTES);
 
 static LAST_WORLD_TOKEN: AtomicU32 = AtomicU32::new(0);
 static WORLD_GENERATION: AtomicU32 = AtomicU32::new(0);
@@ -25,49 +28,26 @@ pub(super) fn reset() {
     SLOT.reset();
 }
 
-pub(super) fn publish_ready(request_generation: u32, duration_us: u32, raw: RawStateSnapshot) {
-    let previous = LAST_WORLD_TOKEN.swap(raw.world_token, Ordering::AcqRel);
-    let world_generation = if previous == raw.world_token {
-        WORLD_GENERATION.load(Ordering::Acquire)
-    } else {
-        WORLD_GENERATION
-            .fetch_add(1, Ordering::AcqRel)
-            .wrapping_add(1)
-    };
-    let captured_tick_ms = sender_tick_ms();
-    let boundary = crate::state_events::snapshot_boundary(&raw, captured_tick_ms);
-    SLOT.publish(StoredPublication {
-        request_generation,
-        result: Ok(ReadyPublication {
-            revision: boundary.revision,
-            event_sequence: boundary.event_sequence,
-            captured_tick_ms,
-            updated_tick_ms: boundary.tick_ms,
-            capture_duration_us: duration_us,
-            world_generation,
-            raw,
-        }),
-    });
-}
-
-pub(super) fn publish_failed(request_generation: u32, failure: CaptureFailure) {
-    SLOT.publish(StoredPublication {
-        request_generation,
-        result: Err(failure),
-    });
+pub(super) fn begin() -> Option<PublicationWriter<'static>> {
+    SLOT.begin_write()
 }
 
 pub(super) fn read() -> Option<Publication> {
-    let stored = SLOT.take()?;
+    let reader = SLOT.begin_read()?;
+    let stored = reader.stored();
     Some(Publication {
         request_generation: stored.request_generation,
-        result: stored.result.map(convert::snapshot),
+        result: stored
+            .result
+            .map(|ready| convert::snapshot(ready, reader.raw(), reader.objects())),
     })
 }
 
 struct PublicationSlot {
     state: AtomicU8,
     value: UnsafeCell<MaybeUninit<StoredPublication>>,
+    snapshot: UnsafeCell<SnapshotBuffer>,
+    objects: UnsafeCell<RawObjects>,
 }
 
 // SAFETY: access to `value` is exclusively transferred between the main-thread
@@ -79,6 +59,8 @@ impl PublicationSlot {
         Self {
             state: AtomicU8::new(SLOT_EMPTY),
             value: UnsafeCell::new(MaybeUninit::uninit()),
+            snapshot: UnsafeCell::new(SnapshotBuffer::new()),
+            objects: UnsafeCell::new(RawObjects::empty()),
         }
     }
 
@@ -86,14 +68,14 @@ impl PublicationSlot {
         self.state.store(SLOT_EMPTY, Ordering::Release);
     }
 
-    fn publish(&self, value: StoredPublication) {
+    fn begin_write(&self) -> Option<PublicationWriter<'_>> {
         loop {
             let state = self.state.load(Ordering::Acquire);
             if state == SLOT_READING {
-                return;
+                return None;
             }
             if !matches!(state, SLOT_EMPTY | SLOT_READY) {
-                continue;
+                return None;
             }
             if self
                 .state
@@ -102,16 +84,14 @@ impl PublicationSlot {
             {
                 continue;
             }
-            // SAFETY: the successful transition to WRITING gives this thread
-            // exclusive access. Stored publications contain only Copy data and
-            // therefore overwriting an unread older value needs no drop.
-            unsafe { (*self.value.get()).write(value) };
-            self.state.store(SLOT_READY, Ordering::Release);
-            return;
+            return Some(PublicationWriter {
+                slot: self,
+                finished: false,
+            });
         }
     }
 
-    fn take(&self) -> Option<StoredPublication> {
+    fn begin_read(&self) -> Option<PublicationReader<'_>> {
         self.state
             .compare_exchange(
                 SLOT_READY,
@@ -120,12 +100,132 @@ impl PublicationSlot {
                 Ordering::Acquire,
             )
             .ok()?;
-        // SAFETY: the successful transition to READING gives this thread
-        // exclusive access to a fully initialized Copy value published before
-        // the READY release store.
-        let value = unsafe { (*self.value.get()).assume_init_read() };
-        self.state.store(SLOT_EMPTY, Ordering::Release);
-        Some(value)
+        Some(PublicationReader { slot: self })
+    }
+}
+
+pub(super) struct PublicationWriter<'a> {
+    slot: &'a PublicationSlot,
+    finished: bool,
+}
+
+impl PublicationWriter<'_> {
+    pub(super) fn buffers(&mut self) -> (&mut RawStateSnapshot, &mut RawObjects) {
+        // SAFETY: this writer owns the slot's WRITING state, which excludes the
+        // IPC reader and any other writer until publication completes.
+        unsafe {
+            (
+                &mut (*self.slot.snapshot.get()).raw,
+                &mut *self.slot.objects.get(),
+            )
+        }
+    }
+
+    pub(super) fn publish_ready(mut self, request_generation: u32, duration_us: u32) {
+        // SAFETY: this writer still owns exclusive access to both buffers.
+        let raw = unsafe { &(*self.slot.snapshot.get()).raw };
+        // SAFETY: this writer still owns exclusive access to both buffers.
+        let objects = unsafe { &*self.slot.objects.get() };
+        let previous = LAST_WORLD_TOKEN.swap(raw.world_token, Ordering::AcqRel);
+        let world_generation = if previous == raw.world_token {
+            WORLD_GENERATION.load(Ordering::Acquire)
+        } else {
+            WORLD_GENERATION
+                .fetch_add(1, Ordering::AcqRel)
+                .wrapping_add(1)
+        };
+        let captured_tick_ms = sender_tick_ms();
+        let boundary = crate::state_events::snapshot_boundary(raw, objects, captured_tick_ms);
+        self.finish(StoredPublication {
+            request_generation,
+            result: Ok(ReadyPublication {
+                revision: boundary.revision,
+                event_sequence: boundary.event_sequence,
+                captured_tick_ms,
+                updated_tick_ms: boundary.tick_ms,
+                capture_duration_us: duration_us,
+                world_generation,
+            }),
+        });
+    }
+
+    pub(super) fn publish_failed(mut self, request_generation: u32, failure: CaptureFailure) {
+        self.finish(StoredPublication {
+            request_generation,
+            result: Err(failure),
+        });
+    }
+
+    fn finish(&mut self, value: StoredPublication) {
+        // SAFETY: this writer owns WRITING and the metadata is Copy, so an
+        // unread older publication can be overwritten without a drop.
+        unsafe { (*self.slot.value.get()).write(value) };
+        self.slot.state.store(SLOT_READY, Ordering::Release);
+        self.finished = true;
+    }
+}
+
+impl Drop for PublicationWriter<'_> {
+    fn drop(&mut self) {
+        if !self.finished {
+            self.slot.state.store(SLOT_EMPTY, Ordering::Release);
+        }
+    }
+}
+
+struct PublicationReader<'a> {
+    slot: &'a PublicationSlot,
+}
+
+impl PublicationReader<'_> {
+    fn stored(&self) -> StoredPublication {
+        // SAFETY: this reader owns READING, and READY was published only after
+        // the metadata and both buffers were fully written.
+        unsafe { *(*self.slot.value.get()).assume_init_ref() }
+    }
+
+    fn raw(&self) -> &RawStateSnapshot {
+        // SAFETY: READING excludes the only writer for the guard's lifetime.
+        unsafe { &(*self.slot.snapshot.get()).raw }
+    }
+
+    fn objects(&self) -> &RawObjects {
+        // SAFETY: READING excludes the only writer for the guard's lifetime.
+        unsafe { &*self.slot.objects.get() }
+    }
+}
+
+impl Drop for PublicationReader<'_> {
+    fn drop(&mut self) {
+        self.slot.state.store(SLOT_EMPTY, Ordering::Release);
+    }
+}
+
+#[repr(C)]
+struct SnapshotBuffer {
+    raw: RawStateSnapshot,
+    _reserve: [u8; SNAPSHOT_BUFFER_BYTES - size_of::<RawStateSnapshot>()],
+}
+
+impl SnapshotBuffer {
+    const fn new() -> Self {
+        Self {
+            raw: RawStateSnapshot::empty(),
+            _reserve: [0; SNAPSHOT_BUFFER_BYTES - size_of::<RawStateSnapshot>()],
+        }
+    }
+}
+
+const _: () = assert!(size_of::<SnapshotBuffer>() == SNAPSHOT_BUFFER_BYTES);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn snapshot_storage_is_reserved_off_stack() {
+        assert_eq!(size_of::<SnapshotBuffer>(), 64 * 1024);
+        assert!(size_of::<StoredPublication>() <= 64);
     }
 }
 
@@ -143,7 +243,6 @@ pub(super) struct ReadyPublication {
     pub(super) updated_tick_ms: u32,
     pub(super) capture_duration_us: u32,
     pub(super) world_generation: u32,
-    pub(super) raw: RawStateSnapshot,
 }
 
 pub(super) struct Publication {

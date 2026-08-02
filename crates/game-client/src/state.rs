@@ -1,6 +1,7 @@
 mod abilities;
 mod collections;
 mod effects;
+mod objects;
 mod panes;
 mod types;
 
@@ -10,6 +11,7 @@ pub use collections::{
     RawInventoryItem,
 };
 pub use effects::{EFFECT_SLOT_COUNT, RawEffect, RawEffects};
+pub use objects::{MAX_OBJECT_NAME_BYTES, MAX_WORLD_OBJECTS, RawObjects, RawWorldObject};
 pub use types::{
     MemoryReader, RawAppearance, RawCharacter, RawClientText, RawLifecycle, RawLocation,
     RawMapName, RawModifiers, RawPaneProgression, RawStateSnapshot, StateReadError,
@@ -44,7 +46,11 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
         }
     }
 
-    pub fn capture(&self, current_thread_id: u32) -> Result<RawStateSnapshot, StateReadError> {
+    pub fn capture_into(
+        &self,
+        current_thread_id: u32,
+        output: &mut RawStateSnapshot,
+    ) -> Result<(), StateReadError> {
         let expected_thread_id = self.read_module_u32(MAIN_THREAD_ID_RVA)?;
         if expected_thread_id == 0 || expected_thread_id != current_thread_id {
             return Err(StateReadError::WrongThread {
@@ -73,14 +79,13 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
             }
         };
 
-        let character = if matches!(lifecycle, RawLifecycle::InGame | RawLifecycle::Disconnected)
-            && roots.world != 0
-            && world_user != 0
-        {
-            Some(self.capture_character(&roots, world_user)?)
-        } else {
-            None
-        };
+        let character_available =
+            matches!(lifecycle, RawLifecycle::InGame | RawLifecycle::Disconnected)
+                && roots.world != 0
+                && world_user != 0;
+        if character_available {
+            self.capture_character(&roots, world_user, &mut output.character)?;
+        }
 
         let current_roots = self.capture_roots()?;
         if current_roots.world_interface != roots.world_interface
@@ -91,11 +96,182 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
             return Err(StateReadError::PointersChanged);
         }
 
-        Ok(RawStateSnapshot {
-            world_token: roots.world_interface,
-            lifecycle,
-            character,
-        })
+        output.world_token = roots.world_interface;
+        output.lifecycle = lifecycle;
+        output.character_available = character_available;
+        Ok(())
+    }
+
+    #[cfg(test)]
+    pub fn capture(&self, current_thread_id: u32) -> Result<RawStateSnapshot, StateReadError> {
+        let mut output = RawStateSnapshot::empty();
+        self.capture_into(current_thread_id, &mut output)?;
+        Ok(output)
+    }
+
+    pub fn capture_objects(
+        &self,
+        current_thread_id: u32,
+        center: Option<(i32, i32)>,
+        output: &mut RawObjects,
+    ) -> Result<(), StateReadError> {
+        let expected_thread_id = self.read_module_u32(MAIN_THREAD_ID_RVA)?;
+        if expected_thread_id == 0 || expected_thread_id != current_thread_id {
+            return Err(StateReadError::WrongThread {
+                expected: expected_thread_id,
+                actual: current_thread_id,
+            });
+        }
+        let roots = self.capture_roots()?;
+        output.clear();
+        if roots.world != 0 {
+            self.capture_objects_from_world(roots.world, center, output)?;
+        }
+        let current_roots = self.capture_roots()?;
+        if current_roots.world_interface != roots.world_interface {
+            return Err(StateReadError::PointersChanged);
+        }
+        Ok(())
+    }
+
+    fn capture_objects_from_world(
+        &self,
+        world: u32,
+        center: Option<(i32, i32)>,
+        objects: &mut RawObjects,
+    ) -> Result<(), StateReadError> {
+        let list = self.read_u32(add(world, 0x194)?)?;
+        if list == 0 {
+            return Ok(());
+        }
+        let head = self.read_u32(add(list, 0x20)?)?;
+        if head == 0 {
+            return Ok(());
+        }
+        let mut stack = [0_u32; MAX_TREE_DEPTH];
+        let mut depth = 0_usize;
+        let mut node = self.read_u32(add(head, 0x04)?)?;
+        let mut visited = 0_usize;
+
+        while (node != 0 && node != head) || depth != 0 {
+            while node != 0 && node != head {
+                let Some(slot) = stack.get_mut(depth) else {
+                    return Err(StateReadError::InvalidObjectTree);
+                };
+                *slot = node;
+                depth += 1;
+                node = self.read_u32(node)?;
+            }
+
+            depth -= 1;
+            node = stack[depth];
+            visited += 1;
+            if visited > MAX_WORLD_OBJECTS * 2 {
+                return Err(StateReadError::InvalidObjectTree);
+            }
+
+            if let Some(object) = self.capture_world_object(node, center)?
+                && !objects.push(object)
+            {
+                return Err(StateReadError::InvalidObjectTree);
+            }
+            node = self.read_u32(add(node, 0x08)?)?;
+        }
+
+        Ok(())
+    }
+
+    fn capture_world_object(
+        &self,
+        node: u32,
+        center: Option<(i32, i32)>,
+    ) -> Result<Option<RawWorldObject>, StateReadError> {
+        let id = self.read_u32(add(node, 0x0C)?)?;
+        let object = self.read_u32(add(node, 0x10)?)?;
+        if object == 0
+            || self.read_u32(add(object, 0x24)?)? != id
+            || self.read_u8(add(object, 0x48)?)? == 0
+        {
+            return Ok(None);
+        }
+
+        let x = self.read_i32(add(object, 0x44)?)?;
+        let y = self.read_i32(add(object, 0x40)?)?;
+        if center.is_some_and(|(center_x, center_y)| {
+            x.abs_diff(center_x).saturating_add(y.abs_diff(center_y)) > 18
+        }) {
+            return Ok(None);
+        }
+
+        let captured = match self.read_u32(add(object, 0x2C)?)? {
+            1 => {
+                let direction = self.read_u8(add(object, 0x192)?)?;
+                if direction > 3 {
+                    return Ok(None);
+                }
+                let (name, name_len) = self.capture_object_name(add(object, 0x112)?)?;
+                RawWorldObject::Player {
+                    id,
+                    name,
+                    name_len,
+                    x,
+                    y,
+                    direction,
+                }
+            }
+            2 => {
+                let direction = self.read_u8(add(object, 0x192)?)?;
+                if direction > 3 {
+                    return Ok(None);
+                }
+                let is_npc = self.read_u8(add(object, 0x1EC)?)? == 2;
+                let (name, name_len) = if is_npc {
+                    let pane = self.read_u32(add(object, 0x58)?)?;
+                    if pane == 0 {
+                        ([0; MAX_OBJECT_NAME_BYTES], 0)
+                    } else {
+                        self.capture_object_name(add(pane, 0x198)?)?
+                    }
+                } else {
+                    ([0; MAX_OBJECT_NAME_BYTES], 0)
+                };
+                RawWorldObject::Creature {
+                    id,
+                    is_npc,
+                    sprite: None,
+                    name,
+                    name_len,
+                    x,
+                    y,
+                    direction,
+                }
+            }
+            8 => RawWorldObject::Item {
+                id,
+                sprite: self.read_u16(add(object, 0x7C)?)?,
+                x,
+                y,
+                z_index: 0,
+            },
+            _ => return Ok(None),
+        };
+        Ok(Some(captured))
+    }
+
+    fn capture_object_name(
+        &self,
+        address: u32,
+    ) -> Result<([u8; MAX_OBJECT_NAME_BYTES], u8), StateReadError> {
+        let mut name = [0_u8; MAX_OBJECT_NAME_BYTES];
+        self.read_bytes(address, &mut name)?;
+        let length = name
+            .iter()
+            .position(|byte| *byte == 0)
+            .unwrap_or(name.len());
+        Ok((
+            name,
+            u8::try_from(length).expect("object name buffer length fits u8"),
+        ))
     }
 
     fn capture_roots(&self) -> Result<Roots, StateReadError> {
@@ -117,7 +293,8 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
         &self,
         roots: &Roots,
         world_user: u32,
-    ) -> Result<RawCharacter, StateReadError> {
+        output: &mut RawCharacter,
+    ) -> Result<(), StateReadError> {
         let mut name = [0_u8; 16];
         self.read_bytes(self.module_address(CHARACTER_NAME_RVA)?, &mut name)?;
         let name_len = name
@@ -144,43 +321,43 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
         let pane_progression = self.capture_pane_progression(roots.gui_back)?;
         let modifiers = self.capture_modifiers(roots.gui_back)?;
         let location = self.capture_location(roots, x, y)?;
-        let inventory = self.capture_inventory(roots.gui_back)?;
-        let equipment = self.capture_equipment(roots.equipment)?;
-        let (skillbook, spellbook) = self.capture_abilities(roots.gui_back)?;
+        let inventory_available = self.capture_inventory(roots.gui_back, &mut output.inventory)?;
+        let equipment_available = self.capture_equipment(roots.equipment, &mut output.equipment)?;
+        let (skillbook_available, spellbook_available) =
+            self.capture_abilities(roots.gui_back, &mut output.skillbook, &mut output.spellbook)?;
         let effects = self.capture_effects(roots.gui_back)?;
 
-        Ok(RawCharacter {
-            id: (self_id != 0).then_some(self_id),
-            name,
-            name_len: u8::try_from(name_len).expect("character name buffer length fits u8"),
-            appearance,
-            class: self.read_u8(add(world_user, 0x1089)?)?,
-            is_action_restricted: self.read_u8(add(world_user, 0x15C88)?)? & 0x01 != 0,
-            is_blinded: self.read_u8(add(world_user, 0x108D)?)? == 0x08,
-            gold: self.read_u32(add(world_user, 0x105C)?)?,
-            weight: self.read_u32(add(world_user, 0x15C84)?)?,
-            max_weight: self.read_u32(add(world_user, 0x15C80)?)?,
-            level: self.read_u8(add(world_user, 0x1058)?)?,
-            ability_level: self.read_u8(add(world_user, 0x1059)?)?,
-            experience: self.read_u32(add(world_user, 0x1060)?)?,
-            pane_progression,
-            strength: self.read_u16(add(world_user, 0x1064)?)?,
-            intelligence: self.read_u16(add(world_user, 0x106E)?)?,
-            wisdom: self.read_u16(add(world_user, 0x106A)?)?,
-            constitution: self.read_u16(add(world_user, 0x106C)?)?,
-            dexterity: self.read_u16(add(world_user, 0x1068)?)?,
-            health: self.read_u32(add(world_user, 0x1078)?)?,
-            max_health: self.read_u32(add(world_user, 0x107C)?)?,
-            mana: self.read_u32(add(world_user, 0x1080)?)?,
-            max_mana: self.read_u32(add(world_user, 0x1084)?)?,
-            modifiers,
-            location,
-            inventory,
-            equipment,
-            spellbook,
-            skillbook,
-            effects,
-        })
+        output.id = (self_id != 0).then_some(self_id);
+        output.name = name;
+        output.name_len = u8::try_from(name_len).expect("character name buffer length fits u8");
+        output.appearance = appearance;
+        output.class = self.read_u8(add(world_user, 0x1089)?)?;
+        output.is_action_restricted = self.read_u8(add(world_user, 0x15C88)?)? & 0x01 != 0;
+        output.is_blinded = self.read_u8(add(world_user, 0x108D)?)? == 0x08;
+        output.gold = self.read_u32(add(world_user, 0x105C)?)?;
+        output.weight = self.read_u32(add(world_user, 0x15C84)?)?;
+        output.max_weight = self.read_u32(add(world_user, 0x15C80)?)?;
+        output.level = self.read_u8(add(world_user, 0x1058)?)?;
+        output.ability_level = self.read_u8(add(world_user, 0x1059)?)?;
+        output.experience = self.read_u32(add(world_user, 0x1060)?)?;
+        output.pane_progression = pane_progression;
+        output.strength = self.read_u16(add(world_user, 0x1064)?)?;
+        output.intelligence = self.read_u16(add(world_user, 0x106E)?)?;
+        output.wisdom = self.read_u16(add(world_user, 0x106A)?)?;
+        output.constitution = self.read_u16(add(world_user, 0x106C)?)?;
+        output.dexterity = self.read_u16(add(world_user, 0x1068)?)?;
+        output.health = self.read_u32(add(world_user, 0x1078)?)?;
+        output.max_health = self.read_u32(add(world_user, 0x107C)?)?;
+        output.mana = self.read_u32(add(world_user, 0x1080)?)?;
+        output.max_mana = self.read_u32(add(world_user, 0x1084)?)?;
+        output.modifiers = modifiers;
+        output.location = location;
+        output.inventory_available = inventory_available;
+        output.equipment_available = equipment_available;
+        output.skillbook_available = skillbook_available;
+        output.spellbook_available = spellbook_available;
+        output.effects = effects;
+        Ok(())
     }
 
     fn capture_appearance(&self, object: u32) -> Result<Option<RawAppearance>, StateReadError> {

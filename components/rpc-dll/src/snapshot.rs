@@ -1,7 +1,7 @@
 mod convert;
 mod publication;
 
-use darpc_game_client::{MemoryReader, RawStateSnapshot, StateReadError, StateWalker};
+use darpc_game_client::{MemoryReader, RawObjects, RawStateSnapshot, StateReadError, StateWalker};
 use darpc_model::ClientSnapshot;
 use std::{
     fmt, ptr,
@@ -70,19 +70,25 @@ pub(crate) fn observe_tick() {
         return;
     }
 
+    let Some(mut publication) = publication::begin() else {
+        return;
+    };
     let started = Instant::now();
-    let capture = capture();
+    let capture = {
+        let (raw, objects) = publication.buffers();
+        capture(raw, objects)
+    };
     let duration_us = u32::try_from(started.elapsed().as_micros()).unwrap_or(u32::MAX);
     match capture {
-        Ok(raw) => publication::publish_ready(request_generation, duration_us, raw),
+        Ok(()) => publication.publish_ready(request_generation, duration_us),
         Err(error) => {
-            publication::publish_failed(request_generation, CaptureFailure::from(error));
+            publication.publish_failed(request_generation, CaptureFailure::from(error));
         }
     }
     PROCESSED_GENERATION.store(request_generation, Ordering::Release);
 }
 
-fn capture() -> Result<RawStateSnapshot, StateReadError> {
+fn capture(raw: &mut RawStateSnapshot, objects: &mut RawObjects) -> Result<(), StateReadError> {
     // SAFETY: a null module name requests the executable module for the current
     // process and has no lifetime transfer.
     let module = unsafe { GetModuleHandleW(ptr::null()) };
@@ -90,7 +96,23 @@ fn capture() -> Result<RawStateSnapshot, StateReadError> {
         u32::try_from(module as usize).map_err(|_| StateReadError::AddressOverflow)?;
     // SAFETY: this function has no preconditions and returns the current thread ID.
     let thread_id = unsafe { GetCurrentThreadId() };
-    StateWalker::new(&ProcessMemory, module_base).capture(thread_id)
+    let walker = StateWalker::new(&ProcessMemory, module_base);
+    walker.capture_into(thread_id, raw)?;
+    let center = raw
+        .character_available
+        .then_some(&raw.character)
+        .and_then(|character| character.location)
+        .and_then(|location| location.x.zip(location.y));
+    walker.capture_objects(thread_id, center, objects)?;
+    if raw.character_available
+        && let Some(id) = raw.character.id
+    {
+        objects.name_player(
+            id,
+            &raw.character.name[..usize::from(raw.character.name_len)],
+        );
+    }
+    Ok(())
 }
 
 struct ProcessMemory;

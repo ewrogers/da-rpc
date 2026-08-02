@@ -15,6 +15,15 @@ pub struct RawInventory {
     pub items: [Option<RawInventoryItem>; INVENTORY_SLOT_COUNT],
 }
 
+impl RawInventory {
+    #[must_use]
+    pub const fn empty() -> Self {
+        Self {
+            items: [None; INVENTORY_SLOT_COUNT],
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RawInventoryItem {
     pub slot: u8,
@@ -32,6 +41,15 @@ pub struct RawEquipment {
     pub items: [Option<RawEquipmentItem>; EQUIPMENT_SLOT_COUNT],
 }
 
+impl RawEquipment {
+    #[must_use]
+    pub const fn empty() -> Self {
+        Self {
+            items: [None; EQUIPMENT_SLOT_COUNT],
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RawEquipmentItem {
     pub slot: u8,
@@ -46,17 +64,18 @@ impl<M: MemoryReader> StateWalker<'_, M> {
     pub(super) fn capture_inventory(
         &self,
         gui_back: u32,
-    ) -> Result<Option<RawInventory>, StateReadError> {
+        output: &mut RawInventory,
+    ) -> Result<bool, StateReadError> {
+        output.items.fill(None);
         if gui_back == 0 {
-            return Ok(None);
+            return Ok(false);
         }
         let pane = self.read_u32(add(gui_back, 0x4F88)?)?;
         if pane == 0 {
-            return Ok(None);
+            return Ok(false);
         }
 
-        let mut items = [None; INVENTORY_SLOT_COUNT];
-        for (index, item) in items.iter_mut().enumerate() {
+        for (index, item) in output.items.iter_mut().enumerate() {
             if index + 1 == INVENTORY_GOLD_SLOT {
                 continue;
             }
@@ -88,20 +107,21 @@ impl<M: MemoryReader> StateWalker<'_, M> {
                 max_durability: u32_at(&bytes, 0xAC),
             });
         }
-        Ok(Some(RawInventory { items }))
+        Ok(true)
     }
 
     pub(super) fn capture_equipment(
         &self,
         pane: u32,
-    ) -> Result<Option<RawEquipment>, StateReadError> {
+        output: &mut RawEquipment,
+    ) -> Result<bool, StateReadError> {
+        output.items.fill(None);
         if pane == 0 {
-            return Ok(None);
+            return Ok(false);
         }
         let mut bytes = [0_u8; EQUIPMENT_SNAPSHOT_SIZE];
         self.read_bytes(add(pane, EQUIPMENT_SNAPSHOT_OFFSET)?, &mut bytes)?;
-        let mut items = [None; EQUIPMENT_SLOT_COUNT];
-        for (index, item) in items.iter_mut().enumerate() {
+        for (index, item) in output.items.iter_mut().enumerate() {
             let sprite_offset = index * size_of::<u16>();
             let sprite = u16::from_le_bytes([bytes[sprite_offset], bytes[sprite_offset + 1]]);
             if sprite == 0 {
@@ -118,7 +138,7 @@ impl<M: MemoryReader> StateWalker<'_, M> {
                 max_durability: u32_at(&bytes, durability_offset + 4),
             });
         }
-        Ok(Some(RawEquipment { items }))
+        Ok(true)
     }
 }
 

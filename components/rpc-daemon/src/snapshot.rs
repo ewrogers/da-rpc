@@ -371,8 +371,10 @@ pub(crate) struct MapLocation {
     height: i32,
 }
 mod collections;
+mod objects;
 
 pub(crate) use collections::{
     CooldownStatus, Effect, EffectDuration, Effects, EquipmentItem, EquipmentSlot, InventoryItem,
     Skill, Spell, SpellTargetType,
 };
+pub(crate) use objects::{Direction, WorldObject, WorldObjects};

@@ -25,6 +25,7 @@ port. The API has no URL version prefix.
 | `GET /clients/{client}/spellbook` | Return occupied spellbook slots. |
 | `GET /clients/{client}/skillbook` | Return occupied skillbook slots. |
 | `GET /clients/{client}/effects` | Return active spell effects and relative duration bands. |
+| `GET /clients/{client}/objects` | Return world objects currently observed by this client. |
 | `GET /clients/{client}/events` | Stream ordered changes after a current snapshot boundary. |
 | `POST /clients/{client}/commands/diagnostic` | Submit a no-op command for execution on a client tick. |
 | `GET /clients/{client}/commands/{command_id}` | Read a retained command state. |
@@ -104,6 +105,7 @@ Equipment { observation, items }
 Spellbook { observation, spells }
 Skillbook { observation, skills }
 Effects { observation, effects }
+WorldObjects { observation, objects }
 ```
 
 Every response includes `observation` metadata with the source PID, revision,
@@ -112,6 +114,14 @@ generation. The capture fields describe the last complete memory walk;
 `updated_tick_ms` advances when an incremental update is applied. Consumers can
 correlate responses with the same revision. Separate HTTP requests can observe
 different revisions when the daemon receives a newer update between requests.
+
+`WorldObjects.objects` is `null` when the client lifecycle cannot expose a
+world. Otherwise it is an array tagged by `kind`: `player`, `monster`, `npc`, or
+`item`. Players and creatures include position and direction. Names and a
+creature's numeric sprite remain optional when the client does not retain that
+information. Items include position, sprite, and a per-tile `z_index`, where
+zero is the bottom item. This resource is one client's observation rather than
+a permanent or merged world list.
 
 All six routes return `404 Not Found` for an unknown client and `503 Service
 Unavailable` when the target has not produced an observation, including a
@@ -256,6 +266,22 @@ are:
 | `effect_added` | `effect_added` | `icon`, `duration` |
 | `effect_removed` | `effect_removed` | `icon` |
 | `effect_changed` | `effect_changed` | `icon`, new `duration` |
+| `player_appeared` | `player_appeared` | `object` |
+| `player_disappeared` | `player_disappeared` | `object` |
+| `player_moved` | `player_moved` | Updated `object` |
+| `player_direction_changed` | `player_direction_changed` | Updated `object` |
+| `monster_appeared` | `monster_appeared` | `object` |
+| `monster_disappeared` | `monster_disappeared` | `object` |
+| `monster_moved` | `monster_moved` | Updated `object` |
+| `monster_direction_changed` | `monster_direction_changed` | Updated `object` |
+| `npc_appeared` | `npc_appeared` | `object` |
+| `npc_disappeared` | `npc_disappeared` | `object` |
+| `npc_moved` | `npc_moved` | Updated `object` |
+| `npc_direction_changed` | `npc_direction_changed` | Updated `object` |
+| `item_appeared` | `item_appeared` | `object` |
+| `item_disappeared` | `item_disappeared` | `object` |
+| `item_moved` | `item_moved` | Updated `object` |
+| `objects_cleared` | `objects_cleared` | Observation only |
 | `stream.resync_required` | `stream_resync_required` | `pid`, `instance_id`, `last_event_sequence`, `dropped_events` |
 | `stream.closed` | `stream_closed` | `pid`, `instance_id`, `last_event_sequence`, `reason` |
 
@@ -266,6 +292,10 @@ included fields instead of adding a delta.
 Effect events identify the icon. Added and changed events also carry its new
 relative duration band. Removed events carry no duration because the icon is no
 longer active.
+
+Object events carry the complete public object after the change rather than a
+coordinate or direction delta. Disappearance carries the last retained object.
+`objects_cleared` marks an atomic map or world boundary and carries no object.
 
 ```text
 id: 40

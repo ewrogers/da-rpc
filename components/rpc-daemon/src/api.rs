@@ -12,10 +12,10 @@ use crate::{
     snapshot::{
         CharacterClass as SnapshotCharacterClass, CharacterGender, CharacterModifiers,
         CharacterProgression, CharacterStats, CharacterStatus, CharacterVitals,
-        ClientLifecycle as SnapshotClientLifecycle, CooldownStatus, Effect, EffectDuration,
-        Effects, Element, Equipment, EquipmentItem, EquipmentSlot, GameStatus, Inventory,
-        InventoryItem, MapLocation, ObservationMetadata, Skill, Skillbook, Spell, SpellTargetType,
-        Spellbook,
+        ClientLifecycle as SnapshotClientLifecycle, CooldownStatus, Direction, Effect,
+        EffectDuration, Effects, Element, Equipment, EquipmentItem, EquipmentSlot, GameStatus,
+        Inventory, InventoryItem, MapLocation, ObservationMetadata, Skill, Skillbook, Spell,
+        SpellTargetType, Spellbook, WorldObject, WorldObjects,
     },
     stream::{self, ClientEvent, PublishedEvent},
 };
@@ -222,6 +222,7 @@ fn router(state: ApiState) -> Router {
         .route("/clients/{client}/spellbook", get(client_spellbook))
         .route("/clients/{client}/skillbook", get(client_skillbook))
         .route("/clients/{client}/effects", get(client_effects))
+        .route("/clients/{client}/objects", get(client_objects))
         .route("/clients/{client}/events", get(client_events))
         .route(
             "/clients/{client}/commands/diagnostic",
@@ -432,6 +433,26 @@ async fn client_effects(
     let registry = state.snapshot();
     let (pid, snapshot) = resolve_game_snapshot(&registry, &identifier)?;
     Ok(Json(Effects::from_model(pid, snapshot)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/clients/{client}/objects",
+    params(("client" = String, Path, description = "Process ID or current in-game character name")),
+    responses(
+        (status = 200, description = "The latest world objects observed by this client", body = WorldObjects),
+        (status = 400, description = "The process identifier was invalid", body = ErrorState),
+        (status = 404, description = "The process is not a discovered or configured client", body = ErrorState),
+        (status = 503, description = "No client observation is currently available", body = ErrorState)
+    )
+)]
+async fn client_objects(
+    Path(identifier): Path<String>,
+    State(state): State<ApiState>,
+) -> Result<Json<WorldObjects>, ApiError> {
+    let registry = state.snapshot();
+    let (pid, snapshot) = resolve_game_snapshot(&registry, &identifier)?;
+    Ok(Json(WorldObjects::from_model(pid, snapshot)))
 }
 
 #[utoipa::path(
@@ -741,6 +762,7 @@ fn operation_in_progress(pid: u32) -> ApiError {
         client_spellbook,
         client_skillbook,
         client_effects,
+        client_objects,
         client_events,
         load,
         unload,
@@ -783,6 +805,9 @@ fn operation_in_progress(pid: u32) -> ApiError {
         Effects,
         Effect,
         EffectDuration,
+        WorldObjects,
+        WorldObject,
+        Direction,
         LaunchOptions,
         LoadResult,
         UnloadResult,
@@ -1348,6 +1373,7 @@ mod tests {
                     duration: ModelEffectDuration::White,
                 }]),
             }),
+            objects: None,
         }
     }
 

@@ -214,8 +214,8 @@ darpc.exe --output json hello --pid <pid>
 These commands perform the real binary handshake and validate ordering,
 correlation, and timing. `tick-health` samples the installed client tick hook
 twice and reports whether its bounded counter advances. `snapshot` reads the
-current character, map, inventory, equipment, spellbook, skillbook, and active
-spell effects.
+current character, map, inventory, equipment, spellbook, skillbook, active
+spell effects, and observed world objects.
 `diagnostic` proves bounded execution on the game main thread without changing
 client state, while the status and cancel commands address retained work. See the
 [`darpc.exe` documentation](https://ewrogers.github.io/da-rpc/cli.html) for
@@ -270,6 +270,7 @@ GET /clients/{client}/equipment
 GET /clients/{client}/spellbook
 GET /clients/{client}/skillbook
 GET /clients/{client}/effects
+GET /clients/{client}/objects
 GET /clients/{client}/events
 POST /clients/{client}/commands/diagnostic
 GET /clients/{client}/commands/{command_id}

@@ -1,9 +1,10 @@
 use darpc_model::{
     CharacterAppearance, CharacterClass, CharacterModifiers, CharacterProgression,
     CharacterSnapshot, CharacterStats, CharacterVitals, ClientLifecycle, ClientSnapshot,
-    CooldownStatus, CoreStatus, CurrentVitals, Effect, EffectDuration, EffectUpdate, Element,
-    EquipmentItem, EquipmentSlot, Gender, InventoryItem, LocationUpdate, MapChange, MapLocation,
-    ProgressionStatus, Skill, Spell, SpellTargetType, StateEvent, StateUpdate, StatusUpdate,
+    CooldownStatus, CoreStatus, CreatureKind, CurrentVitals, Direction, Effect, EffectDuration,
+    EffectUpdate, Element, EquipmentItem, EquipmentSlot, Gender, InventoryItem, LocationUpdate,
+    MapChange, MapLocation, ObjectUpdate, ProgressionStatus, Skill, Spell, SpellTargetType,
+    StateEvent, StateUpdate, StatusUpdate, WorldObject,
 };
 use darpc_protocol::{
     Architecture, CommandFailure, CommandKind, CommandOperation, CommandRequest, CommandResponse,
@@ -146,6 +147,31 @@ fn snapshot() -> ClientSnapshot {
                 duration: EffectDuration::White,
             }]),
         }),
+        objects: Some(vec![
+            WorldObject::Player {
+                id: 10,
+                name: Some("Eidolon".into()),
+                x: 40,
+                y: 30,
+                direction: Direction::East,
+            },
+            WorldObject::Creature {
+                id: 11,
+                kind: CreatureKind::Monster,
+                sprite: Some(45),
+                name: None,
+                x: 41,
+                y: 30,
+                direction: Direction::West,
+            },
+            WorldObject::Item {
+                id: 12,
+                sprite: 7,
+                x: 42,
+                y: 30,
+                z_index: 0,
+            },
+        ]),
     }
 }
 
@@ -298,6 +324,18 @@ fn every_message_round_trips() {
                     revision: 14,
                     tick_ms: 127,
                     update: StateUpdate::Effect(EffectUpdate::Removed { icon: 300 }),
+                },
+                StateEvent {
+                    sequence: 46,
+                    revision: 15,
+                    tick_ms: 128,
+                    update: StateUpdate::Object(ObjectUpdate::Moved(WorldObject::Player {
+                        id: 10,
+                        name: Some("Eidolon".into()),
+                        x: 41,
+                        y: 30,
+                        direction: Direction::East,
+                    })),
                 },
             ]),
         }),

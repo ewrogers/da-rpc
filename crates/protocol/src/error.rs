@@ -11,6 +11,7 @@ pub enum EncodeError {
     InvalidSnapshotSlot { slot: u8, max: u8 },
     DuplicateSnapshotSlot { slot: u8 },
     DuplicateEffectIcon { icon: u16 },
+    DuplicateWorldObjectId { id: u32 },
     EventBatchTooLong { length: usize, max: usize },
     InvalidCommandId,
     InvalidCommandTimeout { actual: u16, max: u16 },
@@ -51,6 +52,9 @@ impl fmt::Display for EncodeError {
             }
             Self::DuplicateEffectIcon { icon } => {
                 write!(formatter, "spell effect icon {icon} appears more than once")
+            }
+            Self::DuplicateWorldObjectId { id } => {
+                write!(formatter, "world object ID {id} appears more than once")
             }
             Self::EventBatchTooLong { length, max } => {
                 write!(
@@ -150,10 +154,25 @@ pub enum DecodeError {
     DuplicateEffectIcon {
         icon: u16,
     },
+    DuplicateWorldObjectId {
+        id: u32,
+    },
+    InvalidWorldObjectType {
+        actual: u8,
+    },
+    InvalidCreatureKind {
+        actual: u8,
+    },
+    InvalidDirection {
+        actual: u8,
+    },
     InvalidEffectDuration {
         actual: u8,
     },
     InvalidEffectUpdateType {
+        actual: u8,
+    },
+    InvalidObjectUpdateType {
         actual: u8,
     },
     InvalidSnapshotStatus {
@@ -287,11 +306,26 @@ impl fmt::Display for DecodeError {
             Self::DuplicateEffectIcon { icon } => {
                 write!(formatter, "spell effect icon {icon} appears more than once")
             }
+            Self::DuplicateWorldObjectId { id } => {
+                write!(formatter, "world object ID {id} appears more than once")
+            }
+            Self::InvalidWorldObjectType { actual } => {
+                write!(formatter, "invalid world object type {actual}")
+            }
+            Self::InvalidCreatureKind { actual } => {
+                write!(formatter, "invalid creature kind {actual}")
+            }
+            Self::InvalidDirection { actual } => {
+                write!(formatter, "invalid direction {actual}")
+            }
             Self::InvalidEffectDuration { actual } => {
                 write!(formatter, "invalid spell effect duration {actual}")
             }
             Self::InvalidEffectUpdateType { actual } => {
                 write!(formatter, "invalid spell effect update type {actual}")
+            }
+            Self::InvalidObjectUpdateType { actual } => {
+                write!(formatter, "invalid world object update type {actual}")
             }
             Self::InvalidSnapshotStatus { actual } => {
                 write!(formatter, "invalid snapshot status {actual}")

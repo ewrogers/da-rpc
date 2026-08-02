@@ -2,8 +2,15 @@ use super::panes::{EVENT_DISPATCHER_RVA, RECONNECT_DIALOG_VTABLE_RVA};
 use super::{
     CHARACTER_NAME_RVA, EQUIPMENT_PANE_RVA, GUI_BACK_PANE_ADJUSTMENT, GUI_BACK_PANE_RVA,
     MAIN_MENU_PANE_RVA, MAIN_THREAD_ID_RVA, MAP_LOADING_PANE_RVA, MemoryReader, RawLifecycle,
-    StateReadError, StateWalker, WORLD_IMPLEMENTATION_ADJUSTMENT, WORLD_IMPLEMENTATION_RVA,
+    RawObjects, RawStateSnapshot, RawWorldObject, StateReadError, StateWalker,
+    WORLD_IMPLEMENTATION_ADJUSTMENT, WORLD_IMPLEMENTATION_RVA,
 };
+
+#[test]
+fn raw_snapshot_size_stays_bounded() {
+    let size = std::mem::size_of::<RawStateSnapshot>();
+    assert!(size <= 52 * 1024, "raw snapshot is {size} bytes");
+}
 
 const BASE: u32 = 0x0040_0000;
 const THREAD_ID: u32 = 77;
@@ -102,7 +109,12 @@ impl FakeMemory {
         memory.u32(NODE + 0x0C, 0x1122_3344);
         memory.u32(NODE + 0x10, OBJECT);
         memory.u32(OBJECT + 0x24, 0x1122_3344);
+        memory.u32(OBJECT + 0x2C, 1);
+        memory.i32(OBJECT + 0x40, 22);
+        memory.i32(OBJECT + 0x44, 11);
         memory.u8(OBJECT + 0x48, 1);
+        memory.bytes(OBJECT + 0x112, b"SiLo\0");
+        memory.u8(OBJECT + 0x192, 2);
         memory.u8(OBJECT + 0x98, 1);
         memory.u8(OBJECT + 0xA4, 0);
         memory.u16(OBJECT + 0xA6, 17);
@@ -221,7 +233,8 @@ impl MemoryReader for FakeMemory {
 fn captures_the_scalar_gameplay_snapshot() {
     let memory = FakeMemory::gameplay();
     let snapshot = StateWalker::new(&memory, BASE).capture(THREAD_ID).unwrap();
-    let character = snapshot.character.unwrap();
+    assert!(snapshot.character_available);
+    let character = &snapshot.character;
     let location = character.location.unwrap();
     let progression = character.pane_progression.unwrap();
     let modifiers = character.modifiers.unwrap();
@@ -254,12 +267,71 @@ fn captures_the_scalar_gameplay_snapshot() {
 }
 
 #[test]
+fn capture_into_uses_caller_storage_on_a_small_stack() {
+    let memory = FakeMemory::gameplay_with_collections();
+    let output = Box::new(RawStateSnapshot::empty());
+    std::thread::Builder::new()
+        .stack_size(64 * 1024)
+        .spawn(move || {
+            let mut output = output;
+            StateWalker::new(&memory, BASE)
+                .capture_into(THREAD_ID, &mut output)
+                .unwrap();
+            assert!(output.character_available);
+            assert!(output.character.inventory_available);
+            assert!(output.character.spellbook_available);
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+#[test]
+fn captures_visible_world_objects_into_caller_storage() {
+    let memory = FakeMemory::gameplay();
+    let mut objects = RawObjects::empty();
+
+    StateWalker::new(&memory, BASE)
+        .capture_objects(THREAD_ID, Some((11, 22)), &mut objects)
+        .unwrap();
+
+    assert_eq!(objects.count, 1);
+    let Some(RawWorldObject::Player {
+        id,
+        name,
+        name_len,
+        x,
+        y,
+        direction,
+    }) = objects.entries[0]
+    else {
+        panic!("expected player object");
+    };
+    assert_eq!(id, 0x1122_3344);
+    assert_eq!(&name[..usize::from(name_len)], b"SiLo");
+    assert_eq!((x, y, direction), (11, 22, 2));
+}
+
+#[test]
+fn rejects_a_cyclic_world_object_tree() {
+    let mut memory = FakeMemory::gameplay();
+    memory.u32(NODE, NODE);
+    let mut objects = RawObjects::empty();
+
+    assert_eq!(
+        StateWalker::new(&memory, BASE).capture_objects(THREAD_ID, Some((11, 22)), &mut objects,),
+        Err(StateReadError::InvalidObjectTree)
+    );
+}
+
+#[test]
 fn non_human_appearance_is_unavailable() {
     let mut memory = FakeMemory::gameplay();
     memory.u8(OBJECT + 0x104, 0);
 
     let snapshot = StateWalker::new(&memory, BASE).capture(THREAD_ID).unwrap();
-    assert!(snapshot.character.unwrap().appearance.is_none());
+    assert!(snapshot.character_available);
+    assert!(snapshot.character.appearance.is_none());
 }
 
 #[test]
@@ -269,7 +341,8 @@ fn action_lock_and_blinded_state_use_exact_client_values() {
     memory.u8(WORLD_USER + 0x15C88, 0x02);
 
     let snapshot = StateWalker::new(&memory, BASE).capture(THREAD_ID).unwrap();
-    let character = snapshot.character.unwrap();
+    assert!(snapshot.character_available);
+    let character = &snapshot.character;
     assert!(!character.is_action_restricted);
     assert!(!character.is_blinded);
 }
@@ -283,7 +356,7 @@ fn title_state_has_no_character() {
 
     let snapshot = StateWalker::new(&memory, BASE).capture(THREAD_ID).unwrap();
     assert_eq!(snapshot.lifecycle, RawLifecycle::Title);
-    assert!(snapshot.character.is_none());
+    assert!(!snapshot.character_available);
 }
 
 #[test]
@@ -300,7 +373,7 @@ fn reconnect_dialog_takes_precedence_over_the_stable_world() {
 
     let snapshot = StateWalker::new(&memory, BASE).capture(THREAD_ID).unwrap();
     assert_eq!(snapshot.lifecycle, RawLifecycle::Disconnected);
-    assert!(snapshot.character.is_some());
+    assert!(snapshot.character_available);
 }
 
 #[test]
@@ -342,7 +415,8 @@ fn captures_a_pointer_backed_map_name() {
     memory.bytes(MAP_NAME_TEXT, b"Rucesion Inn\0");
 
     let snapshot = StateWalker::new(&memory, BASE).capture(THREAD_ID).unwrap();
-    let map_name = snapshot.character.unwrap().location.unwrap().name.unwrap();
+    assert!(snapshot.character_available);
+    let map_name = snapshot.character.location.unwrap().name.unwrap();
     assert_eq!(
         &map_name.bytes[..usize::from(map_name.length)],
         b"Rucesion Inn"
@@ -352,14 +426,14 @@ fn captures_a_pointer_backed_map_name() {
 #[test]
 fn captures_inventory_and_equipment_slots() {
     let memory = FakeMemory::gameplay_with_collections();
-    let character = StateWalker::new(&memory, BASE)
-        .capture(THREAD_ID)
-        .unwrap()
-        .character
-        .unwrap();
-    let inventory_items = character.inventory.unwrap().items;
+    let snapshot = StateWalker::new(&memory, BASE).capture(THREAD_ID).unwrap();
+    assert!(snapshot.character_available);
+    let character = &snapshot.character;
+    assert!(character.inventory_available);
+    assert!(character.equipment_available);
+    let inventory_items = character.inventory.items;
     let inventory = inventory_items[0].unwrap();
-    let equipment = character.equipment.unwrap().items[0].unwrap();
+    let equipment = character.equipment.items[0].unwrap();
 
     assert_eq!(
         (inventory.slot, inventory.sprite, inventory.dye_color),
@@ -392,13 +466,13 @@ fn captures_inventory_and_equipment_slots() {
 #[test]
 fn captures_spellbook_and_skillbook_slots() {
     let memory = FakeMemory::gameplay_with_collections();
-    let character = StateWalker::new(&memory, BASE)
-        .capture(THREAD_ID)
-        .unwrap()
-        .character
-        .unwrap();
-    let skill = character.skillbook.unwrap().skills[3].unwrap();
-    let spell = character.spellbook.unwrap().spells[6].unwrap();
+    let snapshot = StateWalker::new(&memory, BASE).capture(THREAD_ID).unwrap();
+    assert!(snapshot.character_available);
+    let character = &snapshot.character;
+    assert!(character.skillbook_available);
+    assert!(character.spellbook_available);
+    let skill = character.skillbook.skills[3].unwrap();
+    let spell = character.spellbook.spells[6].unwrap();
 
     assert_eq!((skill.slot, skill.icon), (4, 0x0123));
     assert_eq!(
@@ -422,14 +496,9 @@ fn captures_spellbook_and_skillbook_slots() {
 #[test]
 fn captures_active_spell_effects() {
     let memory = FakeMemory::gameplay_with_collections();
-    let effects = StateWalker::new(&memory, BASE)
-        .capture(THREAD_ID)
-        .unwrap()
-        .character
-        .unwrap()
-        .effects
-        .unwrap()
-        .effects;
+    let snapshot = StateWalker::new(&memory, BASE).capture(THREAD_ID).unwrap();
+    assert!(snapshot.character_available);
+    let effects = snapshot.character.effects.unwrap().effects;
 
     assert_eq!(
         (effects[0].unwrap().icon, effects[0].unwrap().duration),

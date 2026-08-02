@@ -66,6 +66,7 @@ pub(crate) fn encode(output: &mut Vec<u8>, snapshot: &ClientSnapshot) -> Result<
     if let Some(character) = &snapshot.character {
         encode_character(output, character)?;
     }
+    objects::encode(output, snapshot.objects.as_deref())?;
     Ok(())
 }
 
@@ -82,6 +83,7 @@ pub(crate) fn decode(reader: &mut PayloadReader<'_>) -> Result<ClientSnapshot, D
     } else {
         None
     };
+    let objects = objects::decode(reader)?;
     Ok(ClientSnapshot {
         revision,
         event_sequence,
@@ -91,6 +93,7 @@ pub(crate) fn decode(reader: &mut PayloadReader<'_>) -> Result<ClientSnapshot, D
         world_generation,
         lifecycle,
         character,
+        objects,
     })
 }
 
@@ -353,3 +356,4 @@ pub(crate) fn decode_optional_string(
     Ok(Some(value))
 }
 mod collections;
+pub(crate) mod objects;

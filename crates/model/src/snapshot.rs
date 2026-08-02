@@ -134,6 +134,7 @@ pub struct ClientSnapshot {
     pub world_generation: u32,
     pub lifecycle: ClientLifecycle,
     pub character: Option<CharacterSnapshot>,
+    pub objects: Option<Vec<crate::WorldObject>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

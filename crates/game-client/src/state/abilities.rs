@@ -11,6 +11,15 @@ pub struct RawSkillbook {
     pub skills: [Option<RawSkill>; ABILITY_SLOT_COUNT],
 }
 
+impl RawSkillbook {
+    #[must_use]
+    pub const fn empty() -> Self {
+        Self {
+            skills: [None; ABILITY_SLOT_COUNT],
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RawSkill {
     pub slot: u8,
@@ -27,6 +36,15 @@ pub struct RawSkill {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RawSpellbook {
     pub spells: [Option<RawSpell>; ABILITY_SLOT_COUNT],
+}
+
+impl RawSpellbook {
+    #[must_use]
+    pub const fn empty() -> Self {
+        Self {
+            spells: [None; ABILITY_SLOT_COUNT],
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -46,32 +64,39 @@ impl<M: MemoryReader> StateWalker<'_, M> {
     pub(super) fn capture_abilities(
         &self,
         gui_back: u32,
-    ) -> Result<(Option<RawSkillbook>, Option<RawSpellbook>), StateReadError> {
+        skillbook: &mut RawSkillbook,
+        spellbook: &mut RawSpellbook,
+    ) -> Result<(bool, bool), StateReadError> {
+        skillbook.skills.fill(None);
+        spellbook.spells.fill(None);
         if gui_back == 0 {
-            return Ok((None, None));
+            return Ok((false, false));
         }
         let inventory = self.read_u32(add(gui_back, 0x4F8C)?)?;
         if inventory == 0 {
-            return Ok((None, None));
+            return Ok((false, false));
         }
         let skills = self.read_u32(add(inventory, 0x224)?)?;
         let spells = self.read_u32(add(inventory, 0x228)?)?;
-        let skillbook = self.capture_skillbook(skills)?;
-        let spellbook = self.capture_spellbook(spells)?;
+        let skillbook_available = self.capture_skillbook(skills, skillbook)?;
+        let spellbook_available = self.capture_spellbook(spells, spellbook)?;
         if self.read_u32(add(gui_back, 0x4F8C)?)? != inventory
             || self.read_u32(add(inventory, 0x224)?)? != skills
             || self.read_u32(add(inventory, 0x228)?)? != spells
         {
             return Err(StateReadError::PointersChanged);
         }
-        Ok((skillbook, spellbook))
+        Ok((skillbook_available, spellbook_available))
     }
 
-    fn capture_skillbook(&self, pane: u32) -> Result<Option<RawSkillbook>, StateReadError> {
+    fn capture_skillbook(
+        &self,
+        pane: u32,
+        output: &mut RawSkillbook,
+    ) -> Result<bool, StateReadError> {
         let Some(table) = self.pane_table(pane)? else {
-            return Ok(None);
+            return Ok(false);
         };
-        let mut skills = [None; ABILITY_SLOT_COUNT];
         for index in 0..table.capacity {
             let pointer = self.read_u32(indexed(table.items, 0, 4, index)?)?;
             if pointer == 0 {
@@ -80,7 +105,7 @@ impl<M: MemoryReader> StateWalker<'_, M> {
             let mut bytes = [0_u8; SKILL_PANE_SIZE];
             self.read_bytes(add(pointer, ABILITY_PANE_OFFSET)?, &mut bytes)?;
             let slot = bytes[0x182];
-            let destination = ability_slot(&mut skills, slot)?;
+            let destination = ability_slot(&mut output.skills, slot)?;
             *destination = Some(RawSkill {
                 slot,
                 icon: u16::from_le_bytes([bytes[0], bytes[1]]),
@@ -94,14 +119,17 @@ impl<M: MemoryReader> StateWalker<'_, M> {
             });
         }
         self.validate_pane_table(pane, table)?;
-        Ok(Some(RawSkillbook { skills }))
+        Ok(true)
     }
 
-    fn capture_spellbook(&self, pane: u32) -> Result<Option<RawSpellbook>, StateReadError> {
+    fn capture_spellbook(
+        &self,
+        pane: u32,
+        output: &mut RawSpellbook,
+    ) -> Result<bool, StateReadError> {
         let Some(table) = self.pane_table(pane)? else {
-            return Ok(None);
+            return Ok(false);
         };
-        let mut spells = [None; ABILITY_SLOT_COUNT];
         for index in 0..table.capacity {
             let pointer = self.read_u32(indexed(table.items, 0, 4, index)?)?;
             if pointer == 0 {
@@ -111,7 +139,7 @@ impl<M: MemoryReader> StateWalker<'_, M> {
             self.read_bytes(add(pointer, ABILITY_PANE_OFFSET)?, &mut bytes)?;
             let slot = bytes[0];
             let argument_type = bytes[0x04];
-            let destination = ability_slot(&mut spells, slot)?;
+            let destination = ability_slot(&mut output.spells, slot)?;
             *destination = Some(RawSpell {
                 slot,
                 icon: u16::from_le_bytes([bytes[2], bytes[3]]),
@@ -129,7 +157,7 @@ impl<M: MemoryReader> StateWalker<'_, M> {
             });
         }
         self.validate_pane_table(pane, table)?;
-        Ok(Some(RawSpellbook { spells }))
+        Ok(true)
     }
 
     fn pane_table(&self, pane: u32) -> Result<Option<PaneTable>, StateReadError> {

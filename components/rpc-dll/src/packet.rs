@@ -1,3 +1,4 @@
+use darpc_game_client::RawObjects;
 use darpc_model::{
     CharacterModifiers, CharacterStats, CoreStatus, CurrentVitals, EffectDuration, Element,
     ProgressionStatus, StatusUpdate,
@@ -16,6 +17,7 @@ pub(crate) enum ServerUpdate {
     UserPosition(Position),
     Move(Position),
     Effect(SpelledUpdate),
+    World(crate::world_packet::WorldUpdate),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -30,7 +32,13 @@ pub(crate) struct SpelledUpdate {
     pub(crate) duration: Option<EffectDuration>,
 }
 
-pub(crate) fn update(body: &[u8]) -> Result<Option<ServerUpdate>, ParseError> {
+pub(crate) fn update(
+    body: &[u8],
+    objects: &mut RawObjects,
+) -> Result<Option<ServerUpdate>, ParseError> {
+    if let Some(update) = crate::world_packet::update(body, objects)? {
+        return Ok(Some(ServerUpdate::World(update)));
+    }
     match body.first().copied() {
         Some(USER_POSITION_OPCODE) => parse_user_position(body)
             .map(ServerUpdate::UserPosition)
@@ -60,7 +68,7 @@ fn parse_spelled(body: &[u8]) -> Result<SpelledUpdate, ParseError> {
                 offset: duration_offset,
                 needed: 0,
                 remaining: body.len().saturating_sub(reader.offset),
-                invalid_value: Some(duration),
+                invalid_value: Some(u32::from(duration)),
             })?)
         },
     })
@@ -210,7 +218,7 @@ pub(crate) struct ParseError {
     offset: usize,
     needed: usize,
     remaining: usize,
-    invalid_value: Option<u8>,
+    invalid_value: Option<u32>,
 }
 
 impl fmt::Display for ParseError {
@@ -233,6 +241,24 @@ impl fmt::Display for ParseError {
 impl Error for ParseError {}
 
 impl ParseError {
+    pub(crate) const fn truncated(offset: usize, needed: usize, remaining: usize) -> Self {
+        Self {
+            offset,
+            needed,
+            remaining,
+            invalid_value: None,
+        }
+    }
+
+    pub(crate) const fn invalid(offset: usize, value: u32) -> Self {
+        Self {
+            offset,
+            needed: 0,
+            remaining: 0,
+            invalid_value: Some(value),
+        }
+    }
+
     pub(crate) const fn offset(self) -> usize {
         self.offset
     }
@@ -305,6 +331,16 @@ impl<'a> Reader<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn server_update_does_not_embed_the_object_scratch_collection() {
+        assert!(std::mem::size_of::<ServerUpdate>() <= 512);
+    }
+
+    fn update(body: &[u8]) -> Result<Option<ServerUpdate>, ParseError> {
+        let mut objects = RawObjects::empty();
+        super::update(body, &mut objects)
+    }
 
     fn status(body: &[u8]) -> StatusUpdate {
         let ServerUpdate::Status(update) = update(body).unwrap().unwrap() else {

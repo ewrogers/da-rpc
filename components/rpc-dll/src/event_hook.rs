@@ -1,10 +1,11 @@
-use darpc_game_client::{EVENT_DISPATCH_ENTRY, EVENT_DISPATCH_RVA};
+use darpc_game_client::{EVENT_DISPATCH_ENTRY, EVENT_DISPATCH_RVA, RawObjects};
 use darpc_hook::{
     CodeRange, DetourActivity, DetourError, DetourSpec, InstallError, InstalledDetour,
     PreparedDetour,
 };
 use darpc_win32::pipe::sender_tick_ms;
 use std::{
+    cell::UnsafeCell,
     io, panic,
     ptr::{self, NonNull},
     slice,
@@ -30,7 +31,7 @@ const EVENT_TYPE_OFFSET: usize = 0x0C;
 const EVENT_BODY_OFFSET: usize = 0x14;
 const EVENT_BODY_LENGTH_OFFSET: usize = 0x18;
 const EVENT_VIEW_LENGTH: usize = 0x1C - EVENT_TYPE_OFFSET;
-const MAX_OBSERVED_BODY_LENGTH: usize = 128;
+const MAX_OBSERVED_BODY_LENGTH: usize = 8 * 1024;
 
 #[unsafe(no_mangle)]
 static EVENT_HOOK_ACTIVITY: DetourActivity = DetourActivity::new();
@@ -49,6 +50,36 @@ static LAST_PARSE_BODY_LENGTH: AtomicU32 = AtomicU32::new(0);
 static LAST_PARSE_OFFSET: AtomicU32 = AtomicU32::new(0);
 static LAST_PARSE_NEEDED: AtomicU32 = AtomicU32::new(0);
 static LAST_PARSE_REMAINING: AtomicU32 = AtomicU32::new(0);
+static EVENT_SCRATCH_IN_USE: AtomicBool = AtomicBool::new(false);
+static EVENT_SCRATCH: EventScratchCell = EventScratchCell(UnsafeCell::new(EventScratch::new()));
+
+struct EventScratch {
+    body: [u8; MAX_OBSERVED_BODY_LENGTH],
+    objects: RawObjects,
+}
+
+impl EventScratch {
+    const fn new() -> Self {
+        Self {
+            body: [0; MAX_OBSERVED_BODY_LENGTH],
+            objects: RawObjects::empty(),
+        }
+    }
+}
+
+struct EventScratchCell(UnsafeCell<EventScratch>);
+
+// SAFETY: every access is guarded by EVENT_SCRATCH_IN_USE. A nested or
+// concurrent hook observation is skipped instead of aliasing the scratch data.
+unsafe impl Sync for EventScratchCell {}
+
+struct EventScratchGuard;
+
+impl Drop for EventScratchGuard {
+    fn drop(&mut self) {
+        EVENT_SCRATCH_IN_USE.store(false, Ordering::Release);
+    }
+}
 
 pub(crate) struct EventHook {
     detour: InstalledDetour,
@@ -266,19 +297,28 @@ extern "C" fn observe_event(event: *const core::ffi::c_void) {
             EVENT_INVALID_BODY_COUNT.fetch_add(1, Ordering::Relaxed);
             return;
         }
-        let mut body = [0_u8; MAX_OBSERVED_BODY_LENGTH];
-        if !read_memory(body_address as usize, &mut body[..body_length]) {
+        if EVENT_SCRATCH_IN_USE
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_err()
+        {
+            return;
+        }
+        let _scratch_guard = EventScratchGuard;
+        // SAFETY: the successful compare_exchange above gives this invocation
+        // exclusive access until _scratch_guard releases the flag.
+        let scratch = unsafe { &mut *EVENT_SCRATCH.0.get() };
+        if !read_memory(body_address as usize, &mut scratch.body[..body_length]) {
             EVENT_READ_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed);
             return;
         }
-        let update = match packet::update(&body[..body_length]) {
+        let update = match packet::update(&scratch.body[..body_length], &mut scratch.objects) {
             Ok(Some(update)) => update,
             Ok(None) => return,
             Err(error) => {
                 EVENT_PARSE_ERROR_COUNT.fetch_add(1, Ordering::Relaxed);
-                LAST_PARSE_OPCODE.store(u32::from(body[0]), Ordering::Relaxed);
+                LAST_PARSE_OPCODE.store(u32::from(scratch.body[0]), Ordering::Relaxed);
                 LAST_PARSE_FIELDS.store(
-                    u32::from(body.get(1).copied().unwrap_or_default()),
+                    u32::from(scratch.body.get(1).copied().unwrap_or_default()),
                     Ordering::Relaxed,
                 );
                 LAST_PARSE_BODY_LENGTH.store(body_length as u32, Ordering::Relaxed);
@@ -302,6 +342,9 @@ extern "C" fn observe_event(event: *const core::ffi::c_void) {
             }
             packet::ServerUpdate::Effect(effect) => {
                 state_events::observe_effect(effect.icon, effect.duration, tick_ms);
+            }
+            packet::ServerUpdate::World(update) => {
+                state_events::observe_world(update, &scratch.objects, tick_ms);
             }
         }
     });

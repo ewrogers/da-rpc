@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-08-01
+Last updated: 2026-08-02
 
 This is the working task tracker for the
 [roadmap](docs/src/roadmap.md). The roadmap defines milestone scope and
@@ -30,8 +30,8 @@ planned increment and will add the first low-risk typed client action.
 | M9.1, automatic managed loading | Complete | Opt-in one-shot loading covers existing and later discoveries while preserving explicit unload. |
 | M10, hook qualification harness | Complete | Transactional x86 detours, relocated trampolines, rollback, concurrency, panic containment, and shutdown pass owned native tests. |
 | M11, first client tick hook | Complete | Exact validation, safety hardening, direct health observation, repeated live attach and detach, and normal in-game acceptance pass. |
-| M12, late-attach client snapshot | Complete | Main-thread capture, the full initial character, collection, and spell-effect surface, protocol and API presentation, and live-client comparison pass. |
-| M13, event-driven updates | Complete | Bounded status, weight, action-restriction, location, and spell-effect updates, daemon reduction, resynchronization, per-client SSE, and live-client acceptance pass. |
+| M12, late-attach client snapshot | Complete | Main-thread capture, the full initial character, collection, spell-effect, and observed world-object surface, protocol and API presentation, and live-client comparison pass. |
+| M13, event-driven updates | Complete | Bounded status, weight, action-restriction, location, spell-effect, and world-object updates, daemon reduction, resynchronization, per-client SSE, and live-client acceptance pass. |
 | M14, main-thread command queue | Complete | Fixed DLL and daemon queues, one command per tick, direct CLI and REST routing, explicit states, and live-client verification pass. |
 
 ## Completed recently
@@ -46,6 +46,13 @@ planned increment and will add the first low-risk typed client action.
 - [x] Kept allocation, text conversion, serialization, IPC, and logging off the
   hook path through a fixed-capacity publication handoff.
 - [x] Verified the snapshot against late-attached live clients.
+- [x] Added per-client player, monster, Mundane, and ground-item snapshots with
+  typed REST presentation and ordered object events.
+- [x] Added bounded draw, remove, movement, and direction packet handling plus
+  map-boundary object clears and per-tile item stack ordering.
+- [x] Moved snapshot and packet scratch data into guarded DLL-owned storage,
+  reserved a 64 KiB snapshot buffer, and verified repeated live snapshots after
+  reproducing and eliminating game-thread stack overflow.
 - [x] Added protocol 1.0 event polling with snapshot boundaries, absolute
   mutations, strict ordering, and resynchronization results.
 - [x] Added the qualified decoded-event observer, bounded packet parsing,

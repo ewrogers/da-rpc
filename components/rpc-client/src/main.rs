@@ -4,6 +4,7 @@ mod command_output;
 mod error;
 #[cfg(windows)]
 mod ipc;
+mod object_output;
 mod output;
 mod snapshot_output;
 

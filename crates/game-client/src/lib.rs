@@ -9,10 +9,11 @@ pub use runtime::{
 };
 pub use state::{
     ABILITY_SLOT_COUNT, EFFECT_SLOT_COUNT, EQUIPMENT_SLOT_COUNT, INVENTORY_SLOT_COUNT,
-    MemoryReader, RawAppearance, RawCharacter, RawClientText, RawEffect, RawEffects, RawEquipment,
-    RawEquipmentItem, RawInventory, RawInventoryItem, RawLifecycle, RawLocation, RawMapName,
-    RawModifiers, RawPaneProgression, RawSkill, RawSkillbook, RawSpell, RawSpellbook,
-    RawStateSnapshot, StateReadError, StateWalker,
+    MAX_OBJECT_NAME_BYTES, MAX_WORLD_OBJECTS, MemoryReader, RawAppearance, RawCharacter,
+    RawClientText, RawEffect, RawEffects, RawEquipment, RawEquipmentItem, RawInventory,
+    RawInventoryItem, RawLifecycle, RawLocation, RawMapName, RawModifiers, RawObjects,
+    RawPaneProgression, RawSkill, RawSkillbook, RawSpell, RawSpellbook, RawStateSnapshot,
+    RawWorldObject, StateReadError, StateWalker,
 };
 
 use sha2::{Digest, Sha256};

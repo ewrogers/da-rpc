@@ -208,6 +208,7 @@ struct ClientSnapshot {
     world_generation: u32;
     lifecycle: ClientLifecycle;
     character: Option<CharacterSnapshot>;
+    objects: Option<Vec<WorldObject>>;
 }
 
 struct CharacterSnapshot {
@@ -297,6 +298,44 @@ struct Effect {
     duration: EffectDuration;
 }
 
+enum Direction: u8 {
+    North = 0,
+    East  = 1,
+    South = 2,
+    West  = 3,
+}
+
+enum CreatureKind: u8 {
+    Monster = 1,
+    Npc     = 2,
+}
+
+enum WorldObject: u8 {
+    Player = 1 {
+        id: u32;
+        x: i32;
+        y: i32;
+        direction: Direction;
+        name: Option<utf8>;
+    },
+    Creature = 2 {
+        id: u32;
+        x: i32;
+        y: i32;
+        direction: Direction;
+        kind: CreatureKind;
+        sprite: Option<u16>;
+        name: Option<utf8>;
+    },
+    Item = 3 {
+        id: u32;
+        x: i32;
+        y: i32;
+        sprite: u16;
+        z_index: u16;
+    },
+}
+
 enum EffectDuration: u8 {
     Blue   = 1,
     Green  = 2,
@@ -308,12 +347,15 @@ enum EffectDuration: u8 {
 ```
 
 Optional values begin with a strict boolean byte. Strings use a `u16` UTF-8
-byte length. Present collections use a `u8` count followed by occupied entries;
-inventory permits at most 60 entries, equipment 18, each ability book 90, and
-effects 10. Collection names are limited to 127 bytes, character names to 15
-bytes, and map names to 255 bytes. Slots are one-based, unique within a slotted
-collection, and strictly range checked. Effect icons are unique and duration
-values outside 1 through 6 are rejected.
+byte length. Character collections use a `u8` count followed by occupied
+entries; inventory permits at most 60 entries, equipment 18, each ability book
+90, and effects 10. World objects use a `u16` count and permit at most 512
+entries. Collection names are limited to 127 bytes, character names to 15 bytes,
+world-object names to 63 bytes, and map names to 255 bytes. Slots are one-based,
+unique within a slotted collection, and strictly range checked. World-object IDs
+are unique. Directions accept only 0 through 3, effect icons are unique, and
+duration values outside 1 through 6 are rejected. The overall 64 KiB frame
+payload cap still applies even when every individual collection count is valid.
 
 Snapshot scalars use explicit little-endian integer widths. Collection entries
 carry their slot, appearance identifier, optional name, and their domain fields:
@@ -370,12 +412,21 @@ enum StateUpdate: u8 {
     Status(StatusUpdate) = 1,
     Location(LocationUpdate) = 2,
     Effect(EffectUpdate) = 3,
+    Object(ObjectUpdate) = 4,
 }
 
 enum EffectUpdate: u8 {
     Added(Effect) = 1,
     Removed { icon: u16 } = 2,
     Changed(Effect) = 3,
+}
+
+enum ObjectUpdate: u8 {
+    Appeared(WorldObject) = 1,
+    Disappeared(WorldObject) = 2,
+    Moved(WorldObject) = 3,
+    DirectionChanged(WorldObject) = 4,
+    Cleared = 5,
 }
 
 struct StatusUpdate {
@@ -422,6 +473,11 @@ ordinary movement and present when the position completes a map transition.
 The latter replaces the map identity, name, dimensions, and coordinates in one
 reducer operation, so consumers never observe a new map paired with the prior
 map's position.
+
+Object updates also carry absolute values. Appeared, disappeared, moved, and
+direction-changed updates include the complete object at that boundary.
+`Cleared` contains no object and resets the observed collection at a map or
+world transition.
 
 `ClientSnapshot.event_sequence` is the event boundary already represented by
 the snapshot. A controller discards queued events at or before that boundary

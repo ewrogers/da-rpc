@@ -24,6 +24,10 @@ mod snapshot;
 mod state_events;
 #[cfg(windows)]
 mod tick_hook;
+#[cfg(any(windows, test))]
+mod world;
+#[cfg(any(windows, test))]
+mod world_packet;
 
 #[cfg(windows)]
 use windows_sys::{

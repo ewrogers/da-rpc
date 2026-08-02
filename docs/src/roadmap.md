@@ -569,6 +569,9 @@ Build:
   progression, attributes, vitals, modifiers, gold, and current map state.
 - Occupied inventory, equipment, spellbook, skillbook, and active spell-effect
   slots.
+- Per-client players, monsters, Mundanes, and ground items from a bounded world
+  object walk, including positions, directions, available names and sprites,
+  and per-tile item stack order.
 - Validated roots, offsets, bounds, fixed-capacity hook buffers, and world
   generation tracking.
 - Reconnect-dialog detection with `disconnected` lifecycle precedence while
@@ -607,6 +610,8 @@ Build:
 - Commit map metadata and authoritative coordinates as one location update.
 - Track spell-effect add, remove, and relative-duration changes from decoded
   server events.
+- Track world-object draw, removal, movement, direction, view retirement, and
+  atomic map clears from decoded server events.
 
 See:
 
@@ -621,8 +626,8 @@ Done:
 - A slow event subscriber cannot block the game or another subscriber.
 - Every event retains its source client and observation time so later
   shareable map and entity updates can represent freshness explicitly.
-- Status, weight, accepted map position, and active spell effects converge with
-  a fresh snapshot.
+- Status, weight, accepted map position, active spell effects, and observed
+  world objects converge with a fresh snapshot.
 
 ## Phase 6: add control one safe action at a time
 

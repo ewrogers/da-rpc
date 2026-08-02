@@ -1,4 +1,6 @@
-use crate::{CharacterModifiers, CharacterStats, ClientSnapshot, Effect, MapLocation};
+use crate::{
+    CharacterModifiers, CharacterStats, ClientSnapshot, Effect, MapLocation, ObjectUpdate,
+};
 use std::{error::Error, fmt};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -14,6 +16,7 @@ pub enum StateUpdate {
     Status(StatusUpdate),
     Location(LocationUpdate),
     Effect(EffectUpdate),
+    Object(ObjectUpdate),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -104,12 +107,12 @@ impl ClientSnapshot {
                 actual: event.revision,
             });
         }
-        let character = self
-            .character
-            .as_mut()
-            .ok_or(ApplyEventError::CharacterUnavailable)?;
         match event.update {
             StateUpdate::Status(update) => {
+                let character = self
+                    .character
+                    .as_mut()
+                    .ok_or(ApplyEventError::CharacterUnavailable)?;
                 if let Some(core) = update.core {
                     character.progression.level = core.level;
                     character.progression.ability_level = core.ability_level;
@@ -145,6 +148,10 @@ impl ClientSnapshot {
                 }
             }
             StateUpdate::Location(update) => {
+                let character = self
+                    .character
+                    .as_mut()
+                    .ok_or(ApplyEventError::CharacterUnavailable)?;
                 if let Some(map) = update.map {
                     character.location = Some(MapLocation {
                         id: map.id,
@@ -154,6 +161,7 @@ impl ClientSnapshot {
                         width: map.width,
                         height: map.height,
                     });
+                    self.objects = Some(Vec::new());
                 } else {
                     let location = character
                         .location
@@ -164,6 +172,10 @@ impl ClientSnapshot {
                 }
             }
             StateUpdate::Effect(update) => {
+                let character = self
+                    .character
+                    .as_mut()
+                    .ok_or(ApplyEventError::CharacterUnavailable)?;
                 let effects = character
                     .effects
                     .as_mut()
@@ -195,6 +207,41 @@ impl ClientSnapshot {
                     }
                 }
             }
+            StateUpdate::Object(update) => {
+                let objects = self
+                    .objects
+                    .as_mut()
+                    .ok_or(ApplyEventError::ObjectsUnavailable)?;
+                match update {
+                    ObjectUpdate::Appeared(object) => {
+                        if let Some(current) = objects
+                            .iter_mut()
+                            .find(|current| current.id() == object.id())
+                        {
+                            *current = object;
+                        } else {
+                            objects.push(object);
+                        }
+                    }
+                    ObjectUpdate::Disappeared(object) => {
+                        let index = objects
+                            .iter()
+                            .position(|current| current.id() == object.id())
+                            .ok_or(ApplyEventError::ObjectNotFound { id: object.id() })?;
+                        objects.remove(index);
+                    }
+                    ObjectUpdate::Moved(object) | ObjectUpdate::DirectionChanged(object) => {
+                        let id = object.id();
+                        let current = objects
+                            .iter_mut()
+                            .find(|current| current.id() == id)
+                            .ok_or(ApplyEventError::ObjectNotFound { id })?;
+                        *current = object;
+                    }
+                    ObjectUpdate::Cleared => objects.clear(),
+                }
+                objects.sort_unstable_by_key(WorldObjectSortKey::of);
+            }
         }
         self.revision = event.revision;
         self.event_sequence = event.sequence;
@@ -213,6 +260,8 @@ pub enum ApplyEventError {
     EffectAlreadyExists { icon: u16 },
     EffectNotFound { icon: u16 },
     EffectCapacityExceeded,
+    ObjectsUnavailable,
+    ObjectNotFound { id: u32 },
 }
 
 impl fmt::Display for ApplyEventError {
@@ -248,6 +297,24 @@ impl fmt::Display for ApplyEventError {
             Self::EffectCapacityExceeded => {
                 formatter.write_str("spell effect capacity was exceeded")
             }
+            Self::ObjectsUnavailable => {
+                formatter.write_str("object event has no retained world object state")
+            }
+            Self::ObjectNotFound { id } => write!(formatter, "world object {id} does not exist"),
+        }
+    }
+}
+
+struct WorldObjectSortKey;
+
+impl WorldObjectSortKey {
+    fn of(object: &crate::WorldObject) -> (i32, i32, u8, u16, u32) {
+        match object {
+            crate::WorldObject::Player { id, x, y, .. } => (*y, *x, 0, 0, *id),
+            crate::WorldObject::Creature { id, x, y, .. } => (*y, *x, 1, 0, *id),
+            crate::WorldObject::Item {
+                id, x, y, z_index, ..
+            } => (*y, *x, 2, *z_index, *id),
         }
     }
 }

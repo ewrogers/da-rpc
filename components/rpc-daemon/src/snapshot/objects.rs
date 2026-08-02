@@ -3,6 +3,7 @@ use darpc_model::{
     CreatureKind as ModelCreatureKind, Direction as ModelDirection, WorldObject as ModelWorldObject,
 };
 use serde::Serialize;
+use std::str::FromStr;
 use utoipa::ToSchema;
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
@@ -12,13 +13,42 @@ pub(crate) struct WorldObjects {
 }
 
 impl WorldObjects {
-    pub(crate) fn from_model(pid: u32, snapshot: &darpc_model::ClientSnapshot) -> Self {
+    pub(crate) fn from_model(
+        pid: u32,
+        snapshot: &darpc_model::ClientSnapshot,
+        kinds: Option<&[WorldObjectKind]>,
+    ) -> Self {
         Self {
             observation: ObservationMetadata::from_model(pid, snapshot),
-            objects: snapshot
-                .objects
-                .as_ref()
-                .map(|objects| objects.iter().map(WorldObject::from).collect()),
+            objects: snapshot.objects.as_ref().map(|objects| {
+                objects
+                    .iter()
+                    .map(WorldObject::from)
+                    .filter(|object| kinds.is_none_or(|kinds| kinds.contains(&object.kind())))
+                    .collect()
+            }),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum WorldObjectKind {
+    Player,
+    Monster,
+    Npc,
+    Item,
+}
+
+impl FromStr for WorldObjectKind {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "player" => Ok(Self::Player),
+            "monster" => Ok(Self::Monster),
+            "npc" => Ok(Self::Npc),
+            "item" => Ok(Self::Item),
+            _ => Err(()),
         }
     }
 }
@@ -56,6 +86,17 @@ pub(crate) enum WorldObject {
         /// Per-tile stack order. Zero is the bottom item.
         z_index: u16,
     },
+}
+
+impl WorldObject {
+    fn kind(&self) -> WorldObjectKind {
+        match self {
+            Self::Player { .. } => WorldObjectKind::Player,
+            Self::Monster { .. } => WorldObjectKind::Monster,
+            Self::Npc { .. } => WorldObjectKind::Npc,
+            Self::Item { .. } => WorldObjectKind::Item,
+        }
+    }
 }
 
 impl From<&ModelWorldObject> for WorldObject {

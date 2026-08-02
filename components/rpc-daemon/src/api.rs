@@ -19,7 +19,7 @@ use crate::{
         ClientLifecycle as SnapshotClientLifecycle, CooldownStatus, Direction, Effect,
         EffectDuration, Effects, Element, Equipment, EquipmentItem, EquipmentSlot, GameStatus,
         Inventory, InventoryItem, MapLocation, ObservationMetadata, Skill, Skillbook, Spell,
-        SpellTargetType, Spellbook, WorldObject, WorldObjects,
+        SpellTargetType, Spellbook, WorldObject, WorldObjectKind, WorldObjects,
     },
     stream::{self, ClientEvent, PublishedEvent},
 };
@@ -466,21 +466,68 @@ async fn client_effects(
 #[utoipa::path(
     get,
     path = "/clients/{client}/objects",
-    params(("client" = String, Path, description = "Process ID or current in-game character name")),
+    params(
+        ("client" = String, Path, description = "Process ID or current in-game character name"),
+        WorldObjectQuery
+    ),
     responses(
         (status = 200, description = "The latest world objects observed by this client", body = WorldObjects),
-        (status = 400, description = "The process identifier was invalid", body = ErrorState),
+        (status = 400, description = "The process identifier or object filter was invalid", body = ErrorState),
         (status = 404, description = "The process is not a discovered or configured client", body = ErrorState),
         (status = 503, description = "No client observation is currently available", body = ErrorState)
     )
 )]
 async fn client_objects(
     Path(identifier): Path<String>,
+    query: Result<Query<WorldObjectQuery>, QueryRejection>,
     State(state): State<ApiState>,
 ) -> Result<Json<WorldObjects>, ApiError> {
+    let Query(query) = query
+        .map_err(|rejection| invalid_object_query(format!("invalid object query: {rejection}")))?;
+    let kinds = query.into_kinds()?;
     let registry = state.snapshot();
     let (pid, snapshot) = resolve_game_snapshot(&registry, &identifier)?;
-    Ok(Json(WorldObjects::from_model(pid, snapshot)))
+    Ok(Json(WorldObjects::from_model(
+        pid,
+        snapshot,
+        kinds.as_deref(),
+    )))
+}
+
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+struct WorldObjectQuery {
+    /// Comma-separated object types: `npc`, `player`, `monster`, and `item`.
+    #[param(example = "npc,player")]
+    types: Option<String>,
+}
+
+impl WorldObjectQuery {
+    fn into_kinds(self) -> Result<Option<Vec<WorldObjectKind>>, ApiError> {
+        self.types
+            .map(|value| {
+                value
+                    .split(',')
+                    .map(|kind| {
+                        kind.parse::<WorldObjectKind>().map_err(|()| {
+                            invalid_object_query(format!(
+                                "unknown object type `{kind}`; expected npc, player, monster, or item"
+                            ))
+                        })
+                    })
+                    .collect()
+            })
+            .transpose()
+    }
+}
+
+fn invalid_object_query(message: impl Into<String>) -> ApiError {
+    ApiError::new(
+        StatusCode::BAD_REQUEST,
+        "invalid_object_query",
+        message,
+        None,
+    )
 }
 
 #[derive(Debug, Default, Deserialize, IntoParams)]
@@ -1375,12 +1422,12 @@ mod tests {
         CharacterAppearance, CharacterClass, CharacterProgression,
         CharacterSnapshot as ModelCharacterSnapshot, CharacterStats, CharacterVitals,
         ClientLifecycle, ClientMessage as ModelClientMessage,
-        ClientSnapshot as ModelClientSnapshot, CooldownStatus as ModelCooldownStatus,
-        Effect as ModelEffect, EffectDuration as ModelEffectDuration,
+        ClientSnapshot as ModelClientSnapshot, CooldownStatus as ModelCooldownStatus, CreatureKind,
+        Direction as ModelDirection, Effect as ModelEffect, EffectDuration as ModelEffectDuration,
         EquipmentItem as ModelEquipmentItem, EquipmentSlot as ModelEquipmentSlot, Gender,
         InventoryItem as ModelInventoryItem, MapLocation, MessageKind as ModelMessageKind,
         Skill as ModelSkill, Spell as ModelSpell, SpellTargetType as ModelSpellTargetType,
-        StateEvent, StateUpdate,
+        StateEvent, StateUpdate, WorldObject as ModelWorldObject,
     };
     use darpc_protocol::{
         Architecture, CommandKind, CommandOperation, CommandResult, CommandState, CommandStatus,
@@ -1512,7 +1559,40 @@ mod tests {
                     duration: ModelEffectDuration::White,
                 }]),
             }),
-            objects: None,
+            objects: Some(vec![
+                ModelWorldObject::Player {
+                    id: 1,
+                    name: Some("Eidolon".into()),
+                    x: 10,
+                    y: 20,
+                    direction: ModelDirection::North,
+                },
+                ModelWorldObject::Creature {
+                    id: 2,
+                    kind: CreatureKind::Monster,
+                    sprite: Some(100),
+                    name: None,
+                    x: 11,
+                    y: 20,
+                    direction: ModelDirection::East,
+                },
+                ModelWorldObject::Creature {
+                    id: 3,
+                    kind: CreatureKind::Npc,
+                    sprite: Some(200),
+                    name: Some("Innkeeper".into()),
+                    x: 12,
+                    y: 20,
+                    direction: ModelDirection::South,
+                },
+                ModelWorldObject::Item {
+                    id: 4,
+                    sprite: 300,
+                    x: 13,
+                    y: 20,
+                    z_index: 0,
+                },
+            ]),
         }
     }
 
@@ -1882,6 +1962,28 @@ mod tests {
     }
 
     #[test]
+    fn filters_world_objects_by_type() {
+        let all = json("/clients/silo/objects");
+        assert_eq!(all["objects"].as_array().unwrap().len(), 4);
+
+        let filtered = json("/clients/silo/objects?types=npc,player");
+        let kinds = filtered["objects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|object| object["kind"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(kinds, ["player", "npc"]);
+
+        let invalid = response("/clients/silo/objects?types=dragon");
+        assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(
+            response_json(invalid)["error"]["code"],
+            "invalid_object_query"
+        );
+    }
+
+    #[test]
     fn disconnected_snapshots_fall_back_to_the_process_id() {
         let mut registry = Registry::new();
         let hello = hello();
@@ -2004,6 +2106,14 @@ mod tests {
         ] {
             assert!(openapi["paths"][path].is_object(), "OpenAPI omitted {path}");
         }
+        let object_parameters = openapi["paths"]["/clients/{client}/objects"]["get"]["parameters"]
+            .as_array()
+            .unwrap();
+        assert!(object_parameters.iter().any(|parameter| {
+            parameter["name"] == "types"
+                && parameter["in"] == "query"
+                && parameter["required"] != true
+        }));
         assert!(openapi["paths"]["/clients/{client}/snapshot"].is_null());
         assert!(openapi["paths"]["/clients/launch"].is_object());
         assert!(openapi["paths"]["/clients/{client}/load"].is_object());

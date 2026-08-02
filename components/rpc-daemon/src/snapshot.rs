@@ -377,4 +377,4 @@ pub(crate) use collections::{
     CooldownStatus, Effect, EffectDuration, Effects, EquipmentItem, EquipmentSlot, InventoryItem,
     Skill, Spell, SpellTargetType,
 };
-pub(crate) use objects::{Direction, WorldObject, WorldObjects};
+pub(crate) use objects::{Direction, WorldObject, WorldObjectKind, WorldObjects};

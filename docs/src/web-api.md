@@ -122,7 +122,10 @@ already identified by the request path or event subscription.
 
 `WorldObjects.objects` is `null` when the client lifecycle cannot expose a
 world. Otherwise it is an array tagged by `kind`: `player`, `monster`, `npc`, or
-`item`. Players and creatures include position and direction. Names and a
+`item`. The optional `types` query parameter filters this array using a
+comma-separated list, such as `/clients/Eidolon/objects?types=npc,monster`.
+Without it, the route returns every observed object type. Players and creatures
+include position and direction. Names and a
 creature's numeric sprite remain optional when the client does not retain that
 information. Items include position, sprite, and a per-tile `z_index`, where
 zero is the bottom item. This resource is one client's observation rather than

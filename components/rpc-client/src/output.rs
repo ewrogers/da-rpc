@@ -1,6 +1,9 @@
-use crate::{error::ClientError, snapshot_output};
+use crate::{command_output, error::ClientError, snapshot_output};
 use darpc_model::ClientSnapshot;
-use darpc_protocol::{Architecture, Hello, protocol_version_major, protocol_version_minor};
+use darpc_protocol::{
+    Architecture, CommandResult as ProtocolCommandResult, Hello, protocol_version_major,
+    protocol_version_minor,
+};
 use std::fmt::Write as _;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -48,6 +51,13 @@ pub(crate) enum CommandResult {
         pid: u32,
         request_id: u32,
         text: String,
+        round_trip_ms: u32,
+    },
+    Command {
+        pid: u32,
+        action: &'static str,
+        request_id: u32,
+        result: ProtocolCommandResult,
         round_trip_ms: u32,
     },
 }
@@ -147,6 +157,13 @@ impl CommandResult {
                 text.len(),
                 json_string(text)
             ),
+            Self::Command {
+                pid,
+                action,
+                request_id,
+                result,
+                round_trip_ms,
+            } => command_output::render_human(action, *pid, *request_id, *round_trip_ms, *result),
         }
     }
 
@@ -250,6 +267,13 @@ impl CommandResult {
                 round_trip_ms,
                 json_string(text),
             ),
+            Self::Command {
+                pid,
+                action,
+                request_id,
+                result,
+                round_trip_ms,
+            } => command_output::render_json(action, *pid, *request_id, *round_trip_ms, *result),
         }
     }
 }

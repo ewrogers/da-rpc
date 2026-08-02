@@ -13,7 +13,7 @@ use std::{
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 
-use crate::snapshot;
+use crate::{commands, snapshot};
 
 pub(crate) const NAME: &str = "event_dispatcher_tick";
 
@@ -61,6 +61,7 @@ impl TickHook {
         let relocated_bytes = u8::try_from(prepared.relocated_len())
             .map_err(|_| io::Error::other("relocated tick prologue exceeds u8"))?;
 
+        commands::reset();
         snapshot::reset();
         TICK_COUNT.store(0, Ordering::Release);
         TICK_RELOCATED_BYTES.store(u32::from(relocated_bytes), Ordering::Release);
@@ -179,6 +180,7 @@ unsafe extern "thiscall" fn event_dispatcher_tick_detour(_dispatcher: *mut core:
 extern "C" fn observe_tick() {
     let _ = panic::catch_unwind(|| {
         TICK_COUNT.fetch_add(1, Ordering::Relaxed);
+        commands::observe_tick();
         snapshot::observe_tick();
     });
 }

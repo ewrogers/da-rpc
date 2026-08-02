@@ -1,5 +1,6 @@
 //! daRPC command-line client.
 
+mod command_output;
 mod error;
 #[cfg(windows)]
 mod ipc;
@@ -17,7 +18,10 @@ usage:
     darpc [--output <table|json>] ping --pid <pid>
     darpc [--output <table|json>] tick-health --pid <pid>
     darpc [--output <table|json>] snapshot --pid <pid>
-    darpc [--output <table|json>] echo --pid <pid> <text>";
+    darpc [--output <table|json>] echo --pid <pid> <text>
+    darpc [--output <table|json>] diagnostic --pid <pid>
+    darpc [--output <table|json>] command-status --pid <pid> <command-id>
+    darpc [--output <table|json>] command-cancel --pid <pid> <command-id>";
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 struct Command {
@@ -32,6 +36,9 @@ enum Operation {
     TickHealth,
     Snapshot,
     Echo(String),
+    Diagnostic,
+    CommandStatus(u32),
+    CommandCancel(u32),
 }
 
 impl Command {
@@ -42,6 +49,9 @@ impl Command {
             Operation::TickHealth => "tick-health",
             Operation::Snapshot => "snapshot",
             Operation::Echo(_) => "echo",
+            Operation::Diagnostic => "diagnostic",
+            Operation::CommandStatus(_) => "command-status",
+            Operation::CommandCancel(_) => "command-cancel",
         }
     }
 }
@@ -128,6 +138,9 @@ fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
         "ping" => Operation::Ping,
         "tick-health" => Operation::TickHealth,
         "snapshot" => Operation::Snapshot,
+        "diagnostic" => Operation::Diagnostic,
+        "command-status" => Operation::CommandStatus(parse_command_id(arguments.next())?),
+        "command-cancel" => Operation::CommandCancel(parse_command_id(arguments.next())?),
         "echo" => {
             let text = arguments
                 .next()
@@ -149,6 +162,20 @@ fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
     }
 
     Ok(Command { pid, operation })
+}
+
+fn parse_command_id(argument: Option<OsString>) -> Result<u32> {
+    let argument = argument.ok_or_else(|| invalid_arguments("command ID is required"))?;
+    let argument = argument
+        .to_str()
+        .ok_or_else(|| invalid_arguments("command ID must be valid Unicode"))?;
+    let command_id = argument
+        .parse()
+        .map_err(|_| invalid_arguments("command ID must be an unsigned 32-bit integer"))?;
+    if command_id == 0 {
+        return Err(invalid_arguments("command ID must be greater than zero"));
+    }
+    Ok(command_id)
 }
 
 fn parse_pid(argument: Option<OsString>) -> Result<u32> {
@@ -226,6 +253,26 @@ mod tests {
                 Command {
                     pid: 9,
                     operation: Operation::TickHealth,
+                }
+            )
+        );
+        assert_eq!(
+            parse(arguments(&["diagnostic", "--pid", "9"])).unwrap(),
+            (
+                OutputFormat::Table,
+                Command {
+                    pid: 9,
+                    operation: Operation::Diagnostic,
+                }
+            )
+        );
+        assert_eq!(
+            parse(arguments(&["command-status", "--pid", "9", "17"])).unwrap(),
+            (
+                OutputFormat::Table,
+                Command {
+                    pid: 9,
+                    operation: Operation::CommandStatus(17),
                 }
             )
         );

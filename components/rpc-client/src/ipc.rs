@@ -4,7 +4,8 @@ use crate::{
     output::CommandResult,
 };
 use darpc_protocol::{
-    EchoRequest, Message, Ping, SnapshotRequest, SnapshotResult, SnapshotUnavailableReason,
+    CommandKind, CommandOperation, CommandRequest, DEFAULT_COMMAND_TIMEOUT_MS, EchoRequest,
+    MAX_COMMAND_WAIT_MS, Message, Ping, SnapshotRequest, SnapshotResult, SnapshotUnavailableReason,
     TickHealthRequest, TickHealthResponse, elapsed_tick_ms,
 };
 use darpc_win32::{
@@ -178,6 +179,74 @@ pub(crate) fn execute(pid: u32, operation: Operation) -> Result<CommandResult> {
                 )),
             }
         }
+        Operation::Diagnostic => request_command(
+            &mut session,
+            pid,
+            "diagnostic",
+            CommandOperation::Submit {
+                kind: CommandKind::Diagnostic,
+                timeout_ms: DEFAULT_COMMAND_TIMEOUT_MS,
+                wait_ms: MAX_COMMAND_WAIT_MS,
+            },
+        ),
+        Operation::CommandStatus(command_id) => request_command(
+            &mut session,
+            pid,
+            "command-status",
+            CommandOperation::Query {
+                command_id,
+                wait_ms: 0,
+            },
+        ),
+        Operation::CommandCancel(command_id) => request_command(
+            &mut session,
+            pid,
+            "command-cancel",
+            CommandOperation::Cancel { command_id },
+        ),
+    }
+}
+
+fn request_command(
+    session: &mut ControllerSession,
+    pid: u32,
+    action: &'static str,
+    operation: CommandOperation,
+) -> Result<CommandResult> {
+    let request = session
+        .send(Message::CommandRequest(CommandRequest {
+            request_id: REQUEST_ID,
+            operation,
+        }))
+        .map_err(|error| controller_error(pid, error))?;
+    let response = session
+        .receive()
+        .map_err(|error| controller_error(pid, error))?;
+    let received_tick_ms = sender_tick_ms();
+    match response.message {
+        Message::CommandResponse(message) if message.request_id == REQUEST_ID => {
+            Ok(CommandResult::Command {
+                pid,
+                action,
+                request_id: REQUEST_ID,
+                result: message.result,
+                round_trip_ms: elapsed_tick_ms(request.sender_tick_ms, received_tick_ms),
+            })
+        }
+        Message::CommandResponse(message) => Err(protocol_error(
+            pid,
+            format!(
+                "CommandResponse request ID {} does not match {REQUEST_ID}",
+                message.request_id
+            ),
+        )),
+        message => Err(protocol_error(
+            pid,
+            format!(
+                "expected CommandResponse, received {:?}",
+                message.message_type()
+            ),
+        )),
     }
 }
 

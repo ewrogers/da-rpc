@@ -1,4 +1,5 @@
 use crate::{
+    command_router::{CommandCall, ROUTER_CAPACITY},
     event::DaemonEvent,
     management::{
         LaunchOptions as ManagedLaunchOptions, LifecycleControl, LifecycleOperation,
@@ -32,10 +33,13 @@ use serde::{Deserialize, Serialize};
 use std::{
     io,
     net::{Ipv4Addr, SocketAddrV4, TcpListener},
-    sync::{Arc, RwLock, mpsc::Sender},
+    sync::{
+        Arc, RwLock,
+        mpsc::{self, Sender, SyncSender, TrySendError},
+    },
     thread::{self, JoinHandle},
 };
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, oneshot};
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -49,6 +53,7 @@ pub(crate) struct ApiState {
     snapshot: Arc<RwLock<Arc<RegistrySnapshot>>>,
     lifecycle: Arc<dyn LifecycleControl>,
     events: Sender<DaemonEvent>,
+    commands: SyncSender<CommandCall>,
     published_events: broadcast::Sender<PublishedEvent>,
 }
 
@@ -60,12 +65,21 @@ impl ApiState {
         events: Sender<DaemonEvent>,
     ) -> Self {
         let (published_events, _) = broadcast::channel(stream_api::EVENT_CHANNEL_CAPACITY);
+        let (commands, command_receiver) = mpsc::sync_channel(ROUTER_CAPACITY);
+        drop(command_receiver);
         Self {
             snapshot: Arc::new(RwLock::new(Arc::new(snapshot))),
             lifecycle,
             events,
+            commands,
             published_events,
         }
+    }
+
+    #[must_use]
+    pub(crate) fn with_command_sender(mut self, commands: SyncSender<CommandCall>) -> Self {
+        self.commands = commands;
+        self
     }
 
     pub(crate) fn publish(&self, snapshot: RegistrySnapshot) {
@@ -116,7 +130,7 @@ impl ApiState {
         self.published_events.subscribe()
     }
 
-    fn snapshot(&self) -> Arc<RegistrySnapshot> {
+    pub(crate) fn snapshot(&self) -> Arc<RegistrySnapshot> {
         self.snapshot
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -132,6 +146,42 @@ impl ApiState {
                 None,
             )
         })
+    }
+
+    pub(crate) fn route_command(
+        &self,
+        pid: u32,
+        identity: RegistryClientIdentity,
+        operation: darpc_protocol::CommandOperation,
+    ) -> Result<oneshot::Receiver<crate::command_router::CommandReply>, ApiError> {
+        let (reply, receiver) = oneshot::channel();
+        let call = CommandCall {
+            pid,
+            identity,
+            operation,
+            reply,
+        };
+        match self.commands.try_send(call) {
+            Ok(()) => {}
+            Err(TrySendError::Full(_)) => {
+                return Err(ApiError::new(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "command_router_full",
+                    "the bounded daemon command router is full",
+                    Some(pid),
+                ));
+            }
+            Err(TrySendError::Disconnected(_)) => {
+                return Err(ApiError::new(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    "daemon_unavailable",
+                    "daemon command routing is unavailable",
+                    Some(pid),
+                ));
+            }
+        }
+        self.emit(DaemonEvent::CommandsReady)?;
+        Ok(receiver)
     }
 }
 
@@ -171,6 +221,14 @@ fn router(state: ApiState) -> Router {
         .route("/clients/{client}/spellbook", get(client_spellbook))
         .route("/clients/{client}/skillbook", get(client_skillbook))
         .route("/clients/{client}/events", get(client_events))
+        .route(
+            "/clients/{client}/commands/diagnostic",
+            post(crate::command_api::diagnostic),
+        )
+        .route(
+            "/clients/{client}/commands/{command_id}",
+            get(crate::command_api::status).delete(crate::command_api::cancel),
+        )
         .route("/clients/launch", post(launch))
         .route("/clients/{client}/load", post(load))
         .route("/clients/{client}/unload", post(unload))
@@ -202,7 +260,10 @@ async fn swagger_theme() -> impl IntoResponse {
 }
 
 async fn reject_request_body(request: Request<Body>, next: Next) -> Response {
-    if request.method() == Method::POST && request.uri().path() == "/clients/launch" {
+    if request.method() == Method::POST
+        && (request.uri().path() == "/clients/launch"
+            || request.uri().path().ends_with("/commands/diagnostic"))
+    {
         return next.run(request).await;
     }
     if request.headers().contains_key(header::TRANSFER_ENCODING) {
@@ -520,7 +581,7 @@ async fn launch(
     Ok((StatusCode::CREATED, Json(LifecycleResult::from(outcome))))
 }
 
-fn resolve_client<'a>(
+pub(crate) fn resolve_client<'a>(
     registry: &'a RegistrySnapshot,
     identifier: &str,
 ) -> Result<&'a RegistryClientSnapshot, ApiError> {
@@ -660,7 +721,10 @@ fn operation_in_progress(pid: u32) -> ApiError {
         client_events,
         load,
         unload,
-        launch
+        launch,
+        crate::command_api::diagnostic,
+        crate::command_api::status,
+        crate::command_api::cancel
     ),
     components(schemas(
         HealthState,
@@ -700,7 +764,12 @@ fn operation_in_progress(pid: u32) -> ApiError {
         LifecycleAction,
         ErrorState,
         ErrorDetail,
-        ClientEvent
+        ClientEvent,
+        crate::command_api::DiagnosticOptions,
+        crate::command_api::CommandStatus,
+        crate::command_api::CommandKind,
+        crate::command_api::CommandState,
+        crate::command_api::CommandFailure
     ))
 )]
 struct ApiDoc;
@@ -1035,13 +1104,13 @@ impl From<LifecycleOperation> for LifecycleAction {
 }
 
 #[derive(Debug)]
-struct ApiError {
+pub(crate) struct ApiError {
     status: StatusCode,
     body: ErrorState,
 }
 
 impl ApiError {
-    fn new(
+    pub(crate) fn new(
         status: StatusCode,
         code: impl Into<String>,
         message: impl Into<String>,
@@ -1086,12 +1155,12 @@ impl IntoResponse for ApiError {
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
-struct ErrorState {
+pub(crate) struct ErrorState {
     error: ErrorDetail,
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
-struct ErrorDetail {
+pub(crate) struct ErrorDetail {
     code: String,
     message: String,
     pid: Option<u32>,
@@ -1101,6 +1170,7 @@ struct ErrorDetail {
 mod tests {
     use super::{ApiState, ClientList, LaunchOptions, resolve_client, router};
     use crate::{
+        command_router::{CommandReply, ROUTER_CAPACITY},
         event::DaemonEvent,
         management::{
             LaunchOptions as ManagedLaunchOptions, LifecycleControl, LifecycleOperation,
@@ -1121,7 +1191,10 @@ mod tests {
         MapLocation, Skill as ModelSkill, Spell as ModelSpell,
         SpellTargetType as ModelSpellTargetType,
     };
-    use darpc_protocol::{Architecture, ComponentVersion, Hello, SUPPORTED_VERSIONS};
+    use darpc_protocol::{
+        Architecture, CommandKind, CommandOperation, CommandResult, CommandState, CommandStatus,
+        ComponentVersion, Hello, SUPPORTED_VERSIONS,
+    };
     use serde_json::Value;
     use std::{
         net::{Ipv4Addr, SocketAddrV4, TcpListener},
@@ -1353,6 +1426,7 @@ mod tests {
 
     fn post_json(state: ApiState, path: &str, body: &str) -> axum::response::Response {
         tokio::runtime::Builder::new_current_thread()
+            .enable_time()
             .build()
             .unwrap()
             .block_on(async {
@@ -1366,6 +1440,64 @@ mod tests {
                     .await
                     .unwrap()
             })
+    }
+
+    #[test]
+    fn routes_a_diagnostic_through_the_bounded_command_path() {
+        let mut registry = Registry::new();
+        let hello = hello();
+        registry.apply(&ConnectionEvent::Connected {
+            pid: 42,
+            hello,
+            selected_version: SUPPORTED_VERSIONS.max,
+        });
+        let (events, event_receiver) = mpsc::channel();
+        let (commands, command_receiver) = mpsc::sync_channel(ROUTER_CAPACITY);
+        let state = ApiState::new(registry.snapshot(), Arc::new(FakeLifecycle), events)
+            .with_command_sender(commands);
+        let worker = std::thread::spawn(move || {
+            assert!(matches!(
+                event_receiver.recv().unwrap(),
+                DaemonEvent::CommandsReady
+            ));
+            let call = command_receiver.recv().unwrap();
+            assert_eq!(call.pid, 42);
+            assert_eq!(call.identity, RegistryClientIdentity::from_hello(hello));
+            assert!(matches!(
+                call.operation,
+                CommandOperation::Submit {
+                    kind: CommandKind::Diagnostic,
+                    timeout_ms: 1_000,
+                    wait_ms: 1_000,
+                }
+            ));
+            call.reply
+                .send(CommandReply::Result(CommandResult::Status(CommandStatus {
+                    command_id: 9,
+                    kind: CommandKind::Diagnostic,
+                    state: CommandState::Executed,
+                    enqueued_tick_ms: 100,
+                    deadline_tick_ms: 1_100,
+                    started_tick_ms: Some(104),
+                    completed_tick_ms: Some(104),
+                    execution_us: Some(2),
+                    main_thread_id: Some(77),
+                    failure: None,
+                })))
+                .unwrap();
+        });
+
+        let response = post_json(state, "/clients/42/commands/diagnostic", "{}");
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response_json(response);
+        assert_eq!(body["pid"], 42);
+        assert_eq!(body["instance_id"], "abababababababababababababababab");
+        assert_eq!(body["command_id"], 9);
+        assert_eq!(body["state"], "executed");
+        assert_eq!(body["queue_delay_ms"], 4);
+        assert_eq!(body["execution_us"], 2);
+        assert_eq!(body["main_thread_id"], 77);
+        worker.join().unwrap();
     }
 
     fn response_json(response: axum::response::Response) -> Value {
@@ -1581,6 +1713,8 @@ mod tests {
             "/clients/{client}/spellbook",
             "/clients/{client}/skillbook",
             "/clients/{client}/events",
+            "/clients/{client}/commands/diagnostic",
+            "/clients/{client}/commands/{command_id}",
         ] {
             assert!(openapi["paths"][path].is_object(), "OpenAPI omitted {path}");
         }
@@ -1628,6 +1762,11 @@ mod tests {
             "ErrorState",
             "ErrorDetail",
             "ClientEvent",
+            "DiagnosticOptions",
+            "CommandStatus",
+            "CommandKind",
+            "CommandState",
+            "CommandFailure",
         ] {
             assert!(schemas.contains_key(name), "OpenAPI omitted {name}");
         }

@@ -1,4 +1,5 @@
 use crate::{
+    command_router::{CommandCall, CommandReply, WORKER_CAPACITY},
     event::DaemonEvent,
     registry::{ClientIdentity, ConnectionEvent},
 };
@@ -6,8 +7,8 @@ use crate::{
 use darpc_game_client::DEBUG_UNSUPPORTED_CLIENT_BYPASS_ENVIRONMENT_VARIABLE;
 use darpc_game_client::{CLIENT_VERSION_CODE, EXECUTABLE_SHA256};
 use darpc_protocol::{
-    Architecture, EventPollRequest, EventPollResult, Hello, MAX_EVENTS_PER_POLL, Message, Ping,
-    Pong, SnapshotRequest, SnapshotResult, SnapshotUnavailableReason,
+    Architecture, CommandRequest, EventPollRequest, EventPollResult, Hello, MAX_EVENTS_PER_POLL,
+    Message, Ping, Pong, SnapshotRequest, SnapshotResult, SnapshotUnavailableReason,
 };
 use darpc_win32::controller::{ControllerError, ControllerSession};
 #[cfg(debug_assertions)]
@@ -17,7 +18,7 @@ use std::{
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
-        mpsc::Sender,
+        mpsc::{self, Receiver, Sender, SyncSender, TryRecvError, TrySendError},
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
@@ -33,6 +34,7 @@ const SNAPSHOT_RETRY_INTERVAL: Duration = Duration::from_millis(500);
 
 pub(crate) struct Worker {
     stop: Arc<AtomicBool>,
+    commands: SyncSender<CommandCall>,
     _handle: JoinHandle<()>,
 }
 
@@ -40,27 +42,42 @@ impl Worker {
     pub(crate) fn stop(&self) {
         self.stop.store(true, Ordering::Release);
     }
+
+    pub(crate) fn route_command(&self, call: CommandCall) {
+        match self.commands.try_send(call) {
+            Ok(()) => {}
+            Err(TrySendError::Full(call)) => {
+                let _ = call.reply.send(CommandReply::Busy);
+            }
+            Err(TrySendError::Disconnected(call)) => {
+                let _ = call.reply.send(CommandReply::Unavailable);
+            }
+        }
+    }
 }
 
 pub(crate) fn spawn(pid: u32, events: Sender<DaemonEvent>) -> io::Result<Worker> {
     let stop = Arc::new(AtomicBool::new(false));
+    let (commands, command_receiver) = mpsc::sync_channel(WORKER_CAPACITY);
     let worker_stop = Arc::clone(&stop);
     let handle = thread::Builder::new()
         .name(format!("darpcd-client-{pid}"))
-        .spawn(move || run(pid, events, &worker_stop))?;
+        .spawn(move || run(pid, events, &command_receiver, &worker_stop))?;
     Ok(Worker {
         stop,
+        commands,
         _handle: handle,
     })
 }
 
-fn run(pid: u32, events: Sender<DaemonEvent>, stop: &AtomicBool) {
+fn run(pid: u32, events: Sender<DaemonEvent>, commands: &Receiver<CommandCall>, stop: &AtomicBool) {
     if !emit(&events, ConnectionEvent::Connecting { pid }) {
         return;
     }
     let discovered_at = Instant::now();
 
     while !stop.load(Ordering::Acquire) {
+        reject_pending_commands(commands);
         match ControllerSession::connect(pid) {
             Ok(mut session) => {
                 let hello = session.hello();
@@ -92,7 +109,7 @@ fn run(pid: u32, events: Sender<DaemonEvent>, stop: &AtomicBool) {
                     return;
                 }
 
-                if let Err(error) = monitor(&mut session, stop, &events, pid, identity)
+                if let Err(error) = monitor(&mut session, commands, stop, &events, pid, identity)
                     && !stop.load(Ordering::Acquire)
                     && !emit(
                         &events,
@@ -117,9 +134,11 @@ fn run(pid: u32, events: Sender<DaemonEvent>, stop: &AtomicBool) {
         }
 
         if wait_for_stop(stop, RETRY_INTERVAL) {
+            reject_pending_commands(commands);
             return;
         }
     }
+    reject_pending_commands(commands);
 }
 
 fn validate_identity(hello: Hello) -> Result<(), String> {
@@ -153,6 +172,7 @@ fn validate_identity(hello: Hello) -> Result<(), String> {
 
 fn monitor(
     session: &mut ControllerSession,
+    commands: &Receiver<CommandCall>,
     stop: &AtomicBool,
     events: &Sender<DaemonEvent>,
     pid: u32,
@@ -162,6 +182,25 @@ fn monitor(
     let mut boundary = None;
     let mut last_health = Instant::now();
     while !stop.load(Ordering::Acquire) {
+        if let Some(call) = next_command(commands) {
+            if call.identity != identity {
+                let _ = call.reply.send(CommandReply::Unavailable);
+            } else {
+                let result = request_command(session, request_id, call.operation);
+                request_id = next_nonzero(request_id);
+                match result {
+                    Ok(result) => {
+                        let _ = call.reply.send(CommandReply::Result(result));
+                    }
+                    Err(error) => {
+                        let _ = call.reply.send(CommandReply::Unavailable);
+                        reject_pending_commands(commands);
+                        return Err(error);
+                    }
+                }
+            }
+        }
+
         if boundary.is_none() {
             match request_snapshot(session, request_id)? {
                 SnapshotOutcome::Ready(snapshot) => {
@@ -224,7 +263,46 @@ fn monitor(
             last_health = Instant::now();
         }
     }
+    reject_pending_commands(commands);
     Ok(())
+}
+
+fn request_command(
+    session: &mut ControllerSession,
+    request_id: u32,
+    operation: darpc_protocol::CommandOperation,
+) -> Result<darpc_protocol::CommandResult, ControllerError> {
+    session.send(Message::CommandRequest(CommandRequest {
+        request_id,
+        operation,
+    }))?;
+    let response = session.receive()?;
+    match response.message {
+        Message::CommandResponse(response) if response.request_id == request_id => {
+            Ok(response.result)
+        }
+        Message::CommandResponse(response) => Err(ControllerError::Protocol(format!(
+            "CommandResponse request ID {} does not match {request_id}",
+            response.request_id
+        ))),
+        message => Err(ControllerError::Protocol(format!(
+            "expected CommandResponse, received {:?}",
+            message.message_type()
+        ))),
+    }
+}
+
+fn next_command(commands: &Receiver<CommandCall>) -> Option<CommandCall> {
+    match commands.try_recv() {
+        Ok(call) => Some(call),
+        Err(TryRecvError::Empty | TryRecvError::Disconnected) => None,
+    }
+}
+
+fn reject_pending_commands(commands: &Receiver<CommandCall>) {
+    while let Ok(call) = commands.try_recv() {
+        let _ = call.reply.send(CommandReply::Unavailable);
+    }
 }
 
 fn request_snapshot(

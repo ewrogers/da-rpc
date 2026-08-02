@@ -4,6 +4,10 @@
 mod api;
 #[cfg(any(windows, test))]
 mod auto_load;
+#[cfg(any(windows, test))]
+mod command_api;
+#[cfg(any(windows, test))]
+mod command_router;
 #[cfg(windows)]
 mod connection;
 #[cfg(windows)]
@@ -143,6 +147,7 @@ fn parse_path_option(
 fn run(options: Options) -> Result<(), String> {
     use api::ApiState;
     use auto_load::{Action as AutoLoadAction, Policy as AutoLoadPolicy};
+    use command_router::{CommandReply, ROUTER_CAPACITY};
     use connection::Worker;
     use event::DaemonEvent;
     use management::{LifecycleControl, LoaderControl};
@@ -178,13 +183,15 @@ fn run(options: Options) -> Result<(), String> {
     desired_pids.extend(discovered_pids);
 
     let (sender, receiver) = mpsc::channel();
+    let (command_sender, command_receiver) = mpsc::sync_channel(ROUTER_CAPACITY);
     let mut registry = Registry::new();
     let mut workers = BTreeMap::<u32, Worker>::new();
     for pid in desired_pids {
         track_client(pid, &sender, &mut workers, &mut registry);
     }
 
-    let api_state = ApiState::new(registry.snapshot(), Arc::clone(&lifecycle), sender.clone());
+    let api_state = ApiState::new(registry.snapshot(), Arc::clone(&lifecycle), sender.clone())
+        .with_command_sender(command_sender);
     let _api_worker = api::start(options.port, api_state.clone())
         .map_err(|error| format!("failed to listen on 127.0.0.1:{}: {error}", options.port))?;
     println!("HTTP API listening on http://127.0.0.1:{}", options.port);
@@ -308,6 +315,15 @@ fn run(options: Options) -> Result<(), String> {
                 launch_grace.insert(pid, Instant::now() + LAUNCH_DISCOVERY_GRACE);
                 track_client(pid, &sender, &mut workers, &mut registry);
                 api_state.publish(registry.snapshot());
+            }
+            Ok(DaemonEvent::CommandsReady) => {
+                if let Ok(call) = command_receiver.try_recv() {
+                    if let Some(worker) = workers.get(&call.pid) {
+                        worker.route_command(call);
+                    } else {
+                        let _ = call.reply.send(CommandReply::Unavailable);
+                    }
+                }
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => {

@@ -10,6 +10,7 @@ use std::{
 };
 
 use crate::{
+    commands,
     event_hook::{self, EventHook},
     identity,
     ipc::IpcWorker,
@@ -98,10 +99,15 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
             Ok(mut hook) => {
                 let _ = writeln!(
                     log,
-                    "event=hook_installed hook={} rva=0x{:08X} relocated_bytes={}",
+                    concat!(
+                        "event=hook_installed hook={} rva=0x{:08X} relocated_bytes={} ",
+                        "command_capacity={} commands_per_tick={}"
+                    ),
                     tick_hook::NAME,
                     darpc_game_client::EVENT_DISPATCHER_TICK_RVA,
-                    hook.relocated_bytes()
+                    hook.relocated_bytes(),
+                    commands::COMMAND_CAPACITY,
+                    commands::COMMANDS_PER_TICK
                 );
                 if let Some(warning) = hook.take_install_warning() {
                     let _ = writeln!(
@@ -172,6 +178,7 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
                     map_size_hook::NAME
                 );
                 let error = error.into_io_error();
+                commands::cancel_pending();
                 let rollback_error = tick_hook.as_mut().and_then(|hook| hook.uninstall().err());
                 if rollback_error.is_some() {
                     unload_safe = false;
@@ -235,6 +242,7 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
                     event_hook::NAME
                 );
                 let error = error.into_io_error();
+                commands::cancel_pending();
                 let map_error = map_size_hook
                     .as_mut()
                     .and_then(|hook| hook.uninstall().err());
@@ -306,6 +314,7 @@ pub(crate) fn shutdown() -> io::Result<()> {
     };
 
     active.ipc.shutdown()?;
+    commands::cancel_pending();
 
     if let Some(hook) = active.event_hook.as_mut() {
         let final_health = event_hook::health();

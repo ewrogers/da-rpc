@@ -1,7 +1,8 @@
 use darpc_protocol::{
-    EchoResponse, EndpointRole, EventPollResponse, Frame, Handshake, Hello, MAX_EVENT_POLL_WAIT_MS,
-    MAX_EVENTS_PER_POLL, Message, MessageDirection, Pong, SequenceCounter, SnapshotResponse,
-    SnapshotResult, SnapshotUnavailableReason, TickHealthResponse,
+    CommandResponse, CommandResult, EchoResponse, EndpointRole, EventPollResponse, Frame,
+    Handshake, Hello, MAX_EVENT_POLL_WAIT_MS, MAX_EVENTS_PER_POLL, Message, MessageDirection, Pong,
+    SequenceCounter, SnapshotResponse, SnapshotResult, SnapshotUnavailableReason,
+    TickHealthResponse,
 };
 use darpc_win32::pipe::{PipeServer, StopEvent, pipe_name, sender_tick_ms};
 use std::{
@@ -12,7 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{snapshot, state_events, tick_hook};
+use crate::{commands, snapshot, state_events, tick_hook};
 
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -228,6 +229,22 @@ fn serve_connection(server: &PipeServer, hello: &Hello, log: &mut File) -> io::R
                         message.max_events,
                         Duration::from_millis(u64::from(message.wait_ms)),
                     ),
+                })
+            }
+            Message::CommandRequest(message) => {
+                let result = if tick_hook::health().installed {
+                    commands::handle(message.operation)
+                } else {
+                    CommandResult::Unavailable
+                };
+                let _ = writeln!(
+                    log,
+                    "event=command request_id={} result={result:?}",
+                    message.request_id
+                );
+                Message::CommandResponse(CommandResponse {
+                    request_id: message.request_id,
+                    result,
                 })
             }
             message => {

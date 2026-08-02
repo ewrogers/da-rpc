@@ -2,6 +2,8 @@
 
 #[cfg(windows)]
 mod client_text;
+#[cfg(any(windows, test))]
+mod commands;
 #[cfg(windows)]
 mod event_hook;
 #[cfg(windows)]

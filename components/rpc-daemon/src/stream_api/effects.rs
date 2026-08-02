@@ -5,9 +5,12 @@ use serde::Serialize;
 use utoipa::ToSchema;
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
+/// A spell-effect icon became active.
 pub(crate) struct EffectAdded {
     pub(super) observation: EventObservation,
+    /// Client spell-effect icon identifier.
     icon: u16,
+    /// Relative remaining-duration color band, not an exact time.
     duration: EffectDuration,
 }
 
@@ -22,8 +25,10 @@ impl EffectAdded {
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
+/// A spell-effect icon is no longer active.
 pub(crate) struct EffectRemoved {
     pub(super) observation: EventObservation,
+    /// Client spell-effect icon identifier.
     icon: u16,
 }
 
@@ -34,9 +39,12 @@ impl EffectRemoved {
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
+/// The relative remaining-duration band changed for an active icon.
 pub(crate) struct EffectChanged {
     pub(super) observation: EventObservation,
+    /// Client spell-effect icon identifier.
     icon: u16,
+    /// New relative remaining-duration color band, not an exact time.
     duration: EffectDuration,
 }
 

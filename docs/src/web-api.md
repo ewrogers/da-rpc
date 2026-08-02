@@ -207,30 +207,57 @@ observation. The daemon subscribes to its bounded internal broadcast channel
 before reading that observation, then begins with:
 
 ```text
+id: 38
 event: stream.ready
-data: {
-  type: "stream_ready",
-  data: { pid, instance_id, revision, event_sequence }
-}
+data: {"type":"stream_ready","data":{"pid":6964,"instance_id":"...","revision":40,"event_sequence":38}}
 ```
 
 This establishes the exact state boundary already available through the REST
-resources. Later changes have a common observation containing `pid`,
-`instance_id`, `revision`, `event_sequence`, and the wrapping Windows
-`tick_ms`. Implemented event names are:
+resources. Every frame follows the same transport structure:
 
-- `stats.changed`
-- `vitals.changed`
-- `progression.changed`
-- `gold.changed`
-- `weight.changed`
-- `modifiers.changed`
-- `location.changed`
-- `blind.changed`
-- `action_restriction.changed`
-- `effect_added`
-- `effect_removed`
-- `effect_changed`
+```text
+id: <event_sequence>
+event: <routing name>
+data: {"type":"<schema discriminator>","data":{...}}
+```
+
+The SSE `event` field selects an `EventSource` listener. The JSON `type` field
+selects the corresponding `ClientEvent` variant in generated clients. Routing
+names use the established public spelling, while JSON discriminators always use
+snake case. For example, `vitals.changed` carries `type: "vitals_changed"`.
+
+Later state changes contain a common observation:
+
+```text
+EventObservation {
+    pid: u32,
+    instance_id: string,
+    revision: u32,
+    event_sequence: u32,
+    tick_ms: u32,
+}
+```
+
+`tick_ms` is the client's wrapping Windows millisecond tick. Implemented frames
+are:
+
+| SSE event | JSON `type` | Payload after `observation` |
+| --- | --- | --- |
+| `stream.ready` | `stream_ready` | `pid`, `instance_id`, `revision`, `event_sequence` |
+| `stats.changed` | `stats_changed` | All five character attributes |
+| `vitals.changed` | `vitals_changed` | Changed current or maximum health and mana fields |
+| `progression.changed` | `progression_changed` | Changed level, ability, and experience fields |
+| `gold.changed` | `gold_changed` | `gold` |
+| `weight.changed` | `weight_changed` | `weight`, `max_weight` |
+| `modifiers.changed` | `modifiers_changed` | Combat modifiers and attack and defense elements |
+| `location.changed` | `location_changed` | Absolute `x`, `y`, and optional atomic `map` change |
+| `blind.changed` | `blind_changed` | `is_blinded` |
+| `action_restriction.changed` | `action_restriction_changed` | `is_action_restricted` |
+| `effect_added` | `effect_added` | `icon`, `duration` |
+| `effect_removed` | `effect_removed` | `icon` |
+| `effect_changed` | `effect_changed` | `icon`, new `duration` |
+| `stream.resync_required` | `stream_resync_required` | `pid`, `instance_id`, `last_event_sequence`, `dropped_events` |
+| `stream.closed` | `stream_closed` | `pid`, `instance_id`, `last_event_sequence`, `reason` |
 
 Several events may share one sequence and revision when one atomic client
 packet changed several groups. Values are absolute. Consumers replace the
@@ -239,6 +266,22 @@ included fields instead of adding a delta.
 Effect events identify the icon. Added and changed events also carry its new
 relative duration band. Removed events carry no duration because the icon is no
 longer active.
+
+```text
+id: 40
+event: effect_added
+data: {"type":"effect_added","data":{"observation":{"pid":6964,"instance_id":"...","revision":42,"event_sequence":40,"tick_ms":84156449},"icon":10,"duration":"yellow"}}
+```
+
+A browser subscribes to the transport event name and parses the JSON envelope:
+
+```javascript
+const events = new EventSource("/clients/Eidolon/events");
+events.addEventListener("effect_added", (event) => {
+  const message = JSON.parse(event.data);
+  console.log(message.data.icon, message.data.duration);
+});
+```
 
 `location.changed` always includes absolute x/y. Its optional `map` object is
 present only when the same event atomically changes map identity, name,
@@ -252,9 +295,13 @@ dropped count, then the connection closes. A process disconnect emits
 `stream.closed` and closes the stream. Fifteen-second SSE comments keep an idle
 connection observable without changing state ordering.
 
-Swagger documents the route and generated event schemas, but its standard UI
-is not a live SSE viewer. A browser `EventSource`, command-line SSE client, or
-API tool with streaming support can consume the endpoint directly.
+OpenAPI declares the response as `text/event-stream`. Its `ClientEvent` `oneOf`
+schema describes the JSON envelope and every payload referenced by `data`.
+OpenAPI does not model the surrounding `id:` and `event:` lines, keepalive
+comments, ordering, replay, or disconnect rules, so this chapter defines those
+transport semantics. Swagger UI exposes the generated schemas but is not a live
+SSE viewer. A browser `EventSource`, command-line SSE client, or API tool with
+streaming support can consume the endpoint directly.
 
 ## Managed lifecycle
 

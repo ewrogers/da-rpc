@@ -37,6 +37,8 @@ pub(crate) enum PublishedEvent {
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
 #[serde(tag = "type", content = "data", rename_all = "snake_case")]
+/// JSON envelope carried by the `data` field of each Server-Sent Events frame.
+/// The transport-level `event` and `id` fields are emitted separately.
 pub(crate) enum ClientEvent {
     StreamReady(StreamReady),
     StatsChanged(StatsChanged),
@@ -108,6 +110,7 @@ impl ClientEvent {
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
+/// Snapshot boundary sent as the first event on every subscription.
 pub(crate) struct StreamReady {
     pid: u32,
     instance_id: String,
@@ -132,6 +135,7 @@ impl StreamReady {
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
+/// Source identity and ordering metadata shared by state-change payloads.
 pub(crate) struct EventObservation {
     pid: u32,
     instance_id: String,

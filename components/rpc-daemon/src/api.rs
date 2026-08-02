@@ -439,7 +439,7 @@ async fn client_effects(
     path = "/clients/{client}/events",
     params(("client" = String, Path, description = "Process ID or current in-game character name")),
     responses(
-        (status = 200, description = "Ordered client state changes beginning at a current snapshot boundary", body = ClientEvent, content_type = "text/event-stream"),
+        (status = 200, description = "Server-Sent Events stream beginning with stream.ready. Each frame has an event name, sequence ID, and a ClientEvent JSON envelope in data.", body = ClientEvent, content_type = "text/event-stream"),
         (status = 400, description = "The process identifier was invalid", body = ErrorState),
         (status = 404, description = "The process is not a discovered or configured client", body = ErrorState),
         (status = 503, description = "The client is not connected with a current observation", body = ErrorState)
@@ -1802,6 +1802,13 @@ mod tests {
             "ErrorState",
             "ErrorDetail",
             "ClientEvent",
+            "StreamReady",
+            "EventObservation",
+            "EffectAdded",
+            "EffectRemoved",
+            "EffectChanged",
+            "StreamResyncRequired",
+            "StreamClosed",
             "DiagnosticOptions",
             "CommandStatus",
             "CommandKind",
@@ -1809,6 +1816,25 @@ mod tests {
             "CommandFailure",
         ] {
             assert!(schemas.contains_key(name), "OpenAPI omitted {name}");
+        }
+        let event_response =
+            &openapi["paths"]["/clients/{client}/events"]["get"]["responses"]["200"];
+        assert_eq!(
+            event_response["content"]["text/event-stream"]["schema"]["$ref"],
+            "#/components/schemas/ClientEvent"
+        );
+        let event_variants = schemas["ClientEvent"]["oneOf"].as_array().unwrap();
+        for event_type in [
+            "stream_ready",
+            "effect_added",
+            "effect_removed",
+            "effect_changed",
+        ] {
+            assert!(event_variants.iter().any(|variant| {
+                variant["properties"]["type"]["enum"]
+                    .as_array()
+                    .is_some_and(|values| values.iter().any(|value| value == event_type))
+            }));
         }
         assert!(
             schemas["LaunchOptions"]["required"]

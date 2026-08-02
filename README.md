@@ -291,7 +291,8 @@ in-game character name. The status and collection routes present focused views
 of the daemon's latest retained observation for one client. The event route is
 a bounded Server-Sent Events stream beginning with a current snapshot boundary;
 a lagging consumer is told to resynchronize and cannot block other consumers or
-the injected client.
+the injected client. The [web API chapter](https://ewrogers.github.io/da-rpc/web-api.html)
+documents the REST models, SSE frame envelope, event payloads, and stream rules.
 
 Managed launch requires `client_path` and accepts `allow_multiple`,
 `skip_intro`, `skip_notice`, and an optional `server` string in `host` or

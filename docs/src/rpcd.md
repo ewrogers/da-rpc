@@ -125,6 +125,10 @@ updates reduce into the retained state and appear in REST without another
 memory walk. A reported overflow or sequence or revision gap causes an
 immediate fresh snapshot.
 
+Active spell effects are retained as a focused collection resource. Ordered
+add, remove, and relative-duration changes update that resource and the
+per-client event stream from the same event boundary.
+
 ## Web interface
 
 The HTTP server binds to `127.0.0.1:2626` by default. A single

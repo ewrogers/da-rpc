@@ -71,8 +71,9 @@ value. The event object remains valid for the duration of the call. The
 observer copies its type, body pointer, body length, and at most 128 body bytes
 through checked current-process reads; it never retains client pointers.
 
-The hook path parses only the understood `SStatus`, `SUserAppearance`
-action-state, `SMove`, and `SUserPosition` bodies. Unknown, oversized,
+The hook path parses only the understood `SStatus`, `SSpelled`,
+`SUserAppearance` action-state, `SMove`, and `SUserPosition` bodies. Unknown,
+oversized,
 truncated, unreadable, or unhandled events are ignored and original behavior is
 unchanged. A panic boundary also fails open to the original result.
 

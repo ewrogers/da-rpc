@@ -51,6 +51,7 @@ pub struct RawCharacter {
     pub equipment: Option<super::RawEquipment>,
     pub spellbook: Option<super::RawSpellbook>,
     pub skillbook: Option<super::RawSkillbook>,
+    pub effects: Option<super::RawEffects>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

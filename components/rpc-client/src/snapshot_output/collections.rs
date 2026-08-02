@@ -1,4 +1,7 @@
-use darpc_model::{CharacterSnapshot, EquipmentItem, InventoryItem, Skill, Spell, SpellTargetType};
+use darpc_model::{
+    CharacterSnapshot, Effect, EffectDuration, EquipmentItem, InventoryItem, Skill, Spell,
+    SpellTargetType,
+};
 use serde_json::json;
 use std::fmt::Write as _;
 
@@ -9,6 +12,7 @@ pub(super) fn render_human(output: &mut String, character: &CharacterSnapshot) {
     render_equipment(output, character.equipment.as_deref());
     render_spells(output, character.spellbook.as_deref());
     render_skills(output, character.skillbook.as_deref());
+    render_effects(output, character.effects.as_deref());
 }
 
 pub(super) fn inventory_value(item: &InventoryItem) -> serde_json::Value {
@@ -63,6 +67,13 @@ pub(super) fn skill_value(skill: &Skill) -> serde_json::Value {
             "active": skill.cooldown.active,
             "remaining_ms": skill.cooldown.remaining_ms,
         },
+    })
+}
+
+pub(super) fn effect_value(effect: &Effect) -> serde_json::Value {
+    json!({
+        "icon": effect.icon,
+        "duration": effect_duration(effect.duration),
     })
 }
 
@@ -163,6 +174,33 @@ fn render_skills(output: &mut String, skills: Option<&[Skill]>) {
             skill.cooldown.active,
             optional_ms(skill.cooldown.remaining_ms),
         );
+    }
+}
+
+fn render_effects(output: &mut String, effects: Option<&[Effect]>) {
+    let Some(effects) = effects else {
+        output.push_str("\neffects: unavailable");
+        return;
+    };
+    let _ = write!(output, "\neffects: {} active", effects.len());
+    for effect in effects {
+        let _ = write!(
+            output,
+            "\n  icon={} duration={}",
+            effect.icon,
+            effect_duration(effect.duration),
+        );
+    }
+}
+
+fn effect_duration(value: EffectDuration) -> &'static str {
+    match value {
+        EffectDuration::Blue => "blue",
+        EffectDuration::Green => "green",
+        EffectDuration::Yellow => "yellow",
+        EffectDuration::Orange => "orange",
+        EffectDuration::Red => "red",
+        EffectDuration::White => "white",
     }
 }
 

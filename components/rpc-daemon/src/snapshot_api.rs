@@ -25,7 +25,7 @@ pub(crate) struct ObservationMetadata {
 }
 
 impl ObservationMetadata {
-    fn from_model(pid: u32, snapshot: &ModelClientSnapshot) -> Self {
+    pub(super) fn from_model(pid: u32, snapshot: &ModelClientSnapshot) -> Self {
         Self {
             pid,
             revision: snapshot.revision,
@@ -371,7 +371,9 @@ pub(crate) struct MapLocation {
     height: i32,
 }
 mod collections;
+mod effects;
 
 pub(crate) use collections::{
     CooldownStatus, EquipmentItem, EquipmentSlot, InventoryItem, Skill, Spell, SpellTargetType,
 };
+pub(crate) use effects::{Effect, EffectDuration, Effects};

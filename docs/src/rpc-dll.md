@@ -49,12 +49,12 @@ owns text decoding, allocation, and serialization. See [Client state](state.md)
 for the snapshot surface and concurrency model.
 
 The DLL also observes the central decoded-event dispatcher after original
-handling. Bounded status, action-state, and accepted-position values update a
-main-thread cache and enter a fixed 1 MiB queue as ordered absolute mutations.
-Map-size metadata is staged until an authoritative position completes the
-transition. The pipe worker serves those mutations through bounded long polls.
-It requests no allocation, logging, serialization, or IPC work from the hook
-path.
+handling. Bounded status, action-state, accepted-position, and spell-effect
+values update a main-thread cache and enter a fixed 1 MiB queue as ordered
+mutations. Map-size metadata is staged until an authoritative position
+completes the transition. The pipe worker serves those mutations through
+bounded long polls. It requests no allocation, logging, serialization, or IPC
+work from the hook path.
 
 A complete snapshot records the latest event sequence already represented in
 its values. The queue rebases to that boundary, and overflow or an ordering gap

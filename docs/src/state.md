@@ -20,11 +20,12 @@ snapshot contains:
   and durability where applicable.
 - Occupied spellbook and skillbook slots with names, icons, levels, target
   behavior, text-input prompts, lines, and available cooldown state.
+- Active spell effects with their icon and relative remaining-duration band.
 
 The DLL and binary protocol keep this as one complete atomic snapshot. The
 daemon retains that observation and projects it into separate REST resources
-for status, inventory, equipment, spellbook, and skillbook. Those HTTP views do
-not trigger additional client-memory reads.
+for status, inventory, equipment, spellbook, skillbook, and effects. Those HTTP
+views do not trigger additional client-memory reads.
 
 Empty collection slots are omitted. Inventory slot 60 is the client's currency
 display and is omitted because `gold` is represented once as character state.
@@ -91,10 +92,11 @@ client thread will require their own synchronization or an event-owned copy.
 ## Incremental updates
 
 The DLL observes decoded server events after the client has handled them. The
-implemented event families are `SStatus`, the action-state portion of
-`SUserAppearance`, `SMove`, and `SUserPosition`. Together they maintain level,
-attributes, maximum and current vitals, weight, progression, gold, combat
-modifiers, blinded state, `is_action_restricted`, and accepted map coordinates.
+implemented event families are `SStatus`, `SSpelled`, the action-state portion
+of `SUserAppearance`, `SMove`, and `SUserPosition`. Together they maintain
+level, attributes, maximum and current vitals, weight, progression, gold,
+combat modifiers, blinded state, `is_action_restricted`, accepted map
+coordinates, and active spell effects.
 
 The observer runs on the client main thread. It copies at most 128 bytes from a
 qualified event body, parses fixed-width big-endian fields, filters unchanged
@@ -102,6 +104,21 @@ absolute groups against a DLL-owned cache, and publishes only pointer-free
 values. It performs no allocation, text conversion, serialization, logging, or
 pipe input/output. The original client dispatcher always runs first and its
 return value is preserved.
+
+## Spell effects
+
+The initial memory walk reads ten parallel effect slots. An active entry has a
+non-sentinel icon and one of six relative duration stages. The client does not
+retain an exact remaining time. Public state therefore names the stage by the
+same color the game displays, from longest to shortest: `white`, `red`,
+`orange`, `yellow`, `green`, and `blue`.
+
+After the snapshot, `SSpelled` updates the DLL-owned slots. A nonzero stage adds
+a new icon or changes the stage of an existing icon. Stage zero removes the
+icon. If all ten slots are occupied, a new icon is ignored just as it is by the
+client. These transitions become `effect_added`, `effect_changed`, and
+`effect_removed` events and update the retained REST resource without another
+memory walk.
 
 One main-thread producer writes to a fixed 1 MiB queue. The pipe worker is the
 only consumer and returns up to 192 events per long poll. The queue does not

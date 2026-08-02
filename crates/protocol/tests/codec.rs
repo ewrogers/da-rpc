@@ -1,9 +1,9 @@
 use darpc_model::{
     CharacterAppearance, CharacterClass, CharacterModifiers, CharacterProgression,
     CharacterSnapshot, CharacterStats, CharacterVitals, ClientLifecycle, ClientSnapshot,
-    CooldownStatus, CoreStatus, CurrentVitals, Element, EquipmentItem, EquipmentSlot, Gender,
-    InventoryItem, LocationUpdate, MapChange, MapLocation, ProgressionStatus, Skill, Spell,
-    SpellTargetType, StateEvent, StateUpdate, StatusUpdate,
+    CooldownStatus, CoreStatus, CurrentVitals, Effect, EffectDuration, EffectUpdate, Element,
+    EquipmentItem, EquipmentSlot, Gender, InventoryItem, LocationUpdate, MapChange, MapLocation,
+    ProgressionStatus, Skill, Spell, SpellTargetType, StateEvent, StateUpdate, StatusUpdate,
 };
 use darpc_protocol::{
     Architecture, CommandFailure, CommandKind, CommandOperation, CommandRequest, CommandResponse,
@@ -141,6 +141,10 @@ fn snapshot() -> ClientSnapshot {
                     remaining_ms: Some(750),
                 },
             }]),
+            effects: Some(vec![Effect {
+                icon: 300,
+                duration: EffectDuration::White,
+            }]),
         }),
     }
 }
@@ -270,6 +274,30 @@ fn every_message_round_trips() {
                             height: 80,
                         }),
                     }),
+                },
+                StateEvent {
+                    sequence: 43,
+                    revision: 12,
+                    tick_ms: 125,
+                    update: StateUpdate::Effect(EffectUpdate::Added(Effect {
+                        icon: 300,
+                        duration: EffectDuration::White,
+                    })),
+                },
+                StateEvent {
+                    sequence: 44,
+                    revision: 13,
+                    tick_ms: 126,
+                    update: StateUpdate::Effect(EffectUpdate::Changed(Effect {
+                        icon: 300,
+                        duration: EffectDuration::Red,
+                    })),
+                },
+                StateEvent {
+                    sequence: 45,
+                    revision: 14,
+                    tick_ms: 127,
+                    update: StateUpdate::Effect(EffectUpdate::Removed { icon: 300 }),
                 },
             ]),
         }),
@@ -443,6 +471,27 @@ fn snapshot_collections_are_strictly_validated() {
         })
     );
 
+    let mut duplicate_effect = snapshot();
+    let effects = duplicate_effect
+        .character
+        .as_mut()
+        .unwrap()
+        .effects
+        .as_mut()
+        .unwrap();
+    effects.push(effects[0]);
+    assert_eq!(
+        encode_frame(&Frame::new(
+            0,
+            0,
+            Message::SnapshotResponse(SnapshotResponse {
+                request_id: 1,
+                result: SnapshotResult::Ready(Box::new(duplicate_effect)),
+            }),
+        )),
+        Err(EncodeError::DuplicateEffectIcon { icon: 300 })
+    );
+
     let mut long_name = snapshot();
     long_name
         .character
@@ -518,6 +567,18 @@ fn malformed_snapshot_slots_are_rejected_when_decoding() {
     assert_eq!(
         decode_frame(&duplicate),
         Err(DecodeError::DuplicateSnapshotSlot { slot: 1 })
+    );
+
+    let mut invalid_duration = encode_frame(&frame).unwrap();
+    let duration = invalid_duration
+        .windows(3)
+        .rposition(|bytes| bytes == [0x2c, 0x01, 6])
+        .expect("effect marker is present")
+        + 2;
+    invalid_duration[duration] = 7;
+    assert_eq!(
+        decode_frame(&invalid_duration),
+        Err(DecodeError::InvalidEffectDuration { actual: 7 })
     );
 }
 

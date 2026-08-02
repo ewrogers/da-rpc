@@ -13,6 +13,10 @@ use std::{convert::Infallible, time::Duration};
 use tokio::sync::broadcast;
 use utoipa::ToSchema;
 
+mod effects;
+
+pub(crate) use effects::{EffectAdded, EffectChanged, EffectRemoved};
+
 pub(crate) const EVENT_CHANNEL_CAPACITY: usize = 4_096;
 
 #[derive(Clone, Debug)]
@@ -44,6 +48,9 @@ pub(crate) enum ClientEvent {
     LocationChanged(LocationChanged),
     BlindChanged(BlindChanged),
     ActionRestrictionChanged(ActionRestrictionChanged),
+    EffectAdded(EffectAdded),
+    EffectRemoved(EffectRemoved),
+    EffectChanged(EffectChanged),
     StreamResyncRequired(StreamResyncRequired),
     StreamClosed(StreamClosed),
 }
@@ -61,6 +68,9 @@ impl ClientEvent {
             Self::LocationChanged(_) => "location.changed",
             Self::BlindChanged(_) => "blind.changed",
             Self::ActionRestrictionChanged(_) => "action_restriction.changed",
+            Self::EffectAdded(_) => "effect_added",
+            Self::EffectRemoved(_) => "effect_removed",
+            Self::EffectChanged(_) => "effect_changed",
             Self::StreamResyncRequired(_) => "stream.resync_required",
             Self::StreamClosed(_) => "stream.closed",
         }
@@ -78,6 +88,9 @@ impl ClientEvent {
             Self::LocationChanged(value) => value.observation.event_sequence,
             Self::BlindChanged(value) => value.observation.event_sequence,
             Self::ActionRestrictionChanged(value) => value.observation.event_sequence,
+            Self::EffectAdded(value) => value.observation.event_sequence,
+            Self::EffectRemoved(value) => value.observation.event_sequence,
+            Self::EffectChanged(value) => value.observation.event_sequence,
             Self::StreamResyncRequired(value) => value.last_event_sequence,
             Self::StreamClosed(value) => value.last_event_sequence,
         }
@@ -346,6 +359,20 @@ fn expand(pid: u32, identity: ClientIdentity, event: StateEvent) -> Vec<ClientEv
             }));
             return events;
         }
+        StateUpdate::Effect(update) => {
+            events.push(match update {
+                darpc_model::EffectUpdate::Added(effect) => {
+                    ClientEvent::EffectAdded(EffectAdded::new(observation, effect))
+                }
+                darpc_model::EffectUpdate::Removed { icon } => {
+                    ClientEvent::EffectRemoved(EffectRemoved::new(observation, icon))
+                }
+                darpc_model::EffectUpdate::Changed(effect) => {
+                    ClientEvent::EffectChanged(EffectChanged::new(observation, effect))
+                }
+            });
+            return events;
+        }
     };
     if let Some(core) = update.core {
         events.push(ClientEvent::StatsChanged(StatsChanged {
@@ -432,8 +459,8 @@ fn sequence_after(candidate: u32, baseline: u32) -> bool {
 mod tests {
     use super::*;
     use darpc_model::{
-        CharacterStats, CoreStatus, CurrentVitals, LocationUpdate, MapChange, StateUpdate,
-        StatusUpdate,
+        CharacterStats, CoreStatus, CurrentVitals, Effect, EffectDuration, EffectUpdate,
+        LocationUpdate, MapChange, StateUpdate, StatusUpdate,
     };
 
     #[test]
@@ -533,5 +560,43 @@ mod tests {
         };
         assert_eq!((location.x, location.y), (43, 40));
         assert_eq!(location.map.as_ref().unwrap().id, 3001);
+    }
+
+    #[test]
+    fn effect_updates_keep_the_requested_public_event_names() {
+        let identity = ClientIdentity {
+            pid: 42,
+            process_creation_time: 100,
+            dll_instance_id: [1; 16],
+        };
+        let effect = Effect {
+            icon: 300,
+            duration: EffectDuration::White,
+        };
+        for (sequence, update, expected) in [
+            (1, EffectUpdate::Added(effect), "effect_added"),
+            (
+                2,
+                EffectUpdate::Changed(Effect {
+                    duration: EffectDuration::Red,
+                    ..effect
+                }),
+                "effect_changed",
+            ),
+            (3, EffectUpdate::Removed { icon: 300 }, "effect_removed"),
+        ] {
+            let events = expand(
+                42,
+                identity,
+                StateEvent {
+                    sequence,
+                    revision: sequence,
+                    tick_ms: sequence,
+                    update: StateUpdate::Effect(update),
+                },
+            );
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].name(), expected);
+        }
     }
 }

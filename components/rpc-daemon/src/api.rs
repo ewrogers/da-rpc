@@ -12,9 +12,10 @@ use crate::{
     snapshot_api::{
         CharacterClass as SnapshotCharacterClass, CharacterGender, CharacterModifiers,
         CharacterProgression, CharacterStats, CharacterStatus, CharacterVitals,
-        ClientLifecycle as SnapshotClientLifecycle, CooldownStatus, Element, Equipment,
-        EquipmentItem, EquipmentSlot, GameStatus, Inventory, InventoryItem, MapLocation,
-        ObservationMetadata, Skill, Skillbook, Spell, SpellTargetType, Spellbook,
+        ClientLifecycle as SnapshotClientLifecycle, CooldownStatus, Effect, EffectDuration,
+        Effects, Element, Equipment, EquipmentItem, EquipmentSlot, GameStatus, Inventory,
+        InventoryItem, MapLocation, ObservationMetadata, Skill, Skillbook, Spell, SpellTargetType,
+        Spellbook,
     },
     stream_api::{self, ClientEvent, PublishedEvent},
 };
@@ -220,6 +221,7 @@ fn router(state: ApiState) -> Router {
         .route("/clients/{client}/equipment", get(client_equipment))
         .route("/clients/{client}/spellbook", get(client_spellbook))
         .route("/clients/{client}/skillbook", get(client_skillbook))
+        .route("/clients/{client}/effects", get(client_effects))
         .route("/clients/{client}/events", get(client_events))
         .route(
             "/clients/{client}/commands/diagnostic",
@@ -410,6 +412,26 @@ async fn client_skillbook(
     let registry = state.snapshot();
     let (pid, snapshot) = resolve_game_snapshot(&registry, &identifier)?;
     Ok(Json(Skillbook::from_model(pid, snapshot)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/clients/{client}/effects",
+    params(("client" = String, Path, description = "Process ID or current in-game character name")),
+    responses(
+        (status = 200, description = "The latest spell effect observation", body = Effects),
+        (status = 400, description = "The process identifier was invalid", body = ErrorState),
+        (status = 404, description = "The process is not a discovered or configured client", body = ErrorState),
+        (status = 503, description = "No client observation is currently available", body = ErrorState)
+    )
+)]
+async fn client_effects(
+    Path(identifier): Path<String>,
+    State(state): State<ApiState>,
+) -> Result<Json<Effects>, ApiError> {
+    let registry = state.snapshot();
+    let (pid, snapshot) = resolve_game_snapshot(&registry, &identifier)?;
+    Ok(Json(Effects::from_model(pid, snapshot)))
 }
 
 #[utoipa::path(
@@ -718,6 +740,7 @@ fn operation_in_progress(pid: u32) -> ApiError {
         client_equipment,
         client_spellbook,
         client_skillbook,
+        client_effects,
         client_events,
         load,
         unload,
@@ -757,6 +780,9 @@ fn operation_in_progress(pid: u32) -> ApiError {
         Skill,
         CooldownStatus,
         SpellTargetType,
+        Effects,
+        Effect,
+        EffectDuration,
         LaunchOptions,
         LoadResult,
         UnloadResult,
@@ -1186,7 +1212,8 @@ mod tests {
         CharacterAppearance, CharacterClass, CharacterProgression,
         CharacterSnapshot as ModelCharacterSnapshot, CharacterStats, CharacterVitals,
         ClientLifecycle, ClientSnapshot as ModelClientSnapshot,
-        CooldownStatus as ModelCooldownStatus, EquipmentItem as ModelEquipmentItem,
+        CooldownStatus as ModelCooldownStatus, Effect as ModelEffect,
+        EffectDuration as ModelEffectDuration, EquipmentItem as ModelEquipmentItem,
         EquipmentSlot as ModelEquipmentSlot, Gender, InventoryItem as ModelInventoryItem,
         MapLocation, Skill as ModelSkill, Spell as ModelSpell,
         SpellTargetType as ModelSpellTargetType,
@@ -1315,6 +1342,10 @@ mod tests {
                         active: true,
                         remaining_ms: Some(750),
                     },
+                }]),
+                effects: Some(vec![ModelEffect {
+                    icon: 300,
+                    duration: ModelEffectDuration::White,
                 }]),
             }),
         }
@@ -1579,6 +1610,11 @@ mod tests {
         assert_eq!(skillbook["observation"]["revision"], 3);
         assert_eq!(skillbook["skills"][0]["max_level"], 100);
 
+        let effects = json("/clients/silo/effects");
+        assert_eq!(effects["observation"]["revision"], 3);
+        assert_eq!(effects["effects"][0]["icon"], 300);
+        assert_eq!(effects["effects"][0]["duration"], "white");
+
         let events = response("/clients/silo/events");
         assert_eq!(events.status(), StatusCode::OK);
         assert_eq!(
@@ -1712,6 +1748,7 @@ mod tests {
             "/clients/{client}/equipment",
             "/clients/{client}/spellbook",
             "/clients/{client}/skillbook",
+            "/clients/{client}/effects",
             "/clients/{client}/events",
             "/clients/{client}/commands/diagnostic",
             "/clients/{client}/commands/{command_id}",
@@ -1754,6 +1791,9 @@ mod tests {
             "Skill",
             "CooldownStatus",
             "SpellTargetType",
+            "Effects",
+            "Effect",
+            "EffectDuration",
             "LaunchOptions",
             "LoadResult",
             "LifecycleResult",
@@ -1791,7 +1831,13 @@ mod tests {
                 .get("class_id")
                 .is_none()
         );
-        for collection in ["inventory", "equipment", "spellbook", "skillbook"] {
+        for collection in [
+            "inventory",
+            "equipment",
+            "spellbook",
+            "skillbook",
+            "effects",
+        ] {
             assert!(
                 schemas["CharacterStatus"]["properties"]
                     .get(collection)

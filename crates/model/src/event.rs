@@ -1,4 +1,4 @@
-use crate::{CharacterModifiers, CharacterStats, ClientSnapshot, MapLocation};
+use crate::{CharacterModifiers, CharacterStats, ClientSnapshot, Effect, MapLocation};
 use std::{error::Error, fmt};
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -13,6 +13,14 @@ pub struct StateEvent {
 pub enum StateUpdate {
     Status(StatusUpdate),
     Location(LocationUpdate),
+    Effect(EffectUpdate),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EffectUpdate {
+    Added(Effect),
+    Removed { icon: u16 },
+    Changed(Effect),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -155,6 +163,38 @@ impl ClientSnapshot {
                     location.y = Some(update.y);
                 }
             }
+            StateUpdate::Effect(update) => {
+                let effects = character
+                    .effects
+                    .as_mut()
+                    .ok_or(ApplyEventError::EffectsUnavailable)?;
+                match update {
+                    EffectUpdate::Added(effect) => {
+                        if effects.iter().any(|current| current.icon == effect.icon) {
+                            return Err(ApplyEventError::EffectAlreadyExists { icon: effect.icon });
+                        }
+                        if effects.len() >= 10 {
+                            return Err(ApplyEventError::EffectCapacityExceeded);
+                        }
+                        effects.push(effect);
+                        effects.sort_unstable_by_key(|current| current.icon);
+                    }
+                    EffectUpdate::Removed { icon } => {
+                        let index = effects
+                            .iter()
+                            .position(|effect| effect.icon == icon)
+                            .ok_or(ApplyEventError::EffectNotFound { icon })?;
+                        effects.remove(index);
+                    }
+                    EffectUpdate::Changed(effect) => {
+                        let current = effects
+                            .iter_mut()
+                            .find(|current| current.icon == effect.icon)
+                            .ok_or(ApplyEventError::EffectNotFound { icon: effect.icon })?;
+                        *current = effect;
+                    }
+                }
+            }
         }
         self.revision = event.revision;
         self.event_sequence = event.sequence;
@@ -169,6 +209,10 @@ pub enum ApplyEventError {
     UnexpectedRevision { expected: u32, actual: u32 },
     CharacterUnavailable,
     LocationUnavailable,
+    EffectsUnavailable,
+    EffectAlreadyExists { icon: u16 },
+    EffectNotFound { icon: u16 },
+    EffectCapacityExceeded,
 }
 
 impl fmt::Display for ApplyEventError {
@@ -191,6 +235,18 @@ impl fmt::Display for ApplyEventError {
             }
             Self::LocationUnavailable => {
                 formatter.write_str("location event has no retained map state")
+            }
+            Self::EffectsUnavailable => {
+                formatter.write_str("effect event has no retained spell effect state")
+            }
+            Self::EffectAlreadyExists { icon } => {
+                write!(formatter, "spell effect icon {icon} already exists")
+            }
+            Self::EffectNotFound { icon } => {
+                write!(formatter, "spell effect icon {icon} does not exist")
+            }
+            Self::EffectCapacityExceeded => {
+                formatter.write_str("spell effect capacity was exceeded")
             }
         }
     }

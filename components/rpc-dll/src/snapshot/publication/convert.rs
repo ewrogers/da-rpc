@@ -1,14 +1,14 @@
 use super::ReadyPublication;
 use crate::{client_text, map_name};
 use darpc_game_client::{
-    RawCharacter, RawClientText, RawEquipment, RawInventory, RawLifecycle, RawLocation,
+    RawCharacter, RawClientText, RawEffects, RawEquipment, RawInventory, RawLifecycle, RawLocation,
     RawModifiers, RawPaneProgression, RawSkill, RawSkillbook, RawSpell, RawSpellbook,
 };
 use darpc_model::{
     CharacterAppearance, CharacterClass, CharacterModifiers, CharacterProgression,
     CharacterSnapshot, CharacterStats, CharacterVitals, ClientLifecycle, ClientSnapshot,
-    CooldownStatus, Element, EquipmentItem, EquipmentSlot, Gender, InventoryItem, MapLocation,
-    Skill, Spell, SpellTargetType,
+    CooldownStatus, Effect, EffectDuration, Element, EquipmentItem, EquipmentSlot, Gender,
+    InventoryItem, MapLocation, Skill, Spell, SpellTargetType,
 };
 
 const SPRITE_ID_MASK: u16 = 0x3FFF;
@@ -66,7 +66,23 @@ fn character_snapshot(raw: RawCharacter, world_token: u32, tick_ms: u32) -> Char
         equipment: raw.equipment.map(equipment),
         spellbook: raw.spellbook.map(spellbook),
         skillbook: raw.skillbook.map(|book| skillbook(book, tick_ms)),
+        effects: raw.effects.map(effects),
     }
+}
+
+fn effects(raw: RawEffects) -> Vec<Effect> {
+    let mut effects = raw
+        .effects
+        .into_iter()
+        .flatten()
+        .map(|effect| Effect {
+            icon: effect.icon,
+            duration: EffectDuration::from_raw(effect.duration)
+                .expect("captured effect duration is valid"),
+        })
+        .collect::<Vec<_>>();
+    effects.sort_unstable_by_key(|effect| effect.icon);
+    effects
 }
 
 fn progression(raw: &RawCharacter, pane: Option<RawPaneProgression>) -> CharacterProgression {

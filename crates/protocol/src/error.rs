@@ -10,6 +10,7 @@ pub enum EncodeError {
     SnapshotCollectionTooLong { length: usize, max: usize },
     InvalidSnapshotSlot { slot: u8, max: u8 },
     DuplicateSnapshotSlot { slot: u8 },
+    DuplicateEffectIcon { icon: u16 },
     EventBatchTooLong { length: usize, max: usize },
     InvalidCommandId,
     InvalidCommandTimeout { actual: u16, max: u16 },
@@ -47,6 +48,9 @@ impl fmt::Display for EncodeError {
             }
             Self::DuplicateSnapshotSlot { slot } => {
                 write!(formatter, "snapshot slot {slot} appears more than once")
+            }
+            Self::DuplicateEffectIcon { icon } => {
+                write!(formatter, "spell effect icon {icon} appears more than once")
             }
             Self::EventBatchTooLong { length, max } => {
                 write!(
@@ -142,6 +146,15 @@ pub enum DecodeError {
     },
     DuplicateSnapshotSlot {
         slot: u8,
+    },
+    DuplicateEffectIcon {
+        icon: u16,
+    },
+    InvalidEffectDuration {
+        actual: u8,
+    },
+    InvalidEffectUpdateType {
+        actual: u8,
     },
     InvalidSnapshotStatus {
         actual: u8,
@@ -270,6 +283,15 @@ impl fmt::Display for DecodeError {
             }
             Self::DuplicateSnapshotSlot { slot } => {
                 write!(formatter, "snapshot slot {slot} appears more than once")
+            }
+            Self::DuplicateEffectIcon { icon } => {
+                write!(formatter, "spell effect icon {icon} appears more than once")
+            }
+            Self::InvalidEffectDuration { actual } => {
+                write!(formatter, "invalid spell effect duration {actual}")
+            }
+            Self::InvalidEffectUpdateType { actual } => {
+                write!(formatter, "invalid spell effect update type {actual}")
             }
             Self::InvalidSnapshotStatus { actual } => {
                 write!(formatter, "invalid snapshot status {actual}")

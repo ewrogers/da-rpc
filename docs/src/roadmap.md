@@ -102,7 +102,7 @@ directly for discovery, aggregation, action status, and multi-client behavior.
 | M9.1 | Automatic managed loading | An opt-in daemon policy loads each uninjected client once. | Complete |
 | M10 | Hook qualification harness | The hook mechanism preserves a controlled test function exactly. | Complete |
 | M11 | First client tick hook | Direct IPC reports client ticks while the game behaves normally. | Complete |
-| M12 | Late-attach client snapshot | The direct CLI and daemon API expose current character, map, inventory, equipment, spell, and skill state. | Complete |
+| M12 | Late-attach client snapshot | The direct CLI and daemon API expose current character, map, collection, and spell-effect state. | Complete |
 | M13 | Event-driven updates | One normal game event updates state without another snapshot. | Complete |
 | M14 | Main-thread command queue | A diagnostic command completes on a client tick. | Complete |
 | M15 | First typed action | One low-risk action executes through a native client path. | Planned |
@@ -567,7 +567,8 @@ Build:
 
 - Character identity, appearance, local action lock, blinded state,
   progression, attributes, vitals, modifiers, gold, and current map state.
-- Occupied inventory, equipment, spellbook, and skillbook slots.
+- Occupied inventory, equipment, spellbook, skillbook, and active spell-effect
+  slots.
 - Validated roots, offsets, bounds, fixed-capacity hook buffers, and world
   generation tracking.
 - Reconnect-dialog detection with `disconnected` lifecycle precedence while
@@ -604,6 +605,8 @@ Build:
 - Copy bounded pointer-free values and update the local state model.
 - Ordered absolute updates plus Server-Sent Events from `rpcd`.
 - Commit map metadata and authoritative coordinates as one location update.
+- Track spell-effect add, remove, and relative-duration changes from decoded
+  server events.
 
 See:
 
@@ -618,7 +621,8 @@ Done:
 - A slow event subscriber cannot block the game or another subscriber.
 - Every event retains its source client and observation time so later
   shareable map and entity updates can represent freshness explicitly.
-- Status, weight, and accepted map position converge with a fresh snapshot.
+- Status, weight, accepted map position, and active spell effects converge with
+  a fresh snapshot.
 
 ## Phase 6: add control one safe action at a time
 

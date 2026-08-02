@@ -229,6 +229,7 @@ struct CharacterSnapshot {
     equipment: Option<Vec<EquipmentItem>>;
     spellbook: Option<Vec<Spell>>;
     skillbook: Option<Vec<Skill>>;
+    effects: Option<Vec<Effect>>;
 }
 
 struct CharacterAppearance {
@@ -290,14 +291,29 @@ struct Spell {
     prompt: Option<utf8>;
     cooldown: CooldownStatus;
 }
+
+struct Effect {
+    icon: u16;
+    duration: EffectDuration;
+}
+
+enum EffectDuration: u8 {
+    Blue   = 1,
+    Green  = 2,
+    Yellow = 3,
+    Orange = 4,
+    Red    = 5,
+    White  = 6,
+}
 ```
 
 Optional values begin with a strict boolean byte. Strings use a `u16` UTF-8
 byte length. Present collections use a `u8` count followed by occupied entries;
-inventory permits at most 60 entries, equipment 18, and each ability book 90.
-Collection names are limited to 127 bytes, character names to 15 bytes, and map
-names to 255 bytes. Slots are one-based, unique within a collection, and
-strictly range checked.
+inventory permits at most 60 entries, equipment 18, each ability book 90, and
+effects 10. Collection names are limited to 127 bytes, character names to 15
+bytes, and map names to 255 bytes. Slots are one-based, unique within a slotted
+collection, and strictly range checked. Effect icons are unique and duration
+values outside 1 through 6 are rejected.
 
 Snapshot scalars use explicit little-endian integer widths. Collection entries
 carry their slot, appearance identifier, optional name, and their domain fields:
@@ -353,6 +369,13 @@ struct StateEvent {
 enum StateUpdate: u8 {
     Status(StatusUpdate) = 1,
     Location(LocationUpdate) = 2,
+    Effect(EffectUpdate) = 3,
+}
+
+enum EffectUpdate: u8 {
+    Added(Effect) = 1,
+    Removed { icon: u16 } = 2,
+    Changed(Effect) = 3,
 }
 
 struct StatusUpdate {

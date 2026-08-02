@@ -156,6 +156,7 @@ pub struct CharacterSnapshot {
     pub equipment: Option<Vec<EquipmentItem>>,
     pub spellbook: Option<Vec<Spell>>,
     pub skillbook: Option<Vec<Skill>>,
+    pub effects: Option<Vec<Effect>>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -230,7 +231,9 @@ mod tests {
     }
 }
 mod collections;
+mod effects;
 
 pub use collections::{
     CooldownStatus, EquipmentItem, EquipmentSlot, InventoryItem, Skill, Spell, SpellTargetType,
 };
+pub use effects::{Effect, EffectDuration};

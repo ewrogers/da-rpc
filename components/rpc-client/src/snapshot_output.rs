@@ -212,6 +212,9 @@ fn character_value(character: &CharacterSnapshot) -> serde_json::Value {
         "skillbook": character.skillbook.as_ref().map(|skills| {
             skills.iter().map(collections::skill_value).collect::<Vec<_>>()
         }),
+        "effects": character.effects.as_ref().map(|effects| {
+            effects.iter().map(collections::effect_value).collect::<Vec<_>>()
+        }),
     })
 }
 

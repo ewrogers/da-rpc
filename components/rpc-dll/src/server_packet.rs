@@ -1,6 +1,6 @@
 use darpc_model::{
-    CharacterModifiers, CharacterStats, CoreStatus, CurrentVitals, Element, ProgressionStatus,
-    StatusUpdate,
+    CharacterModifiers, CharacterStats, CoreStatus, CurrentVitals, EffectDuration, Element,
+    ProgressionStatus, StatusUpdate,
 };
 use std::{error::Error, fmt};
 
@@ -8,18 +8,26 @@ const USER_APPEARANCE_OPCODE: u8 = 0x05;
 const USER_POSITION_OPCODE: u8 = 0x04;
 const STATUS_OPCODE: u8 = 0x08;
 const MOVE_OPCODE: u8 = 0x0B;
+const SPELLED_OPCODE: u8 = 0x3A;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ServerUpdate {
     Status(StatusUpdate),
     UserPosition(Position),
     Move(Position),
+    Effect(SpelledUpdate),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct Position {
     pub(crate) x: i32,
     pub(crate) y: i32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct SpelledUpdate {
+    pub(crate) icon: u16,
+    pub(crate) duration: Option<EffectDuration>,
 }
 
 pub(crate) fn update(body: &[u8]) -> Result<Option<ServerUpdate>, ParseError> {
@@ -32,8 +40,30 @@ pub(crate) fn update(body: &[u8]) -> Result<Option<ServerUpdate>, ParseError> {
             .map(Some),
         Some(STATUS_OPCODE) => parse_status(body).map(ServerUpdate::Status).map(Some),
         Some(MOVE_OPCODE) => parse_move(body).map(|position| position.map(ServerUpdate::Move)),
+        Some(SPELLED_OPCODE) => parse_spelled(body).map(ServerUpdate::Effect).map(Some),
         _ => Ok(None),
     }
+}
+
+fn parse_spelled(body: &[u8]) -> Result<SpelledUpdate, ParseError> {
+    let mut reader = Reader::new(body);
+    reader.expect(SPELLED_OPCODE)?;
+    let icon = reader.u16_be()?;
+    let duration_offset = reader.offset;
+    let duration = reader.u8()?;
+    Ok(SpelledUpdate {
+        icon,
+        duration: if duration == 0 {
+            None
+        } else {
+            Some(EffectDuration::from_raw(duration).ok_or(ParseError {
+                offset: duration_offset,
+                needed: 0,
+                remaining: body.len().saturating_sub(reader.offset),
+                invalid_value: Some(duration),
+            })?)
+        },
+    })
 }
 
 fn parse_user_position(body: &[u8]) -> Result<Position, ParseError> {
@@ -180,10 +210,18 @@ pub(crate) struct ParseError {
     offset: usize,
     needed: usize,
     remaining: usize,
+    invalid_value: Option<u8>,
 }
 
 impl fmt::Display for ParseError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if let Some(actual) = self.invalid_value {
+            return write!(
+                formatter,
+                "server packet has invalid byte {actual} at offset {}",
+                self.offset
+            );
+        }
         write!(
             formatter,
             "server packet truncated at offset {}: need {} bytes, {} remain",
@@ -254,6 +292,7 @@ impl<'a> Reader<'a> {
                 offset: self.offset,
                 needed: length,
                 remaining,
+                invalid_value: None,
             });
         }
         let end = self.offset + length;
@@ -365,5 +404,38 @@ mod tests {
             update(&[0x0B, 5, 0, 43, 0, 40, 0, 0, 0, 0, 7]).unwrap(),
             None
         );
+    }
+
+    #[test]
+    fn parses_spell_effect_add_change_and_remove() {
+        assert_eq!(
+            update(&[0x3A, 0x01, 0x2C, 6]).unwrap(),
+            Some(ServerUpdate::Effect(SpelledUpdate {
+                icon: 300,
+                duration: Some(EffectDuration::White),
+            }))
+        );
+        assert_eq!(
+            update(&[0x3A, 0x01, 0x2C, 1]).unwrap(),
+            Some(ServerUpdate::Effect(SpelledUpdate {
+                icon: 300,
+                duration: Some(EffectDuration::Blue),
+            }))
+        );
+        assert_eq!(
+            update(&[0x3A, 0x01, 0x2C, 0]).unwrap(),
+            Some(ServerUpdate::Effect(SpelledUpdate {
+                icon: 300,
+                duration: None,
+            }))
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_and_truncated_spell_effects() {
+        for length in 1..4 {
+            assert!(update(&[0x3A, 0x01, 0x2C, 6][..length]).is_err());
+        }
+        assert!(update(&[0x3A, 0x01, 0x2C, 7]).is_err());
     }
 }

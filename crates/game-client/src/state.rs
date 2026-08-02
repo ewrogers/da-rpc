@@ -1,5 +1,6 @@
 mod abilities;
 mod collections;
+mod effects;
 mod panes;
 mod types;
 
@@ -8,6 +9,7 @@ pub use collections::{
     EQUIPMENT_SLOT_COUNT, INVENTORY_SLOT_COUNT, RawEquipment, RawEquipmentItem, RawInventory,
     RawInventoryItem,
 };
+pub use effects::{EFFECT_SLOT_COUNT, RawEffect, RawEffects};
 pub use types::{
     MemoryReader, RawAppearance, RawCharacter, RawClientText, RawLifecycle, RawLocation,
     RawMapName, RawModifiers, RawPaneProgression, RawStateSnapshot, StateReadError,
@@ -145,6 +147,7 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
         let inventory = self.capture_inventory(roots.gui_back)?;
         let equipment = self.capture_equipment(roots.equipment)?;
         let (skillbook, spellbook) = self.capture_abilities(roots.gui_back)?;
+        let effects = self.capture_effects(roots.gui_back)?;
 
         Ok(RawCharacter {
             id: (self_id != 0).then_some(self_id),
@@ -176,6 +179,7 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
             equipment,
             spellbook,
             skillbook,
+            effects,
         })
     }
 

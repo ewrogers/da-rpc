@@ -32,6 +32,7 @@ const SPELL_ENTRY: u32 = 0x009D_0000;
 const EVENT_DISPATCHER: u32 = 0x009E_0000;
 const EVENT_ENTRIES: u32 = 0x009E_1000;
 const RECONNECT_DIALOG: u32 = 0x009E_2000;
+const EFFECT_PANE: u32 = 0x009E_3000;
 
 struct FakeMemory {
     bytes: Vec<u8>,
@@ -165,6 +166,12 @@ impl FakeMemory {
         memory.u8(SPELL_ENTRY + 0x297, 1);
         memory.i32(SPELL_ENTRY + 0x2B0, 3);
         memory.i32(SPELL_ENTRY + 0x2B8, 11);
+
+        memory.u32(GUI_BACK + 0x4F94, EFFECT_PANE);
+        memory.u16(EFFECT_PANE + 0x190, 300);
+        memory.u8(EFFECT_PANE + 0x1A4, 6);
+        memory.u16(EFFECT_PANE + 0x190 + 3 * 2, 301);
+        memory.u8(EFFECT_PANE + 0x1A4 + 3, 2);
         memory
     }
 
@@ -410,6 +417,40 @@ fn captures_spellbook_and_skillbook_slots() {
     );
     assert_eq!(spell.cast_lines, 4);
     assert!(spell.action_delay_active);
+}
+
+#[test]
+fn captures_active_spell_effects() {
+    let memory = FakeMemory::gameplay_with_collections();
+    let effects = StateWalker::new(&memory, BASE)
+        .capture(THREAD_ID)
+        .unwrap()
+        .character
+        .unwrap()
+        .effects
+        .unwrap()
+        .effects;
+
+    assert_eq!(
+        (effects[0].unwrap().icon, effects[0].unwrap().duration),
+        (300, 6)
+    );
+    assert!(effects[1].is_none());
+    assert_eq!(
+        (effects[3].unwrap().icon, effects[3].unwrap().duration),
+        (301, 2)
+    );
+}
+
+#[test]
+fn rejects_invalid_spell_effect_duration() {
+    let mut memory = FakeMemory::gameplay_with_collections();
+    memory.u8(EFFECT_PANE + 0x1A4, 7);
+
+    assert_eq!(
+        StateWalker::new(&memory, BASE).capture(THREAD_ID),
+        Err(StateReadError::InvalidCollection)
+    );
 }
 
 #[test]

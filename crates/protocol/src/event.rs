@@ -4,8 +4,9 @@ use crate::{
     snapshot::{MAX_MAP_NAME_LEN, decode_optional_string, encode_optional_string},
 };
 use darpc_model::{
-    CharacterModifiers, CharacterStats, CoreStatus, CurrentVitals, Element, LocationUpdate,
-    MapChange, ProgressionStatus, StateEvent, StateUpdate, StatusUpdate,
+    CharacterModifiers, CharacterStats, CoreStatus, CurrentVitals, Effect, EffectDuration,
+    EffectUpdate, Element, LocationUpdate, MapChange, ProgressionStatus, StateEvent, StateUpdate,
+    StatusUpdate,
 };
 
 pub const MAX_EVENTS_PER_POLL: u16 = 192;
@@ -125,6 +126,10 @@ fn encode_event(output: &mut Vec<u8>, event: &StateEvent) -> Result<(), EncodeEr
             output.push(2);
             encode_location(output, update)?;
         }
+        StateUpdate::Effect(update) => {
+            output.push(3);
+            encode_effect(output, *update);
+        }
     }
     Ok(())
 }
@@ -136,6 +141,7 @@ fn decode_event(reader: &mut PayloadReader<'_>) -> Result<StateEvent, DecodeErro
     let update = match reader.read_u8()? {
         1 => StateUpdate::Status(decode_status(reader)?),
         2 => StateUpdate::Location(decode_location(reader)?),
+        3 => StateUpdate::Effect(decode_effect(reader)?),
         actual => return Err(DecodeError::InvalidStateUpdateType { actual }),
     };
     Ok(StateEvent {
@@ -144,6 +150,49 @@ fn decode_event(reader: &mut PayloadReader<'_>) -> Result<StateEvent, DecodeErro
         tick_ms,
         update,
     })
+}
+
+fn encode_effect(output: &mut Vec<u8>, update: EffectUpdate) {
+    match update {
+        EffectUpdate::Added(effect) => {
+            output.push(1);
+            push_u16(output, effect.icon);
+            output.push(effect.duration.raw());
+        }
+        EffectUpdate::Removed { icon } => {
+            output.push(2);
+            push_u16(output, icon);
+        }
+        EffectUpdate::Changed(effect) => {
+            output.push(3);
+            push_u16(output, effect.icon);
+            output.push(effect.duration.raw());
+        }
+    }
+}
+
+fn decode_effect(reader: &mut PayloadReader<'_>) -> Result<EffectUpdate, DecodeError> {
+    let kind = reader.read_u8()?;
+    match kind {
+        1 | 3 => {
+            let icon = reader.read_u16()?;
+            let duration = reader.read_u8()?;
+            let effect = Effect {
+                icon,
+                duration: EffectDuration::from_raw(duration)
+                    .ok_or(DecodeError::InvalidEffectDuration { actual: duration })?,
+            };
+            Ok(if kind == 1 {
+                EffectUpdate::Added(effect)
+            } else {
+                EffectUpdate::Changed(effect)
+            })
+        }
+        2 => Ok(EffectUpdate::Removed {
+            icon: reader.read_u16()?,
+        }),
+        actual => Err(DecodeError::InvalidEffectUpdateType { actual }),
+    }
 }
 
 fn encode_status(output: &mut Vec<u8>, update: StatusUpdate) {

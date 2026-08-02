@@ -30,8 +30,8 @@ planned increment and will add the first low-risk typed client action.
 | M9.1, automatic managed loading | Complete | Opt-in one-shot loading covers existing and later discoveries while preserving explicit unload. |
 | M10, hook qualification harness | Complete | Transactional x86 detours, relocated trampolines, rollback, concurrency, panic containment, and shutdown pass owned native tests. |
 | M11, first client tick hook | Complete | Exact validation, safety hardening, direct health observation, repeated live attach and detach, and normal in-game acceptance pass. |
-| M12, late-attach client snapshot | Complete | Main-thread capture, the full initial character and collection surface, protocol and API presentation, and live-client comparison pass. |
-| M13, event-driven updates | Complete | Bounded status, weight, action-restriction, and atomic location updates, daemon reduction, resynchronization, per-client SSE, and live-client acceptance pass. |
+| M12, late-attach client snapshot | Complete | Main-thread capture, the full initial character, collection, and spell-effect surface, protocol and API presentation, and live-client comparison pass. |
+| M13, event-driven updates | Complete | Bounded status, weight, action-restriction, location, and spell-effect updates, daemon reduction, resynchronization, per-client SSE, and live-client acceptance pass. |
 | M14, main-thread command queue | Complete | Fixed DLL and daemon queues, one command per tick, direct CLI and REST routing, explicit states, and live-client verification pass. |
 
 ## Completed recently
@@ -39,7 +39,7 @@ planned increment and will add the first low-risk typed client action.
 - [x] Added a bounded main-thread state walk with validated roots, pointer
   chains, collection capacities, slots, and world-generation detection.
 - [x] Added scalar character, appearance, action-lock and blinded state, map,
-  inventory, equipment, spellbook, and skillbook models across the DLL,
+  inventory, equipment, spellbook, skillbook, and spell-effect models across the DLL,
   protocol, direct CLI, daemon, REST, and OpenAPI.
 - [x] Added bounded reconnect-dialog detection and a `disconnected` lifecycle
   that preserves valid character state beneath the dialog.
@@ -54,6 +54,8 @@ planned increment and will add the first low-risk typed client action.
   with explicit ready, lag, resynchronization, and close behavior.
 - [x] Added accepted movement updates and a staged map transition that commits
   map metadata with authoritative coordinates atomically.
+- [x] Added active spell-effect capture plus ordered add, remove, and relative
+  duration changes from decoded server events.
 - [x] Added strict command request, response, status, cancellation, timeout,
   queue-full, and unavailable protocol results without changing protocol 1.0.
 - [x] Added a pointer-free 64-slot DLL queue drained at one entry per client

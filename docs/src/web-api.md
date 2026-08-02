@@ -24,6 +24,7 @@ port. The API has no URL version prefix.
 | `GET /clients/{client}/equipment` | Return occupied equipment slots. |
 | `GET /clients/{client}/spellbook` | Return occupied spellbook slots. |
 | `GET /clients/{client}/skillbook` | Return occupied skillbook slots. |
+| `GET /clients/{client}/effects` | Return active spell effects and relative duration bands. |
 | `GET /clients/{client}/events` | Stream ordered changes after a current snapshot boundary. |
 | `POST /clients/{client}/commands/diagnostic` | Submit a no-op command for execution on a client tick. |
 | `GET /clients/{client}/commands/{command_id}` | Read a retained command state. |
@@ -102,6 +103,7 @@ Inventory { observation, items }
 Equipment { observation, items }
 Spellbook { observation, spells }
 Skillbook { observation, skills }
+Effects { observation, effects }
 ```
 
 Every response includes `observation` metadata with the source PID, revision,
@@ -111,11 +113,15 @@ generation. The capture fields describe the last complete memory walk;
 correlate responses with the same revision. Separate HTTP requests can observe
 different revisions when the daemon receives a newer update between requests.
 
-All five routes return `404 Not Found` for an unknown client and `503 Service
+All six routes return `404 Not Found` for an unknown client and `503 Service
 Unavailable` when the target has not produced an observation, including a
 capture failure reason when one is available. A collection field is null when
 the client could not expose that group and an empty array when the group was
 read successfully but contained no occupied slots.
+
+An effect contains an icon and a relative `duration` band. It is not an exact
+remaining time. From longest to shortest, the values are `white`, `red`,
+`orange`, `yellow`, `green`, and `blue`.
 
 Character status contains identity, appearance, progression, attributes,
 vitals, weight, maximum weight, and modifiers. Map state is a separate top-level field in
@@ -222,10 +228,17 @@ resources. Later changes have a common observation containing `pid`,
 - `location.changed`
 - `blind.changed`
 - `action_restriction.changed`
+- `effect_added`
+- `effect_removed`
+- `effect_changed`
 
 Several events may share one sequence and revision when one atomic client
 packet changed several groups. Values are absolute. Consumers replace the
 included fields instead of adding a delta.
+
+Effect events identify the icon. Added and changed events also carry its new
+relative duration band. Removed events carry no duration because the icon is no
+longer active.
 
 `location.changed` always includes absolute x/y. Its optional `map` object is
 present only when the same event atomically changes map identity, name,

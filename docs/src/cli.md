@@ -47,8 +47,8 @@ behavior is:
   and reports installation metadata, both counter values, their wrapping
   difference, and whether the counter advanced.
 - `snapshot` schedules a bounded capture on the client main thread and reports
-  lifecycle, character, map, inventory, equipment, spellbook, and skillbook
-  state plus capture timing and request round-trip time.
+  lifecycle, character, map, inventory, equipment, spellbook, skillbook, and
+  active spell-effect state plus capture timing and request round-trip time.
 - `diagnostic` submits a no-op command to the bounded main-thread queue, waits
   up to one second, and reports its state, queue delay, execution duration, and
   client main-thread ID.

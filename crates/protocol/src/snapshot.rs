@@ -274,6 +274,7 @@ fn decode_character(reader: &mut PayloadReader<'_>) -> Result<CharacterSnapshot,
         equipment: collections.equipment,
         spellbook: collections.spellbook,
         skillbook: collections.skillbook,
+        effects: collections.effects,
     })
 }
 

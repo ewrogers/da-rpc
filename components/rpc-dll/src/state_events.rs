@@ -2,8 +2,9 @@
 
 use darpc_game_client::{RawCharacter, RawModifiers, RawStateSnapshot};
 use darpc_model::{
-    CharacterModifiers, CharacterStats, CoreStatus, CurrentVitals, Element, LocationUpdate,
-    MapChange, ProgressionStatus, StateEvent, StateUpdate, StatusUpdate,
+    CharacterModifiers, CharacterStats, CoreStatus, CurrentVitals, Effect, EffectDuration,
+    EffectUpdate, Element, LocationUpdate, MapChange, ProgressionStatus, StateEvent, StateUpdate,
+    StatusUpdate,
 };
 use darpc_protocol::EventPollResult;
 use std::{
@@ -92,6 +93,15 @@ pub(crate) fn observe_move(x: i32, y: i32, tick_ms: u32) {
     push_event(QueuedStateUpdate::Location(update), tick_ms);
 }
 
+pub(crate) fn observe_effect(icon: u16, duration: Option<EffectDuration>, tick_ms: u32) {
+    // SAFETY: the event hook runs on the client main thread, which is the sole
+    // cache producer.
+    let Some(update) = (unsafe { CACHE.effect(icon, duration) }) else {
+        return;
+    };
+    push_event(QueuedStateUpdate::Effect(update), tick_ms);
+}
+
 fn push_event(update: QueuedStateUpdate, tick_ms: u32) {
     let event = QueuedStateEvent {
         sequence: next_nonzero(&EVENT_SEQUENCE),
@@ -156,6 +166,7 @@ impl QueuedStateEvent {
         let update = match self.update {
             QueuedStateUpdate::Status(update) => StateUpdate::Status(update),
             QueuedStateUpdate::Location(update) => StateUpdate::Location(update.into_model()),
+            QueuedStateUpdate::Effect(update) => StateUpdate::Effect(update),
         };
         StateEvent {
             sequence: self.sequence,
@@ -170,6 +181,7 @@ impl QueuedStateEvent {
 enum QueuedStateUpdate {
     Status(StatusUpdate),
     Location(QueuedLocationUpdate),
+    Effect(EffectUpdate),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -378,6 +390,7 @@ struct StateCache {
     map: Option<CachedMap>,
     position: Option<(i32, i32)>,
     pending_map: Option<QueuedMapChange>,
+    effects: [Option<Effect>; 10],
 }
 
 impl StateCache {
@@ -424,6 +437,15 @@ impl StateCache {
             }),
             position: raw.location.and_then(|location| location.x.zip(location.y)),
             pending_map: None,
+            effects: raw.effects.map_or([None; 10], |effects| {
+                effects.effects.map(|effect| {
+                    effect.map(|effect| Effect {
+                        icon: effect.icon,
+                        duration: EffectDuration::from_raw(effect.duration)
+                            .expect("captured effect duration is valid"),
+                    })
+                })
+            }),
         }
     }
 
@@ -470,6 +492,36 @@ impl StateCache {
         self.position = Some((x, y));
         Some(QueuedLocationUpdate { x, y, map: None })
     }
+
+    fn effect(&mut self, icon: u16, duration: Option<EffectDuration>) -> Option<EffectUpdate> {
+        if let Some(index) = self
+            .effects
+            .iter()
+            .position(|effect| effect.is_some_and(|effect| effect.icon == icon))
+        {
+            return match duration {
+                None => {
+                    self.effects[index] = None;
+                    Some(EffectUpdate::Removed { icon })
+                }
+                Some(duration) => {
+                    let effect = Effect { icon, duration };
+                    if self.effects[index] == Some(effect) {
+                        None
+                    } else {
+                        self.effects[index] = Some(effect);
+                        Some(EffectUpdate::Changed(effect))
+                    }
+                }
+            };
+        }
+
+        let duration = duration?;
+        let slot = self.effects.iter_mut().find(|effect| effect.is_none())?;
+        let effect = Effect { icon, duration };
+        *slot = Some(effect);
+        Some(EffectUpdate::Added(effect))
+    }
 }
 
 fn changed<T: Copy + Eq>(cached: &mut Option<T>, incoming: Option<T>) -> Option<T> {
@@ -511,6 +563,7 @@ impl MainThreadCache {
             map: None,
             position: None,
             pending_map: None,
+            effects: [None; 10],
         }))
     }
 
@@ -542,6 +595,11 @@ impl MainThreadCache {
     unsafe fn move_position(&self, x: i32, y: i32) -> Option<QueuedLocationUpdate> {
         // SAFETY: the caller guarantees exclusive main-thread access.
         unsafe { (&mut *self.0.get()).move_position(x, y) }
+    }
+
+    unsafe fn effect(&self, icon: u16, duration: Option<EffectDuration>) -> Option<EffectUpdate> {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&mut *self.0.get()).effect(icon, duration) }
     }
 }
 
@@ -658,5 +716,40 @@ mod tests {
         let update = cache.user_position(2, 8).unwrap().into_model();
         assert_eq!((update.x, update.y), (2, 8));
         assert_eq!(update.map, None);
+    }
+
+    #[test]
+    fn effects_follow_client_slot_and_delta_rules() {
+        let mut cache = StateCache::default();
+        let white = Effect {
+            icon: 300,
+            duration: EffectDuration::White,
+        };
+        assert_eq!(
+            cache.effect(300, Some(EffectDuration::White)),
+            Some(EffectUpdate::Added(white))
+        );
+        assert_eq!(cache.effect(300, Some(EffectDuration::White)), None);
+        assert_eq!(
+            cache.effect(300, Some(EffectDuration::Red)),
+            Some(EffectUpdate::Changed(Effect {
+                icon: 300,
+                duration: EffectDuration::Red,
+            }))
+        );
+        assert_eq!(
+            cache.effect(300, None),
+            Some(EffectUpdate::Removed { icon: 300 })
+        );
+        assert_eq!(cache.effect(300, None), None);
+    }
+
+    #[test]
+    fn full_effect_slots_ignore_a_new_icon() {
+        let mut cache = StateCache::default();
+        for icon in 1..=10 {
+            assert!(cache.effect(icon, Some(EffectDuration::White)).is_some());
+        }
+        assert_eq!(cache.effect(11, Some(EffectDuration::White)), None);
     }
 }

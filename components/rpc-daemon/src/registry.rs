@@ -414,8 +414,8 @@ mod tests {
     };
     use darpc_model::{
         CharacterClass, CharacterProgression, CharacterSnapshot, CharacterStats, CharacterVitals,
-        ClientLifecycle, ClientSnapshot as GameSnapshot, CurrentVitals, LocationUpdate, MapChange,
-        StateEvent, StateUpdate, StatusUpdate,
+        ClientLifecycle, ClientSnapshot as GameSnapshot, CurrentVitals, Effect, EffectDuration,
+        EffectUpdate, LocationUpdate, MapChange, StateEvent, StateUpdate, StatusUpdate,
     };
     use darpc_protocol::{Architecture, ComponentVersion, Hello, SUPPORTED_VERSIONS};
 
@@ -487,6 +487,7 @@ mod tests {
                 equipment: None,
                 spellbook: None,
                 skillbook: None,
+                effects: Some(Vec::new()),
             }),
         }
     }
@@ -678,6 +679,15 @@ mod tests {
                         }),
                     }),
                 },
+                StateEvent {
+                    sequence: 3,
+                    revision: 4,
+                    tick_ms: 22,
+                    update: StateUpdate::Effect(EffectUpdate::Added(Effect {
+                        icon: 300,
+                        duration: EffectDuration::White,
+                    })),
+                },
             ],
         }));
 
@@ -685,9 +695,9 @@ mod tests {
             .game_snapshot
             .clone()
             .unwrap();
-        assert_eq!(snapshot.revision, 3);
-        assert_eq!(snapshot.event_sequence, 2);
-        assert_eq!(snapshot.updated_tick_ms, 21);
+        assert_eq!(snapshot.revision, 4);
+        assert_eq!(snapshot.event_sequence, 3);
+        assert_eq!(snapshot.updated_tick_ms, 22);
         let character = snapshot.character.unwrap();
         assert_eq!(character.vitals.health, 80);
         assert_eq!(character.gold, 125);
@@ -702,6 +712,13 @@ mod tests {
                 width: 100,
                 height: 80,
             })
+        );
+        assert_eq!(
+            character.effects,
+            Some(vec![Effect {
+                icon: 300,
+                duration: EffectDuration::White,
+            }])
         );
     }
 }

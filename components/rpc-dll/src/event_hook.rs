@@ -300,6 +300,9 @@ extern "C" fn observe_event(event: *const core::ffi::c_void) {
             server_packet::ServerUpdate::Move(position) => {
                 state_events::observe_move(position.x, position.y, tick_ms);
             }
+            server_packet::ServerUpdate::Effect(effect) => {
+                state_events::observe_effect(effect.icon, effect.duration, tick_ms);
+            }
         }
     });
 }

@@ -4,13 +4,14 @@ use crate::{
     message::{PayloadReader, push_bool, push_u16, push_u32},
 };
 use darpc_model::{
-    CharacterSnapshot, CooldownStatus, EquipmentItem, EquipmentSlot, InventoryItem, Skill, Spell,
-    SpellTargetType,
+    CharacterSnapshot, CooldownStatus, Effect, EffectDuration, EquipmentItem, EquipmentSlot,
+    InventoryItem, Skill, Spell, SpellTargetType,
 };
 
 const INVENTORY_SLOT_COUNT: usize = 60;
 const EQUIPMENT_SLOT_COUNT: usize = 18;
 const ABILITY_SLOT_COUNT: usize = 90;
+const EFFECT_SLOT_COUNT: usize = 10;
 const MAX_COLLECTION_NAME_LEN: usize = 127;
 
 pub(super) struct DecodedCollections {
@@ -18,6 +19,7 @@ pub(super) struct DecodedCollections {
     pub(super) equipment: Option<Vec<EquipmentItem>>,
     pub(super) spellbook: Option<Vec<Spell>>,
     pub(super) skillbook: Option<Vec<Skill>>,
+    pub(super) effects: Option<Vec<Effect>>,
 }
 
 pub(super) fn encode(
@@ -28,6 +30,7 @@ pub(super) fn encode(
     encode_equipment(output, character.equipment.as_deref())?;
     encode_spells(output, character.spellbook.as_deref())?;
     encode_skills(output, character.skillbook.as_deref())?;
+    encode_effects(output, character.effects.as_deref())?;
     Ok(())
 }
 
@@ -37,7 +40,45 @@ pub(super) fn decode(reader: &mut PayloadReader<'_>) -> Result<DecodedCollection
         equipment: decode_equipment(reader)?,
         spellbook: decode_spells(reader)?,
         skillbook: decode_skills(reader)?,
+        effects: decode_effects(reader)?,
     })
+}
+
+fn encode_effects(output: &mut Vec<u8>, effects: Option<&[Effect]>) -> Result<(), EncodeError> {
+    let Some(effects) = encode_collection_header(output, effects, EFFECT_SLOT_COUNT)? else {
+        return Ok(());
+    };
+    for (index, effect) in effects.iter().enumerate() {
+        if effects[..index]
+            .iter()
+            .any(|current| current.icon == effect.icon)
+        {
+            return Err(EncodeError::DuplicateEffectIcon { icon: effect.icon });
+        }
+        push_u16(output, effect.icon);
+        output.push(effect.duration.raw());
+    }
+    Ok(())
+}
+
+fn decode_effects(reader: &mut PayloadReader<'_>) -> Result<Option<Vec<Effect>>, DecodeError> {
+    let Some(count) = decode_collection_header(reader, EFFECT_SLOT_COUNT)? else {
+        return Ok(None);
+    };
+    let mut effects = Vec::with_capacity(count);
+    for _ in 0..count {
+        let icon = reader.read_u16()?;
+        if effects.iter().any(|effect: &Effect| effect.icon == icon) {
+            return Err(DecodeError::DuplicateEffectIcon { icon });
+        }
+        let duration = reader.read_u8()?;
+        effects.push(Effect {
+            icon,
+            duration: EffectDuration::from_raw(duration)
+                .ok_or(DecodeError::InvalidEffectDuration { actual: duration })?,
+        });
+    }
+    Ok(Some(effects))
 }
 
 fn encode_inventory(

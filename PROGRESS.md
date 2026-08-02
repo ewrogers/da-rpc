@@ -31,7 +31,7 @@ planned increment and will add the first low-risk typed client action.
 | M10, hook qualification harness | Complete | Transactional x86 detours, relocated trampolines, rollback, concurrency, panic containment, and shutdown pass owned native tests. |
 | M11, first client tick hook | Complete | Exact validation, safety hardening, direct health observation, repeated live attach and detach, and normal in-game acceptance pass. |
 | M12, late-attach client snapshot | Complete | Main-thread capture, the full initial character, collection, spell-effect, and observed world-object surface, protocol and API presentation, and live-client comparison pass. |
-| M13, event-driven updates | Complete | Bounded status, weight, action-restriction, location, spell-effect, and world-object updates, daemon reduction, resynchronization, per-client SSE, and live-client acceptance pass. |
+| M13, event-driven updates | Complete | Bounded status, location, spell-effect, world-object, and typed message updates, daemon reduction and message lookback, resynchronization, per-client SSE, and live-client acceptance pass. |
 | M14, main-thread command queue | Complete | Fixed DLL and daemon queues, one command per tick, direct CLI and REST routing, explicit states, and live-client verification pass. |
 
 ## Completed recently
@@ -63,6 +63,8 @@ planned increment and will add the first low-risk typed client action.
   map metadata with authoritative coordinates atomically.
 - [x] Added active spell-effect capture plus ordered add, remove, and relative
   duration changes from decoded server events.
+- [x] Added typed chat and system message parsing, bounded per-client daemon
+  lookback, REST history, and channel-specific SSE events.
 - [x] Added strict command request, response, status, cancellation, timeout,
   queue-full, and unavailable protocol results without changing protocol 1.0.
 - [x] Added a pointer-free 64-slot DLL queue drained at one entry per client

@@ -127,7 +127,7 @@ After the initial snapshot, daRPC observes selected server events after the game
 client has handled them. The currently supported event families are
 `SStatus`, `SSpelled`, the action-state portion of `SUserAppearance`, `SMove`,
 `SUserPosition`, `SDrawObjects`, `SDrawHumanObjects`, `SMoveObject`,
-`SChangeDirection`, and `SRemoveObjects`.
+`SChangeDirection`, `SRemoveObjects`, `SMessage`, and `SSay`.
 
 Together, these events keep the following values current:
 
@@ -137,6 +137,7 @@ Together, these events keep the following values current:
 - Accepted map coordinates.
 - Active spell effects.
 - Known world-object appearance, removal, movement, and direction.
+- Typed chat and system messages.
 
 The event observer also runs on the game thread, so it performs only bounded
 work. It copies at most 8 KiB from a recognized event into guarded static
@@ -212,6 +213,32 @@ This is an observation, not permanent world truth. An object may leave one
 client's area while another client can still see it. The daemon therefore keeps
 the collection attached to its source client and does not merge it into a
 global entity list.
+
+## Chat and system messages
+
+Chat is an ordered event stream, not part of the complete character snapshot.
+The DLL observes the two server message families and turns their displayed
+format into seven useful types: `say`, `shout`, `whisper`, `guild`, `group`,
+`system`, and `world`.
+
+Formatting that only exists to label the in-game line is removed. For example,
+`Aisling: hello`, `[!Aisling] hello`, and `<!Aisling> hello` retain `Aisling`
+as the sender and `hello` as the text. Whispers also distinguish the other
+participant as a sender or recipient. The local character name fills the other
+side of a whisper when it is available.
+
+Popup, confirmation, score, and spell-chant messages are not retained. They do
+not represent the chat and system history this resource is meant to expose.
+Text is copied into a fixed 256-byte event field on the game thread, then
+decoded into normal strings by the pipe worker. A longer displayed line is
+ignored instead of allocating or truncating it in the hook.
+
+The DLL uses the same fixed 1 MiB update queue as other events and does not keep
+a separate unlimited chat log. The daemon keeps a bounded lookback for each DLL
+instance: at most 4,096 messages and at most 1 MiB of participant and message
+text. It removes the oldest entries first. This lookback survives an ordinary
+pipe reconnect while the daemon and DLL instance remain the same, but it does
+not persist across daemon restarts or DLL reloads.
 
 ## Event queue and recovery
 

@@ -346,6 +346,9 @@ extern "C" fn observe_event(event: *const core::ffi::c_void) {
             packet::ServerUpdate::World(update) => {
                 state_events::observe_world(update, &scratch.objects, tick_ms);
             }
+            packet::ServerUpdate::Message(message) => {
+                state_events::observe_message(message, tick_ms);
+            }
         }
     });
 }

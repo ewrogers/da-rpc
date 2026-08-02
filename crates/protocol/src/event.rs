@@ -4,13 +4,15 @@ use crate::{
     snapshot::{MAX_MAP_NAME_LEN, decode_optional_string, encode_optional_string},
 };
 use darpc_model::{
-    CharacterModifiers, CharacterStats, CoreStatus, CurrentVitals, Effect, EffectDuration,
-    EffectUpdate, Element, LocationUpdate, MapChange, ObjectUpdate, ProgressionStatus, StateEvent,
-    StateUpdate, StatusUpdate,
+    CharacterModifiers, CharacterStats, ClientMessage, CoreStatus, CurrentVitals, Effect,
+    EffectDuration, EffectUpdate, Element, LocationUpdate, MapChange, MessageKind, ObjectUpdate,
+    ProgressionStatus, StateEvent, StateUpdate, StatusUpdate,
 };
 
 pub const MAX_EVENTS_PER_POLL: u16 = 192;
 pub const MAX_EVENT_POLL_WAIT_MS: u16 = 1_000;
+pub const MAX_MESSAGE_NAME_LEN: usize = 15;
+pub const MAX_MESSAGE_TEXT_LEN: usize = 4 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct EventPollRequest {
@@ -134,6 +136,10 @@ fn encode_event(output: &mut Vec<u8>, event: &StateEvent) -> Result<(), EncodeEr
             output.push(4);
             encode_object_update(output, update)?;
         }
+        StateUpdate::Message(message) => {
+            output.push(5);
+            encode_message(output, message)?;
+        }
     }
     Ok(())
 }
@@ -147,6 +153,7 @@ fn decode_event(reader: &mut PayloadReader<'_>) -> Result<StateEvent, DecodeErro
         2 => StateUpdate::Location(decode_location(reader)?),
         3 => StateUpdate::Effect(decode_effect(reader)?),
         4 => StateUpdate::Object(decode_object_update(reader)?),
+        5 => StateUpdate::Message(decode_message(reader)?),
         actual => return Err(DecodeError::InvalidStateUpdateType { actual }),
     };
     Ok(StateEvent {
@@ -155,6 +162,85 @@ fn decode_event(reader: &mut PayloadReader<'_>) -> Result<StateEvent, DecodeErro
         tick_ms,
         update,
     })
+}
+
+fn encode_message(output: &mut Vec<u8>, message: &ClientMessage) -> Result<(), EncodeError> {
+    output.push(match message.kind {
+        MessageKind::Say => 1,
+        MessageKind::Shout => 2,
+        MessageKind::Whisper => 3,
+        MessageKind::Guild => 4,
+        MessageKind::Group => 5,
+        MessageKind::System => 6,
+        MessageKind::World => 7,
+    });
+    encode_optional_message_name(output, message.sender.as_deref())?;
+    encode_optional_message_name(output, message.recipient.as_deref())?;
+    encode_event_string(output, &message.text, MAX_MESSAGE_TEXT_LEN)
+}
+
+fn decode_message(reader: &mut PayloadReader<'_>) -> Result<ClientMessage, DecodeError> {
+    let kind = match reader.read_u8()? {
+        1 => MessageKind::Say,
+        2 => MessageKind::Shout,
+        3 => MessageKind::Whisper,
+        4 => MessageKind::Guild,
+        5 => MessageKind::Group,
+        6 => MessageKind::System,
+        7 => MessageKind::World,
+        actual => return Err(DecodeError::InvalidMessageKind { actual }),
+    };
+    Ok(ClientMessage {
+        kind,
+        sender: decode_optional_message_name(reader)?,
+        recipient: decode_optional_message_name(reader)?,
+        text: decode_event_string(reader, MAX_MESSAGE_TEXT_LEN)?,
+    })
+}
+
+fn encode_optional_message_name(
+    output: &mut Vec<u8>,
+    value: Option<&str>,
+) -> Result<(), EncodeError> {
+    push_bool(output, value.is_some());
+    if let Some(value) = value {
+        encode_event_string(output, value, MAX_MESSAGE_NAME_LEN)?;
+    }
+    Ok(())
+}
+
+fn decode_optional_message_name(
+    reader: &mut PayloadReader<'_>,
+) -> Result<Option<String>, DecodeError> {
+    reader
+        .read_bool()?
+        .then(|| decode_event_string(reader, MAX_MESSAGE_NAME_LEN))
+        .transpose()
+}
+
+fn encode_event_string(output: &mut Vec<u8>, value: &str, max: usize) -> Result<(), EncodeError> {
+    let bytes = value.as_bytes();
+    if bytes.len() > max {
+        return Err(EncodeError::EventStringTooLong {
+            length: bytes.len(),
+            max,
+        });
+    }
+    let length = u16::try_from(bytes.len()).map_err(|_| EncodeError::LengthOverflow)?;
+    push_u16(output, length);
+    output.extend_from_slice(bytes);
+    Ok(())
+}
+
+fn decode_event_string(reader: &mut PayloadReader<'_>, max: usize) -> Result<String, DecodeError> {
+    let length = usize::from(reader.read_u16()?);
+    if length > max {
+        return Err(DecodeError::EventStringTooLong { length, max });
+    }
+    let bytes = reader.take(length)?;
+    std::str::from_utf8(bytes)
+        .map(str::to_owned)
+        .map_err(|_| DecodeError::InvalidUtf8)
 }
 
 fn encode_object_update(output: &mut Vec<u8>, update: &ObjectUpdate) -> Result<(), EncodeError> {

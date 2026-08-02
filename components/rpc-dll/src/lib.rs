@@ -17,6 +17,8 @@ mod map_name;
 #[cfg(windows)]
 mod map_size_hook;
 #[cfg(any(windows, test))]
+mod message_packet;
+#[cfg(any(windows, test))]
 mod packet;
 #[cfg(windows)]
 mod snapshot;

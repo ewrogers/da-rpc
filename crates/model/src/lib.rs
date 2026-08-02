@@ -1,6 +1,7 @@
 //! Shared domain model for daRPC.
 
 mod event;
+mod message;
 mod object;
 mod snapshot;
 
@@ -8,6 +9,8 @@ pub use event::{
     ApplyEventError, CoreStatus, CurrentVitals, EffectUpdate, LocationUpdate, MapChange,
     ProgressionStatus, StateEvent, StateUpdate, StatusUpdate,
 };
+
+pub use message::{ClientMessage, MessageKind};
 
 pub use object::{CreatureKind, Direction, ObjectUpdate, WorldObject};
 

@@ -1,14 +1,15 @@
 #![cfg_attr(not(windows), allow(dead_code))]
 
 use crate::{
+    message_packet::{ParsedMessage, Participant},
     world::{ObjectCache, QueuedObjectUpdate},
     world_packet::WorldUpdate,
 };
 use darpc_game_client::{RawCharacter, RawModifiers, RawObjects, RawStateSnapshot, RawWorldObject};
 use darpc_model::{
-    CharacterModifiers, CharacterStats, CoreStatus, CurrentVitals, Effect, EffectDuration,
-    EffectUpdate, Element, LocationUpdate, MapChange, ProgressionStatus, StateEvent, StateUpdate,
-    StatusUpdate,
+    CharacterModifiers, CharacterStats, ClientMessage, CoreStatus, CurrentVitals, Effect,
+    EffectDuration, EffectUpdate, Element, LocationUpdate, MapChange, MessageKind,
+    ProgressionStatus, StateEvent, StateUpdate, StatusUpdate,
 };
 use darpc_protocol::EventPollResult;
 use std::{
@@ -21,6 +22,8 @@ use std::{
 
 pub(crate) const EVENT_QUEUE_BYTES: usize = 1024 * 1024;
 const MAX_EVENT_MAP_NAME_BYTES: usize = u8::MAX as usize;
+const MAX_EVENT_MESSAGE_NAME_BYTES: usize = 15;
+const MAX_EVENT_MESSAGE_TEXT_BYTES: usize = 256;
 const EVENT_QUEUE_CAPACITY: usize = EVENT_QUEUE_BYTES / size_of::<QueuedStateEvent>();
 const POLL_INTERVAL: Duration = Duration::from_millis(2);
 
@@ -162,6 +165,29 @@ pub(crate) fn observe_world(update: WorldUpdate, objects: &RawObjects, tick_ms: 
     }
 }
 
+pub(crate) fn observe_message(message: ParsedMessage<'_>, tick_ms: u32) {
+    let sender = participant(message.sender, message.sender_id);
+    let recipient = participant(message.recipient, None);
+    let Some(message) = QueuedMessage::new(message.kind, sender, recipient, message.text) else {
+        return;
+    };
+    push_event(QueuedStateUpdate::Message(message), tick_ms);
+}
+
+fn participant(
+    participant: Participant<'_>,
+    fallback_id: Option<u32>,
+) -> Option<QueuedClientText<MAX_EVENT_MESSAGE_NAME_BYTES>> {
+    match participant {
+        Participant::Named(name) => QueuedClientText::new(name),
+        Participant::SelfPlayer => unsafe { CACHE.self_name() }
+            .and_then(|(name, length)| QueuedClientText::new(&name[..usize::from(length)])),
+        Participant::None => fallback_id
+            .and_then(|id| unsafe { OBJECTS.name(id) })
+            .and_then(|(name, length)| QueuedClientText::new(&name[..usize::from(length)])),
+    }
+}
+
 fn observe_self_position(x: i32, y: i32, tick_ms: u32) {
     let self_id = unsafe { CACHE.self_id() };
     if let Some(update) = unsafe { OBJECTS.move_self(self_id, x, y) } {
@@ -238,6 +264,7 @@ impl QueuedStateEvent {
             QueuedStateUpdate::Location(update) => StateUpdate::Location(update.into_model()),
             QueuedStateUpdate::Effect(update) => StateUpdate::Effect(update),
             QueuedStateUpdate::Object(update) => StateUpdate::Object(update.into_model()),
+            QueuedStateUpdate::Message(update) => StateUpdate::Message(update.into_model()),
         };
         StateEvent {
             sequence: self.sequence,
@@ -254,6 +281,74 @@ enum QueuedStateUpdate {
     Location(QueuedLocationUpdate),
     Effect(EffectUpdate),
     Object(QueuedObjectUpdate),
+    Message(QueuedMessage),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct QueuedMessage {
+    kind: MessageKind,
+    sender: Option<QueuedClientText<MAX_EVENT_MESSAGE_NAME_BYTES>>,
+    recipient: Option<QueuedClientText<MAX_EVENT_MESSAGE_NAME_BYTES>>,
+    text: QueuedClientText<MAX_EVENT_MESSAGE_TEXT_BYTES>,
+}
+
+impl QueuedMessage {
+    fn new(
+        kind: MessageKind,
+        sender: Option<QueuedClientText<MAX_EVENT_MESSAGE_NAME_BYTES>>,
+        recipient: Option<QueuedClientText<MAX_EVENT_MESSAGE_NAME_BYTES>>,
+        text: &[u8],
+    ) -> Option<Self> {
+        Some(Self {
+            kind,
+            sender,
+            recipient,
+            text: QueuedClientText::new(text)?,
+        })
+    }
+
+    fn into_model(self) -> ClientMessage {
+        ClientMessage {
+            kind: self.kind,
+            sender: self.sender.and_then(QueuedClientText::decode),
+            recipient: self.recipient.and_then(QueuedClientText::decode),
+            text: self.text.decode().unwrap_or_default(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct QueuedClientText<const N: usize> {
+    length: u16,
+    bytes: [u8; N],
+}
+
+impl<const N: usize> QueuedClientText<N> {
+    fn new(text: &[u8]) -> Option<Self> {
+        if text.is_empty() || text.len() > N {
+            return None;
+        }
+        let mut bytes = [0; N];
+        bytes[..text.len()].copy_from_slice(text);
+        Some(Self {
+            length: u16::try_from(text.len()).expect("queued client text length fits u16"),
+            bytes,
+        })
+    }
+
+    fn decode(self) -> Option<String> {
+        decode_client_text(&self.bytes[..usize::from(self.length)])
+    }
+}
+
+#[cfg(windows)]
+fn decode_client_text(bytes: &[u8]) -> Option<String> {
+    crate::client_text::decode(bytes)
+}
+
+#[cfg(not(windows))]
+fn decode_client_text(bytes: &[u8]) -> Option<String> {
+    (!bytes.is_empty()).then(|| String::from_utf8_lossy(bytes).into_owned())
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -453,6 +548,8 @@ impl<const N: usize> EventQueue<N> {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 struct StateCache {
     self_id: Option<u32>,
+    self_name: [u8; 16],
+    self_name_len: u8,
     core: Option<CoreStatus>,
     vitals: Option<CurrentVitals>,
     progression: Option<ProgressionStatus>,
@@ -478,6 +575,8 @@ impl StateCache {
     fn from_character(raw: &RawCharacter) -> Self {
         Self {
             self_id: raw.id,
+            self_name: raw.name,
+            self_name_len: raw.name_len,
             core: Some(CoreStatus {
                 level: raw.level,
                 ability_level: raw.ability_level,
@@ -632,6 +731,8 @@ impl MainThreadCache {
     const fn new() -> Self {
         Self(UnsafeCell::new(StateCache {
             self_id: None,
+            self_name: [0; 16],
+            self_name_len: 0,
             core: None,
             vitals: None,
             progression: None,
@@ -654,6 +755,12 @@ impl MainThreadCache {
     unsafe fn self_id(&self) -> Option<u32> {
         // SAFETY: the caller guarantees exclusive main-thread access.
         unsafe { (&*self.0.get()).self_id }
+    }
+
+    unsafe fn self_name(&self) -> Option<([u8; 16], u8)> {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        let cache = unsafe { &*self.0.get() };
+        (cache.self_name_len != 0).then_some((cache.self_name, cache.self_name_len))
     }
 
     unsafe fn filter_status(&self, update: StatusUpdate) -> StatusUpdate {
@@ -701,6 +808,11 @@ impl MainThreadObjects {
     unsafe fn replace(&self, objects: &RawObjects) {
         // SAFETY: the caller guarantees exclusive main-thread access.
         unsafe { (&mut *self.0.get()).replace(objects) };
+    }
+
+    unsafe fn name(&self, id: u32) -> Option<([u8; darpc_game_client::MAX_OBJECT_NAME_BYTES], u8)> {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&*self.0.get()).name(id) }
     }
 
     unsafe fn draw(&self, object: RawWorldObject) -> Option<QueuedObjectUpdate> {

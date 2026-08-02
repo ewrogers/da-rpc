@@ -48,6 +48,18 @@ impl ObjectCache {
         }
     }
 
+    pub(crate) fn name(&self, id: u32) -> Option<([u8; MAX_OBJECT_NAME_BYTES], u8)> {
+        match self.entries[self.find(id)?]? {
+            RawWorldObject::Player { name, name_len, .. }
+            | RawWorldObject::Creature { name, name_len, .. }
+                if name_len != 0 =>
+            {
+                Some((name, name_len))
+            }
+            _ => None,
+        }
+    }
+
     pub(crate) fn upsert(&mut self, mut object: RawWorldObject) -> Option<QueuedObjectUpdate> {
         if let Some(index) = self.find(object_id(object)) {
             let current = self.entries[index].expect("located object entry is populated");

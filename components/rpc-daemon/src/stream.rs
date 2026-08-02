@@ -1,4 +1,5 @@
 use crate::{
+    messages::Message,
     registry::{ClientIdentity, hex},
     snapshot::{EffectDuration, Element, WorldObject},
 };
@@ -119,6 +120,7 @@ pub(crate) enum ClientEvent {
     ItemDisappeared(ObjectChanged),
     ItemMoved(ObjectChanged),
     ObjectsCleared(ObjectsCleared),
+    Message(Message),
     StreamResyncRequired(StreamResyncRequired),
     StreamClosed(StreamClosed),
 }
@@ -155,6 +157,7 @@ impl ClientEvent {
             Self::ItemDisappeared(_) => "item_disappeared",
             Self::ItemMoved(_) => "item_moved",
             Self::ObjectsCleared(_) => "objects_cleared",
+            Self::Message(message) => message.event_name(),
             Self::StreamResyncRequired(_) => "stream.resync_required",
             Self::StreamClosed(_) => "stream.closed",
         }
@@ -191,6 +194,7 @@ impl ClientEvent {
             | Self::ItemDisappeared(value)
             | Self::ItemMoved(value) => value.observation.event_sequence,
             Self::ObjectsCleared(value) => value.observation.event_sequence,
+            Self::Message(message) => message.sequence(),
             Self::StreamResyncRequired(value) => value.last_event_sequence,
             Self::StreamClosed(value) => value.last_event_sequence,
         }
@@ -243,7 +247,7 @@ pub(crate) struct EventObservation {
 }
 
 impl EventObservation {
-    fn new(pid: u32, identity: ClientIdentity, event: &StateEvent) -> Self {
+    pub(crate) fn new(pid: u32, identity: ClientIdentity, event: &StateEvent) -> Self {
         Self {
             pid,
             instance_id: hex(&identity.dll_instance_id),
@@ -251,6 +255,10 @@ impl EventObservation {
             event_sequence: event.sequence,
             tick_ms: event.tick_ms,
         }
+    }
+
+    pub(crate) const fn sequence(&self) -> u32 {
+        self.event_sequence
     }
 }
 
@@ -492,6 +500,10 @@ fn expand(pid: u32, identity: ClientIdentity, event: StateEvent) -> Vec<ClientEv
             }
             return events;
         }
+        StateUpdate::Message(message) => {
+            events.push(ClientEvent::Message(Message::new(observation, message)));
+            return events;
+        }
     };
     if let Some(core) = update.core {
         events.push(ClientEvent::StatsChanged(StatsChanged {
@@ -658,8 +670,8 @@ fn sequence_after(candidate: u32, baseline: u32) -> bool {
 mod tests {
     use super::*;
     use darpc_model::{
-        CharacterStats, CoreStatus, CurrentVitals, Effect, EffectDuration, EffectUpdate,
-        LocationUpdate, MapChange, StateUpdate, StatusUpdate,
+        CharacterStats, ClientMessage, CoreStatus, CurrentVitals, Effect, EffectDuration,
+        EffectUpdate, LocationUpdate, MapChange, MessageKind, StateUpdate, StatusUpdate,
     };
 
     #[test]
@@ -881,6 +893,42 @@ mod tests {
                     revision: sequence,
                     tick_ms: sequence,
                     update: StateUpdate::Object(update),
+                },
+            );
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].name(), expected);
+        }
+    }
+
+    #[test]
+    fn message_types_have_distinct_public_event_names() {
+        let identity = ClientIdentity {
+            pid: 42,
+            process_creation_time: 100,
+            dll_instance_id: [1; 16],
+        };
+        for (sequence, kind, expected) in [
+            (1, MessageKind::Say, "message.say"),
+            (2, MessageKind::Shout, "message.shout"),
+            (3, MessageKind::Whisper, "message.whisper"),
+            (4, MessageKind::Guild, "message.guild"),
+            (5, MessageKind::Group, "message.group"),
+            (6, MessageKind::System, "message.system"),
+            (7, MessageKind::World, "message.world"),
+        ] {
+            let events = expand(
+                42,
+                identity,
+                StateEvent {
+                    sequence,
+                    revision: sequence,
+                    tick_ms: sequence,
+                    update: StateUpdate::Message(ClientMessage {
+                        kind,
+                        sender: None,
+                        recipient: None,
+                        text: "hello".into(),
+                    }),
                 },
             );
             assert_eq!(events.len(), 1);

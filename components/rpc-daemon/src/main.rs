@@ -15,6 +15,8 @@ mod event;
 #[cfg(any(windows, test))]
 mod lifecycle;
 #[cfg(any(windows, test))]
+mod messages;
+#[cfg(any(windows, test))]
 mod registry;
 #[cfg(any(windows, test))]
 mod snapshot;

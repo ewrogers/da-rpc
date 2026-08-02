@@ -413,6 +413,24 @@ enum StateUpdate: u8 {
     Location(LocationUpdate) = 2,
     Effect(EffectUpdate) = 3,
     Object(ObjectUpdate) = 4,
+    Message(ClientMessage) = 5,
+}
+
+enum MessageKind: u8 {
+    Say = 1,
+    Shout = 2,
+    Whisper = 3,
+    Guild = 4,
+    Group = 5,
+    System = 6,
+    World = 7,
+}
+
+struct ClientMessage {
+    kind: MessageKind;
+    sender: Option<String>;     // presence byte, then bounded u16 UTF-8 string
+    recipient: Option<String>;  // presence byte, then bounded u16 UTF-8 string
+    text: String;               // bounded u16 UTF-8 string
 }
 
 enum EffectUpdate: u8 {
@@ -462,6 +480,12 @@ struct MapChange {
     height: i32;
 }
 ```
+
+Message participant names are limited to 15 UTF-8 bytes and message text is
+limited to 4 KiB at the protocol boundary. The DLL's observed game messages are
+smaller still: the game-thread event queue reserves a fixed 256-byte text field
+and ignores a longer displayed line. Invalid UTF-8, unknown message kinds, and
+oversized fields reject the containing frame.
 
 Every included group is an absolute replacement value, not a delta. One
 decoded server packet produces one atomic `StateEvent`. The public Server-Sent

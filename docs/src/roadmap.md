@@ -612,6 +612,8 @@ Build:
   server events.
 - Track world-object draw, removal, movement, direction, view retirement, and
   atomic map clears from decoded server events.
+- Normalize typed chat and system messages and retain a bounded per-client
+  daemon lookback.
 
 See:
 
@@ -628,6 +630,8 @@ Done:
   shareable map and entity updates can represent freshness explicitly.
 - Status, weight, accepted map position, active spell effects, and observed
   world objects converge with a fresh snapshot.
+- Chat and system messages retain ordering, source identity, channel type, and
+  resolved participants without blocking the client.
 
 ## Phase 6: add control one safe action at a time
 

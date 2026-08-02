@@ -13,6 +13,7 @@ pub enum EncodeError {
     DuplicateEffectIcon { icon: u16 },
     DuplicateWorldObjectId { id: u32 },
     EventBatchTooLong { length: usize, max: usize },
+    EventStringTooLong { length: usize, max: usize },
     InvalidCommandId,
     InvalidCommandTimeout { actual: u16, max: u16 },
     InvalidCommandWait { actual: u16, max: u16 },
@@ -62,6 +63,10 @@ impl fmt::Display for EncodeError {
                     "event batch has {length} entries; maximum is {max}"
                 )
             }
+            Self::EventStringTooLong { length, max } => write!(
+                formatter,
+                "state-event string is {length} bytes; maximum is {max}"
+            ),
             Self::InvalidCommandId => formatter.write_str("command ID must be nonzero"),
             Self::InvalidCommandTimeout { actual, max } => write!(
                 formatter,
@@ -175,6 +180,9 @@ pub enum DecodeError {
     InvalidObjectUpdateType {
         actual: u8,
     },
+    InvalidMessageKind {
+        actual: u8,
+    },
     InvalidSnapshotStatus {
         actual: u8,
     },
@@ -182,6 +190,10 @@ pub enum DecodeError {
         actual: u8,
     },
     EventBatchTooLong {
+        length: usize,
+        max: usize,
+    },
+    EventStringTooLong {
         length: usize,
         max: usize,
     },
@@ -327,6 +339,9 @@ impl fmt::Display for DecodeError {
             Self::InvalidObjectUpdateType { actual } => {
                 write!(formatter, "invalid world object update type {actual}")
             }
+            Self::InvalidMessageKind { actual } => {
+                write!(formatter, "invalid client message kind {actual}")
+            }
             Self::InvalidSnapshotStatus { actual } => {
                 write!(formatter, "invalid snapshot status {actual}")
             }
@@ -339,6 +354,10 @@ impl fmt::Display for DecodeError {
                     "event batch has {length} entries; maximum is {max}"
                 )
             }
+            Self::EventStringTooLong { length, max } => write!(
+                formatter,
+                "state-event string is {length} bytes; maximum is {max}"
+            ),
             Self::InvalidEventPollStatus { actual } => {
                 write!(formatter, "invalid event poll status {actual}")
             }

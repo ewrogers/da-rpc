@@ -1,10 +1,10 @@
 use darpc_model::{
     CharacterAppearance, CharacterClass, CharacterModifiers, CharacterProgression,
-    CharacterSnapshot, CharacterStats, CharacterVitals, ClientLifecycle, ClientSnapshot,
-    CooldownStatus, CoreStatus, CreatureKind, CurrentVitals, Direction, Effect, EffectDuration,
-    EffectUpdate, Element, EquipmentItem, EquipmentSlot, Gender, InventoryItem, LocationUpdate,
-    MapChange, MapLocation, ObjectUpdate, ProgressionStatus, Skill, Spell, SpellTargetType,
-    StateEvent, StateUpdate, StatusUpdate, WorldObject,
+    CharacterSnapshot, CharacterStats, CharacterVitals, ClientLifecycle, ClientMessage,
+    ClientSnapshot, CooldownStatus, CoreStatus, CreatureKind, CurrentVitals, Direction, Effect,
+    EffectDuration, EffectUpdate, Element, EquipmentItem, EquipmentSlot, Gender, InventoryItem,
+    LocationUpdate, MapChange, MapLocation, MessageKind, ObjectUpdate, ProgressionStatus, Skill,
+    Spell, SpellTargetType, StateEvent, StateUpdate, StatusUpdate, WorldObject,
 };
 use darpc_protocol::{
     Architecture, CommandFailure, CommandKind, CommandOperation, CommandRequest, CommandResponse,
@@ -336,6 +336,17 @@ fn every_message_round_trips() {
                         y: 30,
                         direction: Direction::East,
                     })),
+                },
+                StateEvent {
+                    sequence: 47,
+                    revision: 16,
+                    tick_ms: 129,
+                    update: StateUpdate::Message(ClientMessage {
+                        kind: MessageKind::Whisper,
+                        sender: Some("Eidolon".into()),
+                        recipient: Some("Monitor".into()),
+                        text: "hello".into(),
+                    }),
                 },
             ]),
         }),
@@ -816,5 +827,28 @@ fn echo_requires_bounded_utf8() {
     assert!(matches!(
         decode_frame(&oversized),
         Err(DecodeError::EchoTooLong { .. })
+    ));
+}
+
+#[test]
+fn event_messages_require_bounded_utf8_fields() {
+    let message = Message::EventPollResponse(EventPollResponse {
+        request_id: 1,
+        result: EventPollResult::Events(vec![StateEvent {
+            sequence: 1,
+            revision: 1,
+            tick_ms: 1,
+            update: StateUpdate::Message(ClientMessage {
+                kind: MessageKind::System,
+                sender: None,
+                recipient: None,
+                text: "x".repeat(4 * 1024 + 1),
+            }),
+        }]),
+    });
+
+    assert!(matches!(
+        encode_frame(&Frame::new(0, 0, message)),
+        Err(EncodeError::EventStringTooLong { .. })
     ));
 }

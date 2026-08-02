@@ -12,12 +12,13 @@ const MOVE_OPCODE: u8 = 0x0B;
 const SPELLED_OPCODE: u8 = 0x3A;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum ServerUpdate {
+pub(crate) enum ServerUpdate<'a> {
     Status(StatusUpdate),
     UserPosition(Position),
     Move(Position),
     Effect(SpelledUpdate),
     World(crate::world_packet::WorldUpdate),
+    Message(crate::message_packet::ParsedMessage<'a>),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -32,10 +33,13 @@ pub(crate) struct SpelledUpdate {
     pub(crate) duration: Option<EffectDuration>,
 }
 
-pub(crate) fn update(
-    body: &[u8],
+pub(crate) fn update<'a>(
+    body: &'a [u8],
     objects: &mut RawObjects,
-) -> Result<Option<ServerUpdate>, ParseError> {
+) -> Result<Option<ServerUpdate<'a>>, ParseError> {
+    if let Some(update) = crate::message_packet::update(body)? {
+        return Ok(Some(ServerUpdate::Message(update)));
+    }
     if let Some(update) = crate::world_packet::update(body, objects)? {
         return Ok(Some(ServerUpdate::World(update)));
     }
@@ -337,7 +341,7 @@ mod tests {
         assert!(std::mem::size_of::<ServerUpdate>() <= 512);
     }
 
-    fn update(body: &[u8]) -> Result<Option<ServerUpdate>, ParseError> {
+    fn update(body: &[u8]) -> Result<Option<ServerUpdate<'_>>, ParseError> {
         let mut objects = RawObjects::empty();
         super::update(body, &mut objects)
     }

@@ -1,5 +1,6 @@
 use crate::{
-    CharacterModifiers, CharacterStats, ClientSnapshot, Effect, MapLocation, ObjectUpdate,
+    CharacterModifiers, CharacterStats, ClientMessage, ClientSnapshot, Effect, MapLocation,
+    ObjectUpdate,
 };
 use std::{error::Error, fmt};
 
@@ -17,6 +18,7 @@ pub enum StateUpdate {
     Location(LocationUpdate),
     Effect(EffectUpdate),
     Object(ObjectUpdate),
+    Message(ClientMessage),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -242,6 +244,7 @@ impl ClientSnapshot {
                 }
                 objects.sort_unstable_by_key(WorldObjectSortKey::of);
             }
+            StateUpdate::Message(_) => {}
         }
         self.revision = event.revision;
         self.event_sequence = event.sequence;

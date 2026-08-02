@@ -26,6 +26,7 @@ port. The API has no URL version prefix.
 | `GET /clients/{client}/skillbook` | Return occupied skillbook slots. |
 | `GET /clients/{client}/effects` | Return active spell effects and relative duration bands. |
 | `GET /clients/{client}/objects` | Return world objects currently observed by this client. |
+| `GET /clients/{client}/messages` | Return the bounded recent chat and system message history. |
 | `GET /clients/{client}/events` | Stream ordered changes after a current snapshot boundary. |
 | `POST /clients/{client}/commands/diagnostic` | Submit a no-op command for execution on a client tick. |
 | `GET /clients/{client}/commands/{command_id}` | Read a retained command state. |
@@ -106,6 +107,8 @@ Spellbook { observation, spells }
 Skillbook { observation, skills }
 Effects { observation, effects }
 WorldObjects { observation, objects }
+Messages { messages: Message[] }
+Message { observation, type, sender?, recipient?, text }
 ```
 
 Every response includes `observation` metadata with the source PID, revision,
@@ -123,7 +126,7 @@ information. Items include position, sprite, and a per-tile `z_index`, where
 zero is the bottom item. This resource is one client's observation rather than
 a permanent or merged world list.
 
-All six routes return `404 Not Found` for an unknown client and `503 Service
+State resource routes return `404 Not Found` for an unknown client and `503 Service
 Unavailable` when the target has not produced an observation, including a
 capture failure reason when one is available. A collection field is null when
 the client could not expose that group and an empty array when the group was
@@ -132,6 +135,21 @@ read successfully but contained no occupied slots.
 An effect contains an icon and a relative `duration` band. It is not an exact
 remaining time. From longest to shortest, the values are `white`, `red`,
 `orange`, `yellow`, `green`, and `blue`.
+
+The message `type` is one of `say`, `shout`, `whisper`, `guild`, `group`,
+`system`, or `world`. Sender and recipient are omitted when that participant is
+not meaningful or could not be resolved. The text excludes the channel and
+participant punctuation shown by the game. Each message carries the event
+observation from its source client.
+
+The daemon retains at most 4,096 messages and 1 MiB of message text per DLL
+instance, removing the oldest first. An empty array means no retained messages
+have been observed. The history is memory-only and is cleared by a daemon
+restart or a new DLL instance.
+
+Message history can include private whispers. daRPC does not write message text
+to its normal logs, but any local consumer with access to the loopback API can
+read the retained history. Run only consumers you trust.
 
 Character status contains identity, appearance, progression, attributes,
 vitals, weight, maximum weight, and modifiers. Map state is a separate top-level field in
@@ -282,6 +300,13 @@ are:
 | `item_disappeared` | `item_disappeared` | `object` |
 | `item_moved` | `item_moved` | Updated `object` |
 | `objects_cleared` | `objects_cleared` | Observation only |
+| `message.say` | `message` | `type: "say"`, optional sender and recipient, and `text` |
+| `message.shout` | `message` | `type: "shout"`, optional sender and recipient, and `text` |
+| `message.whisper` | `message` | `type: "whisper"`, optional sender and recipient, and `text` |
+| `message.guild` | `message` | `type: "guild"`, optional sender and recipient, and `text` |
+| `message.group` | `message` | `type: "group"`, optional sender and recipient, and `text` |
+| `message.system` | `message` | `type: "system"`, optional sender and recipient, and `text` |
+| `message.world` | `message` | `type: "world"`, optional sender and recipient, and `text` |
 | `stream.resync_required` | `stream_resync_required` | `pid`, `instance_id`, `last_event_sequence`, `dropped_events` |
 | `stream.closed` | `stream_closed` | `pid`, `instance_id`, `last_event_sequence`, `reason` |
 
@@ -296,6 +321,11 @@ longer active.
 Object events carry the complete public object after the change rather than a
 coordinate or direction delta. Disappearance carries the last retained object.
 `objects_cleared` marks an atomic map or world boundary and carries no object.
+
+Message events share the `message` JSON envelope and use the nested `data.type`
+field for the channel. Their distinct transport names let a browser listen to
+only the channels it needs. The same normalized record is appended to the REST
+message lookback before it is broadcast.
 
 ```text
 id: 40
@@ -317,8 +347,9 @@ events.addEventListener("effect_added", (event) => {
 present only when the same event atomically changes map identity, name,
 dimensions, and position.
 
-There is no replay of events created before subscription. A reconnect receives
-a new `stream.ready` boundary and should read the desired REST resources. The
+There is no SSE replay of events created before subscription. A reconnect
+receives a new `stream.ready` boundary and should read the desired REST
+resources, including `/messages` when recent conversation context matters. The
 daemon retains 4,096 broadcast entries. If a subscriber falls behind, it
 receives `stream.resync_required` with its last delivered sequence and the
 dropped count, then the connection closes. A process disconnect emits

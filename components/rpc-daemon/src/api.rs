@@ -5,6 +5,7 @@ use crate::{
         LaunchOptions as ManagedLaunchOptions, LifecycleControl, LifecycleOperation,
         LifecycleOutcome, ManagementError, ServerEndpoint as ManagedServerEndpoint,
     },
+    messages::{Message, MessageStore, MessageType, Messages},
     registry::{
         ClientIdentity as RegistryClientIdentity, ClientSnapshot as RegistryClientSnapshot,
         ClientSnapshotStatus, ConnectionEvent, RegistrySnapshot, architecture, hex,
@@ -56,6 +57,7 @@ pub(crate) struct ApiState {
     events: Sender<DaemonEvent>,
     commands: SyncSender<CommandCall>,
     published_events: broadcast::Sender<PublishedEvent>,
+    messages: Arc<RwLock<MessageStore>>,
 }
 
 impl ApiState {
@@ -74,6 +76,7 @@ impl ApiState {
             events,
             commands,
             published_events,
+            messages: Arc::new(RwLock::new(MessageStore::default())),
         }
     }
 
@@ -84,6 +87,10 @@ impl ApiState {
     }
 
     pub(crate) fn publish(&self, snapshot: RegistrySnapshot) {
+        self.messages
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .retain(&snapshot);
         let mut current = self
             .snapshot
             .write()
@@ -93,6 +100,10 @@ impl ApiState {
 
     #[cfg_attr(not(windows), allow(dead_code))]
     pub(crate) fn publish_connection_event(&self, event: &ConnectionEvent) {
+        self.messages
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .observe(event);
         match event {
             ConnectionEvent::StateEvents {
                 pid,
@@ -129,6 +140,13 @@ impl ApiState {
 
     fn subscribe(&self) -> broadcast::Receiver<PublishedEvent> {
         self.published_events.subscribe()
+    }
+
+    fn messages(&self, identity: RegistryClientIdentity) -> Messages {
+        self.messages
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .get(identity)
     }
 
     pub(crate) fn snapshot(&self) -> Arc<RegistrySnapshot> {
@@ -223,6 +241,7 @@ fn router(state: ApiState) -> Router {
         .route("/clients/{client}/skillbook", get(client_skillbook))
         .route("/clients/{client}/effects", get(client_effects))
         .route("/clients/{client}/objects", get(client_objects))
+        .route("/clients/{client}/messages", get(client_messages))
         .route("/clients/{client}/events", get(client_events))
         .route(
             "/clients/{client}/commands/diagnostic",
@@ -453,6 +472,34 @@ async fn client_objects(
     let registry = state.snapshot();
     let (pid, snapshot) = resolve_game_snapshot(&registry, &identifier)?;
     Ok(Json(WorldObjects::from_model(pid, snapshot)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/clients/{client}/messages",
+    params(("client" = String, Path, description = "Process ID or current in-game character name")),
+    responses(
+        (status = 200, description = "Recent typed chat and system messages observed for this DLL instance", body = Messages),
+        (status = 400, description = "The process identifier was invalid", body = ErrorState),
+        (status = 404, description = "The process is not a discovered or configured client", body = ErrorState),
+        (status = 503, description = "No DLL identity has been observed for this client", body = ErrorState)
+    )
+)]
+async fn client_messages(
+    Path(identifier): Path<String>,
+    State(state): State<ApiState>,
+) -> Result<Json<Messages>, ApiError> {
+    let registry = state.snapshot();
+    let client = resolve_client(&registry, &identifier)?;
+    let identity = client.identity.ok_or_else(|| {
+        ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "message_history_unavailable",
+            "the client DLL identity is unavailable",
+            Some(client.pid),
+        )
+    })?;
+    Ok(Json(state.messages(identity)))
 }
 
 #[utoipa::path(
@@ -763,6 +810,7 @@ fn operation_in_progress(pid: u32) -> ApiError {
         client_skillbook,
         client_effects,
         client_objects,
+        client_messages,
         client_events,
         load,
         unload,
@@ -808,6 +856,9 @@ fn operation_in_progress(pid: u32) -> ApiError {
         WorldObjects,
         WorldObject,
         Direction,
+        Messages,
+        Message,
+        MessageType,
         LaunchOptions,
         LoadResult,
         UnloadResult,
@@ -1236,12 +1287,13 @@ mod tests {
     use darpc_model::{
         CharacterAppearance, CharacterClass, CharacterProgression,
         CharacterSnapshot as ModelCharacterSnapshot, CharacterStats, CharacterVitals,
-        ClientLifecycle, ClientSnapshot as ModelClientSnapshot,
-        CooldownStatus as ModelCooldownStatus, Effect as ModelEffect,
-        EffectDuration as ModelEffectDuration, EquipmentItem as ModelEquipmentItem,
-        EquipmentSlot as ModelEquipmentSlot, Gender, InventoryItem as ModelInventoryItem,
-        MapLocation, Skill as ModelSkill, Spell as ModelSpell,
-        SpellTargetType as ModelSpellTargetType,
+        ClientLifecycle, ClientMessage as ModelClientMessage,
+        ClientSnapshot as ModelClientSnapshot, CooldownStatus as ModelCooldownStatus,
+        Effect as ModelEffect, EffectDuration as ModelEffectDuration,
+        EquipmentItem as ModelEquipmentItem, EquipmentSlot as ModelEquipmentSlot, Gender,
+        InventoryItem as ModelInventoryItem, MapLocation, MessageKind as ModelMessageKind,
+        Skill as ModelSkill, Spell as ModelSpell, SpellTargetType as ModelSpellTargetType,
+        StateEvent, StateUpdate,
     };
     use darpc_protocol::{
         Architecture, CommandKind, CommandOperation, CommandResult, CommandState, CommandStatus,
@@ -1661,6 +1713,48 @@ mod tests {
     }
 
     #[test]
+    fn serves_normalized_message_history() {
+        let state = state();
+        let identity = RegistryClientIdentity::from_hello(hello());
+        state.publish_connection_event(&ConnectionEvent::StateEvents {
+            pid: 42,
+            identity,
+            events: vec![StateEvent {
+                sequence: 3,
+                revision: 4,
+                tick_ms: 520,
+                update: StateUpdate::Message(ModelClientMessage {
+                    kind: ModelMessageKind::Whisper,
+                    sender: Some("Eidolon".into()),
+                    recipient: Some("SiLo".into()),
+                    text: "hello".into(),
+                }),
+            }],
+        });
+
+        let response = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(async {
+                router(state)
+                    .oneshot(
+                        Request::get("/clients/silo/messages")
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap()
+            });
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = response_json(response);
+        assert_eq!(body["messages"][0]["observation"]["event_sequence"], 3);
+        assert_eq!(body["messages"][0]["type"], "whisper");
+        assert_eq!(body["messages"][0]["sender"], "Eidolon");
+        assert_eq!(body["messages"][0]["recipient"], "SiLo");
+        assert_eq!(body["messages"][0]["text"], "hello");
+    }
+
+    #[test]
     fn disconnected_snapshots_fall_back_to_the_process_id() {
         let mut registry = Registry::new();
         let hello = hello();
@@ -1775,6 +1869,8 @@ mod tests {
             "/clients/{client}/spellbook",
             "/clients/{client}/skillbook",
             "/clients/{client}/effects",
+            "/clients/{client}/objects",
+            "/clients/{client}/messages",
             "/clients/{client}/events",
             "/clients/{client}/commands/diagnostic",
             "/clients/{client}/commands/{command_id}",
@@ -1820,6 +1916,12 @@ mod tests {
             "Effects",
             "Effect",
             "EffectDuration",
+            "WorldObjects",
+            "WorldObject",
+            "Direction",
+            "Messages",
+            "Message",
+            "MessageType",
             "LaunchOptions",
             "LoadResult",
             "LifecycleResult",
@@ -1855,6 +1957,7 @@ mod tests {
             "effect_added",
             "effect_removed",
             "effect_changed",
+            "message",
         ] {
             assert!(event_variants.iter().any(|variant| {
                 variant["properties"]["type"]["enum"]

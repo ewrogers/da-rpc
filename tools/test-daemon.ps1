@@ -31,6 +31,12 @@ $DarpcDll = (Resolve-Path -LiteralPath $DarpcDll).Path
 $Darpc = (Resolve-Path -LiteralPath $Darpc).Path
 $Daemon = (Resolve-Path -LiteralPath $Daemon).Path
 
+$LiveClients = @(Get-Process -Name "Darkages" -ErrorAction SilentlyContinue)
+if ($LiveClients.Count -gt 0) {
+    $LiveProcessIds = ($LiveClients.Id | Sort-Object) -join ", "
+    throw "Refusing to run daemon integration tests while Darkages.exe is active (PIDs: $LiveProcessIds)"
+}
+
 function Assert-True {
     param(
         [bool] $Condition,
@@ -406,7 +412,7 @@ function Connected-Instances {
         [int] $ProcessId
     )
 
-    $Pattern = "client pid=$ProcessId status=connected [^`r`n]* instance=([0-9A-F]{32})"
+    $Pattern = "client pid=$ProcessId status=connected [^`r`n]* instance=([0-9a-f]{32})"
     return @([regex]::Matches($Output, $Pattern) | ForEach-Object { $_.Groups[1].Value })
 }
 

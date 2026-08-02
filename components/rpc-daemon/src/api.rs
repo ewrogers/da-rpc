@@ -489,7 +489,7 @@ struct MessageQuery {
     /// Comma-separated message channels, such as `say,shout`.
     channels: Option<String>,
     /// Return only messages observed after this ISO 8601 timestamp.
-    #[param(value_type = String, format = DateTime)]
+    #[param(format = DateTime)]
     since: Option<String>,
     /// Number of matching messages to skip after newest-first sorting.
     #[param(minimum = 0, default = 0)]
@@ -2072,6 +2072,16 @@ mod tests {
         ] {
             assert!(schemas.contains_key(name), "OpenAPI omitted {name}");
         }
+        let message_parameters =
+            openapi["paths"]["/clients/{client}/messages"]["get"]["parameters"]
+                .as_array()
+                .unwrap();
+        let since = message_parameters
+            .iter()
+            .find(|parameter| parameter["name"] == "since")
+            .expect("OpenAPI omitted the since parameter");
+        assert_eq!(since["required"], false);
+        assert_eq!(since["schema"]["format"], "date-time");
         let event_response =
             &openapi["paths"]["/clients/{client}/events"]["get"]["responses"]["200"];
         assert_eq!(

@@ -148,8 +148,11 @@ impl StoredMessage {
         event: &darpc_model::StateEvent,
         observed_at_utc: DateTime<Utc>,
         message: &ClientMessage,
-    ) -> Self {
-        Self {
+    ) -> Option<Self> {
+        if message.text.trim().is_empty() {
+            return None;
+        }
+        Some(Self {
             event_sequence: event.sequence,
             tick_ms: event.tick_ms,
             observed_at_utc,
@@ -157,7 +160,7 @@ impl StoredMessage {
             sender: message.sender.clone(),
             recipient: message.recipient.clone(),
             text: message.text.clone(),
-        }
+        })
     }
 
     fn to_api(&self) -> Message {
@@ -232,10 +235,10 @@ impl MessageStore {
                     let StateUpdate::Message(message) = &event.update else {
                         continue;
                     };
-                    self.clients
-                        .entry(*identity)
-                        .or_default()
-                        .push(StoredMessage::new(event, observed_at_utc, message));
+                    let Some(message) = StoredMessage::new(event, observed_at_utc, message) else {
+                        continue;
+                    };
+                    self.clients.entry(*identity).or_default().push(message);
                 }
             }
             _ => {}
@@ -523,6 +526,29 @@ mod tests {
                 .map(Message::sequence)
                 .collect::<Vec<_>>(),
             vec![2, 3, 1]
+        );
+    }
+
+    #[test]
+    fn history_ignores_empty_message_text() {
+        let identity = ClientIdentity::from_hello(hello(1));
+        let mut store = MessageStore::default();
+        for (sequence, text) in [(1, ""), (2, "   ")] {
+            store.observe(
+                &ConnectionEvent::StateEvents {
+                    pid: 42,
+                    identity,
+                    events: vec![event(sequence, text)],
+                },
+                observed_at(i64::from(sequence)),
+            );
+        }
+
+        assert!(
+            store
+                .get(identity, &MessageFilter::default())
+                .messages
+                .is_empty()
         );
     }
 }

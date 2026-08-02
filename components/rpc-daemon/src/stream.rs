@@ -505,6 +505,9 @@ fn expand(
             return events;
         }
         StateUpdate::Message(message) => {
+            if message.text.trim().is_empty() {
+                return events;
+            }
             events.push(ClientEvent::Message(Message::new(
                 event.sequence,
                 event.tick_ms,
@@ -951,6 +954,34 @@ mod tests {
             );
             assert_eq!(events.len(), 1);
             assert_eq!(events[0].name(), expected);
+        }
+    }
+
+    #[test]
+    fn empty_messages_do_not_become_public_events() {
+        let identity = ClientIdentity {
+            pid: 42,
+            process_creation_time: 100,
+            dll_instance_id: [1; 16],
+        };
+        for text in ["", "   "] {
+            let events = expand(
+                42,
+                identity,
+                StateEvent {
+                    sequence: 1,
+                    revision: 1,
+                    tick_ms: 1,
+                    update: StateUpdate::Message(ClientMessage {
+                        kind: MessageKind::System,
+                        sender: None,
+                        recipient: None,
+                        text: text.into(),
+                    }),
+                },
+                observed_at(),
+            );
+            assert!(events.is_empty());
         }
     }
 }

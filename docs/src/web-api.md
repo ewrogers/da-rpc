@@ -146,6 +146,8 @@ millisecond tick captured by the DLL. `timestamp` is when the daemon received
 the event, formatted as ISO 8601 in the daemon's local time with its UTC offset,
 for example `2026-08-02T16:24:05.137-04:00`. The daemon retains the underlying
 instant in UTC, so filtering is not affected by the displayed offset.
+Empty text is not retained or broadcast. World shouts appear once as `world`;
+the client's duplicate rendered shout is discarded.
 
 Message history is sorted by `timestamp` descending and returns 20 records by default. The
 route accepts these query parameters:

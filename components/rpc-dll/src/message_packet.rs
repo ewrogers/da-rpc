@@ -56,6 +56,9 @@ fn parse_say(body: &[u8]) -> Result<Option<ParsedMessage<'_>>, ParseError> {
     }
     let sender_id = reader.u32_be()?;
     let displayed = trim_ascii(reader.string8()?);
+    if mode == SHOUT_MODE && world_prefix(displayed).is_some() {
+        return Ok(None);
+    }
     let delimiter = if mode == SAY_MODE { b':' } else { b'!' };
     let (sender, text) = split_named(displayed, delimiter)
         .map_or((Participant::None, displayed), |(name, text)| {
@@ -91,7 +94,7 @@ fn classify_message(message: &[u8]) -> Option<ParsedMessage<'_>> {
         return parsed(MessageKind::World, Participant::Named(sender), text);
     }
     if let Some((recipient, text)) = split_named(message, b'>') {
-        return Some(ParsedMessage {
+        return (!text.is_empty()).then_some(ParsedMessage {
             kind: MessageKind::Whisper,
             sender: Participant::SelfPlayer,
             recipient: Participant::Named(recipient),
@@ -100,7 +103,7 @@ fn classify_message(message: &[u8]) -> Option<ParsedMessage<'_>> {
         });
     }
     if let Some((sender, text)) = split_named(message, b'"') {
-        return Some(ParsedMessage {
+        return (!text.is_empty()).then_some(ParsedMessage {
             kind: MessageKind::Whisper,
             sender: Participant::Named(sender),
             recipient: Participant::SelfPlayer,
@@ -145,7 +148,7 @@ fn split_named(message: &[u8], delimiter: u8) -> Option<(&[u8], &[u8])> {
     let index = message.iter().position(|byte| *byte == delimiter)?;
     let name = trim_ascii(&message[..index]);
     let text = trim_ascii(&message[index + 1..]);
-    (valid_name(name) && !text.is_empty()).then_some((name, text))
+    valid_name(name).then_some((name, text))
 }
 
 fn valid_name(name: &[u8]) -> bool {
@@ -302,6 +305,36 @@ mod tests {
     fn ignores_popups_and_spell_chants() {
         assert_eq!(update(&message(0x08, b"popup")).unwrap(), None);
         assert_eq!(update(&say(CHANT_MODE, 42, b"ard cradh")).unwrap(), None);
+    }
+
+    #[test]
+    fn ignores_empty_messages() {
+        for body in [
+            message(0, b""),
+            message(0, b"   "),
+            message(0, b"[Aisling]:   "),
+            message(0, b"Aisling>   "),
+            say(SAY_MODE, 42, b""),
+            say(SAY_MODE, 42, b"Aisling:   "),
+            say(SHOUT_MODE, 42, b"Aisling!   "),
+        ] {
+            assert_eq!(update(&body).unwrap(), None);
+        }
+    }
+
+    #[test]
+    fn ignores_the_rendered_shout_companion_for_a_world_message() {
+        assert_eq!(
+            update(&say(SHOUT_MODE, 42, b"[Aisling]: hello")).unwrap(),
+            None
+        );
+        assert_eq!(
+            update(&say(SHOUT_MODE, 42, b"Aisling! hello"))
+                .unwrap()
+                .unwrap()
+                .kind,
+            MessageKind::Shout
+        );
     }
 
     #[test]

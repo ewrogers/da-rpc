@@ -227,6 +227,11 @@ as the sender and `hello` as the text. Whispers also distinguish the other
 participant as a sender or recipient. The local character name fills the other
 side of a whisper when it is available.
 
+Empty and whitespace-only messages are ignored. A world shout is delivered by
+the client as both a typed history message and a rendered shout companion.
+daRPC keeps only the typed `world` record, with its sender and normalized text,
+instead of exposing the same line again as `shout`.
+
 Popup, confirmation, score, and spell-chant messages are not retained. They do
 not represent the chat and system history this resource is meant to expose.
 Text is copied into a fixed 256-byte event field on the game thread, then

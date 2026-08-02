@@ -1,3 +1,4 @@
+mod convert;
 mod publication;
 
 use darpc_game_client::{MemoryReader, RawStateSnapshot, StateReadError, StateWalker};

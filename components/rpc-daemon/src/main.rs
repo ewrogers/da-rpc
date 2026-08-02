@@ -5,9 +5,7 @@ mod api;
 #[cfg(any(windows, test))]
 mod auto_load;
 #[cfg(any(windows, test))]
-mod command_api;
-#[cfg(any(windows, test))]
-mod command_router;
+mod commands;
 #[cfg(windows)]
 mod connection;
 #[cfg(windows)]
@@ -15,13 +13,13 @@ mod discovery;
 #[cfg(any(windows, test))]
 mod event;
 #[cfg(any(windows, test))]
-mod management;
+mod lifecycle;
 #[cfg(any(windows, test))]
 mod registry;
 #[cfg(any(windows, test))]
-mod snapshot_api;
+mod snapshot;
 #[cfg(any(windows, test))]
-mod stream_api;
+mod stream;
 
 use std::{collections::BTreeSet, env, ffi::OsString, path::PathBuf, process::ExitCode};
 
@@ -147,10 +145,10 @@ fn parse_path_option(
 fn run(options: Options) -> Result<(), String> {
     use api::ApiState;
     use auto_load::{Action as AutoLoadAction, Policy as AutoLoadPolicy};
-    use command_router::{CommandReply, ROUTER_CAPACITY};
+    use commands::{CommandReply, ROUTER_CAPACITY};
     use connection::Worker;
     use event::DaemonEvent;
-    use management::{LifecycleControl, LoaderControl};
+    use lifecycle::{LifecycleControl, LoaderControl};
     use registry::Registry;
     use std::{
         collections::BTreeMap,

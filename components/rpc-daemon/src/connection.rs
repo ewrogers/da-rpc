@@ -1,5 +1,5 @@
 use crate::{
-    command_router::{CommandCall, CommandReply, WORKER_CAPACITY},
+    commands::{CommandCall, CommandReply, WORKER_CAPACITY},
     event::DaemonEvent,
     registry::{ClientIdentity, ConnectionEvent},
 };

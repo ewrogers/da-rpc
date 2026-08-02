@@ -1,19 +1,26 @@
 # Client state
 
-Local state is one of the main advantages of direct client integration.
-`darpc.dll` maintains the authoritative daRPC view for its process and exposes
-that view to `darpcd.exe` without exposing raw pointers.
+daRPC keeps a current view of each connected game client. This includes the
+character sheet, map position, inventory, equipment, abilities, and active
+spell effects. The view belongs to `darpc.dll` inside that client process, then
+travels to `darpcd.exe` as safe values instead of raw memory addresses.
 
-## Current snapshot
+State comes from two complementary sources:
 
-Attaching to an existing process requires more than observing future events.
-`darpc.dll` reconstructs current state from validated relative virtual
-addresses, pointer chains, and version-specific structures. The implemented
-snapshot contains:
+- A complete snapshot reads everything needed to describe the client now.
+- Small event-driven updates keep that snapshot current as the game changes.
+
+This lets daRPC attach to a character who is already in game while still
+reporting later changes quickly.
+
+## Complete snapshots
+
+A snapshot is a single, consistent observation of one client. The implemented
+snapshot includes:
 
 - Lifecycle, revision, capture tick and duration, and world generation.
 - Character identity, name, gender, hairstyle, hair color, body sprite, class,
-  action lock, gold, weight and maximum weight, progression, attributes,
+  action restriction, gold, weight and maximum weight, progression, attributes,
   vitals, combat modifiers, and elemental affinities.
 - Map identity, name, coordinates, and dimensions.
 - Occupied inventory and equipment slots with appearance, names, quantities,
@@ -22,178 +29,201 @@ snapshot contains:
   behavior, text-input prompts, lines, and available cooldown state.
 - Active spell effects with their icon and relative remaining-duration band.
 
-The DLL and binary protocol keep this as one complete atomic snapshot. The
-daemon retains that observation and projects it into separate REST resources
-for status, inventory, equipment, spellbook, skillbook, and effects. Those HTTP
-views do not trigger additional client-memory reads.
+The Dynamic Link Library (DLL) and binary protocol move this as one complete
+snapshot. The daemon stores it and presents separate REST resources for status,
+inventory, equipment, spellbook, skillbook, and effects. Reading one of those
+HTTP resources does not make the game client scan memory again.
 
-Empty collection slots are omitted. Inventory slot 60 is the client's currency
-display and is omitted because `gold` is represented once as character state.
-Optional values remain unavailable rather than receiving invented defaults.
-For example, the client exposes whether a spell action delay is active but not
-its remaining duration, so the duration remains absent.
+Full snapshots run when daRPC needs a reliable baseline, such as on a new daemon
+connection or after it detects a missed update. They do not run on every game
+tick.
 
-Gender, `hair_style`, `hair_color`, and `body_sprite` come from one stable local
-world-object appearance record. The hairstyle is the renderer's 16-bit head
-sprite selector, hair color is a palette index, and body sprite identifies the
-current human body form. All four values are unavailable together when the
-local object is using a monster-disguise image session.
+## How values are presented
 
-`is_action_restricted` reports the retained local action-state bit. It covers movement,
-world drops, incoming exchange start, and inventory-slot rearrangement. It is
-not a universal action gate: normal turning and the usual item, skill, and
-spell activation paths do not consult this bit.
+daRPC favors useful game concepts over raw client internals:
 
-`is_blinded` is true only when the retained `SStatus` blind code is `0x08`.
-Other values are not treated as blinded by the client.
+- Empty inventory, equipment, spellbook, and skillbook slots are omitted.
+- Inventory slot 60 is omitted because it duplicates the top-level `gold`
+  value.
+- Missing information stays absent instead of becoming a guessed default.
+- Inventory and equipment sprite values have the client's internal item and
+  monster classification bits removed.
+- Stackable items expose `can_stack` and `quantity` separately. Their names do
+  not include the rendered `[ quantity ]` suffix.
+- Equipment uses names such as `weapon`, `left_ring`, and `accessory3`
+  instead of numeric slot positions.
+- Text-input spells can expose a cleaned ASCII prompt. Other target modes do not
+  expose one.
 
-Inventory and equipment sprites are canonical resource identifiers with the
-client's item and monster classification bits removed. Stackable inventory
-entries expose `can_stack`, keep quantity as its own field, and remove the
-client-rendered `[ quantity ]` suffix from the domain name. Equipment uses typed
-slot names from `weapon` through `accessory3` rather than exposing numeric
-positions. A text-input spell retains an ASCII-only prompt; other target modes
-do not expose one.
+Some fields need additional context:
 
-Map names normally come from the validated map pane. The bounded map-size event
-hook also copies an accepted map name into DLL-owned storage so a fresh event
-can supplement the memory baseline.
+- Gender, `hair_style`, `hair_color`, and `body_sprite` come from the local
+  character's appearance record. They are unavailable together while the
+  character is displayed through a monster-disguise image.
+- `is_action_restricted` reflects a specific client flag used by movement,
+  world drops, incoming exchange start, and inventory rearrangement. It does not
+  mean every action is blocked. Turning and the usual item, skill, and spell
+  activation paths can still work.
+- `is_blinded` is true only when the retained status event contains the
+  client's blind code, `0x08`.
+- A spell cooldown may be known to be active even when the client does not keep
+  an exact remaining duration.
+- Map names normally come from the visible map pane. An accepted map-change
+  event can provide the name when a fresh event is newer than that memory view.
 
-## Lifecycle
+## Client lifecycle
 
-Snapshots classify the client as `unknown`, `title`, `transition`, `in_game`,
-or `disconnected`. A visible, registered reconnect dialog takes precedence over
-the scene beneath it and produces `disconnected`. When a valid world remains
-behind that dialog, the snapshot preserves the character and map state that can
-still be read. If no valid world is present, character state remains absent.
+Every snapshot identifies the client's current stage:
 
-Reconnect detection scans the active event-pane list during the same
-main-thread capture as the rest of the snapshot. The scan validates the list
-pointer, signed count, capacity, and a conservative entry limit, and it rechecks
-the list roots before publication. Pane pointers are never retained between
-captures.
+- `unknown`: daRPC cannot classify the current scene.
+- `title`: the client is at the title or login flow.
+- `transition`: the client is between stable world states.
+- `in_game`: a usable character and world are active.
+- `disconnected`: the reconnect dialog is visible.
 
-## Capture concurrency
+The reconnect dialog takes priority over the scene behind it. When the old world
+is still readable, a disconnected snapshot can retain the last character and
+map state. If there is no valid world, character state is absent.
 
-The pipe worker requests a capture and waits with a fixed timeout. The next
-client tick performs the memory walk on the client's main thread, where the
-relevant user interface structures are normally mutated. The walk validates
-roots, lengths, slots, and repeated root values before publishing a result.
-There is no process-wide suspension and no remote thread reads client state.
+Reconnect detection is part of the same snapshot capture. daRPC checks the
+active dialog list carefully and does not keep dialog pointers after the
+capture finishes.
 
-The tick hook copies only bounded, pointer-free fixed-capacity data into a
-single DLL-owned publication slot. It does not allocate, serialize, log, or
-perform pipe input/output. The pipe worker claims that slot with acquire/release
-atomics, decodes client text, allocates domain collections, and serializes the
-protocol response. This ownership handoff prevents the worker from observing a
-partially written publication. Fields later discovered to be owned by another
-client thread will require their own synchronization or an event-owned copy.
+## Safe snapshot capture
 
-## Incremental updates
+The game changes most of this state on its main thread. daRPC therefore asks the
+next game tick to perform the memory walk on that same thread. It does not
+suspend the whole process, and a remote thread does not race through live game
+structures.
 
-The DLL observes decoded server events after the client has handled them. The
-implemented event families are `SStatus`, `SSpelled`, the action-state portion
-of `SUserAppearance`, `SMove`, and `SUserPosition`. Together they maintain
-level, attributes, maximum and current vitals, weight, progression, gold,
-combat modifiers, blinded state, `is_action_restricted`, accepted map
-coordinates, and active spell effects.
+The game-thread portion is deliberately small:
 
-The observer runs on the client main thread. It copies at most 128 bytes from a
-qualified event body, parses fixed-width big-endian fields, filters unchanged
-absolute groups against a DLL-owned cache, and publishes only pointer-free
-values. It performs no allocation, text conversion, serialization, logging, or
-pipe input/output. The original client dispatcher always runs first and its
-return value is preserved.
+1. Validate the known roots, pointer chains, lengths, and slots.
+2. Copy bounded, pointer-free values into memory owned by the DLL.
+3. Publish the completed copy as one unit.
+
+It does not allocate, format text, write logs, serialize messages, or perform
+named-pipe input/output. A separate pipe worker claims the completed copy,
+builds the domain collections, and sends the protocol response. The ownership
+handoff prevents that worker from seeing a half-written snapshot.
+
+If a future field belongs to a different game thread, it will need its own safe
+copy or synchronization rule before daRPC can expose it.
+
+## Real-time updates
+
+After the initial snapshot, daRPC observes selected server events after the game
+client has handled them. The currently supported event families are
+`SStatus`, `SSpelled`, the action-state portion of `SUserAppearance`,
+`SMove`, and `SUserPosition`.
+
+Together, these events keep the following values current:
+
+- Level, attributes, vitals, weight, progression, and gold.
+- Combat modifiers and blinded state.
+- `is_action_restricted`.
+- Accepted map coordinates.
+- Active spell effects.
+
+The event observer also runs on the game thread, so it performs only bounded
+work. It copies at most 128 bytes from a recognized event, parses fixed-size
+fields, ignores values that did not change, and publishes pointer-free updates.
+The original game handler always runs first, and daRPC preserves its return
+value.
+
+Game-world state and local user-interface state do not always follow the same
+rules. Dialogs, selections, focus, and other client-only values may require
+memory or local input observation because a network proxy cannot see them.
+
+## Map movement and transitions
+
+Normal movement and map changes use different update rules.
+
+An accepted `SMove` acknowledgement updates only the character's x/y
+coordinates. A refresh or correction can provide an authoritative position
+through `SUserPosition`.
+
+Changing maps takes two server events:
+
+1. The map-size event stages the new map identity, name, width, and height.
+2. The following `SUserPosition` commits the staged map and its x/y coordinates
+   together.
+
+daRPC does not publish the staged map by itself. Movement acknowledgements are
+also ignored while a map change is pending. A requested full snapshot waits for
+this boundary, so consumers never receive the new map with coordinates left
+over from the previous map.
 
 ## Spell effects
 
-The initial memory walk reads ten parallel effect slots. An active entry has a
-non-sentinel icon and one of six relative duration stages. The client does not
-retain an exact remaining time. Public state therefore names the stage by the
-same color the game displays, from longest to shortest: `white`, `red`,
-`orange`, `yellow`, `green`, and `blue`.
+The initial memory walk reads the client's ten spell-effect slots. Each active
+slot contains an icon and one of six relative duration stages. The client does
+not retain an exact remaining time, so daRPC reports the same color stages the
+game displays.
 
-After the snapshot, `SSpelled` updates the DLL-owned slots. A nonzero stage adds
-a new icon or changes the stage of an existing icon. Stage zero removes the
-icon. If all ten slots are occupied, a new icon is ignored just as it is by the
-client. These transitions become `effect_added`, `effect_changed`, and
-`effect_removed` events and update the retained REST resource without another
-memory walk.
+From longest to shortest, the stages are `white`, `red`, `orange`,
+`yellow`, `green`, and `blue`.
 
-One main-thread producer writes to a fixed 1 MiB queue. The pipe worker is the
-only consumer and returns up to 192 events per long poll. The queue does not
-block the game thread: a full queue records a missing sequence and drops the
-new event. The daemon responds by requesting a complete snapshot, not by
-guessing the lost state.
+After the snapshot, `SSpelled` keeps those slots current:
 
-Map transitions use a two-packet commit boundary. The map-size hook stages the
-new map identity, name, and dimensions without publishing them. The following
-authoritative `SUserPosition` commits those values with x/y as one location
-event. Ordinary `SMove` acknowledgements update only x/y and are ignored while
-a map transition is pending. A requested full snapshot also waits at this
-boundary, preventing a memory walk from publishing a new map with the previous
-map's coordinates.
+- A nonzero stage adds an icon or changes its current stage.
+- Stage zero removes the icon.
+- A new icon is ignored when all ten client slots are occupied.
 
-Every daemon connection begins with a fresh complete snapshot. The snapshot
-contains the event sequence already reflected in its values. The pipe worker
-discards older queued entries and preserves entries after that boundary, so no
-mutation can be lost between the memory walk and event polling. A sequence or
-revision gap, queue overflow, or daemon stream lag requires another current
-snapshot.
+These changes update the retained effects resource and become
+`effect_added`, `effect_changed`, or `effect_removed` events without
+another full memory walk.
 
-Full captures remain the reconciliation source of truth. They run on demand,
-not every tick. Events maintain low-latency current state between captures and
-continue updating the DLL-owned cache when no daemon is connected. Daemon
-reconnect does not replay an unbounded history; it establishes a new snapshot
-boundary and resumes real-time delivery.
+## Event queue and recovery
 
-Game-world and user interface changes may have different consistency and
-lifetime rules, so they remain distinct in the state model even when exposed
-through one API.
+The game thread writes updates to a fixed 1 MiB queue. The pipe worker is the
+only reader and returns up to 192 events in one long poll.
 
-UI state may include open panes, dialogs, selections, focus, and other
-client-only values. These changes are invisible to a pure network proxy and may
-need to be obtained from both memory structures and local input events.
+This queue is designed to protect the game. If it fills, the game thread does
+not wait for the daemon. daRPC drops the new event and records the missing
+sequence. The daemon then requests a fresh snapshot instead of guessing what
+changed.
 
-## Per-client observations and shared world state
+The DLL keeps updating its current state even when no daemon is connected. It
+does not keep an unlimited history during that downtime.
 
-Character, session, and local user interface state always belong to one client.
-Map and entity state are different: multiple active characters can observe the
-same game world, but each client sees only its current view and can stop
-receiving information about an entity after it leaves that view.
+## Snapshot and event ordering
 
-The daemon may therefore derive a shared-world projection from compatible
-client observations, but that projection is not an unquestioned global truth.
-Every shareable observation must retain enough provenance to evaluate it:
+Every daemon connection starts with a fresh complete snapshot. That snapshot
+includes the event sequence already reflected in its values. Older queued
+events are discarded, while events after that sequence remain available.
 
-- World or server scope and map identity.
-- Stable entity identity where the client provides one.
-- Source client identity.
-- Last-observed time or state revision.
-- Whether the entity is currently visible, stale, removed by an authoritative
-  event, or otherwise uncertain.
+This creates a clear handoff:
 
-An entity disappearing from one character's view is not by itself proof that
-the entity left the world. A fresh observation from another active client on
-the same map may supersede an older one. Conflicts and expiration must use an
-explicit deterministic policy rather than silently choosing whichever client
-reported last.
+1. Establish current state with a snapshot.
+2. Continue from the next ordered event.
+3. Request another snapshot after a sequence gap, queue overflow, revision gap,
+   or slow consumer.
 
-Queries must also state their perspective. For example, "monsters near player
-X" is anchored to player X's current position and may be enriched by fresh
-same-map observations from other clients, while exposing or filtering stale
-results deliberately. The per-client observations remain available even when
-the daemon offers this derived view.
+No update can slip between the snapshot and the event stream. Reconnecting uses
+a new boundary rather than replaying an unbounded backlog.
 
-## Snapshot and stream boundary
+## Per-client state and the shared world
 
-Every new `darpcd.exe` connection receives a fresh complete snapshot. Once
-incremental delivery is implemented, it will be followed by updates from an
-explicit ordered boundary so no change can be lost between capture and stream
-subscription. Snapshot revisions and protocol sequence numbers provide the
-existing foundations for that boundary.
+Character, session, and local user-interface state always belong to one client.
+Maps and entities are different. Multiple characters can observe the same game
+world, but each sees only its current area and stops receiving information once
+something leaves view.
 
-Events produced while `darpcd.exe` is down do not require an unbounded replay
-log. A new snapshot restores current durable state, and real-time delivery
-resumes from its boundary. Transient event history during the outage is not
-recovered unless a later requirement introduces a deliberately bounded log.
+A future shared-world view can combine compatible observations from several
+clients, but it must still remember:
+
+- The world or server and map where the observation belongs.
+- A stable entity identity when the client provides one.
+- Which client observed it.
+- When it was last observed or updated.
+- Whether it is visible, stale, explicitly removed, or uncertain.
+
+An entity disappearing from one character's view does not prove that it left
+the world. Another character on the same map may have a newer observation.
+Conflict and expiration rules must therefore be explicit.
+
+Queries also need a point of view. For example, "monsters near player X" starts
+with player X's current position and may use recent same-map observations from
+other clients. The original per-client observations remain available even when
+the daemon later offers a combined world view.

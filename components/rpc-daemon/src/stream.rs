@@ -1,23 +1,73 @@
 use crate::{
     registry::{ClientIdentity, hex},
-    snapshot_api::Element,
+    snapshot::{EffectDuration, Element},
 };
 use async_stream::stream;
 use axum::response::{
     IntoResponse,
     sse::{Event, KeepAlive, Sse},
 };
-use darpc_model::{StateEvent, StateUpdate};
+use darpc_model::{Effect, StateEvent, StateUpdate};
 use serde::Serialize;
 use std::{convert::Infallible, time::Duration};
 use tokio::sync::broadcast;
 use utoipa::ToSchema;
 
-mod effects;
-
-pub(crate) use effects::{EffectAdded, EffectChanged, EffectRemoved};
-
 pub(crate) const EVENT_CHANNEL_CAPACITY: usize = 4_096;
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+/// A spell-effect icon became active.
+pub(crate) struct EffectAdded {
+    observation: EventObservation,
+    /// Client spell-effect icon identifier.
+    icon: u16,
+    /// Relative remaining-duration color band, not an exact time.
+    duration: EffectDuration,
+}
+
+impl EffectAdded {
+    fn new(observation: EventObservation, effect: Effect) -> Self {
+        Self {
+            observation,
+            icon: effect.icon,
+            duration: effect.duration.into(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+/// A spell-effect icon is no longer active.
+pub(crate) struct EffectRemoved {
+    observation: EventObservation,
+    /// Client spell-effect icon identifier.
+    icon: u16,
+}
+
+impl EffectRemoved {
+    const fn new(observation: EventObservation, icon: u16) -> Self {
+        Self { observation, icon }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+/// The relative remaining-duration band changed for an active icon.
+pub(crate) struct EffectChanged {
+    observation: EventObservation,
+    /// Client spell-effect icon identifier.
+    icon: u16,
+    /// New relative remaining-duration color band, not an exact time.
+    duration: EffectDuration,
+}
+
+impl EffectChanged {
+    fn new(observation: EventObservation, effect: Effect) -> Self {
+        Self {
+            observation,
+            icon: effect.icon,
+            duration: effect.duration.into(),
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub(crate) enum PublishedEvent {

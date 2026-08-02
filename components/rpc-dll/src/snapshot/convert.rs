@@ -1,4 +1,4 @@
-use super::ReadyPublication;
+use super::publication::ReadyPublication;
 use crate::{client_text, map_name};
 use darpc_game_client::{
     RawCharacter, RawClientText, RawEffects, RawEquipment, RawInventory, RawLifecycle, RawLocation,

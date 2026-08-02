@@ -14,7 +14,7 @@ use crate::process::ProcessModule;
 use std::{ffi::c_void, fs};
 
 #[cfg(windows)]
-use crate::{remote, remote_dll};
+use crate::{dll, remote};
 
 #[cfg(windows)]
 use darpc_win32::lifecycle::{ABI_VERSION, Status};
@@ -123,7 +123,7 @@ pub(crate) fn attach_created(process: &TargetProcess, dll: &DarpcDll) -> Result<
         inspection.creation_time
     );
 
-    let module = remote_dll::load_created(process, &dll.path)?;
+    let module = dll::load_created(process, &dll.path)?;
     let status = initialize(process, module, dll.initialize_rva)?;
 
     if status != Status::OK.as_u32() {
@@ -169,7 +169,7 @@ fn attach_with_inspection(
         inspection.creation_time
     );
 
-    let module = remote_dll::load(process, &dll.path, DARPC_MODULE_NAME)?;
+    let module = dll::load(process, &dll.path, DARPC_MODULE_NAME)?;
     let status = initialize(process, module, dll.initialize_rva)?;
 
     if status != Status::OK.as_u32() {
@@ -184,7 +184,7 @@ fn attach_with_inspection(
             ));
         }
 
-        if let Err(error) = remote_dll::unload(process, module) {
+        if let Err(error) = dll::unload(process, module) {
             return Err(LoaderError::new(
                 ErrorKind::InitializationFailed,
                 format!("{initialize_error}; rollback FreeLibrary failed: {error}"),
@@ -264,7 +264,7 @@ pub(crate) fn detach(process: &TargetProcess, dll: &DarpcDll) -> Result<Lifecycl
     }
 
     eprintln!("darpc_shutdown succeeded: status={status}");
-    remote_dll::unload(process, module)?;
+    dll::unload(process, module)?;
 
     let inspection = process.inspect()?;
     if inspection.darpc_module.is_some() {

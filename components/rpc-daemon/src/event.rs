@@ -1,5 +1,5 @@
 #[cfg(windows)]
-use crate::management::{LifecycleOutcome, ManagementError};
+use crate::lifecycle::{LifecycleOutcome, ManagementError};
 use crate::registry::ConnectionEvent;
 
 pub(crate) enum DaemonEvent {

@@ -1,7 +1,7 @@
 use crate::{
-    command_router::{CommandCall, ROUTER_CAPACITY},
+    commands::{CommandCall, ROUTER_CAPACITY},
     event::DaemonEvent,
-    management::{
+    lifecycle::{
         LaunchOptions as ManagedLaunchOptions, LifecycleControl, LifecycleOperation,
         LifecycleOutcome, ManagementError, ServerEndpoint as ManagedServerEndpoint,
     },
@@ -9,7 +9,7 @@ use crate::{
         ClientIdentity as RegistryClientIdentity, ClientSnapshot as RegistryClientSnapshot,
         ClientSnapshotStatus, ConnectionEvent, RegistrySnapshot, architecture, hex,
     },
-    snapshot_api::{
+    snapshot::{
         CharacterClass as SnapshotCharacterClass, CharacterGender, CharacterModifiers,
         CharacterProgression, CharacterStats, CharacterStatus, CharacterVitals,
         ClientLifecycle as SnapshotClientLifecycle, CooldownStatus, Effect, EffectDuration,
@@ -17,7 +17,7 @@ use crate::{
         InventoryItem, MapLocation, ObservationMetadata, Skill, Skillbook, Spell, SpellTargetType,
         Spellbook,
     },
-    stream_api::{self, ClientEvent, PublishedEvent},
+    stream::{self, ClientEvent, PublishedEvent},
 };
 use axum::{
     Json, Router,
@@ -65,7 +65,7 @@ impl ApiState {
         lifecycle: Arc<dyn LifecycleControl>,
         events: Sender<DaemonEvent>,
     ) -> Self {
-        let (published_events, _) = broadcast::channel(stream_api::EVENT_CHANNEL_CAPACITY);
+        let (published_events, _) = broadcast::channel(stream::EVENT_CHANNEL_CAPACITY);
         let (commands, command_receiver) = mpsc::sync_channel(ROUTER_CAPACITY);
         drop(command_receiver);
         Self {
@@ -154,7 +154,7 @@ impl ApiState {
         pid: u32,
         identity: RegistryClientIdentity,
         operation: darpc_protocol::CommandOperation,
-    ) -> Result<oneshot::Receiver<crate::command_router::CommandReply>, ApiError> {
+    ) -> Result<oneshot::Receiver<crate::commands::CommandReply>, ApiError> {
         let (reply, receiver) = oneshot::channel();
         let call = CommandCall {
             pid,
@@ -225,11 +225,11 @@ fn router(state: ApiState) -> Router {
         .route("/clients/{client}/events", get(client_events))
         .route(
             "/clients/{client}/commands/diagnostic",
-            post(crate::command_api::diagnostic),
+            post(crate::commands::diagnostic),
         )
         .route(
             "/clients/{client}/commands/{command_id}",
-            get(crate::command_api::status).delete(crate::command_api::cancel),
+            get(crate::commands::status).delete(crate::commands::cancel),
         )
         .route("/clients/launch", post(launch))
         .route("/clients/{client}/load", post(load))
@@ -476,7 +476,7 @@ async fn client_events(
             Some(client.pid),
         )
     })?;
-    Ok(stream_api::response(
+    Ok(stream::response(
         client.pid,
         identity,
         snapshot.revision,
@@ -745,9 +745,9 @@ fn operation_in_progress(pid: u32) -> ApiError {
         load,
         unload,
         launch,
-        crate::command_api::diagnostic,
-        crate::command_api::status,
-        crate::command_api::cancel
+        crate::commands::diagnostic,
+        crate::commands::status,
+        crate::commands::cancel
     ),
     components(schemas(
         HealthState,
@@ -791,11 +791,11 @@ fn operation_in_progress(pid: u32) -> ApiError {
         ErrorState,
         ErrorDetail,
         ClientEvent,
-        crate::command_api::DiagnosticOptions,
-        crate::command_api::CommandStatus,
-        crate::command_api::CommandKind,
-        crate::command_api::CommandState,
-        crate::command_api::CommandFailure
+        crate::commands::DiagnosticOptions,
+        crate::commands::CommandStatus,
+        crate::commands::CommandKind,
+        crate::commands::CommandState,
+        crate::commands::CommandFailure
     ))
 )]
 struct ApiDoc;
@@ -1196,9 +1196,9 @@ pub(crate) struct ErrorDetail {
 mod tests {
     use super::{ApiState, ClientList, LaunchOptions, resolve_client, router};
     use crate::{
-        command_router::{CommandReply, ROUTER_CAPACITY},
+        commands::{CommandReply, ROUTER_CAPACITY},
         event::DaemonEvent,
-        management::{
+        lifecycle::{
             LaunchOptions as ManagedLaunchOptions, LifecycleControl, LifecycleOperation,
             LifecycleOutcome, ManagementError,
         },

@@ -15,7 +15,7 @@ pub(crate) struct LaunchOutcome {
 #[cfg(windows)]
 mod platform {
     use super::*;
-    use crate::{inject, patch, process::TargetProcess};
+    use crate::{lifecycle, patch, process::TargetProcess};
     use std::{
         ffi::OsStr,
         fs, io,
@@ -339,7 +339,7 @@ mod platform {
             return Err(cleanup_launch_error(&mut child, error));
         }
 
-        let outcome = match inject::attach_created(child.process(), dll) {
+        let outcome = match lifecycle::attach_created(child.process(), dll) {
             Ok(outcome) => outcome,
             Err(error) => return Err(cleanup_launch_error(&mut child, error)),
         };

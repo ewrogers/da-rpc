@@ -231,9 +231,8 @@ mod tests {
     }
 }
 mod collections;
-mod effects;
 
 pub use collections::{
-    CooldownStatus, EquipmentItem, EquipmentSlot, InventoryItem, Skill, Spell, SpellTargetType,
+    CooldownStatus, Effect, EffectDuration, EquipmentItem, EquipmentSlot, InventoryItem, Skill,
+    Spell, SpellTargetType,
 };
-pub use effects::{Effect, EffectDuration};

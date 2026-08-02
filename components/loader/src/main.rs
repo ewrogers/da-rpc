@@ -1,15 +1,15 @@
 //! daRPC client launcher and injector.
 
+mod dll;
 mod endpoint;
 mod error;
-mod inject;
 mod launch;
+mod lifecycle;
 mod output;
 mod patch;
 mod pe;
 mod process;
 mod remote;
-mod remote_dll;
 
 #[cfg(debug_assertions)]
 use darpc_game_client::DEBUG_UNSUPPORTED_CLIENT_BYPASS_ENVIRONMENT_VARIABLE;
@@ -253,7 +253,7 @@ fn execute(command: Command) -> Result<CommandResult> {
             let dll = validate_dll(dll_path)?;
             let process = TargetProcess::open(pid)?;
             validate_client(process.executable_path()?)?;
-            let outcome = inject::attach(&process, &dll)?;
+            let outcome = lifecycle::attach(&process, &dll)?;
 
             Ok(command_result(
                 "attach",
@@ -265,7 +265,7 @@ fn execute(command: Command) -> Result<CommandResult> {
         Command::Detach { pid, dll_path } => {
             let dll = validate_dll(dll_path)?;
             let process = TargetProcess::open(pid)?;
-            let outcome = inject::detach(&process, &dll)?;
+            let outcome = lifecycle::detach(&process, &dll)?;
 
             Ok(command_result(
                 "detach",

@@ -81,7 +81,7 @@ impl Policy {
 pub(crate) fn spawn(
     pid: u32,
     attempt: u64,
-    lifecycle: std::sync::Arc<dyn crate::management::LifecycleControl>,
+    lifecycle: std::sync::Arc<dyn crate::lifecycle::LifecycleControl>,
     events: std::sync::mpsc::Sender<crate::event::DaemonEvent>,
 ) -> std::io::Result<()> {
     std::thread::Builder::new()

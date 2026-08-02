@@ -143,9 +143,9 @@ modules:
   validates original bytes, and coordinates protected writes.
 - `remote.rs` contains low-level remote allocation, memory reading and writing,
   and remote thread execution, including the bounded wait.
-- `remote_dll.rs` owns the Windows details for loading and unloading a DLL,
+- `dll.rs` owns the Windows details for loading and unloading a DLL,
   including forwarded `LoadLibraryW` and `FreeLibrary` export resolution.
-- `inject.rs` coordinates the daRPC lifecycle and decides when rollback is
+- `lifecycle.rs` coordinates the daRPC lifecycle and decides when rollback is
   safe.
 
 These are internal loader boundaries, not a general-purpose injection or

@@ -1,6 +1,5 @@
 use crate::{
     api::{ApiError, ApiState, resolve_client},
-    command_router::CommandReply,
     registry::{ClientIdentity, ClientSnapshotStatus, hex},
 };
 use axum::{
@@ -16,10 +15,29 @@ use darpc_protocol::{
 };
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
-use tokio::time::timeout;
+use tokio::{sync::oneshot, time::timeout};
 use utoipa::ToSchema;
 
+pub(crate) const ROUTER_CAPACITY: usize = 64;
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) const WORKER_CAPACITY: usize = 16;
+
 const ROUTE_TIMEOUT: Duration = Duration::from_secs(2);
+
+pub(crate) struct CommandCall {
+    pub(crate) pid: u32,
+    pub(crate) identity: ClientIdentity,
+    pub(crate) operation: CommandOperation,
+    pub(crate) reply: oneshot::Sender<CommandReply>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) enum CommandReply {
+    Result(ProtocolResult),
+    Busy,
+    Unavailable,
+}
 
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(deny_unknown_fields)]

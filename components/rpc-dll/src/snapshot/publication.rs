@@ -1,4 +1,4 @@
-mod convert;
+use super::convert;
 
 use darpc_game_client::{RawStateSnapshot, StateReadError};
 use darpc_model::ClientSnapshot;

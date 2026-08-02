@@ -17,7 +17,7 @@ use windows_sys::Win32::System::{
     Threading::GetCurrentProcess,
 };
 
-use crate::{server_packet, state_events};
+use crate::{packet, state_events};
 
 pub(crate) const NAME: &str = "event_dispatch";
 
@@ -271,7 +271,7 @@ extern "C" fn observe_event(event: *const core::ffi::c_void) {
             EVENT_READ_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed);
             return;
         }
-        let update = match server_packet::update(&body[..body_length]) {
+        let update = match packet::update(&body[..body_length]) {
             Ok(Some(update)) => update,
             Ok(None) => return,
             Err(error) => {
@@ -291,16 +291,16 @@ extern "C" fn observe_event(event: *const core::ffi::c_void) {
         EVENT_COUNT.fetch_add(1, Ordering::Relaxed);
         let tick_ms = sender_tick_ms();
         match update {
-            server_packet::ServerUpdate::Status(update) => {
+            packet::ServerUpdate::Status(update) => {
                 state_events::observe_status(update, tick_ms);
             }
-            server_packet::ServerUpdate::UserPosition(position) => {
+            packet::ServerUpdate::UserPosition(position) => {
                 state_events::observe_user_position(position.x, position.y, tick_ms);
             }
-            server_packet::ServerUpdate::Move(position) => {
+            packet::ServerUpdate::Move(position) => {
                 state_events::observe_move(position.x, position.y, tick_ms);
             }
-            server_packet::ServerUpdate::Effect(effect) => {
+            packet::ServerUpdate::Effect(effect) => {
                 state_events::observe_effect(effect.icon, effect.duration, tick_ms);
             }
         }

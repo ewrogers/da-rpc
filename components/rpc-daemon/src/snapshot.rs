@@ -371,9 +371,8 @@ pub(crate) struct MapLocation {
     height: i32,
 }
 mod collections;
-mod effects;
 
 pub(crate) use collections::{
-    CooldownStatus, EquipmentItem, EquipmentSlot, InventoryItem, Skill, Spell, SpellTargetType,
+    CooldownStatus, Effect, EffectDuration, Effects, EquipmentItem, EquipmentSlot, InventoryItem,
+    Skill, Spell, SpellTargetType,
 };
-pub(crate) use effects::{Effect, EffectDuration, Effects};

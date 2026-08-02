@@ -15,13 +15,11 @@ const SLOT_WRITING: u8 = 1;
 const SLOT_READY: u8 = 2;
 const SLOT_READING: u8 = 3;
 
-static SNAPSHOT_REVISION: AtomicU32 = AtomicU32::new(0);
 static LAST_WORLD_TOKEN: AtomicU32 = AtomicU32::new(0);
 static WORLD_GENERATION: AtomicU32 = AtomicU32::new(0);
 static SLOT: PublicationSlot = PublicationSlot::new();
 
 pub(super) fn reset() {
-    SNAPSHOT_REVISION.store(0, Ordering::Release);
     LAST_WORLD_TOKEN.store(0, Ordering::Release);
     WORLD_GENERATION.store(0, Ordering::Release);
     SLOT.reset();
@@ -36,14 +34,15 @@ pub(super) fn publish_ready(request_generation: u32, duration_us: u32, raw: RawS
             .fetch_add(1, Ordering::AcqRel)
             .wrapping_add(1)
     };
-    let revision = SNAPSHOT_REVISION
-        .fetch_add(1, Ordering::AcqRel)
-        .wrapping_add(1);
+    let captured_tick_ms = sender_tick_ms();
+    let boundary = crate::state_events::snapshot_boundary(&raw, captured_tick_ms);
     SLOT.publish(StoredPublication {
         request_generation,
         result: Ok(ReadyPublication {
-            revision,
-            captured_tick_ms: sender_tick_ms(),
+            revision: boundary.revision,
+            event_sequence: boundary.event_sequence,
+            captured_tick_ms,
+            updated_tick_ms: boundary.tick_ms,
             capture_duration_us: duration_us,
             world_generation,
             raw,
@@ -139,7 +138,9 @@ struct StoredPublication {
 #[derive(Clone, Copy)]
 pub(super) struct ReadyPublication {
     pub(super) revision: u32,
+    pub(super) event_sequence: u32,
     pub(super) captured_tick_ms: u32,
+    pub(super) updated_tick_ms: u32,
     pub(super) capture_duration_us: u32,
     pub(super) world_generation: u32,
     pub(super) raw: RawStateSnapshot,

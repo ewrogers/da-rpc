@@ -12,8 +12,12 @@ pub(crate) struct ObservationMetadata {
     pid: u32,
     /// Wrapping state revision assigned by the injected DLL.
     revision: u32,
+    /// Wrapping sequence of the latest event incorporated into this state.
+    event_sequence: u32,
     /// Wrapping Windows millisecond tick at capture completion.
     captured_tick_ms: u32,
+    /// Wrapping Windows millisecond tick of the latest snapshot or event update.
+    updated_tick_ms: u32,
     /// Time spent walking client state on the game thread.
     capture_duration_us: u32,
     /// Non-address generation incremented when the world root changes.
@@ -25,7 +29,9 @@ impl ObservationMetadata {
         Self {
             pid,
             revision: snapshot.revision,
+            event_sequence: snapshot.event_sequence,
             captured_tick_ms: snapshot.captured_tick_ms,
+            updated_tick_ms: snapshot.updated_tick_ms,
             capture_duration_us: snapshot.capture_duration_us,
             world_generation: snapshot.world_generation,
         }
@@ -171,9 +177,11 @@ pub(crate) struct CharacterStatus {
     hair_color: Option<u8>,
     body_sprite: Option<u16>,
     class: CharacterClass,
-    action_locked: bool,
+    is_action_restricted: bool,
     is_blinded: bool,
     gold: u32,
+    weight: u32,
+    max_weight: u32,
     progression: CharacterProgression,
     stats: CharacterStats,
     vitals: CharacterVitals,
@@ -192,9 +200,11 @@ impl From<&ModelCharacterSnapshot> for CharacterStatus {
             hair_color: value.appearance.map(|appearance| appearance.hair_color),
             body_sprite: value.appearance.map(|appearance| appearance.body_sprite),
             class: CharacterClass::from(value.class),
-            action_locked: value.action_locked,
+            is_action_restricted: value.is_action_restricted,
             is_blinded: value.is_blinded,
             gold: value.gold,
+            weight: value.weight,
+            max_weight: value.max_weight,
             progression: CharacterProgression {
                 level: value.progression.level,
                 ability_level: value.progression.ability_level,
@@ -316,7 +326,7 @@ impl From<darpc_model::CharacterModifiers> for CharacterModifiers {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum Element {
     None,

@@ -3,6 +3,8 @@
 #[cfg(windows)]
 mod client_text;
 #[cfg(windows)]
+mod event_hook;
+#[cfg(windows)]
 mod identity;
 #[cfg(windows)]
 mod ipc;
@@ -12,8 +14,12 @@ mod lifecycle;
 mod map_name;
 #[cfg(windows)]
 mod map_size_hook;
+#[cfg(any(windows, test))]
+mod server_packet;
 #[cfg(windows)]
 mod snapshot;
+#[cfg(any(windows, test))]
+mod state_events;
 #[cfg(windows)]
 mod tick_hook;
 

@@ -1,0 +1,662 @@
+#![cfg_attr(not(windows), allow(dead_code))]
+
+use darpc_game_client::{RawCharacter, RawModifiers, RawStateSnapshot};
+use darpc_model::{
+    CharacterModifiers, CharacterStats, CoreStatus, CurrentVitals, Element, LocationUpdate,
+    MapChange, ProgressionStatus, StateEvent, StateUpdate, StatusUpdate,
+};
+use darpc_protocol::EventPollResult;
+use std::{
+    cell::UnsafeCell,
+    mem::{MaybeUninit, size_of},
+    sync::atomic::{AtomicU32, Ordering},
+    thread,
+    time::{Duration, Instant},
+};
+
+pub(crate) const EVENT_QUEUE_BYTES: usize = 1024 * 1024;
+const MAX_EVENT_MAP_NAME_BYTES: usize = u8::MAX as usize;
+const EVENT_QUEUE_CAPACITY: usize = EVENT_QUEUE_BYTES / size_of::<QueuedStateEvent>();
+const POLL_INTERVAL: Duration = Duration::from_millis(2);
+
+static REVISION: AtomicU32 = AtomicU32::new(0);
+static EVENT_SEQUENCE: AtomicU32 = AtomicU32::new(0);
+static CACHE: MainThreadCache = MainThreadCache::new();
+static QUEUE: EventQueue<EVENT_QUEUE_CAPACITY> = EventQueue::new();
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct SnapshotBoundary {
+    pub(crate) revision: u32,
+    pub(crate) event_sequence: u32,
+    pub(crate) tick_ms: u32,
+}
+
+pub(crate) fn reset() {
+    REVISION.store(0, Ordering::Release);
+    EVENT_SEQUENCE.store(0, Ordering::Release);
+    QUEUE.reset();
+    // SAFETY: reset runs before the event hook is installed and after the IPC
+    // consumer has stopped, so no other thread accesses the cache.
+    unsafe { CACHE.replace(StateCache::default()) };
+}
+
+#[must_use]
+pub(crate) fn map_transition_pending() -> bool {
+    // SAFETY: snapshot ticks and packet observations run on the client main
+    // thread, which is the sole cache producer.
+    unsafe { CACHE.map_transition_pending() }
+}
+
+pub(crate) fn stage_map_transition(map_id: u32, width: i32, height: i32, name: &[u8]) {
+    // SAFETY: the map-size hook runs on the client main thread, which is the
+    // sole cache producer.
+    unsafe { CACHE.stage_map_transition(map_id, width, height, name) };
+}
+
+pub(crate) fn snapshot_boundary(raw: &RawStateSnapshot, tick_ms: u32) -> SnapshotBoundary {
+    // SAFETY: snapshot capture and event observation both run on the client
+    // main thread, so cache mutation cannot overlap.
+    unsafe { CACHE.replace(StateCache::from_raw(raw)) };
+    SnapshotBoundary {
+        revision: next_nonzero(&REVISION),
+        event_sequence: EVENT_SEQUENCE.load(Ordering::Acquire),
+        tick_ms,
+    }
+}
+
+pub(crate) fn observe_status(update: StatusUpdate, tick_ms: u32) {
+    // SAFETY: the event hook observes decoded packets on the client main
+    // thread, which is the sole cache producer.
+    let update = unsafe { CACHE.filter_status(update) };
+    if update.is_empty() {
+        return;
+    }
+    push_event(QueuedStateUpdate::Status(update), tick_ms);
+}
+
+pub(crate) fn observe_user_position(x: i32, y: i32, tick_ms: u32) {
+    // SAFETY: the event hook runs on the client main thread, which is the sole
+    // cache producer.
+    let Some(update) = (unsafe { CACHE.user_position(x, y) }) else {
+        return;
+    };
+    push_event(QueuedStateUpdate::Location(update), tick_ms);
+}
+
+pub(crate) fn observe_move(x: i32, y: i32, tick_ms: u32) {
+    // SAFETY: the event hook runs on the client main thread, which is the sole
+    // cache producer.
+    let Some(update) = (unsafe { CACHE.move_position(x, y) }) else {
+        return;
+    };
+    push_event(QueuedStateUpdate::Location(update), tick_ms);
+}
+
+fn push_event(update: QueuedStateUpdate, tick_ms: u32) {
+    let event = QueuedStateEvent {
+        sequence: next_nonzero(&EVENT_SEQUENCE),
+        revision: next_nonzero(&REVISION),
+        tick_ms,
+        update,
+    };
+    QUEUE.push(event);
+}
+
+pub(crate) fn poll(after_sequence: u32, max_events: u16, wait: Duration) -> EventPollResult {
+    let deadline = Instant::now() + wait;
+    loop {
+        let result = QUEUE.take_after(after_sequence, usize::from(max_events));
+        if !matches!(&result, EventPollResult::Events(events) if events.is_empty()) {
+            return result;
+        }
+        if Instant::now() >= deadline {
+            return result;
+        }
+        thread::sleep(POLL_INTERVAL.min(deadline.saturating_duration_since(Instant::now())));
+    }
+}
+
+pub(crate) fn rebase(snapshot_sequence: u32) {
+    QUEUE.discard_through(snapshot_sequence);
+}
+
+fn next_nonzero(counter: &AtomicU32) -> u32 {
+    counter
+        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
+            let next = value.wrapping_add(1);
+            Some(if next == 0 { 1 } else { next })
+        })
+        .map(|previous| {
+            let next = previous.wrapping_add(1);
+            if next == 0 { 1 } else { next }
+        })
+        .expect("state counter update cannot fail")
+}
+
+fn sequence_after(candidate: u32, baseline: u32) -> bool {
+    let distance = candidate.wrapping_sub(baseline);
+    distance != 0 && distance < 0x8000_0000
+}
+
+fn next_sequence(sequence: u32) -> u32 {
+    let next = sequence.wrapping_add(1);
+    if next == 0 { 1 } else { next }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct QueuedStateEvent {
+    sequence: u32,
+    revision: u32,
+    tick_ms: u32,
+    update: QueuedStateUpdate,
+}
+
+impl QueuedStateEvent {
+    fn into_model(self) -> StateEvent {
+        let update = match self.update {
+            QueuedStateUpdate::Status(update) => StateUpdate::Status(update),
+            QueuedStateUpdate::Location(update) => StateUpdate::Location(update.into_model()),
+        };
+        StateEvent {
+            sequence: self.sequence,
+            revision: self.revision,
+            tick_ms: self.tick_ms,
+            update,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum QueuedStateUpdate {
+    Status(StatusUpdate),
+    Location(QueuedLocationUpdate),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct QueuedLocationUpdate {
+    x: i32,
+    y: i32,
+    map: Option<QueuedMapChange>,
+}
+
+impl QueuedLocationUpdate {
+    fn into_model(self) -> LocationUpdate {
+        LocationUpdate {
+            x: self.x,
+            y: self.y,
+            map: self.map.map(QueuedMapChange::into_model),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct QueuedMapChange {
+    id: u32,
+    width: i32,
+    height: i32,
+    name_length: u8,
+    name: [u8; MAX_EVENT_MAP_NAME_BYTES],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct CachedMap {
+    id: u32,
+    width: i32,
+    height: i32,
+}
+
+impl From<QueuedMapChange> for CachedMap {
+    fn from(value: QueuedMapChange) -> Self {
+        Self {
+            id: value.id,
+            width: value.width,
+            height: value.height,
+        }
+    }
+}
+
+impl QueuedMapChange {
+    fn new(id: u32, width: i32, height: i32, name: &[u8]) -> Self {
+        let length = name.len().min(MAX_EVENT_MAP_NAME_BYTES);
+        let mut owned_name = [0; MAX_EVENT_MAP_NAME_BYTES];
+        owned_name[..length].copy_from_slice(&name[..length]);
+        Self {
+            id,
+            width,
+            height,
+            name_length: u8::try_from(length).expect("map name length fits u8"),
+            name: owned_name,
+        }
+    }
+
+    fn into_model(self) -> MapChange {
+        MapChange {
+            id: self.id,
+            name: decode_map_name(&self.name[..usize::from(self.name_length)]),
+            width: self.width,
+            height: self.height,
+        }
+    }
+}
+
+#[cfg(windows)]
+fn decode_map_name(bytes: &[u8]) -> Option<String> {
+    crate::client_text::decode(bytes)
+}
+
+#[cfg(not(windows))]
+fn decode_map_name(bytes: &[u8]) -> Option<String> {
+    (!bytes.is_empty()).then(|| String::from_utf8_lossy(bytes).into_owned())
+}
+
+struct EventQueue<const N: usize> {
+    slots: [UnsafeCell<MaybeUninit<QueuedStateEvent>>; N],
+    write_position: AtomicU32,
+    read_position: AtomicU32,
+    latest_sequence: AtomicU32,
+    latest_dropped_sequence: AtomicU32,
+}
+
+// SAFETY: the client main thread is the only producer, the IPC worker is the
+// only consumer, and slot ownership is transferred by the atomic positions.
+unsafe impl<const N: usize> Sync for EventQueue<N> {}
+
+impl<const N: usize> EventQueue<N> {
+    const fn new() -> Self {
+        assert!(N > 0);
+        Self {
+            slots: [const { UnsafeCell::new(MaybeUninit::uninit()) }; N],
+            write_position: AtomicU32::new(0),
+            read_position: AtomicU32::new(0),
+            latest_sequence: AtomicU32::new(0),
+            latest_dropped_sequence: AtomicU32::new(0),
+        }
+    }
+
+    fn reset(&self) {
+        self.write_position.store(0, Ordering::Release);
+        self.read_position.store(0, Ordering::Release);
+        self.latest_sequence.store(0, Ordering::Release);
+        self.latest_dropped_sequence.store(0, Ordering::Release);
+    }
+
+    fn push(&self, event: QueuedStateEvent) {
+        self.latest_sequence
+            .store(event.sequence, Ordering::Release);
+        let write = self.write_position.load(Ordering::Relaxed);
+        let read = self.read_position.load(Ordering::Acquire);
+        if write.wrapping_sub(read) >= u32::try_from(N).expect("event queue capacity fits u32") {
+            self.latest_dropped_sequence
+                .store(event.sequence, Ordering::Release);
+            return;
+        }
+        let slot = &self.slots[write as usize % N];
+        // SAFETY: this producer owns the slot until the release store advances
+        // write_position, and the capacity check prevents overwrite.
+        unsafe { (*slot.get()).write(event) };
+        self.write_position
+            .store(write.wrapping_add(1), Ordering::Release);
+    }
+
+    fn take_after(&self, after_sequence: u32, max_events: usize) -> EventPollResult {
+        let dropped = self.latest_dropped_sequence.load(Ordering::Acquire);
+        let latest = self.latest_sequence.load(Ordering::Acquire);
+        if sequence_after(dropped, after_sequence) {
+            return EventPollResult::ResyncRequired {
+                missing_sequence: dropped,
+                latest_sequence: latest,
+            };
+        }
+
+        let mut events = Vec::with_capacity(max_events.min(N));
+        let mut expected = next_sequence(after_sequence);
+        while events.len() < max_events {
+            let Some(event) = self.pop() else {
+                break;
+            };
+            if !sequence_after(event.sequence, after_sequence) {
+                continue;
+            }
+            if event.sequence != expected {
+                return EventPollResult::ResyncRequired {
+                    missing_sequence: expected,
+                    latest_sequence: latest,
+                };
+            }
+            expected = next_sequence(event.sequence);
+            events.push(event.into_model());
+        }
+        EventPollResult::Events(events)
+    }
+
+    fn discard_through(&self, snapshot_sequence: u32) {
+        while self
+            .peek()
+            .is_some_and(|event| !sequence_after(event.sequence, snapshot_sequence))
+        {
+            let _ = self.pop();
+        }
+    }
+
+    fn peek(&self) -> Option<QueuedStateEvent> {
+        let read = self.read_position.load(Ordering::Relaxed);
+        let write = self.write_position.load(Ordering::Acquire);
+        if read == write {
+            return None;
+        }
+        let slot = &self.slots[read as usize % N];
+        // SAFETY: write_position's acquire load makes the initialized slot
+        // visible. The sole consumer does not advance the slot while copying.
+        Some(unsafe { *(*slot.get()).assume_init_ref() })
+    }
+
+    fn pop(&self) -> Option<QueuedStateEvent> {
+        let read = self.read_position.load(Ordering::Relaxed);
+        let write = self.write_position.load(Ordering::Acquire);
+        if read == write {
+            return None;
+        }
+        let slot = &self.slots[read as usize % N];
+        // SAFETY: write_position's acquire load makes the initialized slot
+        // visible, and this sole consumer owns it until advancing read_position.
+        let event = unsafe { (*slot.get()).assume_init_read() };
+        self.read_position
+            .store(read.wrapping_add(1), Ordering::Release);
+        Some(event)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct StateCache {
+    core: Option<CoreStatus>,
+    vitals: Option<CurrentVitals>,
+    progression: Option<ProgressionStatus>,
+    gold: Option<u32>,
+    modifiers: Option<CharacterModifiers>,
+    is_blinded: Option<bool>,
+    is_action_restricted: Option<bool>,
+    map: Option<CachedMap>,
+    position: Option<(i32, i32)>,
+    pending_map: Option<QueuedMapChange>,
+}
+
+impl StateCache {
+    fn from_raw(raw: &RawStateSnapshot) -> Self {
+        raw.character
+            .map_or_else(Self::default, Self::from_character)
+    }
+
+    fn from_character(raw: RawCharacter) -> Self {
+        Self {
+            core: Some(CoreStatus {
+                level: raw.level,
+                ability_level: raw.ability_level,
+                max_health: raw.max_health,
+                max_mana: raw.max_mana,
+                weight: raw.weight,
+                max_weight: raw.max_weight,
+                stats: CharacterStats {
+                    strength: raw.strength,
+                    intelligence: raw.intelligence,
+                    wisdom: raw.wisdom,
+                    constitution: raw.constitution,
+                    dexterity: raw.dexterity,
+                },
+            }),
+            vitals: Some(CurrentVitals {
+                health: raw.health,
+                mana: raw.mana,
+            }),
+            progression: raw.pane_progression.map(|pane| ProgressionStatus {
+                experience: raw.experience,
+                ability_points: pane.ability_points,
+                experience_to_next_level: pane.experience_to_next_level,
+                ability_to_next_level: pane.ability_to_next_level,
+            }),
+            gold: Some(raw.gold),
+            modifiers: raw.modifiers.map(modifiers),
+            is_blinded: Some(raw.is_blinded),
+            is_action_restricted: Some(raw.is_action_restricted),
+            map: raw.location.map(|location| CachedMap {
+                id: location.map_id,
+                width: location.width,
+                height: location.height,
+            }),
+            position: raw.location.and_then(|location| location.x.zip(location.y)),
+            pending_map: None,
+        }
+    }
+
+    fn filter_status(&mut self, update: StatusUpdate) -> StatusUpdate {
+        StatusUpdate {
+            core: changed(&mut self.core, update.core),
+            vitals: changed(&mut self.vitals, update.vitals),
+            progression: changed(&mut self.progression, update.progression),
+            gold: changed(&mut self.gold, update.gold),
+            modifiers: changed(&mut self.modifiers, update.modifiers),
+            is_blinded: changed(&mut self.is_blinded, update.is_blinded),
+            is_action_restricted: changed(
+                &mut self.is_action_restricted,
+                update.is_action_restricted,
+            ),
+        }
+    }
+
+    fn stage_map_transition(&mut self, map_id: u32, width: i32, height: i32, name: &[u8]) {
+        let pending = QueuedMapChange::new(map_id, width, height, name);
+        if self.map == Some(pending.into()) {
+            self.pending_map = None;
+        } else {
+            self.pending_map = Some(pending);
+        }
+    }
+
+    fn user_position(&mut self, x: i32, y: i32) -> Option<QueuedLocationUpdate> {
+        let map = self.pending_map.take();
+        if map.is_none() && self.position == Some((x, y)) {
+            return None;
+        }
+        self.position = Some((x, y));
+        if let Some(map) = map {
+            self.map = Some(map.into());
+        }
+        Some(QueuedLocationUpdate { x, y, map })
+    }
+
+    fn move_position(&mut self, x: i32, y: i32) -> Option<QueuedLocationUpdate> {
+        if self.pending_map.is_some() || self.position == Some((x, y)) {
+            return None;
+        }
+        self.position = Some((x, y));
+        Some(QueuedLocationUpdate { x, y, map: None })
+    }
+}
+
+fn changed<T: Copy + Eq>(cached: &mut Option<T>, incoming: Option<T>) -> Option<T> {
+    let value = incoming?;
+    if *cached == Some(value) {
+        return None;
+    }
+    *cached = Some(value);
+    Some(value)
+}
+
+fn modifiers(raw: RawModifiers) -> CharacterModifiers {
+    CharacterModifiers {
+        armor_class: raw.armor_class,
+        damage: raw.damage,
+        hit: raw.hit,
+        magic_resistance: raw.magic_resistance_units.saturating_mul(10),
+        attack_element: Element::from_raw(raw.attack_element),
+        defense_element: Element::from_raw(raw.defense_element),
+    }
+}
+
+struct MainThreadCache(UnsafeCell<StateCache>);
+
+// SAFETY: access is restricted to the client main thread except during reset,
+// which runs only while the producer hook is absent.
+unsafe impl Sync for MainThreadCache {}
+
+impl MainThreadCache {
+    const fn new() -> Self {
+        Self(UnsafeCell::new(StateCache {
+            core: None,
+            vitals: None,
+            progression: None,
+            gold: None,
+            modifiers: None,
+            is_blinded: None,
+            is_action_restricted: None,
+            map: None,
+            position: None,
+            pending_map: None,
+        }))
+    }
+
+    unsafe fn replace(&self, cache: StateCache) {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { *self.0.get() = cache };
+    }
+
+    unsafe fn filter_status(&self, update: StatusUpdate) -> StatusUpdate {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&mut *self.0.get()).filter_status(update) }
+    }
+
+    unsafe fn map_transition_pending(&self) -> bool {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&*self.0.get()).pending_map.is_some() }
+    }
+
+    unsafe fn stage_map_transition(&self, map_id: u32, width: i32, height: i32, name: &[u8]) {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&mut *self.0.get()).stage_map_transition(map_id, width, height, name) };
+    }
+
+    unsafe fn user_position(&self, x: i32, y: i32) -> Option<QueuedLocationUpdate> {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&mut *self.0.get()).user_position(x, y) }
+    }
+
+    unsafe fn move_position(&self, x: i32, y: i32) -> Option<QueuedLocationUpdate> {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&mut *self.0.get()).move_position(x, y) }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn event(sequence: u32) -> QueuedStateEvent {
+        QueuedStateEvent {
+            sequence,
+            revision: sequence,
+            tick_ms: sequence,
+            update: QueuedStateUpdate::Status(StatusUpdate {
+                gold: Some(sequence),
+                ..StatusUpdate::default()
+            }),
+        }
+    }
+
+    #[test]
+    fn queue_preserves_order_and_snapshot_boundary() {
+        let queue = EventQueue::<4>::new();
+        queue.push(event(1));
+        queue.push(event(2));
+        assert_eq!(
+            queue.take_after(1, 4),
+            EventPollResult::Events(vec![event(2).into_model()])
+        );
+    }
+
+    #[test]
+    fn overflow_requires_resynchronization_until_rebased() {
+        let queue = EventQueue::<2>::new();
+        queue.push(event(1));
+        queue.push(event(2));
+        queue.push(event(3));
+        assert_eq!(
+            queue.take_after(0, 2),
+            EventPollResult::ResyncRequired {
+                missing_sequence: 3,
+                latest_sequence: 3,
+            }
+        );
+        assert_eq!(queue.take_after(3, 2), EventPollResult::Events(Vec::new()));
+    }
+
+    #[test]
+    fn rebase_discards_only_events_covered_by_the_snapshot() {
+        let queue = EventQueue::<4>::new();
+        queue.push(event(1));
+        queue.push(event(2));
+        queue.push(event(3));
+        queue.discard_through(2);
+        assert_eq!(
+            queue.take_after(2, 4),
+            EventPollResult::Events(vec![event(3).into_model()])
+        );
+    }
+
+    #[test]
+    fn a_noncontiguous_queue_entry_requires_resynchronization() {
+        let queue = EventQueue::<4>::new();
+        queue.push(event(1));
+        queue.push(event(3));
+        assert_eq!(
+            queue.take_after(0, 4),
+            EventPollResult::ResyncRequired {
+                missing_sequence: 2,
+                latest_sequence: 3,
+            }
+        );
+    }
+
+    #[test]
+    fn map_transition_commits_with_authoritative_position() {
+        let mut cache = StateCache {
+            position: Some((10, 20)),
+            ..StateCache::default()
+        };
+        cache.stage_map_transition(3001, 100, 80, b"Mileth");
+        assert_eq!(cache.move_position(11, 20), None);
+
+        let update = cache.user_position(43, 40).unwrap().into_model();
+        assert_eq!(update.x, 43);
+        assert_eq!(update.y, 40);
+        assert_eq!(
+            update.map,
+            Some(MapChange {
+                id: 3001,
+                name: Some("Mileth".into()),
+                width: 100,
+                height: 80,
+            })
+        );
+        assert_eq!(cache.position, Some((43, 40)));
+        assert!(cache.pending_map.is_none());
+    }
+
+    #[test]
+    fn same_map_refresh_does_not_stage_a_transition() {
+        let mut cache = StateCache {
+            map: Some(CachedMap {
+                id: 498,
+                width: 20,
+                height: 15,
+            }),
+            position: Some((1, 8)),
+            ..StateCache::default()
+        };
+
+        cache.stage_map_transition(498, 20, 15, b"Rucesion Inn");
+        assert!(cache.pending_map.is_none());
+
+        let update = cache.user_position(2, 8).unwrap().into_model();
+        assert_eq!((update.x, update.y), (2, 8));
+        assert_eq!(update.map, None);
+    }
+}

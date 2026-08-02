@@ -12,8 +12,8 @@ then waits for one local controller without touching the game thread. `DllMain`
 does not start IPC or wait for the worker.
 
 Each connection begins with the DLL's `Hello` and must answer with a compatible
-`HelloAck`. The worker serves bounded `Ping`, `Echo`, tick-health, and snapshot
-operations.
+`HelloAck`. The worker serves bounded `Ping`, `Echo`, tick-health, snapshot,
+and event-poll operations.
 It uses overlapped reads, writes, and accepts so `darpc_shutdown` can signal the
 worker, cancel pending input/output, and join it before unloading. If bounded
 shutdown cannot prove the worker stopped, shutdown fails and the loader leaves
@@ -48,9 +48,18 @@ client main thread. Bounded raw values are published to the pipe worker, which
 owns text decoding, allocation, and serialization. See [Client state](state.md)
 for the snapshot surface and concurrency model.
 
-Event-driven state maintenance is not implemented yet. The current DLL serves
-a fresh on-demand snapshot and preserves the revision and ordering foundations
-needed to add incremental updates without changing state ownership.
+The DLL also observes the central decoded-event dispatcher after original
+handling. Bounded status, action-state, and accepted-position values update a
+main-thread cache and enter a fixed 1 MiB queue as ordered absolute mutations.
+Map-size metadata is staged until an authoritative position completes the
+transition. The pipe worker serves those mutations through bounded long polls.
+It requests no allocation, logging, serialization, or IPC work from the hook
+path.
+
+A complete snapshot records the latest event sequence already represented in
+its values. The queue rebases to that boundary, and overflow or an ordering gap
+causes the controller to request another complete snapshot. This keeps state
+ownership inside the DLL while avoiding an unbounded replay log.
 
 This state tracking is independent of `darpcd.exe`. If the daemon stops, the DLL
 continues to update its state and keeps its named-pipe server ready for a new

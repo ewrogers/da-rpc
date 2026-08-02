@@ -56,7 +56,9 @@ impl SnapshotUnavailableReason {
 
 pub(crate) fn encode(output: &mut Vec<u8>, snapshot: &ClientSnapshot) -> Result<(), EncodeError> {
     push_u32(output, snapshot.revision);
+    push_u32(output, snapshot.event_sequence);
     push_u32(output, snapshot.captured_tick_ms);
+    push_u32(output, snapshot.updated_tick_ms);
     push_u32(output, snapshot.capture_duration_us);
     push_u32(output, snapshot.world_generation);
     output.push(lifecycle_wire(snapshot.lifecycle));
@@ -69,7 +71,9 @@ pub(crate) fn encode(output: &mut Vec<u8>, snapshot: &ClientSnapshot) -> Result<
 
 pub(crate) fn decode(reader: &mut PayloadReader<'_>) -> Result<ClientSnapshot, DecodeError> {
     let revision = reader.read_u32()?;
+    let event_sequence = reader.read_u32()?;
     let captured_tick_ms = reader.read_u32()?;
+    let updated_tick_ms = reader.read_u32()?;
     let capture_duration_us = reader.read_u32()?;
     let world_generation = reader.read_u32()?;
     let lifecycle = lifecycle_from_wire(reader.read_u8()?)?;
@@ -80,7 +84,9 @@ pub(crate) fn decode(reader: &mut PayloadReader<'_>) -> Result<ClientSnapshot, D
     };
     Ok(ClientSnapshot {
         revision,
+        event_sequence,
         captured_tick_ms,
+        updated_tick_ms,
         capture_duration_us,
         world_generation,
         lifecycle,
@@ -105,9 +111,11 @@ fn encode_character(
         None => output.push(0),
     }
     output.push(character.class.raw());
-    push_bool(output, character.action_locked);
+    push_bool(output, character.is_action_restricted);
     push_bool(output, character.is_blinded);
     push_u32(output, character.gold);
+    push_u32(output, character.weight);
+    push_u32(output, character.max_weight);
 
     output.push(character.progression.level);
     output.push(character.progression.ability_level);
@@ -178,9 +186,11 @@ fn decode_character(reader: &mut PayloadReader<'_>) -> Result<CharacterSnapshot,
         None
     };
     let class = CharacterClass::from_raw(reader.read_u8()?);
-    let action_locked = reader.read_bool()?;
+    let is_action_restricted = reader.read_bool()?;
     let is_blinded = reader.read_bool()?;
     let gold = reader.read_u32()?;
+    let weight = reader.read_u32()?;
+    let max_weight = reader.read_u32()?;
     let level = reader.read_u8()?;
     let ability_level = reader.read_u8()?;
     let experience = reader.read_u32()?;
@@ -243,9 +253,11 @@ fn decode_character(reader: &mut PayloadReader<'_>) -> Result<CharacterSnapshot,
         name,
         appearance,
         class,
-        action_locked,
+        is_action_restricted,
         is_blinded,
         gold,
+        weight,
+        max_weight,
         progression: CharacterProgression {
             level,
             ability_level,
@@ -301,7 +313,7 @@ fn decode_optional_u32(reader: &mut PayloadReader<'_>) -> Result<Option<u32>, De
     }
 }
 
-fn encode_optional_string(
+pub(crate) fn encode_optional_string(
     output: &mut Vec<u8>,
     value: Option<&str>,
     max: usize,
@@ -323,7 +335,7 @@ fn encode_optional_string(
     Ok(())
 }
 
-fn decode_optional_string(
+pub(crate) fn decode_optional_string(
     reader: &mut PayloadReader<'_>,
     max: usize,
 ) -> Result<Option<String>, DecodeError> {

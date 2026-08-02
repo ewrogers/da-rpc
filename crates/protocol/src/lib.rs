@@ -1,12 +1,17 @@
 //! Binary interprocess communication protocol for daRPC.
 
 mod error;
+mod event;
 mod frame;
 mod message;
 mod session;
 mod snapshot;
 
 pub use error::{DecodeError, EncodeError};
+pub use event::{
+    EventPollRequest, EventPollResponse, EventPollResult, MAX_EVENT_POLL_WAIT_MS,
+    MAX_EVENTS_PER_POLL,
+};
 pub use frame::{
     FRAME_HEADER_LEN, FRAME_MAGIC, FRAME_VERSION, Frame, FrameHeader, MAX_FRAME_LEN,
     MAX_PAYLOAD_LEN, decode_frame, decode_header, encode_frame,

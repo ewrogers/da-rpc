@@ -15,6 +15,7 @@ use crate::{
         EquipmentItem, EquipmentSlot, GameStatus, Inventory, InventoryItem, MapLocation,
         ObservationMetadata, Skill, Skillbook, Spell, SpellTargetType, Spellbook,
     },
+    stream_api::{self, ClientEvent, PublishedEvent},
 };
 use axum::{
     Json, Router,
@@ -34,6 +35,7 @@ use std::{
     sync::{Arc, RwLock, mpsc::Sender},
     thread::{self, JoinHandle},
 };
+use tokio::sync::broadcast;
 use utoipa::{OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -47,6 +49,7 @@ pub(crate) struct ApiState {
     snapshot: Arc<RwLock<Arc<RegistrySnapshot>>>,
     lifecycle: Arc<dyn LifecycleControl>,
     events: Sender<DaemonEvent>,
+    published_events: broadcast::Sender<PublishedEvent>,
 }
 
 impl ApiState {
@@ -56,10 +59,12 @@ impl ApiState {
         lifecycle: Arc<dyn LifecycleControl>,
         events: Sender<DaemonEvent>,
     ) -> Self {
+        let (published_events, _) = broadcast::channel(stream_api::EVENT_CHANNEL_CAPACITY);
         Self {
             snapshot: Arc::new(RwLock::new(Arc::new(snapshot))),
             lifecycle,
             events,
+            published_events,
         }
     }
 
@@ -69,6 +74,46 @@ impl ApiState {
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         *current = Arc::new(snapshot);
+    }
+
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub(crate) fn publish_connection_event(&self, event: &ConnectionEvent) {
+        match event {
+            ConnectionEvent::StateEvents {
+                pid,
+                identity,
+                events,
+            } => {
+                for state_event in events {
+                    let _ = self.published_events.send(PublishedEvent::State {
+                        pid: *pid,
+                        identity: *identity,
+                        event: state_event.clone(),
+                    });
+                }
+            }
+            ConnectionEvent::Disconnected {
+                pid,
+                identity: Some(identity),
+                reason,
+            }
+            | ConnectionEvent::Incompatible {
+                pid,
+                identity: Some(identity),
+                reason,
+            } => {
+                let _ = self.published_events.send(PublishedEvent::Closed {
+                    pid: *pid,
+                    identity: *identity,
+                    reason: reason.clone(),
+                });
+            }
+            _ => {}
+        }
+    }
+
+    fn subscribe(&self) -> broadcast::Receiver<PublishedEvent> {
+        self.published_events.subscribe()
     }
 
     fn snapshot(&self) -> Arc<RegistrySnapshot> {
@@ -95,6 +140,7 @@ pub(crate) fn start(port: u16, state: ApiState) -> io::Result<JoinHandle<()>> {
     listener.set_nonblocking(true)?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_io()
+        .enable_time()
         .build()?;
 
     thread::Builder::new()
@@ -124,6 +170,7 @@ fn router(state: ApiState) -> Router {
         .route("/clients/{client}/equipment", get(client_equipment))
         .route("/clients/{client}/spellbook", get(client_spellbook))
         .route("/clients/{client}/skillbook", get(client_skillbook))
+        .route("/clients/{client}/events", get(client_events))
         .route("/clients/launch", post(launch))
         .route("/clients/{client}/load", post(load))
         .route("/clients/{client}/unload", post(unload))
@@ -302,6 +349,58 @@ async fn client_skillbook(
     let registry = state.snapshot();
     let (pid, snapshot) = resolve_game_snapshot(&registry, &identifier)?;
     Ok(Json(Skillbook::from_model(pid, snapshot)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/clients/{client}/events",
+    params(("client" = String, Path, description = "Process ID or current in-game character name")),
+    responses(
+        (status = 200, description = "Ordered client state changes beginning at a current snapshot boundary", body = ClientEvent, content_type = "text/event-stream"),
+        (status = 400, description = "The process identifier was invalid", body = ErrorState),
+        (status = 404, description = "The process is not a discovered or configured client", body = ErrorState),
+        (status = 503, description = "The client is not connected with a current observation", body = ErrorState)
+    )
+)]
+async fn client_events(
+    Path(identifier): Path<String>,
+    State(state): State<ApiState>,
+) -> Result<Response, ApiError> {
+    let receiver = state.subscribe();
+    let registry = state.snapshot();
+    let client = resolve_client(&registry, &identifier)?;
+    if client.status != ClientSnapshotStatus::Connected {
+        return Err(ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "event_stream_unavailable",
+            "the client is not currently connected",
+            Some(client.pid),
+        ));
+    }
+    let identity = client.identity.ok_or_else(|| {
+        ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "event_stream_unavailable",
+            "the connected client identity is unavailable",
+            Some(client.pid),
+        )
+    })?;
+    let snapshot = client.game_snapshot.as_ref().ok_or_else(|| {
+        ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "event_stream_unavailable",
+            "the client has not published an observation yet",
+            Some(client.pid),
+        )
+    })?;
+    Ok(stream_api::response(
+        client.pid,
+        identity,
+        snapshot.revision,
+        snapshot.event_sequence,
+        receiver,
+    )
+    .into_response())
 }
 
 #[utoipa::path(
@@ -558,6 +657,7 @@ fn operation_in_progress(pid: u32) -> ApiError {
         client_equipment,
         client_spellbook,
         client_skillbook,
+        client_events,
         load,
         unload,
         launch
@@ -599,7 +699,8 @@ fn operation_in_progress(pid: u32) -> ApiError {
         LifecycleResult,
         LifecycleAction,
         ErrorState,
-        ErrorDetail
+        ErrorDetail,
+        ClientEvent
     ))
 )]
 struct ApiDoc;
@@ -692,7 +793,7 @@ impl From<ClientSnapshotStatus> for ClientStatus {
 struct ClientIdentity {
     /// Unsigned 64-bit Windows process creation time encoded in decimal.
     created_time: String,
-    /// Per-load DLL instance identifier encoded as 32 uppercase hexadecimal digits.
+    /// Per-load DLL instance identifier encoded as 32 lowercase hexadecimal digits.
     instance_id: String,
 }
 
@@ -713,7 +814,7 @@ struct ConnectionMetadata {
     architecture: String,
     /// Semantic version of the injected DLL.
     dll_version: String,
-    /// Supported executable fingerprint encoded as uppercase hexadecimal.
+    /// Supported executable fingerprint encoded as lowercase hexadecimal.
     executable_fingerprint: String,
     /// Supported Dark Ages client version.
     client_version: String,
@@ -1048,7 +1149,9 @@ mod tests {
     fn game_snapshot() -> ModelClientSnapshot {
         ModelClientSnapshot {
             revision: 3,
+            event_sequence: 2,
             captured_tick_ms: 500,
+            updated_tick_ms: 510,
             capture_duration_us: 75,
             world_generation: 1,
             lifecycle: ClientLifecycle::InGame,
@@ -1062,9 +1165,11 @@ mod tests {
                     body_sprite: 1,
                 }),
                 class: CharacterClass::Wizard,
-                action_locked: true,
+                is_action_restricted: false,
                 is_blinded: true,
                 gold: 99,
+                weight: 25,
+                max_weight: 60,
                 progression: CharacterProgression {
                     level: 50,
                     ability_level: 2,
@@ -1195,6 +1300,7 @@ mod tests {
 
     fn response(path: &str) -> axum::response::Response {
         tokio::runtime::Builder::new_current_thread()
+            .enable_time()
             .build()
             .unwrap()
             .block_on(async {
@@ -1301,13 +1407,15 @@ mod tests {
         let status = json("/clients/silo/status");
         assert_eq!(status["observation"]["pid"], 42);
         assert_eq!(status["observation"]["revision"], 3);
+        assert_eq!(status["observation"]["event_sequence"], 2);
+        assert_eq!(status["observation"]["updated_tick_ms"], 510);
         assert_eq!(status["lifecycle"], "in_game");
         assert_eq!(status["character"]["name"], "SiLo");
         assert_eq!(status["character"]["gender"], "male");
         assert_eq!(status["character"]["hair_style"], 17);
         assert_eq!(status["character"]["hair_color"], 6);
         assert_eq!(status["character"]["body_sprite"], 1);
-        assert_eq!(status["character"]["action_locked"], true);
+        assert_eq!(status["character"]["is_action_restricted"], false);
         assert_eq!(status["character"]["is_blinded"], true);
         assert!(status["character"].get("gender_id").is_none());
         assert!(status["character"].get("class_id").is_none());
@@ -1338,6 +1446,13 @@ mod tests {
         let skillbook = json("/clients/silo/skillbook");
         assert_eq!(skillbook["observation"]["revision"], 3);
         assert_eq!(skillbook["skills"][0]["max_level"], 100);
+
+        let events = response("/clients/silo/events");
+        assert_eq!(events.status(), StatusCode::OK);
+        assert_eq!(
+            events.headers()[axum::http::header::CONTENT_TYPE],
+            "text/event-stream"
+        );
 
         assert_eq!(
             response("/clients/silo/snapshot").status(),
@@ -1465,6 +1580,7 @@ mod tests {
             "/clients/{client}/equipment",
             "/clients/{client}/spellbook",
             "/clients/{client}/skillbook",
+            "/clients/{client}/events",
         ] {
             assert!(openapi["paths"][path].is_object(), "OpenAPI omitted {path}");
         }
@@ -1511,6 +1627,7 @@ mod tests {
             "UnloadResult",
             "ErrorState",
             "ErrorDetail",
+            "ClientEvent",
         ] {
             assert!(schemas.contains_key(name), "OpenAPI omitted {name}");
         }

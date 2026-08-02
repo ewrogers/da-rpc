@@ -235,8 +235,9 @@ darpcd.exe --loader-path <loader.exe> --dll-path <darpc.dll>
 
 The daemon prints connection status transitions and reconnects when a pipe or
 DLL returns. After each connection it obtains and retains a fresh current-state
-snapshot. While it owns a pipe, direct `darpc.exe` commands report that the
-endpoint is busy.
+snapshot, then applies ordered absolute state updates between snapshots. A
+queue overflow or ordering gap automatically requests a new snapshot. While it
+owns a pipe, direct `darpc.exe` commands report that the endpoint is busy.
 
 `--auto-load` asks the daemon to load its configured DLL into each `not_loaded`
 client once per tracked process. It applies to clients present at startup and
@@ -263,6 +264,7 @@ GET /clients/{client}/inventory
 GET /clients/{client}/equipment
 GET /clients/{client}/spellbook
 GET /clients/{client}/skillbook
+GET /clients/{client}/events
 POST /clients/launch
 POST /clients/{client}/load
 POST /clients/{client}/unload
@@ -277,7 +279,10 @@ discovered or explicitly configured PID, current endpoint name, and status,
 plus the DLL `instance_id` and process `created_time` once identity is
 available. A `{client}` path accepts either a PID or a case-insensitive current
 in-game character name. The status and collection routes present focused views
-of the daemon's latest complete observation for one client.
+of the daemon's latest retained observation for one client. The event route is
+a bounded Server-Sent Events stream beginning with a current snapshot boundary;
+a lagging consumer is told to resynchronize and cannot block other consumers or
+the injected client.
 
 Managed launch requires `client_path` and accepts `allow_multiple`,
 `skip_intro`, `skip_notice`, and an optional `server` string in `host` or
@@ -318,7 +323,8 @@ format with a short, focused, imperative summary.
 ## Documentation
 
 The book contains the detailed state model, discovery design, IPC and HTTP
-protocols, and planned Server-Sent Events and WebSocket interfaces.
+protocols, the implemented Server-Sent Events interface, and the planned
+WebSocket interface.
 
 The [development roadmap](docs/src/roadmap.md) divides the work into small
 increments with a visible demonstration and exit checks for each milestone.

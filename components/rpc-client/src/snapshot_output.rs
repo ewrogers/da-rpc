@@ -40,16 +40,18 @@ pub(crate) fn render_human(
     let _ = write!(
         output,
         concat!(
-            "\ncharacter: id={} name={} gender={} class={} action_locked={} ",
-            "is_blinded={} gold={} hair_style={} hair_color={} body_sprite={}"
+            "\ncharacter: id={} name={} gender={} class={} is_action_restricted={} ",
+            "is_blinded={} gold={} weight={} max_weight={} hair_style={} hair_color={} body_sprite={}"
         ),
         id,
         json_string(name),
         gender,
         character_class(character.class),
-        character.action_locked,
+        character.is_action_restricted,
         character.is_blinded,
         character.gold,
+        character.weight,
+        character.max_weight,
         optional_number(appearance.map(|value| value.hair_style)),
         optional_number(appearance.map(|value| value.hair_color)),
         optional_number(appearance.map(|value| value.body_sprite)),
@@ -156,9 +158,11 @@ fn character_value(character: &CharacterSnapshot) -> serde_json::Value {
         "hair_color": appearance.map(|value| value.hair_color),
         "body_sprite": appearance.map(|value| value.body_sprite),
         "class": character_class(character.class),
-        "action_locked": character.action_locked,
+        "is_action_restricted": character.is_action_restricted,
         "is_blinded": character.is_blinded,
         "gold": character.gold,
+        "weight": character.weight,
+        "max_weight": character.max_weight,
         "progression": {
             "level": progression.level,
             "ability_level": progression.ability_level,

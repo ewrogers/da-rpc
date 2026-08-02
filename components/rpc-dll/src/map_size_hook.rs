@@ -13,7 +13,7 @@ use std::{
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 
-use crate::map_name;
+use crate::{map_name, state_events};
 
 pub(crate) const NAME: &str = "map_size_handler";
 
@@ -22,6 +22,8 @@ const INSTALL_TIMEOUT: Duration = Duration::from_secs(5);
 const UNINSTALL_TIMEOUT: Duration = Duration::from_secs(5);
 const COMMIT_RETRY_INTERVAL: Duration = Duration::from_millis(1);
 const PACKET_MAP_ID_OFFSET: usize = 0x10;
+const PACKET_WIDTH_OFFSET: usize = 0x12;
+const PACKET_HEIGHT_OFFSET: usize = 0x13;
 const PACKET_NAME_OFFSET: usize = 0x1C;
 const MAX_MAP_NAME_BYTES: usize = u8::MAX as usize;
 
@@ -164,7 +166,7 @@ extern "C" fn observe_map_size(world: *const core::ffi::c_void, packet: *const u
         // SAFETY: this callback runs synchronously at the validated map-size
         // handler entry. Its packet argument is a live SMapSize object with a
         // fixed inline name buffer for the duration of the call.
-        let (map_id, name) = unsafe {
+        let (map_id, width, height, name) = unsafe {
             let map_id = u16::from_le_bytes([
                 *packet.add(PACKET_MAP_ID_OFFSET),
                 *packet.add(PACKET_MAP_ID_OFFSET + 1),
@@ -174,8 +176,14 @@ extern "C" fn observe_map_size(world: *const core::ffi::c_void, packet: *const u
                 .iter()
                 .position(|byte| *byte == 0)
                 .unwrap_or(name.len());
-            (u32::from(map_id), &name[..length])
+            (
+                u32::from(map_id),
+                i32::from(*packet.add(PACKET_WIDTH_OFFSET)),
+                i32::from(*packet.add(PACKET_HEIGHT_OFFSET)),
+                &name[..length],
+            )
         };
         map_name::publish(world as usize as u32, map_id, name);
+        state_events::stage_map_transition(map_id, width, height, name);
     });
 }

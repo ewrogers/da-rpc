@@ -69,6 +69,8 @@ enum MessageType: u16 {
     TickHealthResponse = 8,
     SnapshotRequest    = 9,
     SnapshotResponse   = 10,
+    EventPollRequest   = 11,
+    EventPollResponse  = 12,
 }
 ```
 
@@ -197,7 +199,9 @@ enum ClientLifecycle: u8 {
 
 struct ClientSnapshot {
     revision: u32;
+    event_sequence: u32;
     captured_tick_ms: u32;
+    updated_tick_ms: u32;
     capture_duration_us: u32;
     world_generation: u32;
     lifecycle: ClientLifecycle;
@@ -209,9 +213,11 @@ struct CharacterSnapshot {
     name: Option<utf8>;
     appearance: Option<CharacterAppearance>;
     class: CharacterClass;
-    action_locked: bool;
+    is_action_restricted: bool;
     is_blinded: bool;
     gold: u32;
+    weight: u32;
+    max_weight: u32;
     progression: CharacterProgression;
     stats: CharacterStats;
     vitals: CharacterVitals;
@@ -307,12 +313,114 @@ still contain character state when the underlying world remains valid.
 Adding these operations does not change protocol version 1.0 because daRPC has
 not established a released compatibility boundary.
 
+## Event polling and state updates
+
+The daemon uses bounded long polling rather than unsolicited pipe writes. This
+keeps the DLL pipe worker in a simple request and response loop while still
+delivering active updates immediately and limiting idle polling to one request
+every 50 milliseconds.
+
+```rust,ignore
+struct EventPollRequest {
+    request_id: u32;
+    after_sequence: u32;
+    max_events: u16;  // 1 through 192
+    wait_ms: u16;     // 0 through 1,000
+}
+
+enum EventPollResult {
+    Events(Vec<StateEvent>),
+    ResyncRequired {
+        missing_sequence: u32,
+        latest_sequence: u32,
+    },
+}
+
+struct EventPollResponse {
+    request_id: u32;
+    result: EventPollResult;
+}
+
+struct StateEvent {
+    sequence: u32;
+    revision: u32;
+    tick_ms: u32;
+    update: StateUpdate;
+}
+
+enum StateUpdate: u8 {
+    Status(StatusUpdate) = 1,
+    Location(LocationUpdate) = 2,
+}
+
+struct StatusUpdate {
+    core: Option<CoreStatus>;                 // field bit 0
+    vitals: Option<CurrentVitals>;            // field bit 1
+    progression: Option<ProgressionStatus>;   // field bit 2
+    gold: Option<u32>;                        // field bit 3
+    modifiers: Option<CharacterModifiers>;    // field bit 4
+    is_blinded: Option<bool>;                 // field bit 5
+    is_action_restricted: Option<bool>;       // field bit 6
+}
+
+struct CoreStatus {
+    level: u8;
+    ability_level: u8;
+    max_health: u32;
+    max_mana: u32;
+    weight: u32;
+    max_weight: u32;
+    stats: CharacterStats;
+}
+
+struct LocationUpdate {
+    x: i32;
+    y: i32;
+    map: Option<MapChange>;
+}
+
+struct MapChange {
+    id: u32;
+    name: Option<utf8>;
+    width: i32;
+    height: i32;
+}
+```
+
+Every included group is an absolute replacement value, not a delta. One
+decoded server packet produces one atomic `StateEvent`. The public Server-Sent
+Events view may present its changed groups separately while retaining the same
+state sequence and revision.
+
+A location update contains an absolute accepted position. `map` is absent for
+ordinary movement and present when the position completes a map transition.
+The latter replaces the map identity, name, dimensions, and coordinates in one
+reducer operation, so consumers never observe a new map paired with the prior
+map's position.
+
+`ClientSnapshot.event_sequence` is the event boundary already represented by
+the snapshot. A controller discards queued events at or before that boundary
+and applies only consecutive later events. `updated_tick_ms` initially equals
+`captured_tick_ms` and advances with each applied event, while the capture tick
+and duration continue to describe the last complete memory walk.
+
+The DLL stores at most 1 MiB of pointer-free events. Overflow, a nonconsecutive
+event sequence, or a nonconsecutive revision yields `ResyncRequired`. The
+daemon then requests a fresh snapshot and resumes polling from its new boundary.
+No unbounded outage replay log exists. Reconnect always starts with current
+state from a fresh snapshot.
+
 ## Ordering and time
 
 Each sender maintains its own sequence counter for each connection. It starts
 at zero, increments for every frame, and wraps from 65,535 to zero. A receiver
 expects the same progression. A mismatch is a connection-level protocol error;
 it does not silently resynchronize.
+
+State-event sequence and revision counters are separate wrapping nonzero `u32`
+values. The event sequence orders state mutations; the revision orders both
+full snapshots and mutations. They wrap from `u32::MAX` to one. A gap in either
+counter causes a fresh snapshot instead of attempting to infer a lost value.
 
 On Windows, the sender tick comes from
 [`timeGetTime`](https://learn.microsoft.com/en-us/windows/win32/api/timeapi/nf-timeapi-timegettime),

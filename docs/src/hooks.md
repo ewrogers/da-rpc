@@ -45,11 +45,34 @@ bounded main-thread memory copy described in [Client state](state.md), then
 publishes pointer-free fixed-capacity data for the pipe worker. Conversion and
 serialization remain outside the hook.
 
+## Decoded-event observer
+
+The event observer targets the central `event_dispatch` function only for the
+supported client fingerprint and exact five-byte entry contract. The target is
+a 32-bit `thiscall` function that receives one event pointer and returns a
+Boolean while cleaning its four-byte argument.
+
+The detour calls the relocated original first. It saves the return value, then
+observes only successfully handled server events and restores that exact return
+value. The event object remains valid for the duration of the call. The
+observer copies its type, body pointer, body length, and at most 128 body bytes
+through checked current-process reads; it never retains client pointers.
+
+The hook path parses only the understood `SStatus`, `SUserAppearance`
+action-state, `SMove`, and `SUserPosition` bodies. Unknown, oversized,
+truncated, unreadable, or unhandled events are ignored and original behavior is
+unchanged. A panic boundary also fails open to the original result.
+
+Installation and removal use the same transactional thread enlistment,
+instruction-pointer translation, trampoline ownership, and activity draining
+as the tick hook. DLL shutdown stops the IPC consumer first, removes the event
+observer, then removes the remaining hooks in reverse installation order.
+
 ## Map-size hook
 
 The map-size handler hook uses the same fingerprint, entry-byte, relocation,
 thread enlistment, activity tracking, and removal guarantees. Its synchronous
-callback copies only the map identifier and bounded inline name into atomic
+callback copies the map identifier, dimensions, and bounded inline name into
 DLL-owned storage before calling the original handler. It retains no packet or
 client pointer after the callback. A panic is caught at the callback boundary
 and never crosses the native client application binary interface.
@@ -57,6 +80,11 @@ and never crosses the native client application binary interface.
 The current snapshot walker normally reads the map name from the validated map
 pane. The event-owned copy supplements that baseline only when its world token
 and map identifier match the captured location.
+
+The same copy stages a pending map transition. The decoded-event observer
+publishes it only when the following `SUserPosition` supplies authoritative
+coordinates. Snapshot capture and ordinary movement publication pause across
+that short boundary, so map metadata and position change atomically.
 
 ## Preparation and relocation
 

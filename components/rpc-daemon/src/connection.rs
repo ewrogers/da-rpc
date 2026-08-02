@@ -5,7 +5,10 @@ use crate::{
 #[cfg(debug_assertions)]
 use darpc_game_client::DEBUG_UNSUPPORTED_CLIENT_BYPASS_ENVIRONMENT_VARIABLE;
 use darpc_game_client::{CLIENT_VERSION_CODE, EXECUTABLE_SHA256};
-use darpc_protocol::{Architecture, Hello, Message, Ping, Pong, SnapshotRequest, SnapshotResult};
+use darpc_protocol::{
+    Architecture, EventPollRequest, EventPollResult, Hello, MAX_EVENTS_PER_POLL, Message, Ping,
+    Pong, SnapshotRequest, SnapshotResult, SnapshotUnavailableReason,
+};
 use darpc_win32::controller::{ControllerError, ControllerSession};
 #[cfg(debug_assertions)]
 use std::env;
@@ -25,7 +28,8 @@ const RETRY_INTERVAL: Duration = Duration::from_millis(500);
 const HEALTH_INTERVAL: Duration = Duration::from_secs(1);
 const INITIALIZATION_GRACE: Duration = Duration::from_secs(1);
 const STOP_POLL_INTERVAL: Duration = Duration::from_millis(50);
-const SNAPSHOT_REQUEST_ID: u32 = 1;
+const EVENT_POLL_WAIT_MS: u16 = 50;
+const SNAPSHOT_RETRY_INTERVAL: Duration = Duration::from_millis(500);
 
 pub(crate) struct Worker {
     stop: Arc<AtomicBool>,
@@ -88,34 +92,7 @@ fn run(pid: u32, events: Sender<DaemonEvent>, stop: &AtomicBool) {
                     return;
                 }
 
-                match request_snapshot(&mut session) {
-                    Ok(snapshot) => {
-                        if !emit(
-                            &events,
-                            ConnectionEvent::Snapshot {
-                                pid,
-                                identity,
-                                snapshot: Box::new(snapshot),
-                            },
-                        ) {
-                            return;
-                        }
-                    }
-                    Err(reason) => {
-                        if !emit(
-                            &events,
-                            ConnectionEvent::SnapshotUnavailable {
-                                pid,
-                                identity,
-                                reason,
-                            },
-                        ) {
-                            return;
-                        }
-                    }
-                }
-
-                if let Err(error) = monitor(&mut session, stop)
+                if let Err(error) = monitor(&mut session, stop, &events, pid, identity)
                     && !stop.load(Ordering::Acquire)
                     && !emit(
                         &events,
@@ -174,61 +151,186 @@ fn validate_identity(hello: Hello) -> Result<(), String> {
     Ok(())
 }
 
-fn monitor(session: &mut ControllerSession, stop: &AtomicBool) -> Result<(), ControllerError> {
-    let mut request_id = SNAPSHOT_REQUEST_ID.wrapping_add(1);
-    while !wait_for_stop(stop, HEALTH_INTERVAL) {
-        session.send(Message::Ping(Ping { request_id }))?;
-        let response = session.receive()?;
-        match response.message {
-            Message::Pong(Pong {
-                request_id: response_id,
-            }) if response_id == request_id => {}
-            Message::Pong(Pong {
-                request_id: response_id,
-            }) => {
-                return Err(ControllerError::Protocol(format!(
-                    "Pong request ID {response_id} does not match {request_id}"
-                )));
+fn monitor(
+    session: &mut ControllerSession,
+    stop: &AtomicBool,
+    events: &Sender<DaemonEvent>,
+    pid: u32,
+    identity: ClientIdentity,
+) -> Result<(), ControllerError> {
+    let mut request_id = 1_u32;
+    let mut boundary = None;
+    let mut last_health = Instant::now();
+    while !stop.load(Ordering::Acquire) {
+        if boundary.is_none() {
+            match request_snapshot(session, request_id)? {
+                SnapshotOutcome::Ready(snapshot) => {
+                    boundary = Some((snapshot.event_sequence, snapshot.revision));
+                    send_event(
+                        events,
+                        ConnectionEvent::Snapshot {
+                            pid,
+                            identity,
+                            snapshot: Box::new(snapshot),
+                        },
+                    )?;
+                }
+                SnapshotOutcome::Unavailable(reason) => {
+                    send_event(
+                        events,
+                        ConnectionEvent::SnapshotUnavailable {
+                            pid,
+                            identity,
+                            reason: format!("snapshot unavailable: {reason:?}"),
+                        },
+                    )?;
+                    if wait_for_stop(stop, SNAPSHOT_RETRY_INTERVAL) {
+                        return Ok(());
+                    }
+                }
             }
-            message => {
-                return Err(ControllerError::Protocol(format!(
-                    "expected Pong, received {:?}",
-                    message.message_type()
-                )));
+            request_id = request_id.wrapping_add(1);
+            continue;
+        }
+
+        let (after_sequence, after_revision) = boundary.expect("snapshot boundary is present");
+        match poll_events(session, request_id, after_sequence)? {
+            EventPollResult::Events(state_events) => {
+                if !state_events.is_empty() {
+                    if let Some(next_boundary) =
+                        validate_event_batch(after_sequence, after_revision, &state_events)
+                    {
+                        boundary = Some(next_boundary);
+                        send_event(
+                            events,
+                            ConnectionEvent::StateEvents {
+                                pid,
+                                identity,
+                                events: state_events,
+                            },
+                        )?;
+                    } else {
+                        boundary = None;
+                    }
+                }
             }
+            EventPollResult::ResyncRequired { .. } => boundary = None,
         }
         request_id = request_id.wrapping_add(1);
+
+        if last_health.elapsed() >= HEALTH_INTERVAL {
+            ping(session, request_id)?;
+            request_id = request_id.wrapping_add(1);
+            last_health = Instant::now();
+        }
     }
     Ok(())
 }
 
 fn request_snapshot(
     session: &mut ControllerSession,
-) -> Result<darpc_model::ClientSnapshot, String> {
-    session
-        .send(Message::SnapshotRequest(SnapshotRequest {
-            request_id: SNAPSHOT_REQUEST_ID,
-        }))
-        .map_err(|error| error.to_string())?;
-    let response = session.receive().map_err(|error| error.to_string())?;
+    request_id: u32,
+) -> Result<SnapshotOutcome, ControllerError> {
+    session.send(Message::SnapshotRequest(SnapshotRequest { request_id }))?;
+    let response = session.receive()?;
     match response.message {
-        Message::SnapshotResponse(response) if response.request_id == SNAPSHOT_REQUEST_ID => {
+        Message::SnapshotResponse(response) if response.request_id == request_id => {
             match response.result {
-                SnapshotResult::Ready(snapshot) => Ok(*snapshot),
-                SnapshotResult::Unavailable(reason) => {
-                    Err(format!("snapshot unavailable: {reason:?}"))
-                }
+                SnapshotResult::Ready(snapshot) => Ok(SnapshotOutcome::Ready(*snapshot)),
+                SnapshotResult::Unavailable(reason) => Ok(SnapshotOutcome::Unavailable(reason)),
             }
         }
-        Message::SnapshotResponse(response) => Err(format!(
-            "SnapshotResponse request ID {} does not match {SNAPSHOT_REQUEST_ID}",
-            response.request_id
-        )),
-        message => Err(format!(
+        Message::SnapshotResponse(response) => Err(ControllerError::Protocol(format!(
+            "SnapshotResponse request ID {} does not match {request_id}",
+            response.request_id,
+        ))),
+        message => Err(ControllerError::Protocol(format!(
             "expected SnapshotResponse, received {:?}",
             message.message_type()
-        )),
+        ))),
     }
+}
+
+fn poll_events(
+    session: &mut ControllerSession,
+    request_id: u32,
+    after_sequence: u32,
+) -> Result<EventPollResult, ControllerError> {
+    session.send(Message::EventPollRequest(EventPollRequest {
+        request_id,
+        after_sequence,
+        max_events: MAX_EVENTS_PER_POLL,
+        wait_ms: EVENT_POLL_WAIT_MS,
+    }))?;
+    let response = session.receive()?;
+    match response.message {
+        Message::EventPollResponse(response) if response.request_id == request_id => {
+            Ok(response.result)
+        }
+        Message::EventPollResponse(response) => Err(ControllerError::Protocol(format!(
+            "EventPollResponse request ID {} does not match {request_id}",
+            response.request_id
+        ))),
+        message => Err(ControllerError::Protocol(format!(
+            "expected EventPollResponse, received {:?}",
+            message.message_type()
+        ))),
+    }
+}
+
+fn ping(session: &mut ControllerSession, request_id: u32) -> Result<(), ControllerError> {
+    session.send(Message::Ping(Ping { request_id }))?;
+    let response = session.receive()?;
+    match response.message {
+        Message::Pong(Pong {
+            request_id: response_id,
+        }) if response_id == request_id => Ok(()),
+        Message::Pong(Pong {
+            request_id: response_id,
+        }) => Err(ControllerError::Protocol(format!(
+            "Pong request ID {response_id} does not match {request_id}"
+        ))),
+        message => Err(ControllerError::Protocol(format!(
+            "expected Pong, received {:?}",
+            message.message_type()
+        ))),
+    }
+}
+
+fn send_event(events: &Sender<DaemonEvent>, event: ConnectionEvent) -> Result<(), ControllerError> {
+    if emit(events, event) {
+        Ok(())
+    } else {
+        Err(ControllerError::Protocol(
+            "daemon event channel closed".into(),
+        ))
+    }
+}
+
+const fn next_nonzero(value: u32) -> u32 {
+    let next = value.wrapping_add(1);
+    if next == 0 { 1 } else { next }
+}
+
+fn validate_event_batch(
+    after_sequence: u32,
+    after_revision: u32,
+    events: &[darpc_model::StateEvent],
+) -> Option<(u32, u32)> {
+    let mut boundary = (after_sequence, after_revision);
+    for event in events {
+        if event.sequence != next_nonzero(boundary.0) || event.revision != next_nonzero(boundary.1)
+        {
+            return None;
+        }
+        boundary = (event.sequence, event.revision);
+    }
+    Some(boundary)
+}
+
+enum SnapshotOutcome {
+    Ready(darpc_model::ClientSnapshot),
+    Unavailable(SnapshotUnavailableReason),
 }
 
 fn wait_for_stop(stop: &AtomicBool, duration: Duration) -> bool {
@@ -278,8 +380,9 @@ fn emit(events: &Sender<DaemonEvent>, event: ConnectionEvent) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_identity;
+    use super::{validate_event_batch, validate_identity};
     use darpc_game_client::{CLIENT_VERSION_CODE, EXECUTABLE_SHA256};
+    use darpc_model::{StateEvent, StateUpdate, StatusUpdate};
     use darpc_protocol::{Architecture, ComponentVersion, Hello, SUPPORTED_VERSIONS};
 
     fn hello() -> Hello {
@@ -314,5 +417,26 @@ mod tests {
         let mut wrong_version = hello();
         wrong_version.client_version = CLIENT_VERSION_CODE + 1;
         assert!(validate_identity(wrong_version).is_err());
+    }
+
+    #[test]
+    fn accepts_only_contiguous_event_batches() {
+        let event = |sequence, revision| StateEvent {
+            sequence,
+            revision,
+            tick_ms: 500,
+            update: StateUpdate::Status(StatusUpdate::default()),
+        };
+
+        assert_eq!(
+            validate_event_batch(9, 19, &[event(10, 20), event(11, 21)]),
+            Some((11, 21))
+        );
+        assert_eq!(validate_event_batch(9, 19, &[event(11, 20)]), None);
+        assert_eq!(validate_event_batch(9, 19, &[event(10, 21)]), None);
+        assert_eq!(
+            validate_event_batch(u32::MAX, u32::MAX, &[event(1, 1)]),
+            Some((1, 1))
+        );
     }
 }

@@ -1,8 +1,8 @@
 # `darpcd.exe`
 
 > **Status:** Automatic client discovery, the identity registry, daemon-managed
-> load, unload, and launch, current client snapshots, and the HTTP API are
-> implemented. Actions and streaming APIs remain planned.
+> load, unload, and launch, current client state, REST, and Server-Sent Events
+> are implemented. Actions and WebSocket APIs remain planned.
 
 `darpcd.exe` is a 64-bit x86-64 Windows daemon that makes injected clients easy
 to use from local applications.
@@ -14,13 +14,14 @@ Its current responsibilities are to:
 - Connect and reconnect to available `darpc.dll` instances.
 - Invoke the configured `loader.exe` for explicit lifecycle operations.
 - Optionally load the configured DLL once into each uninjected client.
-- Aggregate client identity, connection health, and the latest snapshot from
-  each connected client.
-- Expose a loopback REST API, OpenAPI document, and Swagger UI.
+- Aggregate client identity, connection health, snapshots, and ordered state
+  updates from each connected client.
+- Expose loopback REST and Server-Sent Events APIs, an OpenAPI document, and
+  Swagger UI.
 
-Real-time events and routed game actions build on this boundary later. The
-daemon retains observations but is not the authority for client memory or local
-state.
+Routed game actions and bidirectional WebSocket traffic build on this boundary
+later. The daemon retains observations but is not the authority for client
+memory or local state.
 
 ## Discovery and registry
 
@@ -42,7 +43,8 @@ darpcd.exe --pid 3780 --pid 6648
 ```
 
 Each worker retries a missing or busy pipe, performs the shared controller
-handshake, and sends a bounded periodic `Ping` to detect a broken connection.
+handshake, requests a fresh snapshot, long-polls bounded state-event batches,
+and sends a periodic `Ping` to detect a broken connection.
 An accepted release connection must report the supported x86 architecture,
 executable fingerprint, and client version. Registry identity combines the PID, raw
 process creation time, and DLL instance ID. A reused PID or reloaded DLL
@@ -109,8 +111,10 @@ client pid=3780 status=removed
 After the handshake, each worker requests a fresh snapshot and stores it with
 that client's identity and connection metadata. Reconnecting after a daemon
 restart therefore reconstructs daemon state without reinjecting the DLL. The
-current registry retains the latest complete observation; incremental updates
-and their ordered stream boundary are not implemented yet.
+snapshot carries the event boundary it already represents. Consecutive absolute
+updates reduce into the retained state and appear in REST without another
+memory walk. A reported overflow or sequence or revision gap causes an
+immediate fresh snapshot.
 
 ## Web interface
 
@@ -119,6 +123,14 @@ The HTTP server binds to `127.0.0.1:2626` by default. A single
 boundary. The generated OpenAPI document is served at `/openapi.json`, and the
 vendored Swagger UI is served at `/docs`. HTTP models remain separate from
 registry and binary protocol types.
+
+Each connected client also exposes
+`GET /clients/{client}/events`. The daemon subscribes before reading the
+current registry snapshot, emits a `stream.ready` boundary, and then emits only
+later state changes for that exact process and DLL identity. The internal
+broadcast channel holds 4,096 events. A lagging subscriber receives
+`stream.resync_required` and closes; it cannot block the game hook, client
+worker, or another subscriber.
 
 See the [Web API](web-api.md) chapter for routes, request models, responses, and
 failure behavior.
@@ -130,6 +142,6 @@ stops, `darpc.dll` immediately returns to listening, and a replacement daemon
 can reconnect without reinjection. One worker failure changes only that
 target's status and cannot terminate another worker or the daemon.
 
-Lifecycle work runs outside the asynchronous HTTP executor. Connections and
-requests are bounded so one slow API consumer or game client cannot starve the
-others.
+Lifecycle work runs outside the asynchronous HTTP executor. Connections,
+requests, DLL event storage, and daemon stream fanout are bounded so one slow
+API consumer or game client cannot starve the others.

@@ -294,7 +294,7 @@ fn architecture(architecture: Architecture) -> &'static str {
 fn hex(bytes: &[u8]) -> String {
     let mut output = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
-        write!(output, "{byte:02X}").expect("writing to String cannot fail");
+        write!(output, "{byte:02x}").expect("writing to String cannot fail");
     }
     output
 }
@@ -322,7 +322,12 @@ pub(crate) fn json_string(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{CommandResult, OutputFormat};
+    use super::{CommandResult, OutputFormat, hex};
+
+    #[test]
+    fn hexadecimal_identifiers_are_lowercase() {
+        assert_eq!(hex(&[0x01, 0xAB, 0xCD, 0xEF]), "01abcdef");
+    }
 
     #[test]
     fn echo_json_has_a_stable_shape_and_escaping() {

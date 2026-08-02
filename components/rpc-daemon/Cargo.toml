@@ -12,6 +12,7 @@ name = "darpcd"
 path = "src/main.rs"
 
 [dependencies]
+async-stream = "0.3"
 axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
 darpc-game-client.workspace = true
 darpc-model.workspace = true
@@ -19,7 +20,7 @@ darpc-protocol.workspace = true
 darpc-win32.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
-tokio = { version = "1", features = ["net", "rt"] }
+tokio = { version = "1", features = ["net", "rt", "sync", "time"] }
 utoipa = "5"
 utoipa-swagger-ui = { version = "9", default-features = false, features = ["axum", "debug-embed", "vendored"] }
 

@@ -1,8 +1,9 @@
 # Web API
 
 > **Status:** The client registry, managed lifecycle routes, OpenAPI document,
-> interactive documentation, and current client state queries are implemented.
-> Game actions, streaming APIs, and remote access remain planned.
+> interactive documentation, current client state queries, and per-client
+> Server-Sent Events are implemented. Game actions, WebSocket, and remote
+> access remain planned.
 
 `darpcd.exe` exposes standard web interfaces so applications do not need to
 implement Windows injection, named-pipe IPC, or client-specific data layouts.
@@ -23,6 +24,7 @@ port. The API has no URL version prefix.
 | `GET /clients/{client}/equipment` | Return occupied equipment slots. |
 | `GET /clients/{client}/spellbook` | Return occupied spellbook slots. |
 | `GET /clients/{client}/skillbook` | Return occupied skillbook slots. |
+| `GET /clients/{client}/events` | Stream ordered changes after a current snapshot boundary. |
 | `POST /clients/launch` | Launch the configured client and initialize the configured DLL. |
 | `POST /clients/{client}/load` | Load and initialize the configured DLL in a tracked client. |
 | `POST /clients/{client}/unload` | Shut down and unload the configured DLL from a tracked client. |
@@ -79,7 +81,7 @@ process.
 
 `created_time` is the unsigned 64-bit Windows process creation time encoded as
 a decimal string so JavaScript consumers do not lose precision. `instance_id`
-and `executable_fingerprint` are uppercase hexadecimal strings. Identity and
+and `executable_fingerprint` are lowercase hexadecimal strings. Identity and
 connection metadata are `null` until the corresponding information has been
 observed. `client_version` is the supported Dark Ages release in dotted form,
 such as `"7.41"`.
@@ -100,9 +102,11 @@ Skillbook { observation, skills }
 ```
 
 Every response includes `observation` metadata with the source PID, revision,
-capture tick, capture duration, and world generation. Consumers can correlate
-responses with the same revision. Separate HTTP requests can observe different
-revisions when the daemon receives a newer snapshot between requests.
+event sequence, capture tick, latest update tick, capture duration, and world
+generation. The capture fields describe the last complete memory walk;
+`updated_tick_ms` advances when an incremental update is applied. Consumers can
+correlate responses with the same revision. Separate HTTP requests can observe
+different revisions when the daemon receives a newer update between requests.
 
 All five routes return `404 Not Found` for an unknown client and `503 Service
 Unavailable` when the target has not produced an observation, including a
@@ -111,13 +115,13 @@ the client could not expose that group and an empty array when the group was
 read successfully but contained no occupied slots.
 
 Character status contains identity, appearance, progression, attributes,
-vitals, and modifiers. Map state is a separate top-level field in
+vitals, weight, maximum weight, and modifiers. Map state is a separate top-level field in
 `GameStatus`. Appearance is flattened into `gender`, `hair_style`, `hair_color`,
 and `body_sprite`; all four are null when the local character is using a
-monster-disguise image session. `action_locked` reports the separate local
-movement, world-drop, exchange-start, and inventory rearrangement lock; it is
-not a promise that every possible action is blocked. `is_blinded` follows the
-client-retained `SStatus` blind code. Item sprites exclude the client's type
+monster-disguise image session. `is_action_restricted` reports the separate
+local movement, world-drop, exchange-start, and inventory rearrangement lock;
+it is not a promise that every possible action is blocked. `is_blinded` follows
+the client-retained `SStatus` blind code. Item sprites exclude the client's type
 flag bits, stackable item names exclude the rendered quantity suffix, and
 `can_stack` retains the independent client flag. Equipment `slot` is a stable
 snake-case name such as `left_ring` or `accessory1`.
@@ -138,6 +142,55 @@ addresses and version-specific layout details are never exposed.
 Snapshot capture semantics and unavailable values are documented in
 [Client state](state.md). The complete generated JSON schema is available in
 `/openapi.json` and Swagger UI.
+
+## Server-Sent Events
+
+`GET /clients/{client}/events` requires a connected client with a current
+observation. The daemon subscribes to its bounded internal broadcast channel
+before reading that observation, then begins with:
+
+```text
+event: stream.ready
+data: {
+  type: "stream_ready",
+  data: { pid, instance_id, revision, event_sequence }
+}
+```
+
+This establishes the exact state boundary already available through the REST
+resources. Later changes have a common observation containing `pid`,
+`instance_id`, `revision`, `event_sequence`, and the wrapping Windows
+`tick_ms`. Implemented event names are:
+
+- `stats.changed`
+- `vitals.changed`
+- `progression.changed`
+- `gold.changed`
+- `weight.changed`
+- `modifiers.changed`
+- `location.changed`
+- `blind.changed`
+- `action_restriction.changed`
+
+Several events may share one sequence and revision when one atomic client
+packet changed several groups. Values are absolute. Consumers replace the
+included fields instead of adding a delta.
+
+`location.changed` always includes absolute x/y. Its optional `map` object is
+present only when the same event atomically changes map identity, name,
+dimensions, and position.
+
+There is no replay of events created before subscription. A reconnect receives
+a new `stream.ready` boundary and should read the desired REST resources. The
+daemon retains 4,096 broadcast entries. If a subscriber falls behind, it
+receives `stream.resync_required` with its last delivered sequence and the
+dropped count, then the connection closes. A process disconnect emits
+`stream.closed` and closes the stream. Fifteen-second SSE comments keep an idle
+connection observable without changing state ordering.
+
+Swagger documents the route and generated event schemas, but its standard UI
+is not a live SSE viewer. A browser `EventSource`, command-line SSE client, or
+API tool with streaming support can consume the endpoint directly.
 
 ## Managed lifecycle
 

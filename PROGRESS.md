@@ -9,9 +9,8 @@ remain concise.
 
 ## Current focus
 
-M13, event-driven updates, is in scope refinement before implementation. M12,
-the late-attach client snapshot, is complete and remains the baseline used to
-verify incrementally maintained state.
+M13, event-driven updates, is complete. The M12 late-attach snapshot remains
+the reconciliation baseline for incrementally maintained state.
 
 ## Milestone snapshot
 
@@ -32,7 +31,7 @@ verify incrementally maintained state.
 | M10, hook qualification harness | Complete | Transactional x86 detours, relocated trampolines, rollback, concurrency, panic containment, and shutdown pass owned native tests. |
 | M11, first client tick hook | Complete | Exact validation, safety hardening, direct health observation, repeated live attach and detach, and normal in-game acceptance pass. |
 | M12, late-attach client snapshot | Complete | Main-thread capture, the full initial character and collection surface, protocol and API presentation, and live-client comparison pass. |
-| M13, event-driven updates | Scope refinement | The first event family and its public event shape are being selected. |
+| M13, event-driven updates | Complete | Bounded status, weight, action-restriction, and atomic location updates, daemon reduction, resynchronization, per-client SSE, and live-client acceptance pass. |
 
 ## Completed recently
 
@@ -46,23 +45,31 @@ verify incrementally maintained state.
 - [x] Kept allocation, text conversion, serialization, IPC, and logging off the
   hook path through a fixed-capacity publication handoff.
 - [x] Verified the snapshot against late-attached live clients.
+- [x] Added protocol 1.0 event polling with snapshot boundaries, absolute
+  mutations, strict ordering, and resynchronization results.
+- [x] Added the qualified decoded-event observer, bounded packet parsing,
+  DLL-owned reducer cache, and fixed 1 MiB event queue.
+- [x] Added daemon event reduction and per-client bounded Server-Sent Events
+  with explicit ready, lag, resynchronization, and close behavior.
+- [x] Added accepted movement updates and a staged map transition that commits
+  map metadata with authoritative coordinates atomically.
 
-## M13 working plan
+## M13 completion evidence
 
-- [ ] Confirm the first narrow event family and the exact fields it owns.
-- [ ] Qualify and install an `event_dispatch` observer that always preserves
+- [x] Confirm the first narrow event family and the exact fields it owns.
+- [x] Qualify and install an `event_dispatch` observer that always preserves
   original client behavior.
-- [ ] Copy only bounded, pointer-free values on the client thread without
+- [x] Copy only bounded, pointer-free values on the client thread without
   allocation, IPC, or logging in the hook.
-- [ ] Apply ordered absolute updates to DLL-owned state independently of daemon
+- [x] Apply ordered absolute updates to DLL-owned state independently of daemon
   availability.
-- [ ] Define the protocol 1.0 event envelope, ordering, snapshot boundary, and
+- [x] Define the protocol 1.0 event envelope, ordering, snapshot boundary, and
   resynchronization behavior.
-- [ ] Update the daemon registry from events and expose bounded Server-Sent
+- [x] Update the daemon registry from events and expose bounded Server-Sent
   Events without allowing slow subscribers to block producers or peers.
-- [ ] Prove that incrementally maintained fields match a fresh snapshot after
+- [x] Prove that incrementally maintained fields match a fresh snapshot after
   scripted actions, including sequence-gap and queue-overflow recovery.
-- [ ] Verify safe repeated attach, event observation, detach, and normal live
+- [x] Verify safe repeated attach, event observation, detach, and normal live
   client behavior on Windows.
 
 ## M1 completion evidence

@@ -13,8 +13,8 @@ snapshot contains:
 
 - Lifecycle, revision, capture tick and duration, and world generation.
 - Character identity, name, gender, hairstyle, hair color, body sprite, class,
-  action lock, gold, progression, attributes, vitals, combat modifiers, and
-  elemental affinities.
+  action lock, gold, weight and maximum weight, progression, attributes,
+  vitals, combat modifiers, and elemental affinities.
 - Map identity, name, coordinates, and dimensions.
 - Occupied inventory and equipment slots with appearance, names, quantities,
   and durability where applicable.
@@ -38,9 +38,9 @@ sprite selector, hair color is a palette index, and body sprite identifies the
 current human body form. All four values are unavailable together when the
 local object is using a monster-disguise image session.
 
-`action_locked` is the retained local action-state bit. It blocks movement,
+`is_action_restricted` reports the retained local action-state bit. It covers movement,
 world drops, incoming exchange start, and inventory-slot rearrangement. It is
-not a general `can_act` value: normal turning and the usual item, skill, and
+not a universal action gate: normal turning and the usual item, skill, and
 spell activation paths do not consult this bit.
 
 `is_blinded` is true only when the retained `SStatus` blind code is `0x08`.
@@ -90,12 +90,45 @@ client thread will require their own synchronization or an event-owned copy.
 
 ## Incremental updates
 
-The current implementation captures a fresh complete snapshot on demand and
-when a daemon establishes a connection. Event-driven updates are the next
-layer: relevant client events and packets will update DLL-owned state groups,
-while an occasional full capture remains the reconciliation source of truth.
-This hybrid model supports low-latency change events without requiring a full
-memory walk every tick.
+The DLL observes decoded server events after the client has handled them. The
+implemented event families are `SStatus`, the action-state portion of
+`SUserAppearance`, `SMove`, and `SUserPosition`. Together they maintain level,
+attributes, maximum and current vitals, weight, progression, gold, combat
+modifiers, blinded state, `is_action_restricted`, and accepted map coordinates.
+
+The observer runs on the client main thread. It copies at most 128 bytes from a
+qualified event body, parses fixed-width big-endian fields, filters unchanged
+absolute groups against a DLL-owned cache, and publishes only pointer-free
+values. It performs no allocation, text conversion, serialization, logging, or
+pipe input/output. The original client dispatcher always runs first and its
+return value is preserved.
+
+One main-thread producer writes to a fixed 1 MiB queue. The pipe worker is the
+only consumer and returns up to 192 events per long poll. The queue does not
+block the game thread: a full queue records a missing sequence and drops the
+new event. The daemon responds by requesting a complete snapshot, not by
+guessing the lost state.
+
+Map transitions use a two-packet commit boundary. The map-size hook stages the
+new map identity, name, and dimensions without publishing them. The following
+authoritative `SUserPosition` commits those values with x/y as one location
+event. Ordinary `SMove` acknowledgements update only x/y and are ignored while
+a map transition is pending. A requested full snapshot also waits at this
+boundary, preventing a memory walk from publishing a new map with the previous
+map's coordinates.
+
+Every daemon connection begins with a fresh complete snapshot. The snapshot
+contains the event sequence already reflected in its values. The pipe worker
+discards older queued entries and preserves entries after that boundary, so no
+mutation can be lost between the memory walk and event polling. A sequence or
+revision gap, queue overflow, or daemon stream lag requires another current
+snapshot.
+
+Full captures remain the reconciliation source of truth. They run on demand,
+not every tick. Events maintain low-latency current state between captures and
+continue updating the DLL-owned cache when no daemon is connected. Daemon
+reconnect does not replay an unbounded history; it establishes a new snapshot
+boundary and resumes real-time delivery.
 
 Game-world and user interface changes may have different consistency and
 lifetime rules, so they remain distinct in the state model even when exposed

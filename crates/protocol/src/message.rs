@@ -1,5 +1,6 @@
 use crate::{
     DecodeError, EncodeError,
+    event::{self, EventPollRequest, EventPollResponse},
     snapshot::{
         self, SnapshotRequest, SnapshotResponse, SnapshotResult, SnapshotUnavailableReason,
     },
@@ -156,6 +157,8 @@ pub enum MessageType {
     TickHealthResponse = 8,
     SnapshotRequest = 9,
     SnapshotResponse = 10,
+    EventPollRequest = 11,
+    EventPollResponse = 12,
 }
 
 impl MessageType {
@@ -176,6 +179,8 @@ impl MessageType {
             8 => Ok(Self::TickHealthResponse),
             9 => Ok(Self::SnapshotRequest),
             10 => Ok(Self::SnapshotResponse),
+            11 => Ok(Self::EventPollRequest),
+            12 => Ok(Self::EventPollResponse),
             actual => Err(DecodeError::UnknownMessageType { actual }),
         }
     }
@@ -193,6 +198,8 @@ pub enum Message {
     TickHealthResponse(TickHealthResponse),
     SnapshotRequest(SnapshotRequest),
     SnapshotResponse(SnapshotResponse),
+    EventPollRequest(EventPollRequest),
+    EventPollResponse(EventPollResponse),
 }
 
 impl Message {
@@ -209,6 +216,8 @@ impl Message {
             Self::TickHealthResponse(_) => MessageType::TickHealthResponse,
             Self::SnapshotRequest(_) => MessageType::SnapshotRequest,
             Self::SnapshotResponse(_) => MessageType::SnapshotResponse,
+            Self::EventPollRequest(_) => MessageType::EventPollRequest,
+            Self::EventPollResponse(_) => MessageType::EventPollResponse,
         }
     }
 
@@ -270,6 +279,8 @@ impl Message {
                     }
                 }
             }
+            Self::EventPollRequest(message) => event::encode_request(&mut output, *message),
+            Self::EventPollResponse(message) => event::encode_response(&mut output, message)?,
         }
         Ok(output)
     }
@@ -341,6 +352,12 @@ impl Message {
                     actual => return Err(DecodeError::InvalidSnapshotStatus { actual }),
                 };
                 Self::SnapshotResponse(SnapshotResponse { request_id, result })
+            }
+            MessageType::EventPollRequest => {
+                Self::EventPollRequest(event::decode_request(&mut reader)?)
+            }
+            MessageType::EventPollResponse => {
+                Self::EventPollResponse(event::decode_response(&mut reader)?)
             }
         };
         reader.finish()?;

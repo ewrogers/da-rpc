@@ -1,7 +1,7 @@
 use darpc_protocol::{
-    EchoResponse, EndpointRole, Frame, Handshake, Hello, Message, MessageDirection, Pong,
-    SequenceCounter, SnapshotResponse, SnapshotResult, SnapshotUnavailableReason,
-    TickHealthResponse,
+    EchoResponse, EndpointRole, EventPollResponse, Frame, Handshake, Hello, MAX_EVENT_POLL_WAIT_MS,
+    MAX_EVENTS_PER_POLL, Message, MessageDirection, Pong, SequenceCounter, SnapshotResponse,
+    SnapshotResult, SnapshotUnavailableReason, TickHealthResponse,
 };
 use darpc_win32::pipe::{PipeServer, StopEvent, pipe_name, sender_tick_ms};
 use std::{
@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{snapshot, tick_hook};
+use crate::{snapshot, state_events, tick_hook};
 
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -178,13 +178,15 @@ fn serve_connection(server: &PipeServer, hello: &Hello, log: &mut File) -> io::R
                     let generation = snapshot::request();
                     match snapshot::wait(generation, SNAPSHOT_TIMEOUT) {
                         Ok(snapshot) => {
+                            state_events::rebase(snapshot.event_sequence);
                             let _ = writeln!(
                                 log,
                                 concat!(
-                                    "event=snapshot_captured revision={} lifecycle={:?} ",
-                                    "world_generation={} duration_us={}"
+                                    "event=snapshot_captured revision={} event_sequence={} ",
+                                    "lifecycle={:?} world_generation={} duration_us={}"
                                 ),
                                 snapshot.revision,
+                                snapshot.event_sequence,
                                 snapshot.lifecycle,
                                 snapshot.world_generation,
                                 snapshot.capture_duration_us
@@ -204,6 +206,28 @@ fn serve_connection(server: &PipeServer, hello: &Hello, log: &mut File) -> io::R
                 Message::SnapshotResponse(SnapshotResponse {
                     request_id: message.request_id,
                     result,
+                })
+            }
+            Message::EventPollRequest(message) => {
+                if message.max_events == 0 || message.max_events > MAX_EVENTS_PER_POLL {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("invalid event poll limit {}", message.max_events),
+                    ));
+                }
+                if message.wait_ms > MAX_EVENT_POLL_WAIT_MS {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("invalid event poll wait {} ms", message.wait_ms),
+                    ));
+                }
+                Message::EventPollResponse(EventPollResponse {
+                    request_id: message.request_id,
+                    result: state_events::poll(
+                        message.after_sequence,
+                        message.max_events,
+                        Duration::from_millis(u64::from(message.wait_ms)),
+                    ),
                 })
             }
             message => {

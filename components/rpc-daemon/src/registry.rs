@@ -1,4 +1,4 @@
-use darpc_model::ClientSnapshot as GameSnapshot;
+use darpc_model::{ClientSnapshot as GameSnapshot, StateEvent};
 use darpc_protocol::{Architecture, Hello, protocol_version_major, protocol_version_minor};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
@@ -47,6 +47,12 @@ pub(crate) enum ConnectionEvent {
         identity: ClientIdentity,
         reason: String,
     },
+    #[cfg_attr(not(windows), allow(dead_code))]
+    StateEvents {
+        pid: u32,
+        identity: ClientIdentity,
+        events: Vec<StateEvent>,
+    },
     Busy {
         pid: u32,
     },
@@ -72,6 +78,7 @@ impl ConnectionEvent {
             | Self::Connected { pid, .. }
             | Self::Snapshot { pid, .. }
             | Self::SnapshotUnavailable { pid, .. }
+            | Self::StateEvents { pid, .. }
             | Self::Busy { pid }
             | Self::Disconnected { pid, .. }
             | Self::Incompatible { pid, .. } => *pid,
@@ -177,6 +184,33 @@ impl Registry {
                 record.snapshot_reason = Some(reason.clone());
                 return true;
             }
+            ConnectionEvent::StateEvents {
+                identity, events, ..
+            } => {
+                if events.is_empty() {
+                    return false;
+                }
+                let Some(record) = self.clients.get_mut(identity) else {
+                    return false;
+                };
+                let Some(current) = record.snapshot.as_ref() else {
+                    return false;
+                };
+                let mut next = current.clone();
+                for state_event in events {
+                    if let Err(error) = next.apply_event(state_event.clone()) {
+                        let reason = format!("event reduction failed: {error}");
+                        if record.snapshot_reason.as_ref() == Some(&reason) {
+                            return false;
+                        }
+                        record.snapshot_reason = Some(reason);
+                        return true;
+                    }
+                }
+                record.snapshot = Some(next);
+                record.snapshot_reason = None;
+                return true;
+            }
             _ => {}
         }
         let next = match event {
@@ -224,7 +258,9 @@ impl Registry {
                 identity: *identity,
                 reason: reason.clone(),
             },
-            ConnectionEvent::Snapshot { .. } | ConnectionEvent::SnapshotUnavailable { .. } => {
+            ConnectionEvent::Snapshot { .. }
+            | ConnectionEvent::SnapshotUnavailable { .. }
+            | ConnectionEvent::StateEvents { .. } => {
                 unreachable!("snapshot events return before target status reconciliation")
             }
         };
@@ -321,6 +357,14 @@ pub(crate) fn render_event(event: &ConnectionEvent) -> String {
         ConnectionEvent::SnapshotUnavailable { pid, reason, .. } => {
             format!("client pid={pid} snapshot=unavailable reason={reason:?}")
         }
+        ConnectionEvent::StateEvents { pid, events, .. } => {
+            let first = events.first().map_or(0, |event| event.sequence);
+            let last = events.last().map_or(0, |event| event.sequence);
+            format!(
+                "client pid={pid} events={} sequence={first}..={last}",
+                events.len()
+            )
+        }
         ConnectionEvent::Disconnected {
             pid,
             identity,
@@ -357,7 +401,7 @@ pub(crate) fn architecture(architecture: Architecture) -> &'static str {
 pub(crate) fn hex(bytes: &[u8]) -> String {
     let mut output = String::with_capacity(bytes.len() * 2);
     for byte in bytes {
-        write!(output, "{byte:02X}").expect("writing to String cannot fail");
+        write!(output, "{byte:02x}").expect("writing to String cannot fail");
     }
     output
 }
@@ -365,9 +409,20 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        ClientIdentity, ClientSnapshotStatus, ConnectionEvent, Registry, TargetStatus, render_event,
+        ClientIdentity, ClientSnapshotStatus, ConnectionEvent, Registry, TargetStatus, hex,
+        render_event,
+    };
+    use darpc_model::{
+        CharacterClass, CharacterProgression, CharacterSnapshot, CharacterStats, CharacterVitals,
+        ClientLifecycle, ClientSnapshot as GameSnapshot, CurrentVitals, LocationUpdate, MapChange,
+        StateEvent, StateUpdate, StatusUpdate,
     };
     use darpc_protocol::{Architecture, ComponentVersion, Hello, SUPPORTED_VERSIONS};
+
+    #[test]
+    fn hexadecimal_identifiers_are_lowercase() {
+        assert_eq!(hex(&[0x01, 0xAB, 0xCD, 0xEF]), "01abcdef");
+    }
 
     fn hello(instance: u8, creation_time: u64) -> Hello {
         Hello {
@@ -383,6 +438,56 @@ mod tests {
             },
             executable_fingerprint: [0xCD; 32],
             client_version: 741,
+        }
+    }
+
+    fn game_snapshot() -> GameSnapshot {
+        GameSnapshot {
+            revision: 1,
+            event_sequence: 0,
+            captured_tick_ms: 10,
+            updated_tick_ms: 10,
+            capture_duration_us: 50,
+            world_generation: 1,
+            lifecycle: ClientLifecycle::InGame,
+            character: Some(CharacterSnapshot {
+                id: Some(7),
+                name: Some("Silo".into()),
+                appearance: None,
+                class: CharacterClass::Warrior,
+                is_action_restricted: false,
+                is_blinded: false,
+                gold: 100,
+                weight: 25,
+                max_weight: 60,
+                progression: CharacterProgression {
+                    level: 10,
+                    ability_level: 1,
+                    experience: 1000,
+                    ability_points: Some(2),
+                    experience_to_next_level: Some(500),
+                    ability_to_next_level: Some(800),
+                },
+                stats: CharacterStats {
+                    strength: 10,
+                    intelligence: 3,
+                    wisdom: 3,
+                    constitution: 8,
+                    dexterity: 5,
+                },
+                vitals: CharacterVitals {
+                    health: 100,
+                    max_health: 120,
+                    mana: 50,
+                    max_mana: 60,
+                },
+                modifiers: None,
+                location: None,
+                inventory: None,
+                equipment: None,
+                spellbook: None,
+                skillbook: None,
+            }),
         }
     }
 
@@ -521,6 +626,82 @@ mod tests {
         assert_eq!(
             registry.snapshot().clients[0].snapshot_reason.as_deref(),
             Some("capture timed out")
+        );
+    }
+
+    #[test]
+    fn reduces_ordered_state_events_into_the_retained_snapshot() {
+        let mut registry = Registry::new();
+        let hello = hello(1, 100);
+        let identity = ClientIdentity::from_hello(hello);
+        registry.apply(&ConnectionEvent::Connected {
+            pid: 42,
+            hello,
+            selected_version: SUPPORTED_VERSIONS.max,
+        });
+        registry.apply(&ConnectionEvent::Snapshot {
+            pid: 42,
+            identity,
+            snapshot: Box::new(game_snapshot()),
+        });
+
+        assert!(registry.apply(&ConnectionEvent::StateEvents {
+            pid: 42,
+            identity,
+            events: vec![
+                StateEvent {
+                    sequence: 1,
+                    revision: 2,
+                    tick_ms: 20,
+                    update: StateUpdate::Status(StatusUpdate {
+                        vitals: Some(CurrentVitals {
+                            health: 80,
+                            mana: 40,
+                        }),
+                        gold: Some(125),
+                        is_action_restricted: Some(true),
+                        ..StatusUpdate::default()
+                    }),
+                },
+                StateEvent {
+                    sequence: 2,
+                    revision: 3,
+                    tick_ms: 21,
+                    update: StateUpdate::Location(LocationUpdate {
+                        x: 43,
+                        y: 40,
+                        map: Some(MapChange {
+                            id: 3001,
+                            name: Some("Mileth".into()),
+                            width: 100,
+                            height: 80,
+                        }),
+                    }),
+                },
+            ],
+        }));
+
+        let snapshot = registry.snapshot().clients[0]
+            .game_snapshot
+            .clone()
+            .unwrap();
+        assert_eq!(snapshot.revision, 3);
+        assert_eq!(snapshot.event_sequence, 2);
+        assert_eq!(snapshot.updated_tick_ms, 21);
+        let character = snapshot.character.unwrap();
+        assert_eq!(character.vitals.health, 80);
+        assert_eq!(character.gold, 125);
+        assert!(character.is_action_restricted);
+        assert_eq!(
+            character.location,
+            Some(darpc_model::MapLocation {
+                id: 3001,
+                name: Some("Mileth".into()),
+                x: Some(43),
+                y: Some(40),
+                width: 100,
+                height: 80,
+            })
         );
     }
 }

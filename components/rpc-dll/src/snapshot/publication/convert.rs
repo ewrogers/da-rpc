@@ -16,7 +16,9 @@ const SPRITE_ID_MASK: u16 = 0x3FFF;
 pub(super) fn snapshot(ready: ReadyPublication) -> ClientSnapshot {
     ClientSnapshot {
         revision: ready.revision,
+        event_sequence: ready.event_sequence,
         captured_tick_ms: ready.captured_tick_ms,
+        updated_tick_ms: ready.updated_tick_ms,
         capture_duration_us: ready.capture_duration_us,
         world_generation: ready.world_generation,
         lifecycle: lifecycle(ready.raw.lifecycle),
@@ -37,9 +39,11 @@ fn character_snapshot(raw: RawCharacter, world_token: u32, tick_ms: u32) -> Char
             body_sprite: appearance.body_sprite,
         }),
         class: CharacterClass::from_raw(raw.class),
-        action_locked: raw.action_locked,
+        is_action_restricted: raw.is_action_restricted,
         is_blinded: raw.is_blinded,
         gold: raw.gold,
+        weight: raw.weight,
+        max_weight: raw.max_weight,
         progression: progression(&raw, raw.pane_progression),
         stats: CharacterStats {
             strength: raw.strength,

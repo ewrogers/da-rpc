@@ -80,6 +80,8 @@ impl FakeMemory {
         memory.u32(WORLD_USER + 0x1084, 950);
         memory.u8(WORLD_USER + 0x1089, 3);
         memory.u8(WORLD_USER + 0x108D, 0x08);
+        memory.u32(WORLD_USER + 0x15C80, 120);
+        memory.u32(WORLD_USER + 0x15C84, 88);
         memory.u8(WORLD_USER + 0x15C88, 1);
 
         memory.u32(GUI_BACK + 0x4FA0, STATUS);
@@ -226,9 +228,11 @@ fn captures_the_scalar_gameplay_snapshot() {
     assert_eq!(appearance.hair_color, 6);
     assert_eq!(appearance.body_sprite, 1);
     assert_eq!(character.class, 3);
-    assert!(character.action_locked);
+    assert!(character.is_action_restricted);
     assert!(character.is_blinded);
     assert_eq!(character.gold, 123_456);
+    assert_eq!(character.weight, 88);
+    assert_eq!(character.max_weight, 120);
     assert_eq!(progression.ability_points, 66_000);
     assert_eq!(character.strength, 30);
     assert_eq!(character.intelligence, 34);
@@ -259,7 +263,7 @@ fn action_lock_and_blinded_state_use_exact_client_values() {
 
     let snapshot = StateWalker::new(&memory, BASE).capture(THREAD_ID).unwrap();
     let character = snapshot.character.unwrap();
-    assert!(!character.action_locked);
+    assert!(!character.is_action_restricted);
     assert!(!character.is_blinded);
 }
 

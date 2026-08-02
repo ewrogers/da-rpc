@@ -1,6 +1,12 @@
 //! Shared domain model for daRPC.
 
+mod event;
 mod snapshot;
+
+pub use event::{
+    ApplyEventError, CoreStatus, CurrentVitals, LocationUpdate, MapChange, ProgressionStatus,
+    StateEvent, StateUpdate, StatusUpdate,
+};
 
 pub use snapshot::{
     CharacterAppearance, CharacterClass, CharacterModifiers, CharacterProgression,

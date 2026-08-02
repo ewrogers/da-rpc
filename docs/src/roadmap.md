@@ -103,14 +103,14 @@ directly for discovery, aggregation, action status, and multi-client behavior.
 | M10 | Hook qualification harness | The hook mechanism preserves a controlled test function exactly. | Complete |
 | M11 | First client tick hook | Direct IPC reports client ticks while the game behaves normally. | Complete |
 | M12 | Late-attach client snapshot | The direct CLI and daemon API expose current character, map, inventory, equipment, spell, and skill state. | Complete |
-| M13 | Event-driven updates | One normal game event updates state without another snapshot. | Scope refinement |
+| M13 | Event-driven updates | One normal game event updates state without another snapshot. | Complete |
 | M14 | Main-thread command queue | A diagnostic command completes on a client tick. | Planned |
 | M15 | First typed action | One low-risk action executes through a native client path. | Planned |
 | M16 | Packet observation and local rules | Bounded plaintext telemetry and fail-open decisions work locally. | Planned |
 | M17 | Multi-client hardening and preview | Failure and soak evidence support a preview release. | Planned |
 | M18 | WebSocket and remote access | Added only for a proven use case and defined security model. | Deferred |
 
-M2 through M12 are complete. M13 is the next planned implementation milestone.
+M2 through M13 are complete. M14 is the next planned increment.
 M1 has been exercised manually, but its separate evidence checklist remains
 open until the lifecycle-host Windows continuous-integration coverage is
 present. The working checklist is maintained in the [repository progress
@@ -599,9 +599,11 @@ Done:
 
 Build:
 
-- Observe one narrow, understood event family through `event_dispatch`.
+- Observe a narrow set of understood server-event families through
+  `event_dispatch`.
 - Copy bounded pointer-free values and update the local state model.
 - Ordered absolute updates plus Server-Sent Events from `rpcd`.
+- Commit map metadata and authoritative coordinates as one location update.
 
 See:
 
@@ -614,8 +616,9 @@ Done:
   for the fields in scope.
 - Sequence gaps and queue overflow trigger resynchronization.
 - A slow event subscriber cannot block the game or another subscriber.
-- Shareable map and entity observations retain their source client and
-  observation time so a later aggregate can represent freshness explicitly.
+- Every event retains its source client and observation time so later
+  shareable map and entity updates can represent freshness explicitly.
+- Status, weight, and accepted map position converge with a fresh snapshot.
 
 ## Phase 6: add control one safe action at a time
 
@@ -717,10 +720,6 @@ limits, and administrative capability boundaries before it is supported.
 
 ## Immediate next increment
 
-M13 should observe one narrow, understood event family through the qualified
-hooking boundary. The hook must preserve original behavior and copy only
-bounded, pointer-free data without allocation, IPC, or logging. DLL-owned state
-then receives ordered absolute updates, while the daemon exposes a bounded
-Server-Sent Events stream and resynchronizes after a sequence gap or overflow.
-The exact first event family and public event shape should be confirmed before
-implementation.
+M14 adds a bounded main-thread command queue and one diagnostic command that
+changes no game state. IPC workers validate and enqueue requests, while the
+client tick drains a fixed amount of work and reports explicit action states.

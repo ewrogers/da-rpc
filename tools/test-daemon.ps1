@@ -170,6 +170,7 @@ function Wait-ForClientStatus {
     )
 
     $Deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMilliseconds)
+    $LastObservation = "client absent"
     do {
         try {
             $Clients = @(Get-ApiJson -Path "/clients" -Port $Port).clients
@@ -177,13 +178,20 @@ function Wait-ForClientStatus {
             if ($Client.Count -eq 1 -and $Client[0].status -eq $Status) {
                 return $Client[0]
             }
+            if ($Client.Count -eq 1) {
+                $LastObservation = "status=$($Client[0].status) reason=$($Client[0].reason)"
+            } elseif ($Client.Count -gt 1) {
+                $LastObservation = "$($Client.Count) matching clients"
+            } else {
+                $LastObservation = "client absent"
+            }
         } catch {
-            # Retry while discovery and connection workers converge.
+            $LastObservation = "API error: $($_.Exception.Message)"
         }
         Start-Sleep -Milliseconds 50
     } while ([DateTime]::UtcNow -lt $Deadline)
 
-    throw "timed out waiting for PID $ProcessId to reach $Status"
+    throw "timed out waiting for PID $ProcessId to reach ${Status}: $LastObservation"
 }
 
 function Wait-ForApi {
@@ -256,7 +264,7 @@ function Assert-ApiContract {
         $Client = @($Clients | Where-Object { $_.pid -eq $ProcessId })[0]
         Assert-True ($Client.status -eq "connected") "PID $ProcessId was not connected"
         Assert-True `
-            ($Client.identity.instance_id -match "^[0-9A-F]{32}$") `
+            ($Client.identity.instance_id -cmatch "^[0-9a-f]{32}$") `
             "PID $ProcessId had an invalid instance_id"
         Assert-True `
             ($Client.identity.created_time -match "^[0-9]+$") `
@@ -528,11 +536,16 @@ try {
 
 Write-Host "Testing automatic managed loading"
 $PreviousDiscoveryWindow = $env:DARPC_DISCOVERY_TEST_WINDOW
+$MissingProcessId = 2147483646
 $ExistingTarget = $null
 $FutureTarget = $null
 $DaemonProcess = $null
 try {
     $env:DARPC_DISCOVERY_TEST_WINDOW = "1"
+    Assert-True `
+        ($null -eq (Get-Process -Id $MissingProcessId -ErrorAction SilentlyContinue)) `
+        "reserved missing-process PID unexpectedly exists"
+
     $ExistingTarget = Start-Process `
         $Target `
         -ArgumentList "--wait-ms", "60000" `
@@ -541,13 +554,13 @@ try {
     Assert-True (-not $ExistingTarget.HasExited) "existing auto-load target exited during startup"
 
     $DaemonProcess = Start-Daemon `
-        -ProcessIds @($PID) `
+        -ProcessIds @($MissingProcessId) `
         -Port $AutoLoadPort `
         -Managed `
         -AutoLoad
     Wait-ForApi $DaemonProcess $AutoLoadPort
     Wait-ForClientStatus $ExistingTarget.Id "connected" $AutoLoadPort | Out-Null
-    Wait-ForClientStatus $PID "not_loaded" $AutoLoadPort | Out-Null
+    Wait-ForClientStatus $MissingProcessId "not_loaded" $AutoLoadPort | Out-Null
 
     $FutureTarget = Start-Process `
         $Target `
@@ -577,15 +590,23 @@ try {
             ($AutoLoadOutput -match "client pid=$($Process.Id) auto-load=loaded") `
             "PID $($Process.Id) did not report one automatic load"
     }
-    $FailurePattern = "client pid=$PID auto-load failed"
+    $FailurePattern = "client pid=$MissingProcessId auto-load failed"
     Assert-True `
         ([regex]::Matches($AutoLoadErrors, $FailurePattern).Count -eq 1) `
-        "the incompatible candidate did not fail automatic loading exactly once"
+        "the missing candidate did not fail automatic loading exactly once"
 } finally {
     if ($null -ne $DaemonProcess) {
         if (-not $DaemonProcess.HasExited) {
             $DaemonProcess.Kill()
             $DaemonProcess.WaitForExit()
+        }
+        $FailureOutput = $DaemonProcess.StandardOutput.ReadToEnd()
+        $FailureErrors = $DaemonProcess.StandardError.ReadToEnd()
+        if (-not [string]::IsNullOrWhiteSpace($FailureOutput)) {
+            Write-Warning "auto-load daemon stdout before cleanup:`n$FailureOutput"
+        }
+        if (-not [string]::IsNullOrWhiteSpace($FailureErrors)) {
+            Write-Warning "auto-load daemon stderr before cleanup:`n$FailureErrors"
         }
         $DaemonProcess.Dispose()
     }

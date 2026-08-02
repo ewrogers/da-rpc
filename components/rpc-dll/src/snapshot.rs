@@ -26,6 +26,7 @@ pub(crate) fn reset() {
     REQUEST_GENERATION.store(0, Ordering::Release);
     PROCESSED_GENERATION.store(0, Ordering::Release);
     publication::reset();
+    crate::state_events::reset();
     map_name::reset();
 }
 
@@ -62,6 +63,9 @@ pub(crate) fn wait(
 pub(crate) fn observe_tick() {
     let request_generation = REQUEST_GENERATION.load(Ordering::Acquire);
     if request_generation == PROCESSED_GENERATION.load(Ordering::Acquire) {
+        return;
+    }
+    if crate::state_events::map_transition_pending() {
         return;
     }
 

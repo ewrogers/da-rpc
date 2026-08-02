@@ -10,6 +10,7 @@ use std::{
 };
 
 use crate::{
+    event_hook::{self, EventHook},
     identity,
     ipc::IpcWorker,
     map_size_hook::{self, MapSizeHook},
@@ -21,6 +22,7 @@ static LIFECYCLE: Mutex<Option<Lifecycle>> = Mutex::new(None);
 struct Lifecycle {
     log: File,
     ipc: IpcWorker,
+    event_hook: Option<EventHook>,
     map_size_hook: Option<MapSizeHook>,
     tick_hook: Option<TickHook>,
 }
@@ -142,7 +144,7 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
         None
     };
 
-    let map_size_hook = if identity.supported_client && hook_install_warning.is_none() {
+    let mut map_size_hook = if identity.supported_client && hook_install_warning.is_none() {
         match MapSizeHook::install() {
             Ok(mut hook) => {
                 let _ = writeln!(
@@ -204,6 +206,69 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
         None
     };
 
+    let event_hook = if identity.supported_client && hook_install_warning.is_none() {
+        match EventHook::install() {
+            Ok(mut hook) => {
+                let _ = writeln!(
+                    log,
+                    "event=hook_installed hook={} rva=0x{:08X} relocated_bytes={} queue_bytes={}",
+                    event_hook::NAME,
+                    darpc_game_client::EVENT_DISPATCH_RVA,
+                    hook.relocated_bytes(),
+                    crate::state_events::EVENT_QUEUE_BYTES
+                );
+                if let Some(warning) = hook.take_install_warning() {
+                    let _ = writeln!(
+                        log,
+                        "event=hook_install_warning hook={} error={warning}",
+                        event_hook::NAME
+                    );
+                    hook_install_warning = Some(warning);
+                }
+                Some(hook)
+            }
+            Err(error) => {
+                let mut unload_safe = error.unload_is_safe();
+                let _ = writeln!(
+                    log,
+                    "event=initialization_failed stage=hook_install hook={} error={error}",
+                    event_hook::NAME
+                );
+                let error = error.into_io_error();
+                let map_error = map_size_hook
+                    .as_mut()
+                    .and_then(|hook| hook.uninstall().err());
+                let tick_error = tick_hook.as_mut().and_then(|hook| hook.uninstall().err());
+                if map_error.is_some() || tick_error.is_some() {
+                    unload_safe = false;
+                }
+                let ipc_error = ipc.shutdown().err();
+                let source = match (&map_error, &tick_error, &ipc_error) {
+                    (None, None, None) => error,
+                    _ => io::Error::other(format!(
+                        "event hook installation failed: {error}; map-hook rollback: {}; tick-hook rollback: {}; IPC rollback: {}",
+                        rollback_result(map_error),
+                        rollback_result(tick_error),
+                        rollback_result(ipc_error)
+                    )),
+                };
+                return Err(InitializeError {
+                    source,
+                    unload_safe,
+                });
+            }
+        }
+    } else {
+        if !identity.supported_client {
+            let _ = writeln!(
+                log,
+                "event=hook_skipped hook={} reason=unsupported_client_debug_bypass",
+                event_hook::NAME
+            );
+        }
+        None
+    };
+
     if hook_install_warning.is_none() {
         let _ = writeln!(
             log,
@@ -216,6 +281,7 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
     *lifecycle = Some(Lifecycle {
         log,
         ipc,
+        event_hook,
         map_size_hook,
         tick_hook,
     });
@@ -240,6 +306,47 @@ pub(crate) fn shutdown() -> io::Result<()> {
     };
 
     active.ipc.shutdown()?;
+
+    if let Some(hook) = active.event_hook.as_mut() {
+        let final_health = event_hook::health();
+        match hook.uninstall() {
+            Ok(true) => {
+                writeln!(
+                    active.log,
+                    "event=hook_removed hook={} observations={} server_events={} events={} parse_errors={} read_failures={} invalid_bodies={}",
+                    event_hook::NAME,
+                    final_health.observation_count,
+                    final_health.server_event_count,
+                    final_health.event_count,
+                    final_health.parse_error_count,
+                    final_health.read_failure_count,
+                    final_health.invalid_body_count
+                )?;
+                if final_health.parse_error_count != 0 {
+                    writeln!(
+                        active.log,
+                        "event=hook_parse_failure hook={} opcode=0x{:02X} fields=0x{:02X} body_length={} offset={} needed={} remaining={}",
+                        event_hook::NAME,
+                        final_health.last_parse_opcode,
+                        final_health.last_parse_fields,
+                        final_health.last_parse_body_length,
+                        final_health.last_parse_offset,
+                        final_health.last_parse_needed,
+                        final_health.last_parse_remaining
+                    )?;
+                }
+            }
+            Ok(false) => {}
+            Err(error) => {
+                let _ = writeln!(
+                    active.log,
+                    "event=hook_remove_failed hook={} error={error}",
+                    event_hook::NAME
+                );
+                return Err(error);
+            }
+        }
+    }
 
     if let Some(hook) = active.map_size_hook.as_mut() {
         match hook.uninstall() {
@@ -305,4 +412,8 @@ pub(crate) fn log_path() -> io::Result<PathBuf> {
         .join("darpc")
         .join("logs")
         .join(format!("pid-{}.log", process::id())))
+}
+
+fn rollback_result(error: Option<io::Error>) -> String {
+    error.map_or_else(|| "ok".to_owned(), |error| error.to_string())
 }

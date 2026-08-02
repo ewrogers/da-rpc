@@ -10,6 +10,7 @@ pub enum EncodeError {
     SnapshotCollectionTooLong { length: usize, max: usize },
     InvalidSnapshotSlot { slot: u8, max: u8 },
     DuplicateSnapshotSlot { slot: u8 },
+    EventBatchTooLong { length: usize, max: usize },
     PayloadTooLarge { length: usize, max: usize },
     LengthOverflow,
 }
@@ -43,6 +44,12 @@ impl fmt::Display for EncodeError {
             }
             Self::DuplicateSnapshotSlot { slot } => {
                 write!(formatter, "snapshot slot {slot} appears more than once")
+            }
+            Self::EventBatchTooLong { length, max } => {
+                write!(
+                    formatter,
+                    "event batch has {length} entries; maximum is {max}"
+                )
             }
             Self::PayloadTooLarge { length, max } => {
                 write!(formatter, "payload is {length} bytes; maximum is {max}")
@@ -128,6 +135,19 @@ pub enum DecodeError {
         actual: u8,
     },
     InvalidSnapshotUnavailableReason {
+        actual: u8,
+    },
+    EventBatchTooLong {
+        length: usize,
+        max: usize,
+    },
+    InvalidEventPollStatus {
+        actual: u8,
+    },
+    InvalidStateUpdateType {
+        actual: u8,
+    },
+    InvalidStatusFields {
         actual: u8,
     },
     InvalidClientLifecycle {
@@ -220,6 +240,21 @@ impl fmt::Display for DecodeError {
             }
             Self::InvalidSnapshotUnavailableReason { actual } => {
                 write!(formatter, "invalid snapshot unavailable reason {actual}")
+            }
+            Self::EventBatchTooLong { length, max } => {
+                write!(
+                    formatter,
+                    "event batch has {length} entries; maximum is {max}"
+                )
+            }
+            Self::InvalidEventPollStatus { actual } => {
+                write!(formatter, "invalid event poll status {actual}")
+            }
+            Self::InvalidStateUpdateType { actual } => {
+                write!(formatter, "invalid state update type {actual}")
+            }
+            Self::InvalidStatusFields { actual } => {
+                write!(formatter, "invalid status field mask 0x{actual:02X}")
             }
             Self::InvalidClientLifecycle { actual } => {
                 write!(formatter, "invalid client lifecycle {actual}")

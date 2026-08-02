@@ -16,6 +16,8 @@ mod management;
 mod registry;
 #[cfg(any(windows, test))]
 mod snapshot_api;
+#[cfg(any(windows, test))]
+mod stream_api;
 
 use std::{collections::BTreeSet, env, ffi::OsString, path::PathBuf, process::ExitCode};
 
@@ -392,6 +394,7 @@ fn publish_event(
 ) {
     if registry.apply(event) {
         api_state.publish(registry.snapshot());
+        api_state.publish_connection_event(event);
         println!("{}", registry::render_event(event));
         let _ = std::io::Write::flush(&mut std::io::stdout());
     }

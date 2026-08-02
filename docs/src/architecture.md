@@ -49,18 +49,19 @@ a process as an injection candidate, but the loader must still validate that
 the target is compatible before modifying it.
 
 The `darpc-hook` support crate owns the reusable, in-process x86 detour
-boundary. It has no game addresses or state knowledge. `darpc.dll` will supply
-validated client-specific targets and detours when live hooks are introduced.
+boundary. It has no game addresses or state knowledge. `darpc.dll` supplies
+validated client-specific targets and detours for each live hook.
 The separate `hook-harness.exe` exercises that boundary against owned code.
 See [Hook safety](hooks.md) for its transaction and shutdown contracts.
 
 ## Web boundary
 
-The daemon web boundary uses Axum. Its current read-only surface binds to
-`127.0.0.1:2626` by default and exposes `/health`, `/clients`,
-`/openapi.json`, and `/docs`. A `--port <port>` option changes only the port;
-remote interfaces remain unavailable. HTTP response models remain separate
-from registry records, binary protocol messages, and client layouts.
+The daemon web boundary uses Axum. It binds to `127.0.0.1:2626` by default and
+exposes health, client discovery, focused state resources, per-client
+Server-Sent Events, lifecycle operations, `/openapi.json`, and `/docs`. A
+`--port <port>` option changes only the port; remote interfaces remain
+unavailable. HTTP response models remain separate from registry records,
+binary protocol messages, and client layouts.
 
 `utoipa` generates the OpenAPI document from the same Rust models and route
 descriptions used by the server. A vendored Swagger UI presents that document
@@ -72,8 +73,9 @@ The synchronous connection workers send events to the daemon's registry loop.
 After each changed event, that loop publishes a new immutable registry snapshot
 for the HTTP thread. A handler clones the published snapshot reference before
 building its response, so it never holds the live registry or a lock across
-network I/O. HTTP failures therefore cannot stop client health checks or mutate
-registry state.
+network I/O. Ordered state events also enter a bounded broadcast channel for
+matching SSE subscribers. HTTP failures and slow subscribers therefore cannot
+stop client health checks or mutate registry state.
 
 The HTTP routes do not carry a version prefix. daRPC maintains one current API
 while it is evolving. The OpenAPI `info.version` identifies the documented

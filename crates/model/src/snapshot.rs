@@ -127,7 +127,9 @@ impl Element {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClientSnapshot {
     pub revision: u32,
+    pub event_sequence: u32,
     pub captured_tick_ms: u32,
+    pub updated_tick_ms: u32,
     pub capture_duration_us: u32,
     pub world_generation: u32,
     pub lifecycle: ClientLifecycle,
@@ -140,9 +142,11 @@ pub struct CharacterSnapshot {
     pub name: Option<String>,
     pub appearance: Option<CharacterAppearance>,
     pub class: CharacterClass,
-    pub action_locked: bool,
+    pub is_action_restricted: bool,
     pub is_blinded: bool,
     pub gold: u32,
+    pub weight: u32,
+    pub max_weight: u32,
     pub progression: CharacterProgression,
     pub stats: CharacterStats,
     pub vitals: CharacterVitals,

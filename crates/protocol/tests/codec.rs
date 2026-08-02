@@ -1,16 +1,18 @@
 use darpc_model::{
     CharacterAppearance, CharacterClass, CharacterModifiers, CharacterProgression,
     CharacterSnapshot, CharacterStats, CharacterVitals, ClientLifecycle, ClientSnapshot,
-    CooldownStatus, Element, EquipmentItem, EquipmentSlot, Gender, InventoryItem, MapLocation,
-    Skill, Spell, SpellTargetType,
+    CooldownStatus, CoreStatus, CurrentVitals, Element, EquipmentItem, EquipmentSlot, Gender,
+    InventoryItem, LocationUpdate, MapChange, MapLocation, ProgressionStatus, Skill, Spell,
+    SpellTargetType, StateEvent, StateUpdate, StatusUpdate,
 };
 use darpc_protocol::{
     Architecture, ComponentVersion, DecodeError, EchoRequest, EchoResponse, EncodeError,
-    FRAME_HEADER_LEN, FRAME_MAGIC, FRAME_VERSION, Frame, FrameHeader, Hello, HelloAck,
-    MAX_ECHO_TEXT_LEN, MAX_PAYLOAD_LEN, Message, MessageType, PROTOCOL_VERSION_1_0, Ping, Pong,
-    SnapshotRequest, SnapshotResponse, SnapshotResult, SnapshotUnavailableReason,
-    TickHealthRequest, TickHealthResponse, VersionRange, decode_frame, decode_header, encode_frame,
-    protocol_version, protocol_version_major, protocol_version_minor,
+    EventPollRequest, EventPollResponse, EventPollResult, FRAME_HEADER_LEN, FRAME_MAGIC,
+    FRAME_VERSION, Frame, FrameHeader, Hello, HelloAck, MAX_ECHO_TEXT_LEN, MAX_PAYLOAD_LEN,
+    Message, MessageType, PROTOCOL_VERSION_1_0, Ping, Pong, SnapshotRequest, SnapshotResponse,
+    SnapshotResult, SnapshotUnavailableReason, TickHealthRequest, TickHealthResponse, VersionRange,
+    decode_frame, decode_header, encode_frame, protocol_version, protocol_version_major,
+    protocol_version_minor,
 };
 
 fn hello() -> Hello {
@@ -36,7 +38,9 @@ fn hello() -> Hello {
 fn snapshot() -> ClientSnapshot {
     ClientSnapshot {
         revision: 9,
+        event_sequence: 7,
         captured_tick_ms: u32::MAX,
+        updated_tick_ms: 12,
         capture_duration_us: 321,
         world_generation: 4,
         lifecycle: ClientLifecycle::InGame,
@@ -50,9 +54,11 @@ fn snapshot() -> ClientSnapshot {
                 body_sprite: 1,
             }),
             class: CharacterClass::Wizard,
-            action_locked: true,
+            is_action_restricted: false,
             is_blinded: true,
             gold: 123_456,
+            weight: 88,
+            max_weight: 120,
             progression: CharacterProgression {
                 level: 99,
                 ability_level: 7,
@@ -195,6 +201,82 @@ fn every_message_round_trips() {
         Message::SnapshotResponse(SnapshotResponse {
             request_id: 10,
             result: SnapshotResult::Ready(Box::new(disconnected)),
+        }),
+        Message::EventPollRequest(EventPollRequest {
+            request_id: 11,
+            after_sequence: 40,
+            max_events: 64,
+            wait_ms: 50,
+        }),
+        Message::EventPollResponse(EventPollResponse {
+            request_id: 12,
+            result: EventPollResult::Events(vec![
+                StateEvent {
+                    sequence: 41,
+                    revision: 10,
+                    tick_ms: 123,
+                    update: StateUpdate::Status(StatusUpdate {
+                        core: Some(CoreStatus {
+                            level: 99,
+                            ability_level: 12,
+                            max_health: 2_000,
+                            max_mana: 1_500,
+                            weight: 88,
+                            max_weight: 120,
+                            stats: CharacterStats {
+                                strength: 11,
+                                intelligence: 12,
+                                wisdom: 13,
+                                constitution: 14,
+                                dexterity: 15,
+                            },
+                        }),
+                        vitals: Some(CurrentVitals {
+                            health: 1_900,
+                            mana: 1_400,
+                        }),
+                        progression: Some(ProgressionStatus {
+                            experience: 100,
+                            ability_points: 200,
+                            experience_to_next_level: 300,
+                            ability_to_next_level: 400,
+                        }),
+                        gold: Some(500),
+                        modifiers: Some(CharacterModifiers {
+                            armor_class: -10,
+                            damage: 8,
+                            hit: 7,
+                            magic_resistance: 60,
+                            attack_element: Element::Fire,
+                            defense_element: Element::Water,
+                        }),
+                        is_blinded: Some(true),
+                        is_action_restricted: Some(true),
+                    }),
+                },
+                StateEvent {
+                    sequence: 42,
+                    revision: 11,
+                    tick_ms: 124,
+                    update: StateUpdate::Location(LocationUpdate {
+                        x: 43,
+                        y: 40,
+                        map: Some(MapChange {
+                            id: 3001,
+                            name: Some("Mileth".into()),
+                            width: 100,
+                            height: 80,
+                        }),
+                    }),
+                },
+            ]),
+        }),
+        Message::EventPollResponse(EventPollResponse {
+            request_id: 13,
+            result: EventPollResult::ResyncRequired {
+                missing_sequence: 42,
+                latest_sequence: 900,
+            },
         }),
     ];
 

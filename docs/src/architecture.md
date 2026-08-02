@@ -58,7 +58,8 @@ See [Hook safety](hooks.md) for its transaction and shutdown contracts.
 
 The daemon web boundary uses Axum. It binds to `127.0.0.1:2626` by default and
 exposes health, client discovery, focused state resources, per-client
-Server-Sent Events, lifecycle operations, `/openapi.json`, and `/docs`. A
+Server-Sent Events, bounded client commands, lifecycle operations,
+`/openapi.json`, and `/docs`. A
 `--port <port>` option changes only the port; remote interfaces remain
 unavailable. HTTP response models remain separate from registry records,
 binary protocol messages, and client layouts.
@@ -76,6 +77,12 @@ building its response, so it never holds the live registry or a lock across
 network I/O. Ordered state events also enter a bounded broadcast channel for
 matching SSE subscribers. HTTP failures and slow subscribers therefore cannot
 stop client health checks or mutate registry state.
+
+Commands travel through a separate bounded daemon router into the existing
+connection worker for the selected client identity. That worker is the only
+owner of the named-pipe controller session. The DLL IPC thread validates and
+enqueues pointer-free work, and the client tick executes at most one command
+per tick. HTTP and IPC threads therefore never call client functions directly.
 
 The HTTP routes do not carry a version prefix. daRPC maintains one current API
 while it is evolving. The OpenAPI `info.version` identifies the documented

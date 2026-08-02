@@ -30,6 +30,9 @@ darpc ping --pid <pid>
 darpc echo --pid <pid> "hello"
 darpc tick-health --pid <pid>
 darpc snapshot --pid <pid>
+darpc diagnostic --pid <pid>
+darpc command-status --pid <pid> <command-id>
+darpc command-cancel --pid <pid> <command-id>
 ```
 
 These commands use the real PID-based named pipe, binary framing, protocol
@@ -46,6 +49,12 @@ behavior is:
 - `snapshot` schedules a bounded capture on the client main thread and reports
   lifecycle, character, map, inventory, equipment, spellbook, and skillbook
   state plus capture timing and request round-trip time.
+- `diagnostic` submits a no-op command to the bounded main-thread queue, waits
+  up to one second, and reports its state, queue delay, execution duration, and
+  client main-thread ID.
+- `command-status` reads a retained command result by its nonzero ID.
+- `command-cancel` atomically cancels a command that is still accepted. A
+  command that already started retains its completed state.
 
 The commands share `darpc-protocol` with the DLL and daemon. Each requires an
 explicit nonzero process ID and cannot manage multiple clients in one command.
@@ -61,6 +70,8 @@ darpc --output json ping --pid <pid>
 darpc --output json echo --pid <pid> "hello"
 darpc --output json tick-health --pid <pid>
 darpc --output json snapshot --pid <pid>
+darpc --output json diagnostic --pid <pid>
+darpc --output json command-status --pid <pid> <command-id>
 ```
 
 Diagnostics belong on standard error so scripts can parse JSON from standard

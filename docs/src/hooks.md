@@ -45,6 +45,19 @@ bounded main-thread memory copy described in [Client state](state.md), then
 publishes pointer-free fixed-capacity data for the pipe worker. Conversion and
 serialization remain outside the hook.
 
+The tick also drains at most one entry from the 64-slot command queue. The IPC
+worker is the sole producer and the client main thread is the sole consumer.
+It validates and enqueues only scalar, pointer-free command data; it never
+calls a client function. The tick path does not wait, allocate, serialize, log,
+or perform IPC. The implemented diagnostic changes no state and records only
+its start and completion ticks, execution duration, and main-thread ID.
+
+Cancellation and timeout use atomic state transitions. An accepted command may
+be cancelled or expire before execution; a command already executing completes
+normally. Shutdown stops the IPC producer, cancels remaining accepted entries,
+then removes hooks. A controller disconnect therefore cannot leave a queued
+controller pointer or cause an unbounded backlog.
+
 ## Decoded-event observer
 
 The event observer targets the central `event_dispatch` function only for the

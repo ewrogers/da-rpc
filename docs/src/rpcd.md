@@ -1,8 +1,9 @@
 # `darpcd.exe`
 
 > **Status:** Automatic client discovery, the identity registry, daemon-managed
-> load, unload, and launch, current client state, REST, and Server-Sent Events
-> are implemented. Actions and WebSocket APIs remain planned.
+> load, unload, and launch, current client state, a routed diagnostic command,
+> REST, and Server-Sent Events are implemented. Typed game actions and
+> WebSocket APIs remain planned.
 
 `darpcd.exe` is a 64-bit x86-64 Windows daemon that makes injected clients easy
 to use from local applications.
@@ -16,6 +17,7 @@ Its current responsibilities are to:
 - Optionally load the configured DLL once into each uninjected client.
 - Aggregate client identity, connection health, snapshots, and ordered state
   updates from each connected client.
+- Route bounded commands through each client's existing pipe session.
 - Expose loopback REST and Server-Sent Events APIs, an OpenAPI document, and
   Swagger UI.
 
@@ -49,6 +51,13 @@ An accepted release connection must report the supported x86 architecture,
 executable fingerprint, and client version. Registry identity combines the PID, raw
 process creation time, and DLL instance ID. A reused PID or reloaded DLL
 therefore replaces the prior record instead of inheriting it.
+
+Each worker also owns a bounded command receiver. HTTP requests carry the
+expected process and DLL identity, and the worker rejects a request after a
+replacement or disconnect. It processes at most one routed command between
+normal event polls, assigns protocol request IDs on the owning session, and
+never opens a competing pipe connection. A full worker queue affects only that
+client.
 
 An incompatible peer remains visible as a target status but is not accepted as
 a client and is never reinjected automatically. A discovered target is removed
@@ -131,6 +140,12 @@ later state changes for that exact process and DLL identity. The internal
 broadcast channel holds 4,096 events. A lagging subscriber receives
 `stream.resync_required` and closes; it cannot block the game hook, client
 worker, or another subscriber.
+
+The same web boundary can submit, query, and cancel the no-op diagnostic
+command. A separate bounded daemon router wakes the registry loop, which sends
+the request to the matching per-client worker. The returned status includes
+the DLL instance ID, client tick timing, execution duration, and game
+main-thread ID.
 
 See the [Web API](web-api.md) chapter for routes, request models, responses, and
 failure behavior.

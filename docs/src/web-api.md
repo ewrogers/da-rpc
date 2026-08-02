@@ -1,9 +1,9 @@
 # Web API
 
 > **Status:** The client registry, managed lifecycle routes, OpenAPI document,
-> interactive documentation, current client state queries, and per-client
-> Server-Sent Events are implemented. Game actions, WebSocket, and remote
-> access remain planned.
+> interactive documentation, current client state queries, a diagnostic
+> main-thread command, and per-client Server-Sent Events are implemented.
+> Typed game actions, WebSocket, and remote access remain planned.
 
 `darpcd.exe` exposes standard web interfaces so applications do not need to
 implement Windows injection, named-pipe IPC, or client-specific data layouts.
@@ -25,6 +25,9 @@ port. The API has no URL version prefix.
 | `GET /clients/{client}/spellbook` | Return occupied spellbook slots. |
 | `GET /clients/{client}/skillbook` | Return occupied skillbook slots. |
 | `GET /clients/{client}/events` | Stream ordered changes after a current snapshot boundary. |
+| `POST /clients/{client}/commands/diagnostic` | Submit a no-op command for execution on a client tick. |
+| `GET /clients/{client}/commands/{command_id}` | Read a retained command state. |
+| `DELETE /clients/{client}/commands/{command_id}` | Cancel a command that has not started. |
 | `POST /clients/launch` | Launch the configured client and initialize the configured DLL. |
 | `POST /clients/{client}/load` | Load and initialize the configured DLL in a tracked client. |
 | `POST /clients/{client}/unload` | Shut down and unload the configured DLL from a tracked client. |
@@ -142,6 +145,54 @@ addresses and version-specific layout details are never exposed.
 Snapshot capture semantics and unavailable values are documented in
 [Client state](state.md). The complete generated JSON schema is available in
 `/openapi.json` and Swagger UI.
+
+## Main-thread commands
+
+The diagnostic route accepts this optional field in a JSON object:
+
+```text
+DiagnosticOptions {
+    timeout_ms: u16,  // default 1,000; valid range 1 through 5,000
+}
+```
+
+It returns the current command state. `200 OK` means the command reached a
+terminal state during the bounded wait; `202 Accepted` means it remains queued.
+The same `command_id` can be queried or cancelled through the routes above.
+
+```text
+CommandStatus {
+    pid: u32,
+    instance_id: string,
+    command_id: u32,
+    kind: "diagnostic",
+    state: "accepted" | "executed" | "failed" | "cancelled" | "timed_out",
+    enqueued_tick_ms: u32,
+    deadline_tick_ms: u32,
+    started_tick_ms: u32?,
+    completed_tick_ms: u32?,
+    queue_delay_ms: u32?,
+    execution_us: u32?,
+    main_thread_id: u32?,
+    failure: "internal"?,
+}
+```
+
+Command IDs are local to the reported DLL `instance_id`. Results from a prior
+DLL lifetime must not be applied to a replacement instance. Terminal results
+are retained for bounded queries and may be evicted under pressure.
+
+The HTTP thread sends requests through a 64-entry daemon router. Each client
+has its own 16-entry worker channel and existing named-pipe session, so the
+daemon never opens a competing controller connection and one client cannot
+consume another client's worker capacity. The DLL then enqueues into its own
+64-slot pointer-free queue. Full daemon or DLL queues return `429 Too Many
+Requests` immediately; unavailable connections return `503 Service
+Unavailable`; an expired retained command returns `404 Not Found`.
+
+The client tick executes at most one command per tick. IPC, HTTP, allocation,
+serialization, and logging stay off the game thread. The diagnostic calls no
+client function and changes no game state.
 
 ## Server-Sent Events
 

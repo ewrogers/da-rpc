@@ -104,13 +104,13 @@ directly for discovery, aggregation, action status, and multi-client behavior.
 | M11 | First client tick hook | Direct IPC reports client ticks while the game behaves normally. | Complete |
 | M12 | Late-attach client snapshot | The direct CLI and daemon API expose current character, map, inventory, equipment, spell, and skill state. | Complete |
 | M13 | Event-driven updates | One normal game event updates state without another snapshot. | Complete |
-| M14 | Main-thread command queue | A diagnostic command completes on a client tick. | Planned |
+| M14 | Main-thread command queue | A diagnostic command completes on a client tick. | Complete |
 | M15 | First typed action | One low-risk action executes through a native client path. | Planned |
 | M16 | Packet observation and local rules | Bounded plaintext telemetry and fail-open decisions work locally. | Planned |
 | M17 | Multi-client hardening and preview | Failure and soak evidence support a preview release. | Planned |
 | M18 | WebSocket and remote access | Added only for a proven use case and defined security model. | Deferred |
 
-M2 through M13 are complete. M14 is the next planned increment.
+M2 through M14 are complete. M15 is the next planned increment.
 M1 has been exercised manually, but its separate evidence checklist remains
 open until the lifecycle-host Windows continuous-integration coverage is
 present. The working checklist is maintained in the [repository progress
@@ -642,6 +642,13 @@ Done:
 - IPC workers never call client functions.
 - Disconnect and timeout cannot leave queued client pointers or unbounded work.
 
+Implemented with a 64-slot DLL queue, one-entry tick budget, strict protocol
+messages, direct CLI operations, bounded per-client daemon routing, and REST
+submission, query, and cancellation. Unit and native Windows tests cover
+saturation, cancellation, timer wrap, retained-result pressure, and routing.
+A live late-attached client completed the diagnostic through both direct IPC
+and HTTP while preserving normal operation.
+
 ### M15: first typed action
 
 Build:
@@ -720,6 +727,6 @@ limits, and administrative capability boundaries before it is supported.
 
 ## Immediate next increment
 
-M14 adds a bounded main-thread command queue and one diagnostic command that
-changes no game state. IPC workers validate and enqueue requests, while the
-client tick drains a fixed amount of work and reports explicit action states.
+M15 adds one low-risk typed action through a confirmed native client producer.
+It reuses the qualified command queue while keeping execution distinct from a
+later observed server outcome.

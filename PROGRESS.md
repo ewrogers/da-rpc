@@ -9,8 +9,8 @@ remain concise.
 
 ## Current focus
 
-M13, event-driven updates, is complete. The M12 late-attach snapshot remains
-the reconciliation baseline for incrementally maintained state.
+M14, the bounded main-thread command queue, is complete. M15 is the next
+planned increment and will add the first low-risk typed client action.
 
 ## Milestone snapshot
 
@@ -32,6 +32,7 @@ the reconciliation baseline for incrementally maintained state.
 | M11, first client tick hook | Complete | Exact validation, safety hardening, direct health observation, repeated live attach and detach, and normal in-game acceptance pass. |
 | M12, late-attach client snapshot | Complete | Main-thread capture, the full initial character and collection surface, protocol and API presentation, and live-client comparison pass. |
 | M13, event-driven updates | Complete | Bounded status, weight, action-restriction, and atomic location updates, daemon reduction, resynchronization, per-client SSE, and live-client acceptance pass. |
+| M14, main-thread command queue | Complete | Fixed DLL and daemon queues, one command per tick, direct CLI and REST routing, explicit states, and live-client verification pass. |
 
 ## Completed recently
 
@@ -53,6 +54,27 @@ the reconciliation baseline for incrementally maintained state.
   with explicit ready, lag, resynchronization, and close behavior.
 - [x] Added accepted movement updates and a staged map transition that commits
   map metadata with authoritative coordinates atomically.
+- [x] Added strict command request, response, status, cancellation, timeout,
+  queue-full, and unavailable protocol results without changing protocol 1.0.
+- [x] Added a pointer-free 64-slot DLL queue drained at one entry per client
+  tick, plus bounded daemon routing through each existing controller session.
+- [x] Added direct CLI and REST diagnostic submission, status, cancellation,
+  timing, OpenAPI, and Swagger coverage.
+
+## M14 completion evidence
+
+- [x] Queue submission validates bounded scalar fields on the IPC worker and
+  never calls a client function.
+- [x] The game main thread drains no more than one command per tick without
+  allocation, serialization, logging, IPC, or waits.
+- [x] Accepted, executed, failed, cancelled, and timed-out states have strict
+  wire and public API representations.
+- [x] Queue saturation returns busy immediately, while completed result
+  retention cannot consume pending capacity indefinitely.
+- [x] Disconnect, replacement, shutdown, and timeout retain no controller or
+  client pointers in queued work.
+- [x] Host tests, native x86 and x64 tests, direct live IPC, and daemon-routed
+  HTTP verification pass on the designated late-attached client.
 
 ## M13 completion evidence
 

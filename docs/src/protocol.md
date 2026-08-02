@@ -71,6 +71,8 @@ enum MessageType: u16 {
     SnapshotResponse   = 10,
     EventPollRequest   = 11,
     EventPollResponse  = 12,
+    CommandRequest     = 13,
+    CommandResponse    = 14,
 }
 ```
 
@@ -410,6 +412,86 @@ daemon then requests a fresh snapshot and resumes polling from its new boundary.
 No unbounded outage replay log exists. Reconnect always starts with current
 state from a fresh snapshot.
 
+## Main-thread commands
+
+Commands use one bounded envelope. The only implemented kind is a diagnostic
+that records execution metadata and changes no game or client state.
+
+```rust,ignore
+struct CommandRequest {
+    request_id: u32;
+    operation: CommandOperation;
+}
+
+enum CommandOperation: u8 {
+    Submit {
+        kind: CommandKind;
+        timeout_ms: u16;  // 1 through 5,000
+        wait_ms: u16;     // 0 through 1,000
+    } = 0,
+    Query {
+        command_id: u32;  // nonzero, local to one DLL instance
+        wait_ms: u16;     // 0 through 1,000
+    } = 1,
+    Cancel {
+        command_id: u32;
+    } = 2,
+}
+
+enum CommandKind: u8 {
+    Diagnostic = 0,
+}
+
+enum CommandState: u8 {
+    Accepted = 0,
+    Executed = 1,
+    Failed = 2,
+    Cancelled = 3,
+    TimedOut = 4,
+}
+
+struct CommandStatus {
+    command_id: u32;
+    kind: CommandKind;
+    state: CommandState;
+    enqueued_tick_ms: u32;
+    deadline_tick_ms: u32;
+    started_tick_ms: Option<u32>;
+    completed_tick_ms: Option<u32>;
+    execution_us: Option<u32>;
+    main_thread_id: Option<u32>;
+    failure: Option<CommandFailure>;
+}
+
+enum CommandFailure: u8 {
+    Internal = 0,
+}
+
+struct CommandResponse {
+    request_id: u32;
+    result: CommandResult;
+}
+
+enum CommandResult: u8 {
+    Status(CommandStatus) = 0,
+    Busy = 1,
+    NotFound = 2,
+    Unavailable = 3,
+}
+```
+
+Each optional field is encoded as a strict Boolean followed by its `u32` value
+when present. Submission only validates and copies bounded scalar values on the
+IPC worker. Execution occurs later through the client tick hook. `Busy` is an
+immediate response when all fixed queue entries are pending, and `Unavailable`
+means the tick execution path is not installed. Terminal results are retained
+for bounded status queries and may be evicted under command pressure.
+
+Command deadlines and queue delay use the same wrapping millisecond tick as
+frame timestamps. `execution_us` uses a higher-resolution local duration so a
+short diagnostic can still report sub-millisecond work. A disconnect drops no
+pointer because queued commands contain no client or controller addresses.
+
 ## Ordering and time
 
 Each sender maintains its own sequence counter for each connection. It starts
@@ -445,8 +527,9 @@ response ticks remain visible for comparison and diagnosis.
 Protocol handling is deliberately strict. The codec rejects invalid magic,
 unsupported frame versions, unknown message types, nonzero flags, invalid
 architecture values, invalid version ranges, invalid UTF-8, truncated fields,
-invalid boolean bytes, oversized lengths, arithmetic overflow, and trailing
-bytes. Lengths are checked
+invalid boolean bytes, command discriminants, command limits, zero command
+identifiers, oversized lengths, arithmetic overflow, and trailing bytes.
+Lengths are checked
 before allocation. The session layer rejects unsupported negotiated versions,
 invalid message order, mismatched instance IDs, and sequence gaps.
 
@@ -495,6 +578,7 @@ to these bytes and decode them back to the expected values.
   every string limit.
 
 The implementation maps directly to this chapter: framing is in
-`crates/protocol/src/frame.rs`, message fields are in `message.rs`, handshake and
-sequence rules are in `session.rs`, and the exact fixture and malformed-input
-coverage are under `crates/protocol/tests/`.
+`crates/protocol/src/frame.rs`, command messages are in `command.rs`, remaining
+message fields are in `message.rs`, handshake and sequence rules are in
+`session.rs`, and the exact fixture and malformed-input coverage are under
+`crates/protocol/tests/`.

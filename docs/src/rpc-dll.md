@@ -13,7 +13,7 @@ does not start IPC or wait for the worker.
 
 Each connection begins with the DLL's `Hello` and must answer with a compatible
 `HelloAck`. The worker serves bounded `Ping`, `Echo`, tick-health, snapshot,
-and event-poll operations.
+event-poll, and main-thread command operations.
 It uses overlapped reads, writes, and accepts so `darpc_shutdown` can signal the
 worker, cancel pending input/output, and join it before unloading. If bounded
 shutdown cannot prove the worker stopped, shutdown fails and the loader leaves
@@ -64,6 +64,21 @@ ownership inside the DLL while avoiding an unbounded replay log.
 This state tracking is independent of `darpcd.exe`. If the daemon stops, the DLL
 continues to update its state and keeps its named-pipe server ready for a new
 connection.
+
+## Command execution
+
+The IPC worker validates command fields and submits pointer-free entries to a
+fixed 64-slot queue. It may wait up to the protocol's bounded response window
+for a state transition, but it never executes client work. The existing tick
+hook removes at most one queue entry per tick and publishes accepted, executed,
+failed, cancelled, or timed-out status through atomics.
+
+The diagnostic command is the first implemented executor. It calls no client
+function and changes no game state. Its purpose is to prove main-thread routing
+and expose queue delay, execution duration, and thread identity before typed
+client actions are added. Terminal results remain queryable for a bounded
+period; new work may evict the oldest completed result rather than allowing
+retained history to consume pending queue capacity.
 
 ## Operational boundaries
 

@@ -4,12 +4,11 @@
 
 daRPC, short for Dark Ages Remote Procedure Call, is a Rust workspace for
 integrating developer tools with the 32-bit Windows client of *Dark Ages*.
-The project is in early development and does not yet provide a working client
-state integration. Injection, launch-time patches, direct named-pipe
-diagnostics, automatic client discovery, and daemon-managed client lifecycle
-operations are implemented. The x86 detour mechanism is qualified against an
-owned concurrent test harness, and the first game-client tick hook is
-implemented and qualified through controlled and live-client testing.
+The project is in early development. Injection, launch-time patches, direct
+named-pipe diagnostics, automatic client discovery, daemon-managed lifecycle,
+current client state, event-driven updates, and a bounded main-thread
+diagnostic command are implemented. The x86 detour mechanism and live hooks
+are qualified through controlled and live-client testing.
 
 Read the [daRPC Book](https://ewrogers.github.io/da-rpc/) for the architecture,
 current implementation status, protocol, safety requirements, and development
@@ -206,13 +205,18 @@ darpc.exe ping --pid <pid>
 darpc.exe echo --pid <pid> "hello"
 darpc.exe tick-health --pid <pid>
 darpc.exe snapshot --pid <pid>
+darpc.exe diagnostic --pid <pid>
+darpc.exe command-status --pid <pid> <command-id>
+darpc.exe command-cancel --pid <pid> <command-id>
 darpc.exe --output json hello --pid <pid>
 ```
 
 These commands perform the real binary handshake and validate ordering,
 correlation, and timing. `tick-health` samples the installed client tick hook
 twice and reports whether its bounded counter advances. `snapshot` reads the
-current character, map, inventory, equipment, spellbook, and skillbook. See the
+current character, map, inventory, equipment, spellbook, and skillbook.
+`diagnostic` proves bounded execution on the game main thread without changing
+client state, while the status and cancel commands address retained work. See the
 [`darpc.exe` documentation](https://ewrogers.github.io/da-rpc/cli.html) for
 output fields and exit codes.
 
@@ -265,6 +269,9 @@ GET /clients/{client}/equipment
 GET /clients/{client}/spellbook
 GET /clients/{client}/skillbook
 GET /clients/{client}/events
+POST /clients/{client}/commands/diagnostic
+GET /clients/{client}/commands/{command_id}
+DELETE /clients/{client}/commands/{command_id}
 POST /clients/launch
 POST /clients/{client}/load
 POST /clients/{client}/unload

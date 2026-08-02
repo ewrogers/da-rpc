@@ -1,5 +1,6 @@
 use crate::{
     DecodeError, EncodeError,
+    command::{self, CommandRequest, CommandResponse},
     event::{self, EventPollRequest, EventPollResponse},
     snapshot::{
         self, SnapshotRequest, SnapshotResponse, SnapshotResult, SnapshotUnavailableReason,
@@ -159,6 +160,8 @@ pub enum MessageType {
     SnapshotResponse = 10,
     EventPollRequest = 11,
     EventPollResponse = 12,
+    CommandRequest = 13,
+    CommandResponse = 14,
 }
 
 impl MessageType {
@@ -181,6 +184,8 @@ impl MessageType {
             10 => Ok(Self::SnapshotResponse),
             11 => Ok(Self::EventPollRequest),
             12 => Ok(Self::EventPollResponse),
+            13 => Ok(Self::CommandRequest),
+            14 => Ok(Self::CommandResponse),
             actual => Err(DecodeError::UnknownMessageType { actual }),
         }
     }
@@ -200,6 +205,8 @@ pub enum Message {
     SnapshotResponse(SnapshotResponse),
     EventPollRequest(EventPollRequest),
     EventPollResponse(EventPollResponse),
+    CommandRequest(CommandRequest),
+    CommandResponse(CommandResponse),
 }
 
 impl Message {
@@ -218,6 +225,8 @@ impl Message {
             Self::SnapshotResponse(_) => MessageType::SnapshotResponse,
             Self::EventPollRequest(_) => MessageType::EventPollRequest,
             Self::EventPollResponse(_) => MessageType::EventPollResponse,
+            Self::CommandRequest(_) => MessageType::CommandRequest,
+            Self::CommandResponse(_) => MessageType::CommandResponse,
         }
     }
 
@@ -281,6 +290,8 @@ impl Message {
             }
             Self::EventPollRequest(message) => event::encode_request(&mut output, *message),
             Self::EventPollResponse(message) => event::encode_response(&mut output, message)?,
+            Self::CommandRequest(message) => command::encode_request(&mut output, *message)?,
+            Self::CommandResponse(message) => command::encode_response(&mut output, *message),
         }
         Ok(output)
     }
@@ -358,6 +369,12 @@ impl Message {
             }
             MessageType::EventPollResponse => {
                 Self::EventPollResponse(event::decode_response(&mut reader)?)
+            }
+            MessageType::CommandRequest => {
+                Self::CommandRequest(command::decode_request(&mut reader)?)
+            }
+            MessageType::CommandResponse => {
+                Self::CommandResponse(command::decode_response(&mut reader)?)
             }
         };
         reader.finish()?;

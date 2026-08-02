@@ -1,5 +1,6 @@
 //! Binary interprocess communication protocol for daRPC.
 
+mod command;
 mod error;
 mod event;
 mod frame;
@@ -7,6 +8,11 @@ mod message;
 mod session;
 mod snapshot;
 
+pub use command::{
+    CommandFailure, CommandKind, CommandOperation, CommandRequest, CommandResponse, CommandResult,
+    CommandState, CommandStatus, DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS,
+    MAX_COMMAND_WAIT_MS,
+};
 pub use error::{DecodeError, EncodeError};
 pub use event::{
     EventPollRequest, EventPollResponse, EventPollResult, MAX_EVENT_POLL_WAIT_MS,

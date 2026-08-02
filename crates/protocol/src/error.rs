@@ -11,6 +11,9 @@ pub enum EncodeError {
     InvalidSnapshotSlot { slot: u8, max: u8 },
     DuplicateSnapshotSlot { slot: u8 },
     EventBatchTooLong { length: usize, max: usize },
+    InvalidCommandId,
+    InvalidCommandTimeout { actual: u16, max: u16 },
+    InvalidCommandWait { actual: u16, max: u16 },
     PayloadTooLarge { length: usize, max: usize },
     LengthOverflow,
 }
@@ -51,6 +54,15 @@ impl fmt::Display for EncodeError {
                     "event batch has {length} entries; maximum is {max}"
                 )
             }
+            Self::InvalidCommandId => formatter.write_str("command ID must be nonzero"),
+            Self::InvalidCommandTimeout { actual, max } => write!(
+                formatter,
+                "command timeout is {actual} ms; expected 1..={max} ms"
+            ),
+            Self::InvalidCommandWait { actual, max } => write!(
+                formatter,
+                "command wait is {actual} ms; maximum is {max} ms"
+            ),
             Self::PayloadTooLarge { length, max } => {
                 write!(formatter, "payload is {length} bytes; maximum is {max}")
             }
@@ -152,6 +164,30 @@ pub enum DecodeError {
     },
     InvalidClientLifecycle {
         actual: u8,
+    },
+    InvalidCommandId,
+    InvalidCommandOperation {
+        actual: u8,
+    },
+    InvalidCommandKind {
+        actual: u8,
+    },
+    InvalidCommandState {
+        actual: u8,
+    },
+    InvalidCommandFailure {
+        actual: u8,
+    },
+    InvalidCommandResult {
+        actual: u8,
+    },
+    InvalidCommandTimeout {
+        actual: u16,
+        max: u16,
+    },
+    InvalidCommandWait {
+        actual: u16,
+        max: u16,
     },
     InvalidUtf8,
 }
@@ -259,6 +295,30 @@ impl fmt::Display for DecodeError {
             Self::InvalidClientLifecycle { actual } => {
                 write!(formatter, "invalid client lifecycle {actual}")
             }
+            Self::InvalidCommandId => formatter.write_str("command ID must be nonzero"),
+            Self::InvalidCommandOperation { actual } => {
+                write!(formatter, "invalid command operation {actual}")
+            }
+            Self::InvalidCommandKind { actual } => {
+                write!(formatter, "invalid command kind {actual}")
+            }
+            Self::InvalidCommandState { actual } => {
+                write!(formatter, "invalid command state {actual}")
+            }
+            Self::InvalidCommandFailure { actual } => {
+                write!(formatter, "invalid command failure {actual}")
+            }
+            Self::InvalidCommandResult { actual } => {
+                write!(formatter, "invalid command result {actual}")
+            }
+            Self::InvalidCommandTimeout { actual, max } => write!(
+                formatter,
+                "command timeout is {actual} ms; expected 1..={max} ms"
+            ),
+            Self::InvalidCommandWait { actual, max } => write!(
+                formatter,
+                "command wait is {actual} ms; maximum is {max} ms"
+            ),
             Self::InvalidUtf8 => formatter.write_str("message text is not valid UTF-8"),
         }
     }

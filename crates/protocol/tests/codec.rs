@@ -6,10 +6,12 @@ use darpc_model::{
     SpellTargetType, StateEvent, StateUpdate, StatusUpdate,
 };
 use darpc_protocol::{
-    Architecture, ComponentVersion, DecodeError, EchoRequest, EchoResponse, EncodeError,
-    EventPollRequest, EventPollResponse, EventPollResult, FRAME_HEADER_LEN, FRAME_MAGIC,
-    FRAME_VERSION, Frame, FrameHeader, Hello, HelloAck, MAX_ECHO_TEXT_LEN, MAX_PAYLOAD_LEN,
-    Message, MessageType, PROTOCOL_VERSION_1_0, Ping, Pong, SnapshotRequest, SnapshotResponse,
+    Architecture, CommandFailure, CommandKind, CommandOperation, CommandRequest, CommandResponse,
+    CommandResult, CommandState, CommandStatus, ComponentVersion, DecodeError, EchoRequest,
+    EchoResponse, EncodeError, EventPollRequest, EventPollResponse, EventPollResult,
+    FRAME_HEADER_LEN, FRAME_MAGIC, FRAME_VERSION, Frame, FrameHeader, Hello, HelloAck,
+    MAX_COMMAND_TIMEOUT_MS, MAX_COMMAND_WAIT_MS, MAX_ECHO_TEXT_LEN, MAX_PAYLOAD_LEN, Message,
+    MessageType, PROTOCOL_VERSION_1_0, Ping, Pong, SnapshotRequest, SnapshotResponse,
     SnapshotResult, SnapshotUnavailableReason, TickHealthRequest, TickHealthResponse, VersionRange,
     decode_frame, decode_header, encode_frame, protocol_version, protocol_version_major,
     protocol_version_minor,
@@ -278,6 +280,48 @@ fn every_message_round_trips() {
                 latest_sequence: 900,
             },
         }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 14,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::Diagnostic,
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 15,
+            operation: CommandOperation::Query {
+                command_id: 91,
+                wait_ms: 0,
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 16,
+            operation: CommandOperation::Cancel { command_id: 91 },
+        }),
+        Message::CommandResponse(CommandResponse {
+            request_id: 17,
+            result: CommandResult::Status(CommandStatus {
+                command_id: 91,
+                kind: CommandKind::Diagnostic,
+                state: CommandState::Failed,
+                enqueued_tick_ms: u32::MAX - 5,
+                deadline_tick_ms: 994,
+                started_tick_ms: Some(2),
+                completed_tick_ms: Some(3),
+                execution_us: Some(17),
+                main_thread_id: Some(42),
+                failure: Some(CommandFailure::Internal),
+            }),
+        }),
+        Message::CommandResponse(CommandResponse {
+            request_id: 18,
+            result: CommandResult::Busy,
+        }),
+        Message::CommandResponse(CommandResponse {
+            request_id: 19,
+            result: CommandResult::Unavailable,
+        }),
     ];
 
     for message in messages {
@@ -285,6 +329,49 @@ fn every_message_round_trips() {
         let bytes = encode_frame(&frame).unwrap();
         assert_eq!(decode_frame(&bytes).unwrap(), frame);
     }
+}
+
+#[test]
+fn command_limits_are_strictly_validated() {
+    let invalid_timeout = Message::CommandRequest(CommandRequest {
+        request_id: 1,
+        operation: CommandOperation::Submit {
+            kind: CommandKind::Diagnostic,
+            timeout_ms: MAX_COMMAND_TIMEOUT_MS + 1,
+            wait_ms: 0,
+        },
+    });
+    assert_eq!(
+        encode_frame(&Frame::new(0, 0, invalid_timeout)),
+        Err(EncodeError::InvalidCommandTimeout {
+            actual: MAX_COMMAND_TIMEOUT_MS + 1,
+            max: MAX_COMMAND_TIMEOUT_MS,
+        })
+    );
+
+    let invalid_wait = Message::CommandRequest(CommandRequest {
+        request_id: 1,
+        operation: CommandOperation::Query {
+            command_id: 1,
+            wait_ms: MAX_COMMAND_WAIT_MS + 1,
+        },
+    });
+    assert_eq!(
+        encode_frame(&Frame::new(0, 0, invalid_wait)),
+        Err(EncodeError::InvalidCommandWait {
+            actual: MAX_COMMAND_WAIT_MS + 1,
+            max: MAX_COMMAND_WAIT_MS,
+        })
+    );
+
+    let invalid_id = Message::CommandRequest(CommandRequest {
+        request_id: 1,
+        operation: CommandOperation::Cancel { command_id: 0 },
+    });
+    assert_eq!(
+        encode_frame(&Frame::new(0, 0, invalid_id)),
+        Err(EncodeError::InvalidCommandId)
+    );
 }
 
 #[test]

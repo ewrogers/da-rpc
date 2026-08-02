@@ -13,7 +13,8 @@ path = "src/main.rs"
 
 [dependencies]
 async-stream = "0.3"
-axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio"] }
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "query", "tokio"] }
+chrono.workspace = true
 darpc-game-client.workspace = true
 darpc-model.workspace = true
 darpc-protocol.workspace = true

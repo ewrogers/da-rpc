@@ -8,6 +8,7 @@ use axum::response::{
     IntoResponse,
     sse::{Event, KeepAlive, Sse},
 };
+use chrono::{DateTime, Utc};
 use darpc_model::{CreatureKind, Effect, ObjectUpdate, StateEvent, StateUpdate};
 use serde::Serialize;
 use std::{convert::Infallible, time::Duration};
@@ -77,6 +78,7 @@ pub(crate) enum PublishedEvent {
         pid: u32,
         identity: ClientIdentity,
         event: StateEvent,
+        observed_at_utc: DateTime<Utc>,
     },
     #[cfg_attr(not(windows), allow(dead_code))]
     Closed {
@@ -256,10 +258,6 @@ impl EventObservation {
             tick_ms: event.tick_ms,
         }
     }
-
-    pub(crate) const fn sequence(&self) -> u32 {
-        self.event_sequence
-    }
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
@@ -405,6 +403,7 @@ pub(crate) fn response(
                     pid: event_pid,
                     identity: event_identity,
                     event,
+                    observed_at_utc,
                 }) if event_pid == pid && event_identity == identity => {
                     if !sequence_after(event.sequence, last_sequence) {
                         continue;
@@ -420,7 +419,7 @@ pub(crate) fn response(
                         break;
                     }
                     last_sequence = event.sequence;
-                    for api_event in expand(pid, identity, event) {
+                    for api_event in expand(pid, identity, event, observed_at_utc) {
                         yield Ok(api_event.into_sse());
                     }
                 }
@@ -461,7 +460,12 @@ pub(crate) fn response(
     )
 }
 
-fn expand(pid: u32, identity: ClientIdentity, event: StateEvent) -> Vec<ClientEvent> {
+fn expand(
+    pid: u32,
+    identity: ClientIdentity,
+    event: StateEvent,
+    observed_at_utc: DateTime<Utc>,
+) -> Vec<ClientEvent> {
     let observation = EventObservation::new(pid, identity, &event);
     let mut events = Vec::with_capacity(9);
     let update = match event.update {
@@ -501,7 +505,12 @@ fn expand(pid: u32, identity: ClientIdentity, event: StateEvent) -> Vec<ClientEv
             return events;
         }
         StateUpdate::Message(message) => {
-            events.push(ClientEvent::Message(Message::new(observation, message)));
+            events.push(ClientEvent::Message(Message::new(
+                event.sequence,
+                event.tick_ms,
+                observed_at_utc,
+                message,
+            )));
             return events;
         }
     };
@@ -674,6 +683,10 @@ mod tests {
         EffectUpdate, LocationUpdate, MapChange, MessageKind, StateUpdate, StatusUpdate,
     };
 
+    fn observed_at() -> DateTime<Utc> {
+        DateTime::from_timestamp(1_775_000_000, 0).unwrap()
+    }
+
     #[test]
     fn expands_one_atomic_status_update_into_semantic_events() {
         let event = StateEvent {
@@ -714,6 +727,7 @@ mod tests {
                 dll_instance_id: [1; 16],
             },
             event,
+            observed_at(),
         )
         .iter()
         .map(ClientEvent::name)
@@ -763,6 +777,7 @@ mod tests {
                     }),
                 }),
             },
+            observed_at(),
         );
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].name(), "location.changed");
@@ -805,6 +820,7 @@ mod tests {
                     tick_ms: sequence,
                     update: StateUpdate::Effect(update),
                 },
+                observed_at(),
             );
             assert_eq!(events.len(), 1);
             assert_eq!(events[0].name(), expected);
@@ -894,6 +910,7 @@ mod tests {
                     tick_ms: sequence,
                     update: StateUpdate::Object(update),
                 },
+                observed_at(),
             );
             assert_eq!(events.len(), 1);
             assert_eq!(events[0].name(), expected);
@@ -930,6 +947,7 @@ mod tests {
                         text: "hello".into(),
                     }),
                 },
+                observed_at(),
             );
             assert_eq!(events.len(), 1);
             assert_eq!(events[0].name(), expected);

@@ -5,7 +5,10 @@ use crate::{
         LaunchOptions as ManagedLaunchOptions, LifecycleControl, LifecycleOperation,
         LifecycleOutcome, ManagementError, ServerEndpoint as ManagedServerEndpoint,
     },
-    messages::{Message, MessageStore, MessageType, Messages},
+    messages::{
+        DEFAULT_MESSAGE_COUNT, MAX_MESSAGE_COUNT, Message, MessageChannel, MessageFilter,
+        MessageStore, Messages,
+    },
     registry::{
         ClientIdentity as RegistryClientIdentity, ClientSnapshot as RegistryClientSnapshot,
         ClientSnapshotStatus, ConnectionEvent, RegistrySnapshot, architecture, hex,
@@ -23,12 +26,16 @@ use crate::{
 use axum::{
     Json, Router,
     body::Body,
-    extract::{DefaultBodyLimit, Path, State, rejection::JsonRejection},
+    extract::{
+        DefaultBodyLimit, Path, Query, State,
+        rejection::{JsonRejection, QueryRejection},
+    },
     http::{Method, Request, StatusCode, header},
     middleware::{Next, from_fn},
     response::{Html, IntoResponse, Redirect, Response},
     routing::{get, post},
 };
+use chrono::{DateTime, Utc};
 use darpc_game_client::CLIENT_VERSION;
 use darpc_protocol::{Hello, protocol_version_major, protocol_version_minor};
 use serde::{Deserialize, Serialize};
@@ -42,7 +49,7 @@ use std::{
     thread::{self, JoinHandle},
 };
 use tokio::sync::{broadcast, oneshot};
-use utoipa::{OpenApi, ToSchema};
+use utoipa::{IntoParams, OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
 const SWAGGER_INDEX: &str = include_str!("../assets/swagger.html");
@@ -100,10 +107,11 @@ impl ApiState {
 
     #[cfg_attr(not(windows), allow(dead_code))]
     pub(crate) fn publish_connection_event(&self, event: &ConnectionEvent) {
+        let observed_at_utc = Utc::now();
         self.messages
             .write()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .observe(event);
+            .observe(event, observed_at_utc);
         match event {
             ConnectionEvent::StateEvents {
                 pid,
@@ -115,6 +123,7 @@ impl ApiState {
                         pid: *pid,
                         identity: *identity,
                         event: state_event.clone(),
+                        observed_at_utc,
                     });
                 }
             }
@@ -142,11 +151,11 @@ impl ApiState {
         self.published_events.subscribe()
     }
 
-    fn messages(&self, identity: RegistryClientIdentity) -> Messages {
+    fn messages(&self, identity: RegistryClientIdentity, filter: &MessageFilter) -> Messages {
         self.messages
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .get(identity)
+            .get(identity, filter)
     }
 
     pub(crate) fn snapshot(&self) -> Arc<RegistrySnapshot> {
@@ -474,10 +483,82 @@ async fn client_objects(
     Ok(Json(WorldObjects::from_model(pid, snapshot)))
 }
 
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+struct MessageQuery {
+    /// Comma-separated message channels, such as `say,shout`.
+    channels: Option<String>,
+    /// Return only messages observed after this ISO 8601 timestamp.
+    #[param(value_type = String, format = DateTime)]
+    since: Option<String>,
+    /// Number of matching messages to skip after newest-first sorting.
+    #[param(minimum = 0, default = 0)]
+    skip: Option<usize>,
+    /// Maximum messages to return. Defaults to 20 and cannot exceed 100.
+    #[param(minimum = 1, maximum = 100, default = 20)]
+    count: Option<usize>,
+}
+
+impl MessageQuery {
+    fn into_filter(self) -> Result<MessageFilter, ApiError> {
+        let channels = self
+            .channels
+            .map(|value| {
+                value
+                    .split(',')
+                    .map(|channel| {
+                        channel.parse::<MessageChannel>().map_err(|()| {
+                            invalid_message_query(format!(
+                                "unknown message channel `{channel}`; expected say, shout, whisper, guild, group, system, or world"
+                            ))
+                        })
+                    })
+                    .collect::<Result<_, _>>()
+            })
+            .transpose()?;
+        let since = self
+            .since
+            .map(|value| {
+                DateTime::parse_from_rfc3339(&value)
+                    .map(|timestamp| timestamp.with_timezone(&Utc))
+                    .map_err(|_| {
+                        invalid_message_query(
+                            "since must be an ISO 8601 timestamp with a UTC offset",
+                        )
+                    })
+            })
+            .transpose()?;
+        let count = self.count.unwrap_or(DEFAULT_MESSAGE_COUNT);
+        if count == 0 || count > MAX_MESSAGE_COUNT {
+            return Err(invalid_message_query(format!(
+                "count must be between 1 and {MAX_MESSAGE_COUNT}"
+            )));
+        }
+        Ok(MessageFilter {
+            channels,
+            since,
+            skip: self.skip.unwrap_or(0),
+            count,
+        })
+    }
+}
+
+fn invalid_message_query(message: impl Into<String>) -> ApiError {
+    ApiError::new(
+        StatusCode::BAD_REQUEST,
+        "invalid_message_query",
+        message,
+        None,
+    )
+}
+
 #[utoipa::path(
     get,
     path = "/clients/{client}/messages",
-    params(("client" = String, Path, description = "Process ID or current in-game character name")),
+    params(
+        ("client" = String, Path, description = "Process ID or current in-game character name"),
+        MessageQuery
+    ),
     responses(
         (status = 200, description = "Recent typed chat and system messages observed for this DLL instance", body = Messages),
         (status = 400, description = "The process identifier was invalid", body = ErrorState),
@@ -487,8 +568,13 @@ async fn client_objects(
 )]
 async fn client_messages(
     Path(identifier): Path<String>,
+    query: Result<Query<MessageQuery>, QueryRejection>,
     State(state): State<ApiState>,
 ) -> Result<Json<Messages>, ApiError> {
+    let Query(query) = query.map_err(|rejection| {
+        invalid_message_query(format!("invalid message query: {rejection}"))
+    })?;
+    let filter = query.into_filter()?;
     let registry = state.snapshot();
     let client = resolve_client(&registry, &identifier)?;
     let identity = client.identity.ok_or_else(|| {
@@ -499,7 +585,7 @@ async fn client_messages(
             Some(client.pid),
         )
     })?;
-    Ok(Json(state.messages(identity)))
+    Ok(Json(state.messages(identity, &filter)))
 }
 
 #[utoipa::path(
@@ -858,7 +944,7 @@ fn operation_in_progress(pid: u32) -> ApiError {
         Direction,
         Messages,
         Message,
-        MessageType,
+        MessageChannel,
         LaunchOptions,
         LoadResult,
         UnloadResult,
@@ -1284,6 +1370,7 @@ mod tests {
         body::{Body, to_bytes},
         http::{Request, StatusCode},
     };
+    use chrono::DateTime;
     use darpc_model::{
         CharacterAppearance, CharacterClass, CharacterProgression,
         CharacterSnapshot as ModelCharacterSnapshot, CharacterStats, CharacterVitals,
@@ -1539,7 +1626,7 @@ mod tests {
             .build()
             .unwrap()
             .block_on(async {
-                router(state)
+                router(state.clone())
                     .oneshot(
                         Request::post(path)
                             .header("content-type", "application/json")
@@ -1736,7 +1823,7 @@ mod tests {
             .build()
             .unwrap()
             .block_on(async {
-                router(state)
+                router(state.clone())
                     .oneshot(
                         Request::get("/clients/silo/messages")
                             .body(Body::empty())
@@ -1747,11 +1834,51 @@ mod tests {
             });
         assert_eq!(response.status(), StatusCode::OK);
         let body = response_json(response);
-        assert_eq!(body["messages"][0]["observation"]["event_sequence"], 3);
-        assert_eq!(body["messages"][0]["type"], "whisper");
+        assert!(body["messages"][0].get("observation").is_none());
+        assert_eq!(body["messages"][0]["channel"], "whisper");
+        assert_eq!(body["messages"][0]["tick_ms"], 520);
+        assert!(
+            DateTime::parse_from_rfc3339(body["messages"][0]["timestamp"].as_str().unwrap())
+                .is_ok()
+        );
         assert_eq!(body["messages"][0]["sender"], "Eidolon");
         assert_eq!(body["messages"][0]["recipient"], "SiLo");
         assert_eq!(body["messages"][0]["text"], "hello");
+
+        let filtered = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(async {
+                router(state.clone())
+                    .oneshot(
+                        Request::get("/clients/silo/messages?channels=say,shout")
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap()
+            });
+        assert!(
+            response_json(filtered)["messages"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+
+        let invalid = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(async {
+                router(state)
+                    .oneshot(
+                        Request::get("/clients/silo/messages?count=0")
+                            .body(Body::empty())
+                            .unwrap(),
+                    )
+                    .await
+                    .unwrap()
+            });
+        assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);
     }
 
     #[test]
@@ -1921,7 +2048,7 @@ mod tests {
             "Direction",
             "Messages",
             "Message",
-            "MessageType",
+            "MessageChannel",
             "LaunchOptions",
             "LoadResult",
             "LifecycleResult",

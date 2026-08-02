@@ -26,7 +26,7 @@ port. The API has no URL version prefix.
 | `GET /clients/{client}/skillbook` | Return occupied skillbook slots. |
 | `GET /clients/{client}/effects` | Return active spell effects and relative duration bands. |
 | `GET /clients/{client}/objects` | Return world objects currently observed by this client. |
-| `GET /clients/{client}/messages` | Return the bounded recent chat and system message history. |
+| `GET /clients/{client}/messages` | Return filtered, paged recent chat and system message history. |
 | `GET /clients/{client}/events` | Stream ordered changes after a current snapshot boundary. |
 | `POST /clients/{client}/commands/diagnostic` | Submit a no-op command for execution on a client tick. |
 | `GET /clients/{client}/commands/{command_id}` | Read a retained command state. |
@@ -108,15 +108,17 @@ Skillbook { observation, skills }
 Effects { observation, effects }
 WorldObjects { observation, objects }
 Messages { messages: Message[] }
-Message { observation, type, sender?, recipient?, text }
+Message { timestamp, tick_ms, channel, sender?, recipient?, text }
 ```
 
-Every response includes `observation` metadata with the source PID, revision,
+Snapshot-backed responses include `observation` metadata with the source PID, revision,
 event sequence, capture tick, latest update tick, capture duration, and world
 generation. The capture fields describe the last complete memory walk;
 `updated_tick_ms` advances when an incremental update is applied. Consumers can
 correlate responses with the same revision. Separate HTTP requests can observe
 different revisions when the daemon receives a newer update between requests.
+Message records omit this snapshot metadata because their source client is
+already identified by the request path or event subscription.
 
 `WorldObjects.objects` is `null` when the client lifecycle cannot expose a
 world. Otherwise it is an array tagged by `kind`: `player`, `monster`, `npc`, or
@@ -136,11 +138,28 @@ An effect contains an icon and a relative `duration` band. It is not an exact
 remaining time. From longest to shortest, the values are `white`, `red`,
 `orange`, `yellow`, `green`, and `blue`.
 
-The message `type` is one of `say`, `shout`, `whisper`, `guild`, `group`,
+The message `channel` is one of `say`, `shout`, `whisper`, `guild`, `group`,
 `system`, or `world`. Sender and recipient are omitted when that participant is
 not meaningful or could not be resolved. The text excludes the channel and
-participant punctuation shown by the game. Each message carries the event
-observation from its source client.
+participant punctuation shown by the game. `tick_ms` is the wrapping Windows
+millisecond tick captured by the DLL. `timestamp` is when the daemon received
+the event, formatted as ISO 8601 in the daemon's local time with its UTC offset,
+for example `2026-08-02T16:24:05.137-04:00`. The daemon retains the underlying
+instant in UTC, so filtering is not affected by the displayed offset.
+
+Message history is sorted by `timestamp` descending and returns 20 records by default. The
+route accepts these query parameters:
+
+| Parameter | Meaning |
+| --- | --- |
+| `channels` | Comma-separated channels, such as `say,shout`. |
+| `since` | Return messages strictly newer than an ISO 8601 timestamp with an offset. |
+| `skip` | Skip this many matching records after newest-first sorting. Defaults to `0`. |
+| `count` | Return at most this many records. Defaults to `20`; maximum `100`. |
+
+For example,
+`/clients/Eidolon/messages?channels=say,shout&since=2026-08-02T15:00:00-04:00&skip=0&count=20`
+returns the first page of recent local speech after the supplied instant.
 
 The daemon retains at most 4,096 messages and 1 MiB of message text per DLL
 instance, removing the oldest first. An empty array means no retained messages
@@ -300,13 +319,13 @@ are:
 | `item_disappeared` | `item_disappeared` | `object` |
 | `item_moved` | `item_moved` | Updated `object` |
 | `objects_cleared` | `objects_cleared` | Observation only |
-| `message.say` | `message` | `type: "say"`, optional sender and recipient, and `text` |
-| `message.shout` | `message` | `type: "shout"`, optional sender and recipient, and `text` |
-| `message.whisper` | `message` | `type: "whisper"`, optional sender and recipient, and `text` |
-| `message.guild` | `message` | `type: "guild"`, optional sender and recipient, and `text` |
-| `message.group` | `message` | `type: "group"`, optional sender and recipient, and `text` |
-| `message.system` | `message` | `type: "system"`, optional sender and recipient, and `text` |
-| `message.world` | `message` | `type: "world"`, optional sender and recipient, and `text` |
+| `message.say` | `message` | `timestamp`, `tick_ms`, `channel: "say"`, optional sender and recipient, and `text` |
+| `message.shout` | `message` | `timestamp`, `tick_ms`, `channel: "shout"`, optional sender and recipient, and `text` |
+| `message.whisper` | `message` | `timestamp`, `tick_ms`, `channel: "whisper"`, optional sender and recipient, and `text` |
+| `message.guild` | `message` | `timestamp`, `tick_ms`, `channel: "guild"`, optional sender and recipient, and `text` |
+| `message.group` | `message` | `timestamp`, `tick_ms`, `channel: "group"`, optional sender and recipient, and `text` |
+| `message.system` | `message` | `timestamp`, `tick_ms`, `channel: "system"`, optional sender and recipient, and `text` |
+| `message.world` | `message` | `timestamp`, `tick_ms`, `channel: "world"`, optional sender and recipient, and `text` |
 | `stream.resync_required` | `stream_resync_required` | `pid`, `instance_id`, `last_event_sequence`, `dropped_events` |
 | `stream.closed` | `stream_closed` | `pid`, `instance_id`, `last_event_sequence`, `reason` |
 
@@ -322,8 +341,10 @@ Object events carry the complete public object after the change rather than a
 coordinate or direction delta. Disappearance carries the last retained object.
 `objects_cleared` marks an atomic map or world boundary and carries no object.
 
-Message events share the `message` JSON envelope and use the nested `data.type`
-field for the channel. Their distinct transport names let a browser listen to
+Message events share the `message` JSON envelope and use `data.channel` for the
+channel. They omit the common observation object used by state changes because
+the event sequence remains in the SSE `id` field and the subscription identifies
+the client. Their distinct transport names let a browser listen to
 only the channels it needs. The same normalized record is appended to the REST
 message lookback before it is broadcast.
 

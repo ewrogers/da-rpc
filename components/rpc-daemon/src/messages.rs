@@ -1,18 +1,21 @@
-use crate::{
-    registry::{ClientIdentity, ConnectionEvent, RegistrySnapshot},
-    stream::EventObservation,
-};
+use crate::registry::{ClientIdentity, ConnectionEvent, RegistrySnapshot};
+use chrono::{DateTime, Local, SecondsFormat, Utc};
 use darpc_model::{ClientMessage, MessageKind, StateUpdate};
 use serde::Serialize;
-use std::collections::{BTreeMap, VecDeque};
+use std::{
+    collections::{BTreeMap, BTreeSet, VecDeque},
+    str::FromStr,
+};
 use utoipa::ToSchema;
 
 pub(crate) const MAX_MESSAGES_PER_CLIENT: usize = 4_096;
 pub(crate) const MAX_MESSAGE_BYTES_PER_CLIENT: usize = 1024 * 1024;
+pub(crate) const DEFAULT_MESSAGE_COUNT: usize = 20;
+pub(crate) const MAX_MESSAGE_COUNT: usize = 100;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, ToSchema)]
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
-pub(crate) enum MessageType {
+pub(crate) enum MessageChannel {
     Say,
     Shout,
     Whisper,
@@ -22,7 +25,7 @@ pub(crate) enum MessageType {
     World,
 }
 
-impl MessageType {
+impl MessageChannel {
     pub(crate) const fn event_name(self) -> &'static str {
         match self {
             Self::Say => "message.say",
@@ -36,7 +39,7 @@ impl MessageType {
     }
 }
 
-impl From<MessageKind> for MessageType {
+impl From<MessageKind> for MessageChannel {
     fn from(kind: MessageKind) -> Self {
         match kind {
             MessageKind::Say => Self::Say,
@@ -50,11 +53,34 @@ impl From<MessageKind> for MessageType {
     }
 }
 
+impl FromStr for MessageChannel {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            "say" => Ok(Self::Say),
+            "shout" => Ok(Self::Shout),
+            "whisper" => Ok(Self::Whisper),
+            "guild" => Ok(Self::Guild),
+            "group" => Ok(Self::Group),
+            "system" => Ok(Self::System),
+            "world" => Ok(Self::World),
+            _ => Err(()),
+        }
+    }
+}
+
 #[derive(Clone, Debug, Serialize, ToSchema)]
 pub(crate) struct Message {
-    pub(crate) observation: EventObservation,
-    #[serde(rename = "type")]
-    pub(crate) message_type: MessageType,
+    #[serde(skip)]
+    #[schema(ignore)]
+    event_sequence: u32,
+    /// Daemon observation time in ISO 8601 using the daemon's local UTC offset.
+    #[schema(value_type = String, format = DateTime)]
+    pub(crate) timestamp: String,
+    /// Wrapping Windows millisecond tick recorded by the game client.
+    pub(crate) tick_ms: u32,
+    pub(crate) channel: MessageChannel,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) sender: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -63,10 +89,17 @@ pub(crate) struct Message {
 }
 
 impl Message {
-    pub(crate) fn new(observation: EventObservation, message: ClientMessage) -> Self {
+    pub(crate) fn new(
+        event_sequence: u32,
+        tick_ms: u32,
+        observed_at_utc: DateTime<Utc>,
+        message: ClientMessage,
+    ) -> Self {
         Self {
-            observation,
-            message_type: message.kind.into(),
+            event_sequence,
+            timestamp: local_timestamp(observed_at_utc),
+            tick_ms,
+            channel: message.kind.into(),
             sender: message.sender,
             recipient: message.recipient,
             text: message.text,
@@ -74,18 +107,18 @@ impl Message {
     }
 
     pub(crate) const fn event_name(&self) -> &'static str {
-        self.message_type.event_name()
+        self.channel.event_name()
     }
 
     pub(crate) const fn sequence(&self) -> u32 {
-        self.observation.sequence()
+        self.event_sequence
     }
+}
 
-    fn byte_size(&self) -> usize {
-        self.text.len()
-            + self.sender.as_ref().map_or(0, String::len)
-            + self.recipient.as_ref().map_or(0, String::len)
-    }
+fn local_timestamp(observed_at_utc: DateTime<Utc>) -> String {
+    observed_at_utc
+        .with_timezone(&Local)
+        .to_rfc3339_opts(SecondsFormat::AutoSi, false)
 }
 
 #[derive(Clone, Debug, Default, Serialize, ToSchema)]
@@ -95,12 +128,77 @@ pub(crate) struct Messages {
 
 #[derive(Default)]
 struct MessageHistory {
-    messages: VecDeque<Message>,
+    messages: VecDeque<StoredMessage>,
     bytes: usize,
 }
 
+#[derive(Clone, Debug)]
+struct StoredMessage {
+    event_sequence: u32,
+    tick_ms: u32,
+    observed_at_utc: DateTime<Utc>,
+    channel: MessageChannel,
+    sender: Option<String>,
+    recipient: Option<String>,
+    text: String,
+}
+
+impl StoredMessage {
+    fn new(
+        event: &darpc_model::StateEvent,
+        observed_at_utc: DateTime<Utc>,
+        message: &ClientMessage,
+    ) -> Self {
+        Self {
+            event_sequence: event.sequence,
+            tick_ms: event.tick_ms,
+            observed_at_utc,
+            channel: message.kind.into(),
+            sender: message.sender.clone(),
+            recipient: message.recipient.clone(),
+            text: message.text.clone(),
+        }
+    }
+
+    fn to_api(&self) -> Message {
+        Message {
+            event_sequence: self.event_sequence,
+            timestamp: local_timestamp(self.observed_at_utc),
+            tick_ms: self.tick_ms,
+            channel: self.channel,
+            sender: self.sender.clone(),
+            recipient: self.recipient.clone(),
+            text: self.text.clone(),
+        }
+    }
+
+    fn byte_size(&self) -> usize {
+        self.text.len()
+            + self.sender.as_ref().map_or(0, String::len)
+            + self.recipient.as_ref().map_or(0, String::len)
+    }
+}
+
+pub(crate) struct MessageFilter {
+    pub(crate) channels: Option<BTreeSet<MessageChannel>>,
+    pub(crate) since: Option<DateTime<Utc>>,
+    pub(crate) skip: usize,
+    pub(crate) count: usize,
+}
+
+impl Default for MessageFilter {
+    fn default() -> Self {
+        Self {
+            channels: None,
+            since: None,
+            skip: 0,
+            count: DEFAULT_MESSAGE_COUNT,
+        }
+    }
+}
+
 impl MessageHistory {
-    fn push(&mut self, message: Message) {
+    fn push(&mut self, message: StoredMessage) {
         self.bytes = self.bytes.saturating_add(message.byte_size());
         self.messages.push_back(message);
         while self.messages.len() > MAX_MESSAGES_PER_CLIENT
@@ -120,7 +218,7 @@ pub(crate) struct MessageStore {
 }
 
 impl MessageStore {
-    pub(crate) fn observe(&mut self, event: &ConnectionEvent) {
+    pub(crate) fn observe(&mut self, event: &ConnectionEvent, observed_at_utc: DateTime<Utc>) {
         match event {
             ConnectionEvent::Connected { pid, hello, .. } => {
                 let identity = ClientIdentity::from_hello(*hello);
@@ -128,9 +226,7 @@ impl MessageStore {
                     .retain(|existing, _| existing.pid != *pid || *existing == identity);
             }
             ConnectionEvent::StateEvents {
-                pid,
-                identity,
-                events,
+                identity, events, ..
             } => {
                 for event in events {
                     let StateUpdate::Message(message) = &event.update else {
@@ -139,10 +235,7 @@ impl MessageStore {
                     self.clients
                         .entry(*identity)
                         .or_default()
-                        .push(Message::new(
-                            EventObservation::new(*pid, *identity, event),
-                            message.clone(),
-                        ));
+                        .push(StoredMessage::new(event, observed_at_utc, message));
                 }
             }
             _ => {}
@@ -158,13 +251,33 @@ impl MessageStore {
         });
     }
 
-    pub(crate) fn get(&self, identity: ClientIdentity) -> Messages {
+    pub(crate) fn get(&self, identity: ClientIdentity, filter: &MessageFilter) -> Messages {
         Messages {
             messages: self
                 .clients
                 .get(&identity)
                 .map_or_else(Vec::new, |history| {
-                    history.messages.iter().cloned().collect()
+                    let mut messages = history
+                        .messages
+                        .iter()
+                        .rev()
+                        .filter(|message| {
+                            filter
+                                .channels
+                                .as_ref()
+                                .is_none_or(|channels| channels.contains(&message.channel))
+                                && filter
+                                    .since
+                                    .is_none_or(|since| message.observed_at_utc > since)
+                        })
+                        .collect::<Vec<_>>();
+                    messages.sort_by_key(|message| std::cmp::Reverse(message.observed_at_utc));
+                    messages
+                        .into_iter()
+                        .skip(filter.skip)
+                        .take(filter.count)
+                        .map(StoredMessage::to_api)
+                        .collect()
                 }),
         }
     }
@@ -193,13 +306,28 @@ mod tests {
         }
     }
 
+    fn observed_at(seconds: i64) -> DateTime<Utc> {
+        DateTime::from_timestamp(seconds, 0).unwrap()
+    }
+
+    fn all_messages() -> MessageFilter {
+        MessageFilter {
+            count: MAX_MESSAGES_PER_CLIENT,
+            ..MessageFilter::default()
+        }
+    }
+
     fn event(sequence: u32, text: &str) -> StateEvent {
+        event_on(sequence, MessageKind::Say, text)
+    }
+
+    fn event_on(sequence: u32, kind: MessageKind, text: &str) -> StateEvent {
         StateEvent {
             sequence,
             revision: sequence,
             tick_ms: sequence * 10,
             update: StateUpdate::Message(ClientMessage {
-                kind: MessageKind::Say,
+                kind,
                 sender: Some("Aisling".into()),
                 recipient: None,
                 text: text.into(),
@@ -212,21 +340,34 @@ mod tests {
         let hello = hello(1);
         let identity = ClientIdentity::from_hello(hello);
         let mut store = MessageStore::default();
-        store.observe(&ConnectionEvent::Connected {
-            pid: 42,
-            hello,
-            selected_version: SUPPORTED_VERSIONS.max,
-        });
-        store.observe(&ConnectionEvent::StateEvents {
-            pid: 42,
-            identity,
-            events: vec![event(1, "hello")],
-        });
+        store.observe(
+            &ConnectionEvent::Connected {
+                pid: 42,
+                hello,
+                selected_version: SUPPORTED_VERSIONS.max,
+            },
+            observed_at(1),
+        );
+        store.observe(
+            &ConnectionEvent::StateEvents {
+                pid: 42,
+                identity,
+                events: vec![event(1, "hello")],
+            },
+            observed_at(2),
+        );
 
-        let messages = store.get(identity);
+        let messages = store.get(identity, &MessageFilter::default());
         assert_eq!(messages.messages.len(), 1);
         assert_eq!(messages.messages[0].text, "hello");
-        assert_eq!(messages.messages[0].message_type, MessageType::Say);
+        assert_eq!(messages.messages[0].channel, MessageChannel::Say);
+        assert_eq!(messages.messages[0].tick_ms, 10);
+        assert_eq!(
+            DateTime::parse_from_rfc3339(&messages.messages[0].timestamp)
+                .unwrap()
+                .with_timezone(&Utc),
+            observed_at(2)
+        );
     }
 
     #[test]
@@ -234,18 +375,29 @@ mod tests {
         let first = hello(1);
         let first_identity = ClientIdentity::from_hello(first);
         let mut store = MessageStore::default();
-        store.observe(&ConnectionEvent::StateEvents {
-            pid: 42,
-            identity: first_identity,
-            events: vec![event(1, "old")],
-        });
-        store.observe(&ConnectionEvent::Connected {
-            pid: 42,
-            hello: hello(2),
-            selected_version: SUPPORTED_VERSIONS.max,
-        });
+        store.observe(
+            &ConnectionEvent::StateEvents {
+                pid: 42,
+                identity: first_identity,
+                events: vec![event(1, "old")],
+            },
+            observed_at(1),
+        );
+        store.observe(
+            &ConnectionEvent::Connected {
+                pid: 42,
+                hello: hello(2),
+                selected_version: SUPPORTED_VERSIONS.max,
+            },
+            observed_at(2),
+        );
 
-        assert!(store.get(first_identity).messages.is_empty());
+        assert!(
+            store
+                .get(first_identity, &MessageFilter::default())
+                .messages
+                .is_empty()
+        );
     }
 
     #[test]
@@ -253,16 +405,19 @@ mod tests {
         let identity = ClientIdentity::from_hello(hello(1));
         let mut store = MessageStore::default();
         for sequence in 1..=u32::try_from(MAX_MESSAGES_PER_CLIENT + 1).unwrap() {
-            store.observe(&ConnectionEvent::StateEvents {
-                pid: 42,
-                identity,
-                events: vec![event(sequence, "x")],
-            });
+            store.observe(
+                &ConnectionEvent::StateEvents {
+                    pid: 42,
+                    identity,
+                    events: vec![event(sequence, "x")],
+                },
+                observed_at(i64::from(sequence)),
+            );
         }
 
-        let messages = store.get(identity);
+        let messages = store.get(identity, &all_messages());
         assert_eq!(messages.messages.len(), MAX_MESSAGES_PER_CLIENT);
-        assert_eq!(messages.messages[0].observation.sequence(), 2);
+        assert_eq!(messages.messages.last().unwrap().sequence(), 2);
     }
 
     #[test]
@@ -271,15 +426,103 @@ mod tests {
         let mut store = MessageStore::default();
         let text = "x".repeat(4 * 1024);
         for sequence in 1..=257 {
-            store.observe(&ConnectionEvent::StateEvents {
-                pid: 42,
-                identity,
-                events: vec![event(sequence, &text)],
-            });
+            store.observe(
+                &ConnectionEvent::StateEvents {
+                    pid: 42,
+                    identity,
+                    events: vec![event(sequence, &text)],
+                },
+                observed_at(i64::from(sequence)),
+            );
         }
 
-        let messages = store.get(identity);
+        let messages = store.get(identity, &all_messages());
         assert_eq!(messages.messages.len(), 255);
-        assert_eq!(messages.messages[0].observation.sequence(), 3);
+        assert_eq!(messages.messages.last().unwrap().sequence(), 3);
+    }
+
+    #[test]
+    fn history_defaults_to_the_latest_twenty_messages() {
+        let identity = ClientIdentity::from_hello(hello(1));
+        let mut store = MessageStore::default();
+        for sequence in 1..=25 {
+            store.observe(
+                &ConnectionEvent::StateEvents {
+                    pid: 42,
+                    identity,
+                    events: vec![event(sequence, "x")],
+                },
+                observed_at(i64::from(sequence)),
+            );
+        }
+
+        let messages = store.get(identity, &MessageFilter::default());
+        assert_eq!(messages.messages.len(), DEFAULT_MESSAGE_COUNT);
+        assert_eq!(messages.messages[0].sequence(), 25);
+        assert_eq!(messages.messages[19].sequence(), 6);
+    }
+
+    #[test]
+    fn filters_channels_time_and_pagination_before_formatting() {
+        let identity = ClientIdentity::from_hello(hello(1));
+        let mut store = MessageStore::default();
+        for (sequence, kind) in [
+            (1, MessageKind::Say),
+            (2, MessageKind::Shout),
+            (3, MessageKind::Say),
+            (4, MessageKind::Shout),
+            (5, MessageKind::Whisper),
+        ] {
+            store.observe(
+                &ConnectionEvent::StateEvents {
+                    pid: 42,
+                    identity,
+                    events: vec![event_on(sequence, kind, "x")],
+                },
+                observed_at(i64::from(sequence)),
+            );
+        }
+        let filter = MessageFilter {
+            channels: Some(BTreeSet::from([MessageChannel::Say, MessageChannel::Shout])),
+            since: Some(observed_at(1)),
+            skip: 1,
+            count: 2,
+        };
+
+        let messages = store.get(identity, &filter);
+        assert_eq!(
+            messages
+                .messages
+                .iter()
+                .map(Message::sequence)
+                .collect::<Vec<_>>(),
+            vec![3, 2]
+        );
+    }
+
+    #[test]
+    fn history_is_sorted_by_timestamp_even_if_the_clock_moves() {
+        let identity = ClientIdentity::from_hello(hello(1));
+        let mut store = MessageStore::default();
+        for (sequence, timestamp) in [(1, 10), (2, 30), (3, 20)] {
+            store.observe(
+                &ConnectionEvent::StateEvents {
+                    pid: 42,
+                    identity,
+                    events: vec![event(sequence, "x")],
+                },
+                observed_at(timestamp),
+            );
+        }
+
+        let messages = store.get(identity, &MessageFilter::default());
+        assert_eq!(
+            messages
+                .messages
+                .iter()
+                .map(Message::sequence)
+                .collect::<Vec<_>>(),
+            vec![2, 3, 1]
+        );
     }
 }

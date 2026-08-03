@@ -69,7 +69,7 @@ share the same `batch_count`. The daemon has already applied the whole batch to
 the REST inventory before it sends the first frame.
 
 When a tool needs a simple answer rather than slot-by-slot history, it can
-handle any inventory event by rereading `/inventory`.
+handle any inventory event by rereading `/items`.
 
 ## Availability
 

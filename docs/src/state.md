@@ -212,7 +212,7 @@ After the snapshot, `SSpelled` keeps those slots current:
 - A new icon is ignored when all ten client slots are occupied.
 
 These changes update the retained effects resource and become
-`effect_added`, `effect_changed`, or `effect_removed` events without
+`effect.added`, `effect.changed`, or `effect.removed` events without
 another full memory walk.
 
 ## World objects

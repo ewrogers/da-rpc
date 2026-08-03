@@ -291,7 +291,8 @@ EventObservation {
 ```
 
 `tick_ms` is the client's wrapping Windows millisecond tick. Implemented frames
-are:
+are listed below. SSE routing names consistently use `noun.action`. JSON `type`
+discriminators remain `snake_case` because they are ordinary JSON values.
 
 | SSE event | JSON `type` | Payload after `observation` |
 | --- | --- | --- |
@@ -305,34 +306,34 @@ are:
 | `location.changed` | `location_changed` | Absolute `x`, `y`, and optional atomic `map` change |
 | `blind.changed` | `blind_changed` | `is_blinded` |
 | `action_restriction.changed` | `action_restriction_changed` | `is_action_restricted` |
-| `effect_added` | `effect_added` | `icon`, `duration` |
-| `effect_removed` | `effect_removed` | `icon` |
-| `effect_changed` | `effect_changed` | `icon`, new `duration` |
-| `item_added` | `item_added` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
-| `item_removed` | `item_removed` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
-| `item_changed` | `item_changed` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
-| `spell_added` | `spell_added` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
-| `spell_removed` | `spell_removed` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
-| `spell_changed` | `spell_changed` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
-| `skill_added` | `skill_added` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
-| `skill_removed` | `skill_removed` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
-| `skill_changed` | `skill_changed` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
-| `player_appeared` | `player_appeared` | `object` |
-| `player_disappeared` | `player_disappeared` | `object` |
-| `player_moved` | `player_moved` | Updated `object` |
-| `player_direction_changed` | `player_direction_changed` | Updated `object` |
-| `monster_appeared` | `monster_appeared` | `object` |
-| `monster_disappeared` | `monster_disappeared` | `object` |
-| `monster_moved` | `monster_moved` | Updated `object` |
-| `monster_direction_changed` | `monster_direction_changed` | Updated `object` |
-| `npc_appeared` | `npc_appeared` | `object` |
-| `npc_disappeared` | `npc_disappeared` | `object` |
-| `npc_moved` | `npc_moved` | Updated `object` |
-| `npc_direction_changed` | `npc_direction_changed` | Updated `object` |
-| `item_appeared` | `item_appeared` | `object` |
-| `item_disappeared` | `item_disappeared` | `object` |
-| `item_moved` | `item_moved` | Updated `object` |
-| `objects_cleared` | `objects_cleared` | Observation only |
+| `effect.added` | `effect_added` | `icon`, `duration` |
+| `effect.removed` | `effect_removed` | `icon` |
+| `effect.changed` | `effect_changed` | `icon`, new `duration` |
+| `item.added` | `item_added` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
+| `item.removed` | `item_removed` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
+| `item.changed` | `item_changed` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
+| `spell.added` | `spell_added` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
+| `spell.removed` | `spell_removed` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
+| `spell.changed` | `spell_changed` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
+| `skill.added` | `skill_added` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
+| `skill.removed` | `skill_removed` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
+| `skill.changed` | `skill_changed` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
+| `player.appeared` | `player_appeared` | `object` |
+| `player.disappeared` | `player_disappeared` | `object` |
+| `player.moved` | `player_moved` | Updated `object` |
+| `player.direction_changed` | `player_direction_changed` | Updated `object` |
+| `monster.appeared` | `monster_appeared` | `object` |
+| `monster.disappeared` | `monster_disappeared` | `object` |
+| `monster.moved` | `monster_moved` | Updated `object` |
+| `monster.direction_changed` | `monster_direction_changed` | Updated `object` |
+| `npc.appeared` | `npc_appeared` | `object` |
+| `npc.disappeared` | `npc_disappeared` | `object` |
+| `npc.moved` | `npc_moved` | Updated `object` |
+| `npc.direction_changed` | `npc_direction_changed` | Updated `object` |
+| `item.appeared` | `item_appeared` | `object` |
+| `item.disappeared` | `item_disappeared` | `object` |
+| `item.moved` | `item_moved` | Updated `object` |
+| `objects.cleared` | `objects_cleared` | Observation only |
 | `message.say` | `message` | `timestamp`, `tick_ms`, `channel: "say"`, optional sender and recipient, and `text` |
 | `message.shout` | `message` | `timestamp`, `tick_ms`, `channel: "shout"`, optional sender and recipient, and `text` |
 | `message.whisper` | `message` | `timestamp`, `tick_ms`, `channel: "whisper"`, optional sender and recipient, and `text` |
@@ -358,13 +359,13 @@ consecutive frames. Their zero-based `batch_index` and shared `batch_count`
 identify the complete batch. The daemon applies the entire batch to REST state
 before broadcasting its first frame. Identical same-slot updates are ignored.
 
-Inventory `item_added`, `item_removed`, and `item_changed` refer to carried
-inventory. Ground items continue to use `item_appeared`, `item_disappeared`,
-and `item_moved`.
+Inventory `item.added`, `item.removed`, and `item.changed` refer to carried
+inventory. Ground items use `item.appeared`, `item.disappeared`, and
+`item.moved`.
 
 Object events carry the complete public object after the change rather than a
 coordinate or direction delta. Disappearance carries the last retained object.
-`objects_cleared` marks an atomic map or world boundary and carries no object.
+`objects.cleared` marks an atomic map or world boundary and carries no object.
 
 Message events share the `message` JSON envelope and use `data.channel` for the
 channel. They omit the common observation object used by state changes because
@@ -375,7 +376,7 @@ message lookback before it is broadcast.
 
 ```text
 id: 40
-event: effect_added
+event: effect.added
 data: {"type":"effect_added","data":{"observation":{"pid":6964,"instance_id":"...","revision":42,"event_sequence":40,"tick_ms":84156449},"icon":10,"duration":"yellow"}}
 ```
 
@@ -383,7 +384,7 @@ A browser subscribes to the transport event name and parses the JSON envelope:
 
 ```javascript
 const events = new EventSource("/clients/Eidolon/events");
-events.addEventListener("effect_added", (event) => {
+events.addEventListener("effect.added", (event) => {
   const message = JSON.parse(event.data);
   console.log(message.data.icon, message.data.duration);
 });

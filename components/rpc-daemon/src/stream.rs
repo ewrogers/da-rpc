@@ -188,34 +188,34 @@ impl ClientEvent {
             Self::LocationChanged(_) => "location.changed",
             Self::BlindChanged(_) => "blind.changed",
             Self::ActionRestrictionChanged(_) => "action_restriction.changed",
-            Self::EffectAdded(_) => "effect_added",
-            Self::EffectRemoved(_) => "effect_removed",
-            Self::EffectChanged(_) => "effect_changed",
-            Self::ItemAdded(_) => "item_added",
-            Self::ItemRemoved(_) => "item_removed",
-            Self::ItemChanged(_) => "item_changed",
-            Self::SpellAdded(_) => "spell_added",
-            Self::SpellRemoved(_) => "spell_removed",
-            Self::SpellChanged(_) => "spell_changed",
-            Self::SkillAdded(_) => "skill_added",
-            Self::SkillRemoved(_) => "skill_removed",
-            Self::SkillChanged(_) => "skill_changed",
-            Self::PlayerAppeared(_) => "player_appeared",
-            Self::PlayerDisappeared(_) => "player_disappeared",
-            Self::PlayerMoved(_) => "player_moved",
-            Self::PlayerDirectionChanged(_) => "player_direction_changed",
-            Self::MonsterAppeared(_) => "monster_appeared",
-            Self::MonsterDisappeared(_) => "monster_disappeared",
-            Self::MonsterMoved(_) => "monster_moved",
-            Self::MonsterDirectionChanged(_) => "monster_direction_changed",
-            Self::NpcAppeared(_) => "npc_appeared",
-            Self::NpcDisappeared(_) => "npc_disappeared",
-            Self::NpcMoved(_) => "npc_moved",
-            Self::NpcDirectionChanged(_) => "npc_direction_changed",
-            Self::ItemAppeared(_) => "item_appeared",
-            Self::ItemDisappeared(_) => "item_disappeared",
-            Self::ItemMoved(_) => "item_moved",
-            Self::ObjectsCleared(_) => "objects_cleared",
+            Self::EffectAdded(_) => "effect.added",
+            Self::EffectRemoved(_) => "effect.removed",
+            Self::EffectChanged(_) => "effect.changed",
+            Self::ItemAdded(_) => "item.added",
+            Self::ItemRemoved(_) => "item.removed",
+            Self::ItemChanged(_) => "item.changed",
+            Self::SpellAdded(_) => "spell.added",
+            Self::SpellRemoved(_) => "spell.removed",
+            Self::SpellChanged(_) => "spell.changed",
+            Self::SkillAdded(_) => "skill.added",
+            Self::SkillRemoved(_) => "skill.removed",
+            Self::SkillChanged(_) => "skill.changed",
+            Self::PlayerAppeared(_) => "player.appeared",
+            Self::PlayerDisappeared(_) => "player.disappeared",
+            Self::PlayerMoved(_) => "player.moved",
+            Self::PlayerDirectionChanged(_) => "player.direction_changed",
+            Self::MonsterAppeared(_) => "monster.appeared",
+            Self::MonsterDisappeared(_) => "monster.disappeared",
+            Self::MonsterMoved(_) => "monster.moved",
+            Self::MonsterDirectionChanged(_) => "monster.direction_changed",
+            Self::NpcAppeared(_) => "npc.appeared",
+            Self::NpcDisappeared(_) => "npc.disappeared",
+            Self::NpcMoved(_) => "npc.moved",
+            Self::NpcDirectionChanged(_) => "npc.direction_changed",
+            Self::ItemAppeared(_) => "item.appeared",
+            Self::ItemDisappeared(_) => "item.disappeared",
+            Self::ItemMoved(_) => "item.moved",
+            Self::ObjectsCleared(_) => "objects.cleared",
             Self::Message(message) => message.event_name(),
             Self::StreamResyncRequired(_) => "stream.resync_required",
             Self::StreamClosed(_) => "stream.closed",
@@ -969,7 +969,7 @@ mod tests {
             })
             .collect::<Vec<_>>();
 
-        assert_eq!(names, ["item_added", "spell_removed", "skill_changed"]);
+        assert_eq!(names, ["item.added", "spell.removed", "skill.changed"]);
     }
 
     #[test]
@@ -1008,7 +1008,7 @@ mod tests {
     }
 
     #[test]
-    fn effect_updates_keep_the_requested_public_event_names() {
+    fn effect_updates_use_noun_action_event_names() {
         let identity = ClientIdentity {
             pid: 42,
             process_creation_time: 100,
@@ -1019,16 +1019,16 @@ mod tests {
             duration: EffectDuration::White,
         };
         for (sequence, update, expected) in [
-            (1, EffectUpdate::Added(effect), "effect_added"),
+            (1, EffectUpdate::Added(effect), "effect.added"),
             (
                 2,
                 EffectUpdate::Changed(Effect {
                     duration: EffectDuration::Red,
                     ..effect
                 }),
-                "effect_changed",
+                "effect.changed",
             ),
-            (3, EffectUpdate::Removed { icon: 300 }, "effect_removed"),
+            (3, EffectUpdate::Removed { icon: 300 }, "effect.removed"),
         ] {
             let events = expand(
                 42,
@@ -1047,7 +1047,7 @@ mod tests {
     }
 
     #[test]
-    fn object_updates_keep_the_requested_public_event_names() {
+    fn object_updates_use_noun_action_event_names() {
         use darpc_model::{Direction, WorldObject as ModelWorldObject};
 
         let identity = ClientIdentity {
@@ -1088,34 +1088,34 @@ mod tests {
             z_index: 0,
         };
         let cases = vec![
-            (ObjectUpdate::Appeared(player.clone()), "player_appeared"),
+            (ObjectUpdate::Appeared(player.clone()), "player.appeared"),
             (
                 ObjectUpdate::Disappeared(player.clone()),
-                "player_disappeared",
+                "player.disappeared",
             ),
-            (ObjectUpdate::Moved(player.clone()), "player_moved"),
+            (ObjectUpdate::Moved(player.clone()), "player.moved"),
             (
                 ObjectUpdate::DirectionChanged(player),
-                "player_direction_changed",
+                "player.direction_changed",
             ),
-            (ObjectUpdate::Appeared(monster.clone()), "monster_appeared"),
+            (ObjectUpdate::Appeared(monster.clone()), "monster.appeared"),
             (
                 ObjectUpdate::Disappeared(monster.clone()),
-                "monster_disappeared",
+                "monster.disappeared",
             ),
-            (ObjectUpdate::Moved(monster.clone()), "monster_moved"),
+            (ObjectUpdate::Moved(monster.clone()), "monster.moved"),
             (
                 ObjectUpdate::DirectionChanged(monster),
-                "monster_direction_changed",
+                "monster.direction_changed",
             ),
-            (ObjectUpdate::Appeared(npc.clone()), "npc_appeared"),
-            (ObjectUpdate::Disappeared(npc.clone()), "npc_disappeared"),
-            (ObjectUpdate::Moved(npc.clone()), "npc_moved"),
-            (ObjectUpdate::DirectionChanged(npc), "npc_direction_changed"),
-            (ObjectUpdate::Appeared(item.clone()), "item_appeared"),
-            (ObjectUpdate::Disappeared(item.clone()), "item_disappeared"),
-            (ObjectUpdate::Moved(item), "item_moved"),
-            (ObjectUpdate::Cleared, "objects_cleared"),
+            (ObjectUpdate::Appeared(npc.clone()), "npc.appeared"),
+            (ObjectUpdate::Disappeared(npc.clone()), "npc.disappeared"),
+            (ObjectUpdate::Moved(npc.clone()), "npc.moved"),
+            (ObjectUpdate::DirectionChanged(npc), "npc.direction_changed"),
+            (ObjectUpdate::Appeared(item.clone()), "item.appeared"),
+            (ObjectUpdate::Disappeared(item.clone()), "item.disappeared"),
+            (ObjectUpdate::Moved(item), "item.moved"),
+            (ObjectUpdate::Cleared, "objects.cleared"),
         ];
 
         for (index, (update, expected)) in cases.into_iter().enumerate() {

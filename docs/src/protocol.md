@@ -414,6 +414,24 @@ enum StateUpdate: u8 {
     Effect(EffectUpdate) = 3,
     Object(ObjectUpdate) = 4,
     Message(ClientMessage) = 5,
+    Inventory(SlotUpdate<InventoryItem>) = 6,
+    Spellbook(SlotUpdate<Spell>) = 7,
+    Skillbook(SlotUpdate<Skill>) = 8,
+}
+
+enum CollectionChange: u8 {
+    Added = 1,
+    Removed = 2,
+    Changed = 3,
+}
+
+struct SlotUpdate<T> {
+    batch_index: u8;          // zero-based position in the batch
+    batch_count: u8;          // nonzero total batch size
+    change: CollectionChange;
+    slot: u8;                 // one-based collection slot
+    before: Option<T>;        // field bit 0
+    after: Option<T>;         // field bit 1
 }
 
 enum MessageKind: u8 {
@@ -487,10 +505,24 @@ smaller still: the game-thread event queue reserves a fixed 256-byte text field
 and ignores a longer displayed line. Invalid UTF-8, unknown message kinds, and
 oversized fields reject the containing frame.
 
-Every included group is an absolute replacement value, not a delta. One
-decoded server packet produces one atomic `StateEvent`. The public Server-Sent
-Events view may present its changed groups separately while retaining the same
-state sequence and revision.
+Every included group is an absolute replacement value, not a delta. Most
+decoded server packets produce one atomic `StateEvent`. Inventory and ability
+packets can affect several slots, so they produce a complete ordered batch of
+`StateEvent` values. The DLL never splits one collection batch across poll
+responses, and the daemon validates and reduces the full batch before
+publishing its new REST state.
+
+Collection updates reuse the snapshot entry encodings. `before` and `after`
+describe the exact occupied value on each side of the change; at least one must
+be present, and any present entry must match `slot`. A move therefore has one
+changed source slot and one changed destination slot. A swap has two changed
+slots. A same-slot packet whose resulting value is identical produces no event.
+Stack increases and decreases use `Added` and `Removed`; splitting, merging, or
+moving an unchanged total uses `Changed`.
+
+The public Server-Sent Events view emits one frame per changed collection slot.
+Its `batch_index` and `batch_count` fields preserve the atomic relationship even
+though the frames remain individually routable.
 
 A location update contains an absolute accepted position. `map` is absent for
 ordinary movement and present when the position completes a map transition.

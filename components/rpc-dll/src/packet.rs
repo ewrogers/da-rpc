@@ -1,7 +1,7 @@
 use darpc_game_client::RawObjects;
 use darpc_model::{
-    CharacterModifiers, CharacterStats, CoreStatus, CurrentVitals, EffectDuration, Element,
-    ProgressionStatus, StatusUpdate,
+    CharacterModifiers, CharacterStats, CollectionKind, CoreStatus, CurrentVitals, EffectDuration,
+    Element, ProgressionStatus, StatusUpdate,
 };
 use std::{error::Error, fmt};
 
@@ -9,16 +9,36 @@ const USER_APPEARANCE_OPCODE: u8 = 0x05;
 const USER_POSITION_OPCODE: u8 = 0x04;
 const STATUS_OPCODE: u8 = 0x08;
 const MOVE_OPCODE: u8 = 0x0B;
+const ADD_INVENTORY_OPCODE: u8 = 0x0F;
+const REMOVE_INVENTORY_OPCODE: u8 = 0x10;
+const ADD_SPELL_OPCODE: u8 = 0x17;
+const REMOVE_SPELL_OPCODE: u8 = 0x18;
+const ADD_SKILL_OPCODE: u8 = 0x2C;
+const REMOVE_SKILL_OPCODE: u8 = 0x2D;
 const SPELLED_OPCODE: u8 = 0x3A;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ServerUpdate<'a> {
     Status(StatusUpdate),
+    UserAppearance(UserAppearance),
     UserPosition(Position),
     Move(Position),
     Effect(SpelledUpdate),
     World(crate::world_packet::WorldUpdate),
     Message(crate::message_packet::ParsedMessage<'a>),
+    Collection(CollectionDirty),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct CollectionDirty {
+    pub(crate) kind: CollectionKind,
+    pub(crate) slot: u8,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct UserAppearance {
+    pub(crate) status: StatusUpdate,
+    pub(crate) is_full: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -48,13 +68,87 @@ pub(crate) fn update<'a>(
             .map(ServerUpdate::UserPosition)
             .map(Some),
         Some(USER_APPEARANCE_OPCODE) => parse_user_appearance(body)
-            .map(ServerUpdate::Status)
+            .map(ServerUpdate::UserAppearance)
             .map(Some),
         Some(STATUS_OPCODE) => parse_status(body).map(ServerUpdate::Status).map(Some),
         Some(MOVE_OPCODE) => parse_move(body).map(|position| position.map(ServerUpdate::Move)),
+        Some(ADD_INVENTORY_OPCODE) => parse_add_inventory(body).map(Some),
+        Some(REMOVE_INVENTORY_OPCODE) => {
+            parse_remove(body, REMOVE_INVENTORY_OPCODE, CollectionKind::Inventory, 60).map(Some)
+        }
+        Some(ADD_SPELL_OPCODE) => parse_add_spell(body).map(Some),
+        Some(REMOVE_SPELL_OPCODE) => {
+            parse_remove(body, REMOVE_SPELL_OPCODE, CollectionKind::Spellbook, 90).map(Some)
+        }
+        Some(ADD_SKILL_OPCODE) => parse_add_skill(body).map(Some),
+        Some(REMOVE_SKILL_OPCODE) => {
+            parse_remove(body, REMOVE_SKILL_OPCODE, CollectionKind::Skillbook, 90).map(Some)
+        }
         Some(SPELLED_OPCODE) => parse_spelled(body).map(ServerUpdate::Effect).map(Some),
         _ => Ok(None),
     }
+}
+
+fn parse_add_inventory(body: &[u8]) -> Result<ServerUpdate<'_>, ParseError> {
+    let mut reader = Reader::new(body);
+    reader.expect(ADD_INVENTORY_OPCODE)?;
+    let slot = reader.slot(60)?;
+    reader.u16_be()?;
+    reader.u8()?;
+    reader.string8()?;
+    reader.u32_be()?;
+    let can_stack_offset = reader.offset;
+    let can_stack = reader.u8()?;
+    if can_stack > 1 {
+        return Err(ParseError::invalid(can_stack_offset, u32::from(can_stack)));
+    }
+    reader.u32_be()?;
+    reader.u32_be()?;
+    Ok(ServerUpdate::Collection(CollectionDirty {
+        kind: CollectionKind::Inventory,
+        slot,
+    }))
+}
+
+fn parse_add_spell(body: &[u8]) -> Result<ServerUpdate<'_>, ParseError> {
+    let mut reader = Reader::new(body);
+    reader.expect(ADD_SPELL_OPCODE)?;
+    let slot = reader.slot(90)?;
+    reader.u16_be()?;
+    reader.u8()?;
+    reader.string8()?;
+    reader.string8()?;
+    reader.u8()?;
+    Ok(ServerUpdate::Collection(CollectionDirty {
+        kind: CollectionKind::Spellbook,
+        slot,
+    }))
+}
+
+fn parse_add_skill(body: &[u8]) -> Result<ServerUpdate<'_>, ParseError> {
+    let mut reader = Reader::new(body);
+    reader.expect(ADD_SKILL_OPCODE)?;
+    let slot = reader.slot(90)?;
+    reader.u16_be()?;
+    reader.string8()?;
+    Ok(ServerUpdate::Collection(CollectionDirty {
+        kind: CollectionKind::Skillbook,
+        slot,
+    }))
+}
+
+fn parse_remove(
+    body: &[u8],
+    opcode: u8,
+    kind: CollectionKind,
+    max_slot: u8,
+) -> Result<ServerUpdate<'_>, ParseError> {
+    let mut reader = Reader::new(body);
+    reader.expect(opcode)?;
+    Ok(ServerUpdate::Collection(CollectionDirty {
+        kind,
+        slot: reader.slot(max_slot)?,
+    }))
 }
 
 fn parse_spelled(body: &[u8]) -> Result<SpelledUpdate, ParseError> {
@@ -205,15 +299,18 @@ fn parse_status(body: &[u8]) -> Result<StatusUpdate, ParseError> {
     })
 }
 
-fn parse_user_appearance(body: &[u8]) -> Result<StatusUpdate, ParseError> {
+fn parse_user_appearance(body: &[u8]) -> Result<UserAppearance, ParseError> {
     let mut reader = Reader::new(body);
     reader.expect(USER_APPEARANCE_OPCODE)?;
     reader.skip(4 + 3)?;
     let action_state = reader.u8()?;
     reader.skip(1)?;
-    Ok(StatusUpdate {
-        is_action_restricted: Some(action_state & 0x01 != 0),
-        ..StatusUpdate::default()
+    Ok(UserAppearance {
+        status: StatusUpdate {
+            is_action_restricted: Some(action_state & 0x01 != 0),
+            ..StatusUpdate::default()
+        },
+        is_full: action_state & 0x80 == 0,
     })
 }
 
@@ -315,6 +412,20 @@ impl<'a> Reader<'a> {
         self.take(length).map(|_| ())
     }
 
+    fn string8(&mut self) -> Result<(), ParseError> {
+        let length = usize::from(self.u8()?);
+        self.skip(length)
+    }
+
+    fn slot(&mut self, max: u8) -> Result<u8, ParseError> {
+        let offset = self.offset;
+        let slot = self.u8()?;
+        if slot == 0 || slot > max {
+            return Err(ParseError::invalid(offset, u32::from(slot)));
+        }
+        Ok(slot)
+    }
+
     fn take(&mut self, length: usize) -> Result<&'a [u8], ParseError> {
         let remaining = self.bytes.len().saturating_sub(self.offset);
         if length > remaining {
@@ -354,6 +465,83 @@ mod tests {
     }
 
     #[test]
+    fn parses_collection_slot_packets() {
+        let mut inventory = vec![0x0F, 7, 0x01, 0x23, 4, 9];
+        inventory.extend_from_slice(b"Dark Belt");
+        inventory.extend_from_slice(&3_u32.to_be_bytes());
+        inventory.push(1);
+        inventory.extend_from_slice(&50_u32.to_be_bytes());
+        inventory.extend_from_slice(&41_u32.to_be_bytes());
+        assert_eq!(
+            update(&inventory).unwrap(),
+            Some(ServerUpdate::Collection(CollectionDirty {
+                kind: CollectionKind::Inventory,
+                slot: 7,
+            }))
+        );
+        assert_eq!(
+            update(&[0x10, 7]).unwrap(),
+            Some(ServerUpdate::Collection(CollectionDirty {
+                kind: CollectionKind::Inventory,
+                slot: 7,
+            }))
+        );
+
+        let mut spell = vec![0x17, 12, 0x02, 0x34, 1, 4];
+        spell.extend_from_slice(b"Fasd");
+        spell.push(4);
+        spell.extend_from_slice(b"Who?");
+        spell.push(3);
+        assert_eq!(
+            update(&spell).unwrap(),
+            Some(ServerUpdate::Collection(CollectionDirty {
+                kind: CollectionKind::Spellbook,
+                slot: 12,
+            }))
+        );
+        assert_eq!(
+            update(&[0x18, 12]).unwrap(),
+            Some(ServerUpdate::Collection(CollectionDirty {
+                kind: CollectionKind::Spellbook,
+                slot: 12,
+            }))
+        );
+
+        let mut skill = vec![0x2C, 9, 0x03, 0x45, 6];
+        skill.extend_from_slice(b"Assail");
+        assert_eq!(
+            update(&skill).unwrap(),
+            Some(ServerUpdate::Collection(CollectionDirty {
+                kind: CollectionKind::Skillbook,
+                slot: 9,
+            }))
+        );
+        assert_eq!(
+            update(&[0x2D, 9]).unwrap(),
+            Some(ServerUpdate::Collection(CollectionDirty {
+                kind: CollectionKind::Skillbook,
+                slot: 9,
+            }))
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_collection_packets() {
+        assert!(update(&[0x10, 0]).is_err());
+        assert!(update(&[0x18, 91]).is_err());
+        assert!(update(&[0x2D]).is_err());
+
+        let mut invalid_boolean = vec![0x0F, 1, 0, 1, 0, 1, b'A'];
+        invalid_boolean.extend_from_slice(&1_u32.to_be_bytes());
+        invalid_boolean.push(2);
+        invalid_boolean.extend_from_slice(&1_u32.to_be_bytes());
+        invalid_boolean.extend_from_slice(&1_u32.to_be_bytes());
+        assert!(update(&invalid_boolean).is_err());
+
+        assert!(update(&[0x17, 1, 0, 1, 1, 5, b'A']).is_err());
+    }
+
+    #[test]
     fn parses_every_status_group() {
         let mut body = vec![0x08, 0x3C];
         body.extend_from_slice(&[2, 0, 0, 99, 7]);
@@ -389,8 +577,16 @@ mod tests {
     fn parses_full_and_partial_action_state() {
         let unlocked = [0x05, 0, 0, 0, 1, 2, 0, 3, 0, 0];
         let locked = [0x05, 0, 0, 0, 1, 2, 0, 3, 0x81, 0];
-        assert_eq!(status(&unlocked).is_action_restricted, Some(false));
-        assert_eq!(status(&locked).is_action_restricted, Some(true));
+        let ServerUpdate::UserAppearance(unlocked) = update(&unlocked).unwrap().unwrap() else {
+            panic!("expected user appearance update");
+        };
+        let ServerUpdate::UserAppearance(locked) = update(&locked).unwrap().unwrap() else {
+            panic!("expected user appearance update");
+        };
+        assert_eq!(unlocked.status.is_action_restricted, Some(false));
+        assert!(unlocked.is_full);
+        assert_eq!(locked.status.is_action_restricted, Some(true));
+        assert!(!locked.is_full);
     }
 
     #[test]

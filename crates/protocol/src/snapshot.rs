@@ -355,5 +355,5 @@ pub(crate) fn decode_optional_string(
         .to_owned();
     Ok(Some(value))
 }
-mod collections;
+pub(crate) mod collections;
 pub(crate) mod objects;

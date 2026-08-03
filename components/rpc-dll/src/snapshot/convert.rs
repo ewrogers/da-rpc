@@ -1,15 +1,14 @@
 use super::publication::ReadyPublication;
-use crate::{client_text, map_name};
+use crate::{client_text, collections, map_name};
 use darpc_game_client::{
     RawCharacter, RawClientText, RawEffects, RawEquipment, RawInventory, RawLifecycle, RawLocation,
-    RawModifiers, RawObjects, RawPaneProgression, RawSkill, RawSkillbook, RawSpell, RawSpellbook,
-    RawWorldObject,
+    RawModifiers, RawObjects, RawPaneProgression, RawSkillbook, RawSpellbook, RawWorldObject,
 };
 use darpc_model::{
     CharacterAppearance, CharacterClass, CharacterModifiers, CharacterProgression,
     CharacterSnapshot, CharacterStats, CharacterVitals, ClientLifecycle, ClientSnapshot,
-    CooldownStatus, CreatureKind, Direction, Effect, EffectDuration, Element, EquipmentItem,
-    EquipmentSlot, Gender, InventoryItem, MapLocation, Skill, Spell, SpellTargetType, WorldObject,
+    CreatureKind, Direction, Effect, EffectDuration, Element, EquipmentItem, EquipmentSlot, Gender,
+    InventoryItem, MapLocation, Skill, Spell, WorldObject,
 };
 
 const SPRITE_ID_MASK: u16 = 0x3FFF;
@@ -203,16 +202,7 @@ fn inventory(raw: &RawInventory) -> Vec<InventoryItem> {
         .iter()
         .copied()
         .flatten()
-        .map(|item| InventoryItem {
-            slot: item.slot,
-            sprite: item.sprite & SPRITE_ID_MASK,
-            dye_color: item.dye_color,
-            name: inventory_name(item.name, item.can_stack, item.quantity),
-            quantity: item.quantity.max(1),
-            can_stack: item.can_stack,
-            durability: item.durability,
-            max_durability: item.max_durability,
-        })
+        .map(collections::inventory_item)
         .collect()
 }
 
@@ -233,31 +223,12 @@ fn equipment(raw: &RawEquipment) -> Vec<EquipmentItem> {
 }
 
 fn spellbook(raw: &RawSpellbook) -> Vec<Spell> {
-    raw.spells.iter().copied().flatten().map(spell).collect()
-}
-
-fn spell(raw: RawSpell) -> Spell {
-    let (name, level, max_level) =
-        ability_name(raw.name, raw.name_suffix_left, raw.base_name_length);
-    let target_type = SpellTargetType::from_raw(raw.argument_type);
-    Spell {
-        slot: raw.slot,
-        icon: raw.icon,
-        name,
-        level,
-        max_level,
-        lines: raw.cast_lines,
-        target_type,
-        prompt: if target_type == SpellTargetType::TextInput {
-            raw.prompt.and_then(ascii_text)
-        } else {
-            None
-        },
-        cooldown: CooldownStatus {
-            active: raw.action_delay_active,
-            remaining_ms: None,
-        },
-    }
+    raw.spells
+        .iter()
+        .copied()
+        .flatten()
+        .map(collections::spell)
+        .collect()
 }
 
 fn skillbook(raw: &RawSkillbook, tick_ms: u32) -> Vec<Skill> {
@@ -265,94 +236,12 @@ fn skillbook(raw: &RawSkillbook, tick_ms: u32) -> Vec<Skill> {
         .iter()
         .copied()
         .flatten()
-        .map(|raw_skill| skill(raw_skill, tick_ms))
+        .map(|raw_skill| collections::skill_model(raw_skill, tick_ms))
         .collect()
-}
-
-fn skill(raw: RawSkill, tick_ms: u32) -> Skill {
-    let (name, level, max_level) =
-        ability_name(raw.name, raw.name_suffix_left, raw.base_name_length);
-    let active = raw.cooldown_visual_active || raw.action_delay_active;
-    Skill {
-        slot: raw.slot,
-        icon: raw.icon,
-        name,
-        level,
-        max_level,
-        cooldown: CooldownStatus {
-            active,
-            remaining_ms: raw
-                .cooldown_visual_active
-                .then(|| raw.cooldown_ends_at.wrapping_sub(tick_ms))
-                .filter(|remaining| *remaining <= i32::MAX as u32),
-        },
-    }
-}
-
-fn ability_name(
-    raw: RawClientText<128>,
-    suffix_left: i32,
-    base_name_length: i32,
-) -> (Option<String>, u8, u8) {
-    let Some(decoded) = text(raw) else {
-        return (None, 0, 0);
-    };
-    let decoded = decoded.trim();
-    if let Some(marker) = decoded.rfind("(Lev:") {
-        let name = decoded[..marker].trim();
-        let levels = decoded[marker + 5..].strip_suffix(')').unwrap_or_default();
-        if let Some((level, max_level)) = levels.split_once('/')
-            && let (Ok(level), Ok(max_level)) = (level.parse::<u8>(), max_level.parse::<u8>())
-            && !name.is_empty()
-        {
-            return (Some(name.to_owned()), level, max_level);
-        }
-    }
-
-    let base_name = usize::try_from(base_name_length)
-        .ok()
-        .filter(|length| *length > 0)
-        .and_then(|length| decoded.get(..length))
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-        .unwrap_or(decoded);
-    let level = u8::try_from(suffix_left).unwrap_or(0);
-    (
-        (!base_name.is_empty()).then(|| base_name.to_owned()),
-        level,
-        0,
-    )
 }
 
 fn text<const N: usize>(raw: RawClientText<N>) -> Option<String> {
     client_text::decode(&raw.bytes[..usize::from(raw.length)])
-}
-
-fn inventory_name(raw: RawClientText<128>, can_stack: bool, quantity: u32) -> Option<String> {
-    let decoded = text(raw)?;
-    if !can_stack {
-        return Some(decoded);
-    }
-    let trimmed = decoded.trim();
-    let canonical = trimmed
-        .strip_suffix(']')
-        .and_then(|value| value.rsplit_once('['))
-        .filter(|(_, count)| count.trim().parse::<u32>() == Ok(quantity))
-        .map(|(name, _)| name.trim_end())
-        .filter(|name| !name.is_empty())
-        .unwrap_or(trimmed);
-    Some(canonical.to_owned())
-}
-
-fn ascii_text<const N: usize>(raw: RawClientText<N>) -> Option<String> {
-    let bytes = raw.bytes[..usize::from(raw.length)]
-        .iter()
-        .copied()
-        .filter(u8::is_ascii)
-        .collect::<Vec<_>>();
-    let text = String::from_utf8(bytes).expect("filtered bytes are ASCII");
-    let text = text.trim();
-    (!text.is_empty()).then(|| text.to_owned())
 }
 
 fn lifecycle(raw: RawLifecycle) -> ClientLifecycle {
@@ -362,36 +251,5 @@ fn lifecycle(raw: RawLifecycle) -> ClientLifecycle {
         RawLifecycle::Transition => ClientLifecycle::Transition,
         RawLifecycle::InGame => ClientLifecycle::InGame,
         RawLifecycle::Disconnected => ClientLifecycle::Disconnected,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{ascii_text, inventory_name};
-    use darpc_game_client::RawClientText;
-
-    #[test]
-    fn canonicalizes_stack_names_and_ascii_prompts() {
-        assert_eq!(
-            inventory_name(raw_text(b"Dark Belt [ 3 ]"), true, 3).as_deref(),
-            Some("Dark Belt")
-        );
-        assert_eq!(
-            inventory_name(raw_text(b"Dark Belt [ 3 ]"), false, 3).as_deref(),
-            Some("Dark Belt [ 3 ]")
-        );
-        assert_eq!(
-            ascii_text(raw_text(b"Target \xFFname?")).as_deref(),
-            Some("Target name?")
-        );
-    }
-
-    fn raw_text(value: &[u8]) -> RawClientText<128> {
-        let mut bytes = [0; 128];
-        bytes[..value.len()].copy_from_slice(value);
-        RawClientText {
-            bytes,
-            length: u8::try_from(value.len()).unwrap(),
-        }
     }
 }

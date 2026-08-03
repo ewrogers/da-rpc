@@ -3,6 +3,8 @@
 #[cfg(windows)]
 mod client_text;
 #[cfg(any(windows, test))]
+mod collections;
+#[cfg(any(windows, test))]
 mod commands;
 #[cfg(windows)]
 mod event_hook;

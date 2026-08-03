@@ -1,10 +1,11 @@
 use darpc_model::{
     CharacterAppearance, CharacterClass, CharacterModifiers, CharacterProgression,
     CharacterSnapshot, CharacterStats, CharacterVitals, ClientLifecycle, ClientMessage,
-    ClientSnapshot, CooldownStatus, CoreStatus, CreatureKind, CurrentVitals, Direction, Effect,
-    EffectDuration, EffectUpdate, Element, EquipmentItem, EquipmentSlot, Gender, InventoryItem,
-    LocationUpdate, MapChange, MapLocation, MessageKind, ObjectUpdate, ProgressionStatus, Skill,
-    Spell, SpellTargetType, StateEvent, StateUpdate, StatusUpdate, WorldObject,
+    ClientSnapshot, CollectionChange, CooldownStatus, CoreStatus, CreatureKind, CurrentVitals,
+    Direction, Effect, EffectDuration, EffectUpdate, Element, EquipmentItem, EquipmentSlot, Gender,
+    InventoryItem, LocationUpdate, MapChange, MapLocation, MessageKind, ObjectUpdate,
+    ProgressionStatus, Skill, SlotUpdate, Spell, SpellTargetType, StateEvent, StateUpdate,
+    StatusUpdate, WorldObject,
 };
 use darpc_protocol::{
     Architecture, CommandFailure, CommandKind, CommandOperation, CommandRequest, CommandResponse,
@@ -346,6 +347,99 @@ fn every_message_round_trips() {
                         sender: Some("Eidolon".into()),
                         recipient: Some("Monitor".into()),
                         text: "hello".into(),
+                    }),
+                },
+                StateEvent {
+                    sequence: 48,
+                    revision: 17,
+                    tick_ms: 130,
+                    update: StateUpdate::Inventory(SlotUpdate {
+                        batch_index: 0,
+                        batch_count: 2,
+                        change: CollectionChange::Changed,
+                        slot: 1,
+                        before: Some(InventoryItem {
+                            slot: 1,
+                            sprite: 21,
+                            dye_color: 2,
+                            name: Some("Hy-Brasyl Gauntlet".into()),
+                            quantity: 1,
+                            can_stack: false,
+                            durability: 900,
+                            max_durability: 1_000,
+                        }),
+                        after: None,
+                    }),
+                },
+                StateEvent {
+                    sequence: 49,
+                    revision: 18,
+                    tick_ms: 130,
+                    update: StateUpdate::Inventory(SlotUpdate {
+                        batch_index: 1,
+                        batch_count: 2,
+                        change: CollectionChange::Changed,
+                        slot: 2,
+                        before: None,
+                        after: Some(InventoryItem {
+                            slot: 2,
+                            sprite: 21,
+                            dye_color: 2,
+                            name: Some("Hy-Brasyl Gauntlet".into()),
+                            quantity: 1,
+                            can_stack: false,
+                            durability: 900,
+                            max_durability: 1_000,
+                        }),
+                    }),
+                },
+                StateEvent {
+                    sequence: 50,
+                    revision: 19,
+                    tick_ms: 131,
+                    update: StateUpdate::Spellbook(SlotUpdate {
+                        batch_index: 0,
+                        batch_count: 1,
+                        change: CollectionChange::Added,
+                        slot: 4,
+                        before: None,
+                        after: Some(Spell {
+                            slot: 4,
+                            icon: 82,
+                            name: Some("beag srad".into()),
+                            level: 10,
+                            max_level: 100,
+                            lines: 2,
+                            target_type: SpellTargetType::Target,
+                            prompt: None,
+                            cooldown: CooldownStatus {
+                                active: false,
+                                remaining_ms: None,
+                            },
+                        }),
+                    }),
+                },
+                StateEvent {
+                    sequence: 51,
+                    revision: 20,
+                    tick_ms: 132,
+                    update: StateUpdate::Skillbook(SlotUpdate {
+                        batch_index: 0,
+                        batch_count: 1,
+                        change: CollectionChange::Removed,
+                        slot: 7,
+                        before: Some(Skill {
+                            slot: 7,
+                            icon: 91,
+                            name: Some("Assail".into()),
+                            level: 100,
+                            max_level: 100,
+                            cooldown: CooldownStatus {
+                                active: false,
+                                remaining_ms: None,
+                            },
+                        }),
+                        after: None,
                     }),
                 },
             ]),
@@ -851,4 +945,63 @@ fn event_messages_require_bounded_utf8_fields() {
         encode_frame(&Frame::new(0, 0, message)),
         Err(EncodeError::EventStringTooLong { .. })
     ));
+}
+
+#[test]
+fn collection_events_require_valid_batches_and_content() {
+    let invalid_batch = Message::EventPollResponse(EventPollResponse {
+        request_id: 1,
+        result: EventPollResult::Events(vec![StateEvent {
+            sequence: 1,
+            revision: 1,
+            tick_ms: 1,
+            update: StateUpdate::Inventory(SlotUpdate {
+                batch_index: 0,
+                batch_count: 0,
+                change: CollectionChange::Changed,
+                slot: 1,
+                before: None,
+                after: None,
+            }),
+        }]),
+    });
+    assert!(matches!(
+        encode_frame(&Frame::new(0, 0, invalid_batch)),
+        Err(EncodeError::InvalidCollectionBatch { index: 0, count: 0 })
+    ));
+
+    let empty_change = Message::EventPollResponse(EventPollResponse {
+        request_id: 1,
+        result: EventPollResult::Events(vec![StateEvent {
+            sequence: 1,
+            revision: 1,
+            tick_ms: 1,
+            update: StateUpdate::Inventory(SlotUpdate {
+                batch_index: 0,
+                batch_count: 1,
+                change: CollectionChange::Changed,
+                slot: 1,
+                before: None,
+                after: None,
+            }),
+        }]),
+    });
+    assert_eq!(
+        encode_frame(&Frame::new(0, 0, empty_change)),
+        Err(EncodeError::EmptyCollectionUpdate)
+    );
+
+    let mut payload = Vec::new();
+    payload.extend_from_slice(&1_u32.to_le_bytes());
+    payload.push(0);
+    payload.extend_from_slice(&1_u16.to_le_bytes());
+    payload.extend_from_slice(&1_u32.to_le_bytes());
+    payload.extend_from_slice(&1_u32.to_le_bytes());
+    payload.extend_from_slice(&1_u32.to_le_bytes());
+    payload.extend_from_slice(&[6, 0, 0]);
+    let malformed = frame_for(MessageType::EventPollResponse, &payload);
+    assert_eq!(
+        decode_frame(&malformed),
+        Err(DecodeError::InvalidCollectionBatch { index: 0, count: 0 })
+    );
 }

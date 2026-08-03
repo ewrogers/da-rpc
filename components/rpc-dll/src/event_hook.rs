@@ -334,6 +334,12 @@ extern "C" fn observe_event(event: *const core::ffi::c_void) {
             packet::ServerUpdate::Status(update) => {
                 state_events::observe_status(update, tick_ms);
             }
+            packet::ServerUpdate::UserAppearance(update) => {
+                state_events::observe_status(update.status, tick_ms);
+                if update.is_full {
+                    state_events::mark_resync_required();
+                }
+            }
             packet::ServerUpdate::UserPosition(position) => {
                 state_events::observe_user_position(position.x, position.y, tick_ms);
             }
@@ -348,6 +354,9 @@ extern "C" fn observe_event(event: *const core::ffi::c_void) {
             }
             packet::ServerUpdate::Message(message) => {
                 state_events::observe_message(message, tick_ms);
+            }
+            packet::ServerUpdate::Collection(collection) => {
+                state_events::mark_collection_dirty(collection.kind, collection.slot, tick_ms);
             }
         }
     });

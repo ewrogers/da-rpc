@@ -1,7 +1,7 @@
 use crate::{
     messages::Message,
     registry::{ClientIdentity, hex},
-    snapshot::{EffectDuration, Element, WorldObject},
+    snapshot::{EffectDuration, Element, InventoryItem, Skill, Spell, WorldObject},
 };
 use async_stream::stream;
 use axum::response::{
@@ -9,7 +9,7 @@ use axum::response::{
     sse::{Event, KeepAlive, Sse},
 };
 use chrono::{DateTime, Utc};
-use darpc_model::{CreatureKind, Effect, ObjectUpdate, StateEvent, StateUpdate};
+use darpc_model::{CollectionChange, CreatureKind, Effect, ObjectUpdate, StateEvent, StateUpdate};
 use serde::Serialize;
 use std::{convert::Infallible, time::Duration};
 use tokio::sync::broadcast;
@@ -71,6 +71,45 @@ impl EffectChanged {
     }
 }
 
+#[derive(Clone, Debug, Serialize, ToSchema)]
+/// One occupied inventory slot changed as part of an atomic collection batch.
+pub(crate) struct InventorySlotChanged {
+    observation: EventObservation,
+    /// Zero-based position within this collection batch.
+    batch_index: u16,
+    /// Total number of slot changes in this collection batch.
+    batch_count: u16,
+    slot: u8,
+    before: Option<InventoryItem>,
+    after: Option<InventoryItem>,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+/// One occupied spellbook slot changed as part of an atomic collection batch.
+pub(crate) struct SpellSlotChanged {
+    observation: EventObservation,
+    /// Zero-based position within this collection batch.
+    batch_index: u16,
+    /// Total number of slot changes in this collection batch.
+    batch_count: u16,
+    slot: u8,
+    before: Option<Spell>,
+    after: Option<Spell>,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+/// One occupied skillbook slot changed as part of an atomic collection batch.
+pub(crate) struct SkillSlotChanged {
+    observation: EventObservation,
+    /// Zero-based position within this collection batch.
+    batch_index: u16,
+    /// Total number of slot changes in this collection batch.
+    batch_count: u16,
+    slot: u8,
+    before: Option<Skill>,
+    after: Option<Skill>,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) enum PublishedEvent {
     #[cfg_attr(not(windows), allow(dead_code))]
@@ -106,6 +145,15 @@ pub(crate) enum ClientEvent {
     EffectAdded(EffectAdded),
     EffectRemoved(EffectRemoved),
     EffectChanged(EffectChanged),
+    ItemAdded(InventorySlotChanged),
+    ItemRemoved(InventorySlotChanged),
+    ItemChanged(InventorySlotChanged),
+    SpellAdded(SpellSlotChanged),
+    SpellRemoved(SpellSlotChanged),
+    SpellChanged(SpellSlotChanged),
+    SkillAdded(SkillSlotChanged),
+    SkillRemoved(SkillSlotChanged),
+    SkillChanged(SkillSlotChanged),
     PlayerAppeared(ObjectChanged),
     PlayerDisappeared(ObjectChanged),
     PlayerMoved(ObjectChanged),
@@ -143,6 +191,15 @@ impl ClientEvent {
             Self::EffectAdded(_) => "effect_added",
             Self::EffectRemoved(_) => "effect_removed",
             Self::EffectChanged(_) => "effect_changed",
+            Self::ItemAdded(_) => "item_added",
+            Self::ItemRemoved(_) => "item_removed",
+            Self::ItemChanged(_) => "item_changed",
+            Self::SpellAdded(_) => "spell_added",
+            Self::SpellRemoved(_) => "spell_removed",
+            Self::SpellChanged(_) => "spell_changed",
+            Self::SkillAdded(_) => "skill_added",
+            Self::SkillRemoved(_) => "skill_removed",
+            Self::SkillChanged(_) => "skill_changed",
             Self::PlayerAppeared(_) => "player_appeared",
             Self::PlayerDisappeared(_) => "player_disappeared",
             Self::PlayerMoved(_) => "player_moved",
@@ -180,6 +237,15 @@ impl ClientEvent {
             Self::EffectAdded(value) => value.observation.event_sequence,
             Self::EffectRemoved(value) => value.observation.event_sequence,
             Self::EffectChanged(value) => value.observation.event_sequence,
+            Self::ItemAdded(value) | Self::ItemRemoved(value) | Self::ItemChanged(value) => {
+                value.observation.event_sequence
+            }
+            Self::SpellAdded(value) | Self::SpellRemoved(value) | Self::SpellChanged(value) => {
+                value.observation.event_sequence
+            }
+            Self::SkillAdded(value) | Self::SkillRemoved(value) | Self::SkillChanged(value) => {
+                value.observation.event_sequence
+            }
             Self::PlayerAppeared(value)
             | Self::PlayerDisappeared(value)
             | Self::PlayerMoved(value)
@@ -498,6 +564,57 @@ fn expand(
             });
             return events;
         }
+        StateUpdate::Inventory(update) => {
+            let change = update.change;
+            let payload = InventorySlotChanged {
+                observation,
+                batch_index: u16::from(update.batch_index),
+                batch_count: u16::from(update.batch_count),
+                slot: update.slot,
+                before: update.before.as_ref().map(InventoryItem::from),
+                after: update.after.as_ref().map(InventoryItem::from),
+            };
+            events.push(match change {
+                CollectionChange::Added => ClientEvent::ItemAdded(payload),
+                CollectionChange::Removed => ClientEvent::ItemRemoved(payload),
+                CollectionChange::Changed => ClientEvent::ItemChanged(payload),
+            });
+            return events;
+        }
+        StateUpdate::Spellbook(update) => {
+            let change = update.change;
+            let payload = SpellSlotChanged {
+                observation,
+                batch_index: u16::from(update.batch_index),
+                batch_count: u16::from(update.batch_count),
+                slot: update.slot,
+                before: update.before.as_ref().map(Spell::from),
+                after: update.after.as_ref().map(Spell::from),
+            };
+            events.push(match change {
+                CollectionChange::Added => ClientEvent::SpellAdded(payload),
+                CollectionChange::Removed => ClientEvent::SpellRemoved(payload),
+                CollectionChange::Changed => ClientEvent::SpellChanged(payload),
+            });
+            return events;
+        }
+        StateUpdate::Skillbook(update) => {
+            let change = update.change;
+            let payload = SkillSlotChanged {
+                observation,
+                batch_index: u16::from(update.batch_index),
+                batch_count: u16::from(update.batch_count),
+                slot: update.slot,
+                before: update.before.as_ref().map(Skill::from),
+                after: update.after.as_ref().map(Skill::from),
+            };
+            events.push(match change {
+                CollectionChange::Added => ClientEvent::SkillAdded(payload),
+                CollectionChange::Removed => ClientEvent::SkillRemoved(payload),
+                CollectionChange::Changed => ClientEvent::SkillChanged(payload),
+            });
+            return events;
+        }
         StateUpdate::Object(update) => {
             if let Some(event) = object_event(observation, update) {
                 events.push(event);
@@ -682,8 +799,10 @@ fn sequence_after(candidate: u32, baseline: u32) -> bool {
 mod tests {
     use super::*;
     use darpc_model::{
-        CharacterStats, ClientMessage, CoreStatus, CurrentVitals, Effect, EffectDuration,
-        EffectUpdate, LocationUpdate, MapChange, MessageKind, StateUpdate, StatusUpdate,
+        CharacterStats, ClientMessage, CollectionChange, CooldownStatus, CoreStatus, CurrentVitals,
+        Effect, EffectDuration, EffectUpdate, InventoryItem as ModelInventoryItem, LocationUpdate,
+        MapChange, MessageKind, Skill as ModelSkill, SlotUpdate, Spell as ModelSpell,
+        SpellTargetType, StateUpdate, StatusUpdate,
     };
 
     fn observed_at() -> DateTime<Utc> {
@@ -754,6 +873,103 @@ mod tests {
         assert_eq!(next_nonzero(u32::MAX), 1);
         assert!(sequence_after(1, u32::MAX));
         assert!(!sequence_after(u32::MAX, 1));
+    }
+
+    #[test]
+    fn collection_updates_keep_the_requested_public_event_names() {
+        let updates = [
+            StateUpdate::Inventory(SlotUpdate {
+                batch_index: 0,
+                batch_count: 1,
+                change: CollectionChange::Added,
+                slot: 1,
+                before: None,
+                after: Some(ModelInventoryItem {
+                    slot: 1,
+                    sprite: 21,
+                    dye_color: 2,
+                    name: Some("Hy-Brasyl Gauntlet".into()),
+                    quantity: 1,
+                    can_stack: false,
+                    durability: 900,
+                    max_durability: 1_000,
+                }),
+            }),
+            StateUpdate::Spellbook(SlotUpdate {
+                batch_index: 0,
+                batch_count: 1,
+                change: CollectionChange::Removed,
+                slot: 2,
+                before: Some(ModelSpell {
+                    slot: 2,
+                    icon: 82,
+                    name: Some("beag srad".into()),
+                    level: 10,
+                    max_level: 100,
+                    lines: 2,
+                    target_type: SpellTargetType::Target,
+                    prompt: None,
+                    cooldown: CooldownStatus {
+                        active: false,
+                        remaining_ms: None,
+                    },
+                }),
+                after: None,
+            }),
+            StateUpdate::Skillbook(SlotUpdate {
+                batch_index: 0,
+                batch_count: 1,
+                change: CollectionChange::Changed,
+                slot: 3,
+                before: Some(ModelSkill {
+                    slot: 3,
+                    icon: 91,
+                    name: Some("Assail".into()),
+                    level: 99,
+                    max_level: 100,
+                    cooldown: CooldownStatus {
+                        active: false,
+                        remaining_ms: None,
+                    },
+                }),
+                after: Some(ModelSkill {
+                    slot: 3,
+                    icon: 91,
+                    name: Some("Assail".into()),
+                    level: 100,
+                    max_level: 100,
+                    cooldown: CooldownStatus {
+                        active: false,
+                        remaining_ms: None,
+                    },
+                }),
+            }),
+        ];
+        let names = updates
+            .into_iter()
+            .enumerate()
+            .map(|(index, update)| {
+                let mut events = expand(
+                    42,
+                    ClientIdentity {
+                        pid: 42,
+                        process_creation_time: 100,
+                        dll_instance_id: [1; 16],
+                    },
+                    StateEvent {
+                        sequence: u32::try_from(index + 1).unwrap(),
+                        revision: u32::try_from(index + 1).unwrap(),
+                        tick_ms: 500,
+                        update,
+                    },
+                    observed_at(),
+                );
+                assert_eq!(events.len(), 1);
+                events.remove(0).name()
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(names, ["item_added", "spell_removed", "skill_changed"]);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use crate::{
-    CharacterModifiers, CharacterStats, ClientMessage, ClientSnapshot, Effect, MapLocation,
-    ObjectUpdate,
+    CharacterModifiers, CharacterStats, ClientMessage, ClientSnapshot, Effect, InventoryItem,
+    MapLocation, ObjectUpdate, Skill, Spell,
 };
 use std::{error::Error, fmt};
 
@@ -19,6 +19,76 @@ pub enum StateUpdate {
     Effect(EffectUpdate),
     Object(ObjectUpdate),
     Message(ClientMessage),
+    Inventory(InventoryUpdate),
+    Spellbook(SpellbookUpdate),
+    Skillbook(SkillbookUpdate),
+}
+
+pub type InventoryUpdate = SlotUpdate<InventoryItem>;
+pub type SpellbookUpdate = SlotUpdate<Spell>;
+pub type SkillbookUpdate = SlotUpdate<Skill>;
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SlotUpdate<T> {
+    pub batch_index: u8,
+    pub batch_count: u8,
+    pub change: CollectionChange,
+    pub slot: u8,
+    pub before: Option<T>,
+    pub after: Option<T>,
+}
+
+impl<T> SlotUpdate<T> {
+    #[must_use]
+    pub const fn batch(&self) -> CollectionBatch {
+        CollectionBatch {
+            index: self.batch_index,
+            count: self.batch_count,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CollectionBatch {
+    pub index: u8,
+    pub count: u8,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CollectionChange {
+    Added,
+    Removed,
+    Changed,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CollectionKind {
+    Inventory,
+    Spellbook,
+    Skillbook,
+}
+
+impl CollectionKind {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Inventory => "inventory",
+            Self::Spellbook => "spellbook",
+            Self::Skillbook => "skillbook",
+        }
+    }
+}
+
+impl StateUpdate {
+    #[must_use]
+    pub const fn collection_batch(&self) -> Option<(CollectionKind, CollectionBatch)> {
+        match self {
+            Self::Inventory(update) => Some((CollectionKind::Inventory, update.batch())),
+            Self::Spellbook(update) => Some((CollectionKind::Spellbook, update.batch())),
+            Self::Skillbook(update) => Some((CollectionKind::Skillbook, update.batch())),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -245,6 +315,42 @@ impl ClientSnapshot {
                 objects.sort_unstable_by_key(WorldObjectSortKey::of);
             }
             StateUpdate::Message(_) => {}
+            StateUpdate::Inventory(update) => {
+                let inventory = self
+                    .character
+                    .as_mut()
+                    .ok_or(ApplyEventError::CharacterUnavailable)?
+                    .inventory
+                    .as_mut()
+                    .ok_or(ApplyEventError::CollectionUnavailable {
+                        collection: CollectionKind::Inventory,
+                    })?;
+                apply_slot_update(inventory, update, CollectionKind::Inventory)?;
+            }
+            StateUpdate::Spellbook(update) => {
+                let spellbook = self
+                    .character
+                    .as_mut()
+                    .ok_or(ApplyEventError::CharacterUnavailable)?
+                    .spellbook
+                    .as_mut()
+                    .ok_or(ApplyEventError::CollectionUnavailable {
+                        collection: CollectionKind::Spellbook,
+                    })?;
+                apply_slot_update(spellbook, update, CollectionKind::Spellbook)?;
+            }
+            StateUpdate::Skillbook(update) => {
+                let skillbook = self
+                    .character
+                    .as_mut()
+                    .ok_or(ApplyEventError::CharacterUnavailable)?
+                    .skillbook
+                    .as_mut()
+                    .ok_or(ApplyEventError::CollectionUnavailable {
+                        collection: CollectionKind::Skillbook,
+                    })?;
+                apply_slot_update(skillbook, update, CollectionKind::Skillbook)?;
+            }
         }
         self.revision = event.revision;
         self.event_sequence = event.sequence;
@@ -255,16 +361,44 @@ impl ClientSnapshot {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ApplyEventError {
-    UnexpectedSequence { expected: u32, actual: u32 },
-    UnexpectedRevision { expected: u32, actual: u32 },
+    UnexpectedSequence {
+        expected: u32,
+        actual: u32,
+    },
+    UnexpectedRevision {
+        expected: u32,
+        actual: u32,
+    },
     CharacterUnavailable,
     LocationUnavailable,
     EffectsUnavailable,
-    EffectAlreadyExists { icon: u16 },
-    EffectNotFound { icon: u16 },
+    EffectAlreadyExists {
+        icon: u16,
+    },
+    EffectNotFound {
+        icon: u16,
+    },
     EffectCapacityExceeded,
     ObjectsUnavailable,
-    ObjectNotFound { id: u32 },
+    ObjectNotFound {
+        id: u32,
+    },
+    InvalidCollectionBatch {
+        collection: CollectionKind,
+        index: u8,
+        count: u8,
+    },
+    InvalidCollectionSlot {
+        collection: CollectionKind,
+        slot: u8,
+    },
+    CollectionUnavailable {
+        collection: CollectionKind,
+    },
+    CollectionSlotMismatch {
+        collection: CollectionKind,
+        slot: u8,
+    },
 }
 
 impl fmt::Display for ApplyEventError {
@@ -304,8 +438,97 @@ impl fmt::Display for ApplyEventError {
                 formatter.write_str("object event has no retained world object state")
             }
             Self::ObjectNotFound { id } => write!(formatter, "world object {id} does not exist"),
+            Self::InvalidCollectionBatch {
+                collection,
+                index,
+                count,
+            } => write!(
+                formatter,
+                "invalid {} batch position {index} of {count}",
+                collection.as_str()
+            ),
+            Self::InvalidCollectionSlot { collection, slot } => {
+                write!(formatter, "invalid {} slot {slot}", collection.as_str())
+            }
+            Self::CollectionUnavailable { collection } => write!(
+                formatter,
+                "{} event has no retained collection state",
+                collection.as_str()
+            ),
+            Self::CollectionSlotMismatch { collection, slot } => write!(
+                formatter,
+                "{} slot {slot} did not match the event baseline",
+                collection.as_str()
+            ),
         }
     }
+}
+
+trait Slotted {
+    fn slot(&self) -> u8;
+}
+
+impl Slotted for InventoryItem {
+    fn slot(&self) -> u8 {
+        self.slot
+    }
+}
+
+impl Slotted for Spell {
+    fn slot(&self) -> u8 {
+        self.slot
+    }
+}
+
+impl Slotted for Skill {
+    fn slot(&self) -> u8 {
+        self.slot
+    }
+}
+
+fn apply_slot_update<T: Clone + Eq + Slotted>(
+    collection: &mut Vec<T>,
+    update: SlotUpdate<T>,
+    kind: CollectionKind,
+) -> Result<(), ApplyEventError> {
+    if update.batch_count == 0 || update.batch_index >= update.batch_count {
+        return Err(ApplyEventError::InvalidCollectionBatch {
+            collection: kind,
+            index: update.batch_index,
+            count: update.batch_count,
+        });
+    }
+    if update.slot == 0
+        || update
+            .before
+            .as_ref()
+            .is_some_and(|item| item.slot() != update.slot)
+        || update
+            .after
+            .as_ref()
+            .is_some_and(|item| item.slot() != update.slot)
+    {
+        return Err(ApplyEventError::InvalidCollectionSlot {
+            collection: kind,
+            slot: update.slot,
+        });
+    }
+    let current = collection
+        .iter()
+        .find(|item| item.slot() == update.slot)
+        .cloned();
+    if current != update.before {
+        return Err(ApplyEventError::CollectionSlotMismatch {
+            collection: kind,
+            slot: update.slot,
+        });
+    }
+    collection.retain(|item| item.slot() != update.slot);
+    if let Some(after) = update.after {
+        collection.push(after);
+        collection.sort_unstable_by_key(Slotted::slot);
+    }
+    Ok(())
 }
 
 struct WorldObjectSortKey;
@@ -327,4 +550,82 @@ impl Error for ApplyEventError {}
 const fn next_nonzero(value: u32) -> u32 {
     let next = value.wrapping_add(1);
     if next == 0 { 1 } else { next }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn item(slot: u8, quantity: u32) -> InventoryItem {
+        InventoryItem {
+            slot,
+            sprite: 21,
+            dye_color: 2,
+            name: Some("Hy-Brasyl Gauntlet".into()),
+            quantity,
+            can_stack: quantity > 1,
+            durability: 900,
+            max_durability: 1_000,
+        }
+    }
+
+    #[test]
+    fn collection_move_reduces_without_false_add_or_remove() {
+        let mut inventory = vec![item(1, 1)];
+        apply_slot_update(
+            &mut inventory,
+            SlotUpdate {
+                batch_index: 0,
+                batch_count: 2,
+                change: CollectionChange::Changed,
+                slot: 1,
+                before: Some(item(1, 1)),
+                after: None,
+            },
+            CollectionKind::Inventory,
+        )
+        .unwrap();
+        apply_slot_update(
+            &mut inventory,
+            SlotUpdate {
+                batch_index: 1,
+                batch_count: 2,
+                change: CollectionChange::Changed,
+                slot: 2,
+                before: None,
+                after: Some(item(2, 1)),
+            },
+            CollectionKind::Inventory,
+        )
+        .unwrap();
+
+        assert_eq!(inventory, vec![item(2, 1)]);
+    }
+
+    #[test]
+    fn collection_update_rejects_a_stale_baseline() {
+        let mut inventory = vec![item(1, 2)];
+        let error = apply_slot_update(
+            &mut inventory,
+            SlotUpdate {
+                batch_index: 0,
+                batch_count: 1,
+                change: CollectionChange::Removed,
+                slot: 1,
+                before: Some(item(1, 1)),
+                after: None,
+            },
+            CollectionKind::Inventory,
+        )
+        .unwrap_err();
+
+        assert_eq!(
+            error,
+            ApplyEventError::CollectionSlotMismatch {
+                collection: CollectionKind::Inventory,
+                slot: 1,
+            }
+        );
+        assert_eq!(inventory, vec![item(1, 2)]);
+    }
 }

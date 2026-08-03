@@ -1,7 +1,10 @@
 mod convert;
 mod publication;
 
-use darpc_game_client::{MemoryReader, RawObjects, RawStateSnapshot, StateReadError, StateWalker};
+use darpc_game_client::{
+    MemoryReader, RawInventory, RawObjects, RawSkillbook, RawSpellbook, RawStateSnapshot,
+    StateReadError, StateWalker,
+};
 use darpc_model::ClientSnapshot;
 use std::{
     fmt, ptr,
@@ -89,14 +92,7 @@ pub(crate) fn observe_tick() {
 }
 
 fn capture(raw: &mut RawStateSnapshot, objects: &mut RawObjects) -> Result<(), StateReadError> {
-    // SAFETY: a null module name requests the executable module for the current
-    // process and has no lifetime transfer.
-    let module = unsafe { GetModuleHandleW(ptr::null()) };
-    let module_base =
-        u32::try_from(module as usize).map_err(|_| StateReadError::AddressOverflow)?;
-    // SAFETY: this function has no preconditions and returns the current thread ID.
-    let thread_id = unsafe { GetCurrentThreadId() };
-    let walker = StateWalker::new(&ProcessMemory, module_base);
+    let (walker, thread_id) = process_walker()?;
     walker.capture_into(thread_id, raw)?;
     let center = raw
         .character_available
@@ -113,6 +109,31 @@ fn capture(raw: &mut RawStateSnapshot, objects: &mut RawObjects) -> Result<(), S
         );
     }
     Ok(())
+}
+
+pub(crate) fn capture_inventory(output: &mut RawInventory) -> Result<bool, StateReadError> {
+    let (walker, thread_id) = process_walker()?;
+    walker.capture_inventory_state(thread_id, output)
+}
+
+pub(crate) fn capture_abilities(
+    skillbook: &mut RawSkillbook,
+    spellbook: &mut RawSpellbook,
+) -> Result<(bool, bool), StateReadError> {
+    let (walker, thread_id) = process_walker()?;
+    walker.capture_ability_state(thread_id, skillbook, spellbook)
+}
+
+fn process_walker() -> Result<(StateWalker<'static, ProcessMemory>, u32), StateReadError> {
+    // SAFETY: a null module name requests the executable module for the current
+    // process and has no lifetime transfer.
+    let module = unsafe { GetModuleHandleW(ptr::null()) };
+    let module_base =
+        u32::try_from(module as usize).map_err(|_| StateReadError::AddressOverflow)?;
+    // SAFETY: this function has no preconditions and returns the current thread ID.
+    let thread_id = unsafe { GetCurrentThreadId() };
+    static MEMORY: ProcessMemory = ProcessMemory;
+    Ok((StateWalker::new(&MEMORY, module_base), thread_id))
 }
 
 struct ProcessMemory;

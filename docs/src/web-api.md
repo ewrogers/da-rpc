@@ -308,6 +308,15 @@ are:
 | `effect_added` | `effect_added` | `icon`, `duration` |
 | `effect_removed` | `effect_removed` | `icon` |
 | `effect_changed` | `effect_changed` | `icon`, new `duration` |
+| `item_added` | `item_added` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
+| `item_removed` | `item_removed` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
+| `item_changed` | `item_changed` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
+| `spell_added` | `spell_added` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
+| `spell_removed` | `spell_removed` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
+| `spell_changed` | `spell_changed` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
+| `skill_added` | `skill_added` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
+| `skill_removed` | `skill_removed` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
+| `skill_changed` | `skill_changed` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
 | `player_appeared` | `player_appeared` | `object` |
 | `player_disappeared` | `player_disappeared` | `object` |
 | `player_moved` | `player_moved` | Updated `object` |
@@ -341,6 +350,17 @@ included fields instead of adding a delta.
 Effect events identify the icon. Added and changed events also carry its new
 relative duration band. Removed events carry no duration because the icon is no
 longer active.
+
+Inventory and ability events describe one slot before and after a change.
+`before` is null when the slot was empty, and `after` is null when it became
+empty. Moving, swapping, splitting, or merging entries may create several
+consecutive frames. Their zero-based `batch_index` and shared `batch_count`
+identify the complete batch. The daemon applies the entire batch to REST state
+before broadcasting its first frame. Identical same-slot updates are ignored.
+
+Inventory `item_added`, `item_removed`, and `item_changed` refer to carried
+inventory. Ground items continue to use `item_appeared`, `item_disappeared`,
+and `item_moved`.
 
 Object events carry the complete public object after the change rather than a
 coordinate or direction delta. Disappearance carries the last retained object.

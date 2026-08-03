@@ -91,14 +91,7 @@ fn encode_inventory(
     let mut slots = [false; INVENTORY_SLOT_COUNT];
     for item in items {
         encode_slot(item.slot, &mut slots)?;
-        output.push(item.slot);
-        push_u16(output, item.sprite);
-        output.push(item.dye_color);
-        encode_optional_string(output, item.name.as_deref(), MAX_COLLECTION_NAME_LEN)?;
-        push_u32(output, item.quantity);
-        push_bool(output, item.can_stack);
-        push_u32(output, item.durability);
-        push_u32(output, item.max_durability);
+        encode_inventory_item_fields(output, item)?;
     }
     Ok(())
 }
@@ -113,16 +106,7 @@ fn decode_inventory(
     let mut items = Vec::with_capacity(count);
     for _ in 0..count {
         let slot = decode_slot(reader, &mut slots)?;
-        items.push(InventoryItem {
-            slot,
-            sprite: reader.read_u16()?,
-            dye_color: reader.read_u8()?,
-            name: decode_optional_string(reader, MAX_COLLECTION_NAME_LEN)?,
-            quantity: reader.read_u32()?,
-            can_stack: reader.read_bool()?,
-            durability: reader.read_u32()?,
-            max_durability: reader.read_u32()?,
-        });
+        items.push(decode_inventory_item_fields(reader, slot)?);
     }
     Ok(Some(items))
 }
@@ -177,15 +161,7 @@ fn encode_spells(output: &mut Vec<u8>, spells: Option<&[Spell]>) -> Result<(), E
     let mut slots = [false; ABILITY_SLOT_COUNT];
     for spell in spells {
         encode_slot(spell.slot, &mut slots)?;
-        output.push(spell.slot);
-        push_u16(output, spell.icon);
-        encode_optional_string(output, spell.name.as_deref(), MAX_COLLECTION_NAME_LEN)?;
-        output.push(spell.level);
-        output.push(spell.max_level);
-        output.push(spell.lines);
-        output.push(spell.target_type.raw());
-        encode_optional_string(output, spell.prompt.as_deref(), MAX_COLLECTION_NAME_LEN)?;
-        encode_cooldown(output, spell.cooldown);
+        encode_spell_fields(output, spell)?;
     }
     Ok(())
 }
@@ -198,17 +174,7 @@ fn decode_spells(reader: &mut PayloadReader<'_>) -> Result<Option<Vec<Spell>>, D
     let mut spells = Vec::with_capacity(count);
     for _ in 0..count {
         let slot = decode_slot(reader, &mut slots)?;
-        spells.push(Spell {
-            slot,
-            icon: reader.read_u16()?,
-            name: decode_optional_string(reader, MAX_COLLECTION_NAME_LEN)?,
-            level: reader.read_u8()?,
-            max_level: reader.read_u8()?,
-            lines: reader.read_u8()?,
-            target_type: SpellTargetType::from_raw(reader.read_u8()?),
-            prompt: decode_optional_string(reader, MAX_COLLECTION_NAME_LEN)?,
-            cooldown: decode_cooldown(reader)?,
-        });
+        spells.push(decode_spell_fields(reader, slot)?);
     }
     Ok(Some(spells))
 }
@@ -220,12 +186,7 @@ fn encode_skills(output: &mut Vec<u8>, skills: Option<&[Skill]>) -> Result<(), E
     let mut slots = [false; ABILITY_SLOT_COUNT];
     for skill in skills {
         encode_slot(skill.slot, &mut slots)?;
-        output.push(skill.slot);
-        push_u16(output, skill.icon);
-        encode_optional_string(output, skill.name.as_deref(), MAX_COLLECTION_NAME_LEN)?;
-        output.push(skill.level);
-        output.push(skill.max_level);
-        encode_cooldown(output, skill.cooldown);
+        encode_skill_fields(output, skill)?;
     }
     Ok(())
 }
@@ -238,16 +199,129 @@ fn decode_skills(reader: &mut PayloadReader<'_>) -> Result<Option<Vec<Skill>>, D
     let mut skills = Vec::with_capacity(count);
     for _ in 0..count {
         let slot = decode_slot(reader, &mut slots)?;
-        skills.push(Skill {
-            slot,
-            icon: reader.read_u16()?,
-            name: decode_optional_string(reader, MAX_COLLECTION_NAME_LEN)?,
-            level: reader.read_u8()?,
-            max_level: reader.read_u8()?,
-            cooldown: decode_cooldown(reader)?,
-        });
+        skills.push(decode_skill_fields(reader, slot)?);
     }
     Ok(Some(skills))
+}
+
+pub(crate) fn encode_inventory_item(
+    output: &mut Vec<u8>,
+    item: &InventoryItem,
+) -> Result<(), EncodeError> {
+    let mut slots = [false; INVENTORY_SLOT_COUNT];
+    encode_slot(item.slot, &mut slots)?;
+    encode_inventory_item_fields(output, item)
+}
+
+pub(crate) fn decode_inventory_item(
+    reader: &mut PayloadReader<'_>,
+) -> Result<InventoryItem, DecodeError> {
+    let mut slots = [false; INVENTORY_SLOT_COUNT];
+    let slot = decode_slot(reader, &mut slots)?;
+    decode_inventory_item_fields(reader, slot)
+}
+
+pub(crate) fn encode_spell(output: &mut Vec<u8>, spell: &Spell) -> Result<(), EncodeError> {
+    let mut slots = [false; ABILITY_SLOT_COUNT];
+    encode_slot(spell.slot, &mut slots)?;
+    encode_spell_fields(output, spell)
+}
+
+pub(crate) fn decode_spell(reader: &mut PayloadReader<'_>) -> Result<Spell, DecodeError> {
+    let mut slots = [false; ABILITY_SLOT_COUNT];
+    let slot = decode_slot(reader, &mut slots)?;
+    decode_spell_fields(reader, slot)
+}
+
+pub(crate) fn encode_skill(output: &mut Vec<u8>, skill: &Skill) -> Result<(), EncodeError> {
+    let mut slots = [false; ABILITY_SLOT_COUNT];
+    encode_slot(skill.slot, &mut slots)?;
+    encode_skill_fields(output, skill)
+}
+
+pub(crate) fn decode_skill(reader: &mut PayloadReader<'_>) -> Result<Skill, DecodeError> {
+    let mut slots = [false; ABILITY_SLOT_COUNT];
+    let slot = decode_slot(reader, &mut slots)?;
+    decode_skill_fields(reader, slot)
+}
+
+fn encode_inventory_item_fields(
+    output: &mut Vec<u8>,
+    item: &InventoryItem,
+) -> Result<(), EncodeError> {
+    output.push(item.slot);
+    push_u16(output, item.sprite);
+    output.push(item.dye_color);
+    encode_optional_string(output, item.name.as_deref(), MAX_COLLECTION_NAME_LEN)?;
+    push_u32(output, item.quantity);
+    push_bool(output, item.can_stack);
+    push_u32(output, item.durability);
+    push_u32(output, item.max_durability);
+    Ok(())
+}
+
+fn decode_inventory_item_fields(
+    reader: &mut PayloadReader<'_>,
+    slot: u8,
+) -> Result<InventoryItem, DecodeError> {
+    Ok(InventoryItem {
+        slot,
+        sprite: reader.read_u16()?,
+        dye_color: reader.read_u8()?,
+        name: decode_optional_string(reader, MAX_COLLECTION_NAME_LEN)?,
+        quantity: reader.read_u32()?,
+        can_stack: reader.read_bool()?,
+        durability: reader.read_u32()?,
+        max_durability: reader.read_u32()?,
+    })
+}
+
+fn encode_spell_fields(output: &mut Vec<u8>, spell: &Spell) -> Result<(), EncodeError> {
+    output.push(spell.slot);
+    push_u16(output, spell.icon);
+    encode_optional_string(output, spell.name.as_deref(), MAX_COLLECTION_NAME_LEN)?;
+    output.push(spell.level);
+    output.push(spell.max_level);
+    output.push(spell.lines);
+    output.push(spell.target_type.raw());
+    encode_optional_string(output, spell.prompt.as_deref(), MAX_COLLECTION_NAME_LEN)?;
+    encode_cooldown(output, spell.cooldown);
+    Ok(())
+}
+
+fn decode_spell_fields(reader: &mut PayloadReader<'_>, slot: u8) -> Result<Spell, DecodeError> {
+    Ok(Spell {
+        slot,
+        icon: reader.read_u16()?,
+        name: decode_optional_string(reader, MAX_COLLECTION_NAME_LEN)?,
+        level: reader.read_u8()?,
+        max_level: reader.read_u8()?,
+        lines: reader.read_u8()?,
+        target_type: SpellTargetType::from_raw(reader.read_u8()?),
+        prompt: decode_optional_string(reader, MAX_COLLECTION_NAME_LEN)?,
+        cooldown: decode_cooldown(reader)?,
+    })
+}
+
+fn encode_skill_fields(output: &mut Vec<u8>, skill: &Skill) -> Result<(), EncodeError> {
+    output.push(skill.slot);
+    push_u16(output, skill.icon);
+    encode_optional_string(output, skill.name.as_deref(), MAX_COLLECTION_NAME_LEN)?;
+    output.push(skill.level);
+    output.push(skill.max_level);
+    encode_cooldown(output, skill.cooldown);
+    Ok(())
+}
+
+fn decode_skill_fields(reader: &mut PayloadReader<'_>, slot: u8) -> Result<Skill, DecodeError> {
+    Ok(Skill {
+        slot,
+        icon: reader.read_u16()?,
+        name: decode_optional_string(reader, MAX_COLLECTION_NAME_LEN)?,
+        level: reader.read_u8()?,
+        max_level: reader.read_u8()?,
+        cooldown: decode_cooldown(reader)?,
+    })
 }
 
 fn encode_collection_header<'a, T>(

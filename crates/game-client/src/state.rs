@@ -134,6 +134,47 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
         Ok(())
     }
 
+    pub fn capture_inventory_state(
+        &self,
+        current_thread_id: u32,
+        output: &mut RawInventory,
+    ) -> Result<bool, StateReadError> {
+        let expected_thread_id = self.read_module_u32(MAIN_THREAD_ID_RVA)?;
+        if expected_thread_id == 0 || expected_thread_id != current_thread_id {
+            return Err(StateReadError::WrongThread {
+                expected: expected_thread_id,
+                actual: current_thread_id,
+            });
+        }
+        let roots = self.capture_roots()?;
+        let available = self.capture_inventory(roots.gui_back, output)?;
+        if self.capture_roots()?.gui_back_interface != roots.gui_back_interface {
+            return Err(StateReadError::PointersChanged);
+        }
+        Ok(available)
+    }
+
+    pub fn capture_ability_state(
+        &self,
+        current_thread_id: u32,
+        skillbook: &mut RawSkillbook,
+        spellbook: &mut RawSpellbook,
+    ) -> Result<(bool, bool), StateReadError> {
+        let expected_thread_id = self.read_module_u32(MAIN_THREAD_ID_RVA)?;
+        if expected_thread_id == 0 || expected_thread_id != current_thread_id {
+            return Err(StateReadError::WrongThread {
+                expected: expected_thread_id,
+                actual: current_thread_id,
+            });
+        }
+        let roots = self.capture_roots()?;
+        let available = self.capture_abilities(roots.gui_back, skillbook, spellbook)?;
+        if self.capture_roots()?.gui_back_interface != roots.gui_back_interface {
+            return Err(StateReadError::PointersChanged);
+        }
+        Ok(available)
+    }
+
     fn capture_objects_from_world(
         &self,
         world: u32,

@@ -97,6 +97,13 @@ Reconnect detection is part of the same snapshot capture. daRPC checks the
 active dialog list carefully and does not keep dialog pointers after the
 capture finishes.
 
+When daRPC is loaded before login, the first snapshot naturally reports
+`title`. A full `SUserAppearance` server packet marks the point where the client
+has entered the game world. daRPC then requires a fresh snapshot so character,
+map, and collection state are established from the post-login client memory.
+The state-only form of that packet updates the action restriction without
+forcing a full snapshot.
+
 ## Safe snapshot capture
 
 The game changes most of this state on its main thread. daRPC therefore asks the
@@ -127,7 +134,9 @@ After the initial snapshot, daRPC observes selected server events after the game
 client has handled them. The currently supported event families are
 `SStatus`, `SSpelled`, the action-state portion of `SUserAppearance`, `SMove`,
 `SUserPosition`, `SDrawObjects`, `SDrawHumanObjects`, `SMoveObject`,
-`SChangeDirection`, `SRemoveObjects`, `SMessage`, and `SSay`.
+`SChangeDirection`, `SRemoveObjects`, `SAddInventory`, `SRemoveInventory`,
+`SAddSpell`, `SRemoveSpell`, `SAddSkill`, `SRemoveSkill`, `SMessage`, and
+`SSay`.
 
 Together, these events keep the following values current:
 
@@ -136,6 +145,7 @@ Together, these events keep the following values current:
 - `is_action_restricted`.
 - Accepted map coordinates.
 - Active spell effects.
+- Occupied inventory, spellbook, and skillbook slots.
 - Known world-object appearance, removal, movement, and direction.
 - Typed chat and system messages.
 
@@ -145,6 +155,22 @@ scratch memory, ignores values that did not change, and publishes pointer-free
 updates. Nested observation is skipped instead of sharing that scratch memory.
 The original game handler always runs first, and daRPC preserves its return
 value.
+
+Collection packets identify the slot that the client changed. daRPC waits for
+a bounded 5 ms quiet period after the last related packet, then rereads the
+relevant collection into preallocated DLL memory and compares the affected
+slots with its retained state. The short settling window covers slot operations
+whose source and destination packets arrive in separate dispatcher calls. It
+also lets the client finish its own update and avoids trusting packet text as
+the final display state.
+
+All slots changed by one group of packets are reconciled together. Moving or
+swapping an entry reports changes to the involved slots instead of a false
+removal and addition. Stack quantity increases and decreases are additions and
+removals, while a split, merge, or move with the same total quantity is a
+change. Repeating an identical update produces nothing. The complete batch is
+reduced into daemon state before REST readers or event subscribers can observe
+the result.
 
 Game-world state and local user-interface state do not always follow the same
 rules. Dialogs, selections, focus, and other client-only values may require
@@ -254,6 +280,10 @@ This queue is designed to protect the game. If it fills, the game thread does
 not wait for the daemon. daRPC drops the new event and records the missing
 sequence. The daemon then requests a fresh snapshot instead of guessing what
 changed.
+
+The same recovery path handles authoritative lifecycle boundaries such as a
+completed login. This keeps snapshot replacement and queue-overflow recovery on
+one ordering mechanism.
 
 The DLL keeps updating its current state even when no daemon is connected. It
 does not keep an unlimited history during that downtime.

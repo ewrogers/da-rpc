@@ -9,7 +9,7 @@ use darpc_model::{
 use serde::Serialize;
 use utoipa::ToSchema;
 
-#[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, ToSchema)]
 pub(crate) struct CooldownStatus {
     active: bool,
     /// Milliseconds remaining when the client retains an expiry tick.
@@ -25,7 +25,7 @@ impl From<ModelCooldownStatus> for CooldownStatus {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, ToSchema)]
 pub(crate) struct InventoryItem {
     slot: u8,
     sprite: u16,
@@ -75,7 +75,7 @@ impl From<&ModelEquipmentItem> for EquipmentItem {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, ToSchema)]
 pub(crate) struct Spell {
     slot: u8,
     icon: u16,
@@ -104,7 +104,7 @@ impl From<&ModelSpell> for Spell {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum EquipmentSlot {
     Weapon,
@@ -152,7 +152,7 @@ impl From<ModelEquipmentSlot> for EquipmentSlot {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, ToSchema)]
 pub(crate) struct Skill {
     slot: u8,
     icon: u16,
@@ -175,7 +175,7 @@ impl From<&ModelSkill> for Skill {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum SpellTargetType {
     None,

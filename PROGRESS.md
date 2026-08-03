@@ -31,7 +31,7 @@ planned increment and will add the first low-risk typed client action.
 | M10, hook qualification harness | Complete | Transactional x86 detours, relocated trampolines, rollback, concurrency, panic containment, and shutdown pass owned native tests. |
 | M11, first client tick hook | Complete | Exact validation, safety hardening, direct health observation, repeated live attach and detach, and normal in-game acceptance pass. |
 | M12, late-attach client snapshot | Complete | Main-thread capture, the full initial character, collection, spell-effect, and observed world-object surface, protocol and API presentation, and live-client comparison pass. |
-| M13, event-driven updates | Complete | Bounded status, location, spell-effect, world-object, and typed message updates, daemon reduction and message lookback, resynchronization, per-client SSE, and live-client acceptance pass. |
+| M13, event-driven updates | Complete | Bounded status, location, spell-effect, collection, world-object, and typed message updates, daemon reduction and message lookback, resynchronization, per-client SSE, and live-client acceptance pass. |
 | M14, main-thread command queue | Complete | Fixed DLL and daemon queues, one command per tick, direct CLI and REST routing, explicit states, and live-client verification pass. |
 
 ## Completed recently
@@ -65,6 +65,12 @@ planned increment and will add the first low-risk typed client action.
   duration changes from decoded server events.
 - [x] Added typed chat and system message parsing, bounded per-client daemon
   lookback, REST history, and channel-specific SSE events.
+- [x] Added post-handler inventory, spellbook, and skillbook reconciliation with
+  a bounded 5 ms settling window, atomic slot batches, stack-aware semantics,
+  no-op suppression, REST reduction, and typed SSE events.
+- [x] Treat a full `SUserAppearance` as the post-login resynchronization
+  boundary so a DLL loaded at the title screen replaces its initial snapshot
+  after entering the game.
 - [x] Added strict command request, response, status, cancellation, timeout,
   queue-full, and unavailable protocol results without changing protocol 1.0.
 - [x] Added a pointer-free 64-slot DLL queue drained at one entry per client
@@ -100,6 +106,11 @@ planned increment and will add the first low-risk typed client action.
   resynchronization behavior.
 - [x] Update the daemon registry from events and expose bounded Server-Sent
   Events without allowing slow subscribers to block producers or peers.
+- [x] Reconcile inventory and ability slots after client handlers, reduce each
+  complete batch atomically, and preserve its grouping in public events.
+- [x] Live-test same-slot no-op suppression, moves, swaps, quantity changes,
+  rapid drop and pickup, and spellbook and skillbook moves against REST and
+  Server-Sent Events on the designated Windows client.
 - [x] Prove that incrementally maintained fields match a fresh snapshot after
   scripted actions, including sequence-gap and queue-overflow recovery.
 - [x] Verify safe repeated attach, event observation, detach, and normal live

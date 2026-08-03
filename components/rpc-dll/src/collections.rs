@@ -1,0 +1,867 @@
+#![cfg_attr(not(windows), allow(dead_code))]
+
+use darpc_game_client::{
+    ABILITY_SLOT_COUNT, INVENTORY_SLOT_COUNT, RawInventory, RawInventoryItem, RawSkill,
+    RawSkillbook, RawSpell, RawSpellbook, RawStateSnapshot,
+};
+use darpc_model::{
+    CollectionBatch, CollectionChange, CollectionKind, CooldownStatus, InventoryItem,
+    InventoryUpdate, Skill, SkillbookUpdate, Spell, SpellTargetType, SpellbookUpdate, StateUpdate,
+};
+
+const MAX_INVENTORY_CHANGES: usize = INVENTORY_SLOT_COUNT * 2;
+const MAX_ABILITY_CHANGES: usize = ABILITY_SLOT_COUNT * 2;
+const SETTLE_MS: u32 = 5;
+
+pub(crate) struct CollectionTracker {
+    inventory: RawInventory,
+    skillbook: RawSkillbook,
+    spellbook: RawSpellbook,
+    inventory_scratch: RawInventory,
+    skillbook_scratch: RawSkillbook,
+    spellbook_scratch: RawSpellbook,
+    inventory_dirty: [bool; INVENTORY_SLOT_COUNT],
+    skillbook_dirty: [bool; ABILITY_SLOT_COUNT],
+    spellbook_dirty: [bool; ABILITY_SLOT_COUNT],
+    inventory_tick_ms: u32,
+    skillbook_tick_ms: u32,
+    spellbook_tick_ms: u32,
+}
+
+impl CollectionTracker {
+    pub(crate) const fn new() -> Self {
+        Self {
+            inventory: RawInventory::empty(),
+            skillbook: RawSkillbook::empty(),
+            spellbook: RawSpellbook::empty(),
+            inventory_scratch: RawInventory::empty(),
+            skillbook_scratch: RawSkillbook::empty(),
+            spellbook_scratch: RawSpellbook::empty(),
+            inventory_dirty: [false; INVENTORY_SLOT_COUNT],
+            skillbook_dirty: [false; ABILITY_SLOT_COUNT],
+            spellbook_dirty: [false; ABILITY_SLOT_COUNT],
+            inventory_tick_ms: 0,
+            skillbook_tick_ms: 0,
+            spellbook_tick_ms: 0,
+        }
+    }
+
+    pub(crate) fn reset(&mut self) {
+        *self = Self::new();
+    }
+
+    pub(crate) fn replace(&mut self, raw: &RawStateSnapshot) {
+        self.inventory = RawInventory::empty();
+        self.skillbook = RawSkillbook::empty();
+        self.spellbook = RawSpellbook::empty();
+        if raw.character_available {
+            if raw.character.inventory_available {
+                self.inventory = raw.character.inventory;
+            }
+            if raw.character.skillbook_available {
+                self.skillbook = raw.character.skillbook;
+            }
+            if raw.character.spellbook_available {
+                self.spellbook = raw.character.spellbook;
+            }
+        }
+        self.inventory_dirty.fill(false);
+        self.skillbook_dirty.fill(false);
+        self.spellbook_dirty.fill(false);
+    }
+
+    pub(crate) fn mark(&mut self, kind: CollectionKind, slot: u8, tick_ms: u32) {
+        let Some(index) = usize::from(slot).checked_sub(1) else {
+            return;
+        };
+        match kind {
+            CollectionKind::Inventory if index < INVENTORY_SLOT_COUNT => {
+                self.inventory_dirty[index] = true;
+                self.inventory_tick_ms = tick_ms;
+            }
+            CollectionKind::Spellbook if index < ABILITY_SLOT_COUNT => {
+                self.spellbook_dirty[index] = true;
+                self.spellbook_tick_ms = tick_ms;
+            }
+            CollectionKind::Skillbook if index < ABILITY_SLOT_COUNT => {
+                self.skillbook_dirty[index] = true;
+                self.skillbook_tick_ms = tick_ms;
+            }
+            _ => {}
+        }
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn observe_tick(
+        &mut self,
+        current_tick_ms: u32,
+        mut emit: impl FnMut(QueuedCollectionUpdate, u32),
+    ) {
+        if collection_ready(
+            &self.inventory_dirty,
+            self.inventory_tick_ms,
+            current_tick_ms,
+        ) && matches!(
+            crate::snapshot::capture_inventory(&mut self.inventory_scratch),
+            Ok(true)
+        ) {
+            emit_updates::<_, _, INVENTORY_SLOT_COUNT, MAX_INVENTORY_CHANGES>(
+                &self.inventory.items,
+                &self.inventory_scratch.items,
+                &self.inventory_dirty,
+                QueuedCollectionUpdate::Inventory,
+                &mut emit,
+                self.inventory_tick_ms,
+            );
+            replace_dirty(
+                &mut self.inventory.items,
+                &self.inventory_scratch.items,
+                &mut self.inventory_dirty,
+            );
+        }
+
+        let skills_ready = collection_ready(
+            &self.skillbook_dirty,
+            self.skillbook_tick_ms,
+            current_tick_ms,
+        );
+        let spells_ready = collection_ready(
+            &self.spellbook_dirty,
+            self.spellbook_tick_ms,
+            current_tick_ms,
+        );
+        if (skills_ready || spells_ready)
+            && let Ok((skills_available, spells_available)) = crate::snapshot::capture_abilities(
+                &mut self.skillbook_scratch,
+                &mut self.spellbook_scratch,
+            )
+        {
+            if skills_available && skills_ready {
+                emit_updates::<_, _, ABILITY_SLOT_COUNT, MAX_ABILITY_CHANGES>(
+                    &self.skillbook.skills,
+                    &self.skillbook_scratch.skills,
+                    &self.skillbook_dirty,
+                    QueuedCollectionUpdate::Skillbook,
+                    &mut emit,
+                    self.skillbook_tick_ms,
+                );
+                replace_dirty(
+                    &mut self.skillbook.skills,
+                    &self.skillbook_scratch.skills,
+                    &mut self.skillbook_dirty,
+                );
+            }
+            if spells_available && spells_ready {
+                emit_updates::<_, _, ABILITY_SLOT_COUNT, MAX_ABILITY_CHANGES>(
+                    &self.spellbook.spells,
+                    &self.spellbook_scratch.spells,
+                    &self.spellbook_dirty,
+                    QueuedCollectionUpdate::Spellbook,
+                    &mut emit,
+                    self.spellbook_tick_ms,
+                );
+                replace_dirty(
+                    &mut self.spellbook.spells,
+                    &self.spellbook_scratch.spells,
+                    &mut self.spellbook_dirty,
+                );
+            }
+        }
+    }
+
+    #[cfg(not(windows))]
+    pub(crate) fn observe_tick(
+        &mut self,
+        _current_tick_ms: u32,
+        _emit: impl FnMut(QueuedCollectionUpdate, u32),
+    ) {
+    }
+}
+
+fn collection_ready<const N: usize>(dirty: &[bool; N], marked_tick_ms: u32, now: u32) -> bool {
+    dirty.iter().any(|dirty| *dirty) && now.wrapping_sub(marked_tick_ms) >= SETTLE_MS
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+// Collection events retain fixed, pointer-free before/after values so the game
+// thread never allocates. The size difference is deliberate.
+#[allow(clippy::large_enum_variant)]
+pub(crate) enum QueuedCollectionUpdate {
+    Inventory(QueuedSlotUpdate<RawInventoryItem>),
+    Spellbook(QueuedSlotUpdate<RawSpell>),
+    Skillbook(QueuedSlotUpdate<RawSkill>),
+}
+
+impl QueuedCollectionUpdate {
+    pub(crate) const fn kind(self) -> CollectionKind {
+        match self {
+            Self::Inventory(_) => CollectionKind::Inventory,
+            Self::Spellbook(_) => CollectionKind::Spellbook,
+            Self::Skillbook(_) => CollectionKind::Skillbook,
+        }
+    }
+
+    pub(crate) fn batch(self) -> CollectionBatch {
+        match self {
+            Self::Inventory(update) => update.batch(),
+            Self::Spellbook(update) => update.batch(),
+            Self::Skillbook(update) => update.batch(),
+        }
+    }
+
+    pub(crate) fn into_model(self, tick_ms: u32) -> StateUpdate {
+        match self {
+            Self::Inventory(update) => StateUpdate::Inventory(InventoryUpdate {
+                batch_index: update.batch_index,
+                batch_count: update.batch_count,
+                change: update.change,
+                slot: update.slot,
+                before: update.before.map(inventory_item),
+                after: update.after.map(inventory_item),
+            }),
+            Self::Spellbook(update) => StateUpdate::Spellbook(SpellbookUpdate {
+                batch_index: update.batch_index,
+                batch_count: update.batch_count,
+                change: update.change,
+                slot: update.slot,
+                before: update.before.map(spell),
+                after: update.after.map(spell),
+            }),
+            Self::Skillbook(update) => StateUpdate::Skillbook(SkillbookUpdate {
+                batch_index: update.batch_index,
+                batch_count: update.batch_count,
+                change: update.change,
+                slot: update.slot,
+                before: update.before.map(|skill| skill_model(skill, tick_ms)),
+                after: update.after.map(|skill| skill_model(skill, tick_ms)),
+            }),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn test_inventory_batch(batch_index: u8, batch_count: u8) -> Self {
+        Self::Inventory(QueuedSlotUpdate {
+            batch_index,
+            batch_count,
+            change: CollectionChange::Changed,
+            slot: batch_index.saturating_add(1),
+            before: None,
+            after: Some(RawInventoryItem {
+                slot: batch_index.saturating_add(1),
+                sprite: 21,
+                dye_color: 2,
+                name: darpc_game_client::RawClientText {
+                    bytes: [0; 128],
+                    length: 0,
+                },
+                quantity: 1,
+                can_stack: false,
+                durability: 900,
+                max_durability: 1_000,
+            }),
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct QueuedSlotUpdate<T> {
+    batch_index: u8,
+    batch_count: u8,
+    change: CollectionChange,
+    slot: u8,
+    before: Option<T>,
+    after: Option<T>,
+}
+
+impl<T> QueuedSlotUpdate<T> {
+    fn batch(self) -> CollectionBatch {
+        CollectionBatch {
+            index: self.batch_index,
+            count: self.batch_count,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct PendingUpdate<T> {
+    change: CollectionChange,
+    slot: u8,
+    before: Option<T>,
+    after: Option<T>,
+}
+
+fn emit_updates<T, U, const N: usize, const MAX: usize>(
+    before: &[Option<T>; N],
+    after: &[Option<T>; N],
+    dirty: &[bool; N],
+    wrap: impl Fn(QueuedSlotUpdate<T>) -> U + Copy,
+    emit: &mut impl FnMut(U, u32),
+    tick_ms: u32,
+) where
+    T: CollectionValue,
+{
+    let count = (0..N)
+        .filter(|index| dirty[*index])
+        .map(|index| {
+            pending_updates(index, before, after)
+                .iter()
+                .flatten()
+                .count()
+        })
+        .sum::<usize>();
+    if count == 0 {
+        return;
+    }
+    debug_assert!(count <= MAX);
+    let batch_count = u8::try_from(count).expect("collection change batch fits u8");
+    let mut batch_index = 0_u8;
+    for index in (0..N).filter(|index| dirty[*index]) {
+        for pending in pending_updates(index, before, after).into_iter().flatten() {
+            emit(
+                wrap(QueuedSlotUpdate {
+                    batch_index,
+                    batch_count,
+                    change: pending.change,
+                    slot: pending.slot,
+                    before: pending.before,
+                    after: pending.after,
+                }),
+                tick_ms,
+            );
+            batch_index += 1;
+        }
+    }
+}
+
+fn pending_updates<T: CollectionValue, const N: usize>(
+    index: usize,
+    before: &[Option<T>; N],
+    after: &[Option<T>; N],
+) -> [Option<PendingUpdate<T>>; 2] {
+    let previous = before[index];
+    let current = after[index];
+    if previous == current {
+        return [None, None];
+    }
+    let slot = u8::try_from(index + 1).expect("collection slot fits u8");
+    match (previous, current) {
+        (None, Some(current)) => [
+            Some(PendingUpdate {
+                change: arrival(current, before, after),
+                slot,
+                before: None,
+                after: Some(current),
+            }),
+            None,
+        ],
+        (Some(previous), None) => [
+            Some(PendingUpdate {
+                change: departure(previous, before, after),
+                slot,
+                before: Some(previous),
+                after: None,
+            }),
+            None,
+        ],
+        (Some(previous), Some(current)) if previous.same_identity(current) => [
+            Some(PendingUpdate {
+                change: quantity_change(current, before, after),
+                slot,
+                before: Some(previous),
+                after: Some(current),
+            }),
+            None,
+        ],
+        (Some(previous), Some(current)) => {
+            let departure = departure(previous, before, after);
+            let arrival = arrival(current, before, after);
+            if departure == CollectionChange::Changed && arrival == CollectionChange::Changed {
+                [
+                    Some(PendingUpdate {
+                        change: CollectionChange::Changed,
+                        slot,
+                        before: Some(previous),
+                        after: Some(current),
+                    }),
+                    None,
+                ]
+            } else {
+                [
+                    Some(PendingUpdate {
+                        change: departure,
+                        slot,
+                        before: Some(previous),
+                        after: None,
+                    }),
+                    Some(PendingUpdate {
+                        change: arrival,
+                        slot,
+                        before: None,
+                        after: Some(current),
+                    }),
+                ]
+            }
+        }
+        (None, None) => [None, None],
+    }
+}
+
+fn arrival<T: CollectionValue, const N: usize>(
+    value: T,
+    before: &[Option<T>; N],
+    after: &[Option<T>; N],
+) -> CollectionChange {
+    if total(value, after) > total(value, before) {
+        CollectionChange::Added
+    } else {
+        CollectionChange::Changed
+    }
+}
+
+fn departure<T: CollectionValue, const N: usize>(
+    value: T,
+    before: &[Option<T>; N],
+    after: &[Option<T>; N],
+) -> CollectionChange {
+    if total(value, after) < total(value, before) {
+        CollectionChange::Removed
+    } else {
+        CollectionChange::Changed
+    }
+}
+
+fn quantity_change<T: CollectionValue, const N: usize>(
+    value: T,
+    before: &[Option<T>; N],
+    after: &[Option<T>; N],
+) -> CollectionChange {
+    match total(value, after).cmp(&total(value, before)) {
+        core::cmp::Ordering::Greater => CollectionChange::Added,
+        core::cmp::Ordering::Less => CollectionChange::Removed,
+        core::cmp::Ordering::Equal => CollectionChange::Changed,
+    }
+}
+
+fn total<T: CollectionValue, const N: usize>(value: T, items: &[Option<T>; N]) -> u64 {
+    items
+        .iter()
+        .flatten()
+        .copied()
+        .filter(|item| value.same_identity(*item))
+        .map(CollectionValue::amount)
+        .sum()
+}
+
+fn replace_dirty<T: Copy, const N: usize>(
+    current: &mut [Option<T>; N],
+    captured: &[Option<T>; N],
+    dirty: &mut [bool; N],
+) {
+    for index in 0..N {
+        if dirty[index] {
+            current[index] = captured[index];
+            dirty[index] = false;
+        }
+    }
+}
+
+trait CollectionValue: Copy + Eq {
+    fn same_identity(self, other: Self) -> bool;
+    fn amount(self) -> u64;
+}
+
+impl CollectionValue for RawInventoryItem {
+    fn same_identity(self, other: Self) -> bool {
+        self.sprite & 0x3FFF == other.sprite & 0x3FFF
+            && self.dye_color == other.dye_color
+            && self.can_stack == other.can_stack
+            && self.max_durability == other.max_durability
+            && inventory_identity_name(&self) == inventory_identity_name(&other)
+    }
+
+    fn amount(self) -> u64 {
+        u64::from(self.quantity.max(1))
+    }
+}
+
+fn inventory_identity_name(item: &RawInventoryItem) -> &[u8] {
+    let name = trim_ascii(&item.name.bytes[..usize::from(item.name.length)]);
+    if !item.can_stack || name.last() != Some(&b']') {
+        return name;
+    }
+    let Some(open) = name.iter().rposition(|byte| *byte == b'[') else {
+        return name;
+    };
+    let count = trim_ascii(&name[open + 1..name.len() - 1]);
+    let parsed = count.iter().try_fold(0_u32, |value, byte| {
+        byte.is_ascii_digit()
+            .then_some(u32::from(*byte - b'0'))
+            .and_then(|digit| value.checked_mul(10)?.checked_add(digit))
+    });
+    if parsed == Some(item.quantity) {
+        trim_ascii(&name[..open])
+    } else {
+        name
+    }
+}
+
+impl CollectionValue for RawSpell {
+    fn same_identity(self, other: Self) -> bool {
+        self.icon == other.icon
+            && ability_identity(&self.name.bytes, self.name.length, self.base_name_length)
+                == ability_identity(&other.name.bytes, other.name.length, other.base_name_length)
+    }
+
+    fn amount(self) -> u64 {
+        1
+    }
+}
+
+impl CollectionValue for RawSkill {
+    fn same_identity(self, other: Self) -> bool {
+        self.icon == other.icon
+            && ability_identity(&self.name.bytes, self.name.length, self.base_name_length)
+                == ability_identity(&other.name.bytes, other.name.length, other.base_name_length)
+    }
+
+    fn amount(self) -> u64 {
+        1
+    }
+}
+
+fn ability_identity(bytes: &[u8; 128], length: u8, base_name_length: i32) -> &[u8] {
+    let name = &bytes[..usize::from(length)];
+    if let Ok(length) = usize::try_from(base_name_length)
+        && (1..=name.len()).contains(&length)
+    {
+        return trim_ascii(&name[..length]);
+    }
+    name.windows(5)
+        .position(|window| window == b"(Lev:")
+        .map(|marker| trim_ascii(&name[..marker]))
+        .unwrap_or_else(|| trim_ascii(name))
+}
+
+pub(crate) fn inventory_item(item: RawInventoryItem) -> InventoryItem {
+    InventoryItem {
+        slot: item.slot,
+        sprite: item.sprite & 0x3FFF,
+        dye_color: item.dye_color,
+        name: inventory_name(item.name, item.can_stack, item.quantity),
+        quantity: item.quantity.max(1),
+        can_stack: item.can_stack,
+        durability: item.durability,
+        max_durability: item.max_durability,
+    }
+}
+
+pub(crate) fn spell(raw: RawSpell) -> Spell {
+    let (name, level, max_level) =
+        parsed_ability_name(raw.name, raw.name_suffix_left, raw.base_name_length);
+    let target_type = SpellTargetType::from_raw(raw.argument_type);
+    Spell {
+        slot: raw.slot,
+        icon: raw.icon,
+        name,
+        level,
+        max_level,
+        lines: raw.cast_lines,
+        target_type,
+        prompt: if target_type == SpellTargetType::TextInput {
+            raw.prompt.and_then(ascii_text)
+        } else {
+            None
+        },
+        cooldown: CooldownStatus {
+            active: raw.action_delay_active,
+            remaining_ms: None,
+        },
+    }
+}
+
+pub(crate) fn skill_model(raw: RawSkill, tick_ms: u32) -> Skill {
+    let (name, level, max_level) =
+        parsed_ability_name(raw.name, raw.name_suffix_left, raw.base_name_length);
+    Skill {
+        slot: raw.slot,
+        icon: raw.icon,
+        name,
+        level,
+        max_level,
+        cooldown: CooldownStatus {
+            active: raw.cooldown_visual_active || raw.action_delay_active,
+            remaining_ms: raw
+                .cooldown_visual_active
+                .then(|| raw.cooldown_ends_at.wrapping_sub(tick_ms))
+                .filter(|remaining| *remaining <= i32::MAX as u32),
+        },
+    }
+}
+
+fn parsed_ability_name(
+    raw: darpc_game_client::RawClientText<128>,
+    suffix_left: i32,
+    base_name_length: i32,
+) -> (Option<String>, u8, u8) {
+    let Some(decoded) = text(raw) else {
+        return (None, 0, 0);
+    };
+    let decoded = decoded.trim();
+    if let Some(marker) = decoded.rfind("(Lev:") {
+        let name = decoded[..marker].trim();
+        let levels = decoded[marker + 5..].strip_suffix(')').unwrap_or_default();
+        if let Some((level, max_level)) = levels.split_once('/')
+            && let (Ok(level), Ok(max_level)) = (level.parse::<u8>(), max_level.parse::<u8>())
+            && !name.is_empty()
+        {
+            return (Some(name.to_owned()), level, max_level);
+        }
+    }
+    let base_name = usize::try_from(base_name_length)
+        .ok()
+        .filter(|length| *length > 0)
+        .and_then(|length| decoded.get(..length))
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or(decoded);
+    (
+        (!base_name.is_empty()).then(|| base_name.to_owned()),
+        u8::try_from(suffix_left).unwrap_or(0),
+        0,
+    )
+}
+
+fn inventory_name(
+    raw: darpc_game_client::RawClientText<128>,
+    can_stack: bool,
+    quantity: u32,
+) -> Option<String> {
+    let decoded = text(raw)?;
+    if !can_stack {
+        return Some(decoded);
+    }
+    let trimmed = decoded.trim();
+    let canonical = trimmed
+        .strip_suffix(']')
+        .and_then(|value| value.rsplit_once('['))
+        .filter(|(_, count)| count.trim().parse::<u32>() == Ok(quantity))
+        .map(|(name, _)| name.trim_end())
+        .filter(|name| !name.is_empty())
+        .unwrap_or(trimmed);
+    Some(canonical.to_owned())
+}
+
+fn ascii_text(raw: darpc_game_client::RawClientText<128>) -> Option<String> {
+    let bytes = raw.bytes[..usize::from(raw.length)]
+        .iter()
+        .copied()
+        .filter(u8::is_ascii)
+        .collect::<Vec<_>>();
+    let text = String::from_utf8(bytes).expect("filtered bytes are ASCII");
+    let text = text.trim();
+    (!text.is_empty()).then(|| text.to_owned())
+}
+
+fn text(raw: darpc_game_client::RawClientText<128>) -> Option<String> {
+    decode_client_text(&raw.bytes[..usize::from(raw.length)])
+}
+
+#[cfg(windows)]
+fn decode_client_text(bytes: &[u8]) -> Option<String> {
+    crate::client_text::decode(bytes)
+}
+
+#[cfg(not(windows))]
+fn decode_client_text(bytes: &[u8]) -> Option<String> {
+    (!bytes.is_empty()).then(|| String::from_utf8_lossy(bytes).into_owned())
+}
+
+fn trim_ascii(mut value: &[u8]) -> &[u8] {
+    while value.first().is_some_and(u8::is_ascii_whitespace) {
+        value = &value[1..];
+    }
+    while value.last().is_some_and(u8::is_ascii_whitespace) {
+        value = &value[..value.len() - 1];
+    }
+    value
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use darpc_game_client::RawClientText;
+
+    #[test]
+    fn waits_for_the_bounded_settling_window_after_the_last_slot_packet() {
+        let dirty = [true];
+        assert!(!collection_ready(&dirty, 100, 104));
+        assert!(collection_ready(&dirty, 100, 105));
+        assert!(!collection_ready(&[false], 100, 110));
+        assert!(collection_ready(&dirty, u32::MAX - 2, 2));
+    }
+
+    #[test]
+    fn ignores_an_identical_same_slot_update() {
+        let mut before = [None; INVENTORY_SLOT_COUNT];
+        let mut after = [None; INVENTORY_SLOT_COUNT];
+        before[0] = Some(item(1, 10, 1));
+        after[0] = before[0];
+        assert!(inventory_updates(&before, &after, &[true; INVENTORY_SLOT_COUNT]).is_empty());
+    }
+
+    #[test]
+    fn treats_moves_and_swaps_as_slot_changes() {
+        let mut before = [None; INVENTORY_SLOT_COUNT];
+        let mut moved = [None; INVENTORY_SLOT_COUNT];
+        before[0] = Some(item(1, 10, 1));
+        moved[1] = Some(item(2, 10, 1));
+        let updates = inventory_updates(&before, &moved, &[true; INVENTORY_SLOT_COUNT]);
+        assert_eq!(updates.len(), 2);
+        assert!(
+            updates
+                .iter()
+                .all(|update| update.change == CollectionChange::Changed)
+        );
+        assert_eq!((updates[0].slot, updates[1].slot), (1, 2));
+
+        before[1] = Some(item(2, 20, 1));
+        let mut swapped = [None; INVENTORY_SLOT_COUNT];
+        swapped[0] = Some(item(1, 20, 1));
+        swapped[1] = Some(item(2, 10, 1));
+        let updates = inventory_updates(&before, &swapped, &[true; INVENTORY_SLOT_COUNT]);
+        assert_eq!(updates.len(), 2);
+        assert!(
+            updates
+                .iter()
+                .all(|update| update.change == CollectionChange::Changed)
+        );
+        assert!(
+            updates
+                .iter()
+                .all(|update| update.before.is_some() && update.after.is_some())
+        );
+    }
+
+    #[test]
+    fn classifies_add_remove_and_replacement() {
+        let empty = [None; INVENTORY_SLOT_COUNT];
+        let mut added = empty;
+        added[0] = Some(item(1, 10, 1));
+        let updates = inventory_updates(&empty, &added, &[true; INVENTORY_SLOT_COUNT]);
+        assert_eq!(updates[0].change, CollectionChange::Added);
+
+        let updates = inventory_updates(&added, &empty, &[true; INVENTORY_SLOT_COUNT]);
+        assert_eq!(updates[0].change, CollectionChange::Removed);
+
+        let mut replaced = empty;
+        replaced[0] = Some(item(1, 20, 1));
+        let updates = inventory_updates(&added, &replaced, &[true; INVENTORY_SLOT_COUNT]);
+        assert_eq!(updates.len(), 2);
+        assert_eq!(updates[0].change, CollectionChange::Removed);
+        assert_eq!(updates[1].change, CollectionChange::Added);
+        assert_eq!((updates[0].batch_index, updates[1].batch_index), (0, 1));
+        assert!(updates.iter().all(|update| update.batch_count == 2));
+    }
+
+    #[test]
+    fn uses_total_stack_quantity_to_distinguish_transfer_from_gain() {
+        let mut before = [None; INVENTORY_SLOT_COUNT];
+        before[0] = Some(item(1, 10, 3));
+        let mut increased = before;
+        increased[0] = Some(item(1, 10, 4));
+        assert_eq!(
+            inventory_updates(&before, &increased, &[true; INVENTORY_SLOT_COUNT])[0].change,
+            CollectionChange::Added
+        );
+
+        let mut split = [None; INVENTORY_SLOT_COUNT];
+        split[0] = Some(item(1, 10, 1));
+        split[1] = Some(item(2, 10, 2));
+        let updates = inventory_updates(&before, &split, &[true; INVENTORY_SLOT_COUNT]);
+        assert_eq!(updates.len(), 2);
+        assert!(
+            updates
+                .iter()
+                .all(|update| update.change == CollectionChange::Changed)
+        );
+    }
+
+    #[test]
+    fn stack_count_suffix_does_not_change_item_identity() {
+        let mut before = [None; INVENTORY_SLOT_COUNT];
+        before[0] = Some(item_with_name(1, 10, 3, b"Dark Belt [ 3 ]"));
+        let mut after = before;
+        after[0] = Some(item_with_name(1, 10, 4, b"Dark Belt [ 4 ]"));
+
+        let updates = inventory_updates(&before, &after, &[true; INVENTORY_SLOT_COUNT]);
+        assert_eq!(updates.len(), 1);
+        assert_eq!(updates[0].change, CollectionChange::Added);
+        assert!(updates[0].before.is_some());
+        assert!(updates[0].after.is_some());
+    }
+
+    #[test]
+    fn conversion_keeps_canonical_names_and_ascii_prompts() {
+        let converted = inventory_item(item_with_name(1, 10, 3, b"Dark Belt [ 3 ]"));
+        assert_eq!(converted.name.as_deref(), Some("Dark Belt"));
+
+        let spell = spell(RawSpell {
+            slot: 1,
+            icon: 20,
+            name: text(b"Fas Spiorad (Lev:3/5)"),
+            argument_type: 1,
+            prompt: Some(text(b"Target \xFFname?")),
+            cast_lines: 4,
+            action_delay_active: false,
+            name_suffix_left: 0,
+            base_name_length: 0,
+        });
+        assert_eq!(spell.name.as_deref(), Some("Fas Spiorad"));
+        assert_eq!(spell.level, 3);
+        assert_eq!(spell.max_level, 5);
+        assert_eq!(spell.prompt.as_deref(), Some("Target name?"));
+    }
+
+    fn inventory_updates(
+        before: &[Option<RawInventoryItem>; INVENTORY_SLOT_COUNT],
+        after: &[Option<RawInventoryItem>; INVENTORY_SLOT_COUNT],
+        dirty: &[bool; INVENTORY_SLOT_COUNT],
+    ) -> Vec<QueuedSlotUpdate<RawInventoryItem>> {
+        let mut updates = Vec::new();
+        emit_updates::<_, _, INVENTORY_SLOT_COUNT, MAX_INVENTORY_CHANGES>(
+            before,
+            after,
+            dirty,
+            core::convert::identity,
+            &mut |update, _| updates.push(update),
+            100,
+        );
+        updates
+    }
+
+    fn item(slot: u8, sprite: u16, quantity: u32) -> RawInventoryItem {
+        item_with_name(slot, sprite, quantity, b"Item")
+    }
+
+    fn item_with_name(slot: u8, sprite: u16, quantity: u32, name: &[u8]) -> RawInventoryItem {
+        RawInventoryItem {
+            slot,
+            sprite,
+            dye_color: 0,
+            name: text(name),
+            quantity,
+            can_stack: true,
+            durability: 10,
+            max_durability: 20,
+        }
+    }
+
+    fn text(value: &[u8]) -> RawClientText<128> {
+        let mut bytes = [0; 128];
+        bytes[..value.len()].copy_from_slice(value);
+        RawClientText {
+            bytes,
+            length: u8::try_from(value.len()).unwrap(),
+        }
+    }
+}

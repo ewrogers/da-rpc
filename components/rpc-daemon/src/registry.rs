@@ -196,6 +196,14 @@ impl Registry {
                 let Some(current) = record.snapshot.as_ref() else {
                     return false;
                 };
+                if let Err(error) = validate_collection_batches(events) {
+                    let reason = format!("event reduction failed: {error}");
+                    if record.snapshot_reason.as_ref() == Some(&reason) {
+                        return false;
+                    }
+                    record.snapshot_reason = Some(reason);
+                    return true;
+                }
                 let mut next = current.clone();
                 for state_event in events {
                     if let Err(error) = next.apply_event(state_event.clone()) {
@@ -321,6 +329,51 @@ impl Registry {
     }
 }
 
+fn validate_collection_batches(events: &[StateEvent]) -> Result<(), String> {
+    let mut position = 0;
+    while position < events.len() {
+        let Some((kind, batch)) = events[position].update.collection_batch() else {
+            position += 1;
+            continue;
+        };
+        if batch.index != 0 || batch.count == 0 {
+            return Err(format!(
+                "{} batch begins at {} of {}",
+                kind.as_str(),
+                batch.index,
+                batch.count
+            ));
+        }
+        let count = usize::from(batch.count);
+        let end = position.saturating_add(count);
+        if end > events.len() {
+            return Err(format!(
+                "{} batch contains {} of {} events",
+                kind.as_str(),
+                events.len() - position,
+                batch.count
+            ));
+        }
+        for (index, event) in events[position..end].iter().enumerate() {
+            let expected = Some((
+                kind,
+                darpc_model::CollectionBatch {
+                    index: u8::try_from(index).expect("collection batch index fits u8"),
+                    count: batch.count,
+                },
+            ));
+            if event.update.collection_batch() != expected {
+                return Err(format!(
+                    "{} batch is interrupted at event {index}",
+                    kind.as_str()
+                ));
+            }
+        }
+        position = end;
+    }
+    Ok(())
+}
+
 pub(crate) fn render_event(event: &ConnectionEvent) -> String {
     match event {
         ConnectionEvent::Connecting { pid } => format!("client pid={pid} status=connecting"),
@@ -410,12 +463,13 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
 mod tests {
     use super::{
         ClientIdentity, ClientSnapshotStatus, ConnectionEvent, Registry, TargetStatus, hex,
-        render_event,
+        render_event, validate_collection_batches,
     };
     use darpc_model::{
         CharacterClass, CharacterProgression, CharacterSnapshot, CharacterStats, CharacterVitals,
-        ClientLifecycle, ClientSnapshot as GameSnapshot, CurrentVitals, Effect, EffectDuration,
-        EffectUpdate, LocationUpdate, MapChange, StateEvent, StateUpdate, StatusUpdate,
+        ClientLifecycle, ClientSnapshot as GameSnapshot, CollectionChange, CurrentVitals, Effect,
+        EffectDuration, EffectUpdate, InventoryItem, LocationUpdate, MapChange, SlotUpdate,
+        StateEvent, StateUpdate, StatusUpdate,
     };
     use darpc_protocol::{Architecture, ComponentVersion, Hello, SUPPORTED_VERSIONS};
 
@@ -721,5 +775,35 @@ mod tests {
                 duration: EffectDuration::White,
             }])
         );
+    }
+
+    #[test]
+    fn collection_batches_must_arrive_complete_and_contiguous() {
+        let event = |sequence, batch_index, batch_count| StateEvent {
+            sequence,
+            revision: sequence,
+            tick_ms: 20,
+            update: StateUpdate::Inventory(SlotUpdate {
+                batch_index,
+                batch_count,
+                change: CollectionChange::Changed,
+                slot: batch_index + 1,
+                before: None,
+                after: Some(InventoryItem {
+                    slot: batch_index + 1,
+                    sprite: 21,
+                    dye_color: 2,
+                    name: Some("Hy-Brasyl Gauntlet".into()),
+                    quantity: 1,
+                    can_stack: false,
+                    durability: 900,
+                    max_durability: 1_000,
+                }),
+            }),
+        };
+
+        assert!(validate_collection_batches(&[event(1, 0, 2), event(2, 1, 2)]).is_ok());
+        assert!(validate_collection_batches(&[event(1, 0, 2)]).is_err());
+        assert!(validate_collection_batches(&[event(1, 1, 2)]).is_err());
     }
 }

@@ -18,7 +18,7 @@ use std::{
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
-        mpsc::{self, Receiver, Sender, SyncSender, TryRecvError, TrySendError},
+        mpsc::{self, Receiver, Sender, SyncSender, TrySendError},
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
@@ -210,7 +210,7 @@ fn monitor(
                         ConnectionEvent::Snapshot {
                             pid,
                             identity,
-                            snapshot: Box::new(snapshot),
+                            snapshot,
                         },
                     )?;
                 }
@@ -293,10 +293,7 @@ fn request_command(
 }
 
 fn next_command(commands: &Receiver<CommandCall>) -> Option<CommandCall> {
-    match commands.try_recv() {
-        Ok(call) => Some(call),
-        Err(TryRecvError::Empty | TryRecvError::Disconnected) => None,
-    }
+    commands.try_recv().ok()
 }
 
 fn reject_pending_commands(commands: &Receiver<CommandCall>) {
@@ -314,7 +311,7 @@ fn request_snapshot(
     match response.message {
         Message::SnapshotResponse(response) if response.request_id == request_id => {
             match response.result {
-                SnapshotResult::Ready(snapshot) => Ok(SnapshotOutcome::Ready(*snapshot)),
+                SnapshotResult::Ready(snapshot) => Ok(SnapshotOutcome::Ready(snapshot)),
                 SnapshotResult::Unavailable(reason) => Ok(SnapshotOutcome::Unavailable(reason)),
             }
         }
@@ -407,7 +404,7 @@ fn validate_event_batch(
 }
 
 enum SnapshotOutcome {
-    Ready(darpc_model::ClientSnapshot),
+    Ready(Box<darpc_model::ClientSnapshot>),
     Unavailable(SnapshotUnavailableReason),
 }
 

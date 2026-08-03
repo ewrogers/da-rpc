@@ -14,6 +14,8 @@ pub enum EncodeError {
     DuplicateWorldObjectId { id: u32 },
     EventBatchTooLong { length: usize, max: usize },
     EventStringTooLong { length: usize, max: usize },
+    InvalidCollectionBatch { index: u8, count: u8 },
+    EmptyCollectionUpdate,
     InvalidCommandId,
     InvalidCommandTimeout { actual: u16, max: u16 },
     InvalidCommandWait { actual: u16, max: u16 },
@@ -67,6 +69,15 @@ impl fmt::Display for EncodeError {
                 formatter,
                 "state-event string is {length} bytes; maximum is {max}"
             ),
+            Self::InvalidCollectionBatch { index, count } => {
+                write!(
+                    formatter,
+                    "invalid collection batch position {index} of {count}"
+                )
+            }
+            Self::EmptyCollectionUpdate => {
+                formatter.write_str("collection update has no before or after value")
+            }
             Self::InvalidCommandId => formatter.write_str("command ID must be nonzero"),
             Self::InvalidCommandTimeout { actual, max } => write!(
                 formatter,
@@ -182,6 +193,19 @@ pub enum DecodeError {
     },
     InvalidMessageKind {
         actual: u8,
+    },
+    InvalidCollectionBatch {
+        index: u8,
+        count: u8,
+    },
+    InvalidCollectionChange {
+        actual: u8,
+    },
+    InvalidCollectionFields {
+        actual: u8,
+    },
+    CollectionSlotMismatch {
+        slot: u8,
     },
     InvalidSnapshotStatus {
         actual: u8,
@@ -341,6 +365,21 @@ impl fmt::Display for DecodeError {
             }
             Self::InvalidMessageKind { actual } => {
                 write!(formatter, "invalid client message kind {actual}")
+            }
+            Self::InvalidCollectionBatch { index, count } => {
+                write!(
+                    formatter,
+                    "invalid collection batch position {index} of {count}"
+                )
+            }
+            Self::InvalidCollectionChange { actual } => {
+                write!(formatter, "invalid collection change type {actual}")
+            }
+            Self::InvalidCollectionFields { actual } => {
+                write!(formatter, "invalid collection field mask 0x{actual:02X}")
+            }
+            Self::CollectionSlotMismatch { slot } => {
+                write!(formatter, "collection value does not belong to slot {slot}")
             }
             Self::InvalidSnapshotStatus { actual } => {
                 write!(formatter, "invalid snapshot status {actual}")

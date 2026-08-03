@@ -614,6 +614,10 @@ Build:
   atomic map clears from decoded server events.
 - Normalize typed chat and system messages and retain a bounded per-client
   daemon lookback.
+- Reconcile inventory, spellbook, and skillbook packet updates against the
+  client-owned collections after handler completion.
+- Publish atomic slot batches that distinguish additions, removals, quantity
+  changes, moves, swaps, splits, and merges while ignoring identical updates.
 
 See:
 
@@ -632,6 +636,8 @@ Done:
   world objects converge with a fresh snapshot.
 - Chat and system messages retain ordering, source identity, channel type, and
   resolved participants without blocking the client.
+- Inventory and ability slot batches update REST state atomically and retain
+  their grouping in typed Server-Sent Events.
 
 ## Phase 6: add control one safe action at a time
 

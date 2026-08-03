@@ -6,8 +6,9 @@ mod object;
 mod snapshot;
 
 pub use event::{
-    ApplyEventError, CoreStatus, CurrentVitals, EffectUpdate, LocationUpdate, MapChange,
-    ProgressionStatus, StateEvent, StateUpdate, StatusUpdate,
+    ApplyEventError, CollectionBatch, CollectionChange, CollectionKind, CoreStatus, CurrentVitals,
+    EffectUpdate, InventoryUpdate, LocationUpdate, MapChange, ProgressionStatus, SkillbookUpdate,
+    SlotUpdate, SpellbookUpdate, StateEvent, StateUpdate, StatusUpdate,
 };
 
 pub use message::{ClientMessage, MessageKind};

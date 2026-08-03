@@ -1,17 +1,20 @@
 #![cfg_attr(not(windows), allow(dead_code))]
 
 use crate::{
+    collections::{CollectionTracker, QueuedCollectionUpdate},
     message_packet::{ParsedMessage, Participant},
     world::{ObjectCache, QueuedObjectUpdate},
     world_packet::WorldUpdate,
 };
 use darpc_game_client::{RawCharacter, RawModifiers, RawObjects, RawStateSnapshot, RawWorldObject};
 use darpc_model::{
-    CharacterModifiers, CharacterStats, ClientMessage, CoreStatus, CurrentVitals, Effect,
-    EffectDuration, EffectUpdate, Element, LocationUpdate, MapChange, MessageKind,
-    ProgressionStatus, StateEvent, StateUpdate, StatusUpdate,
+    CharacterModifiers, CharacterStats, ClientMessage, CollectionBatch, CollectionKind, CoreStatus,
+    CurrentVitals, Effect, EffectDuration, EffectUpdate, Element, LocationUpdate, MapChange,
+    MessageKind, ProgressionStatus, StateEvent, StateUpdate, StatusUpdate,
 };
 use darpc_protocol::EventPollResult;
+#[cfg(windows)]
+use darpc_win32::pipe::sender_tick_ms;
 use std::{
     cell::UnsafeCell,
     mem::{MaybeUninit, size_of},
@@ -31,6 +34,7 @@ static REVISION: AtomicU32 = AtomicU32::new(0);
 static EVENT_SEQUENCE: AtomicU32 = AtomicU32::new(0);
 static CACHE: MainThreadCache = MainThreadCache::new();
 static OBJECTS: MainThreadObjects = MainThreadObjects::new();
+static COLLECTIONS: MainThreadCollections = MainThreadCollections::new();
 static QUEUE: EventQueue<EVENT_QUEUE_CAPACITY> = EventQueue::new();
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -49,6 +53,8 @@ pub(crate) fn reset() {
     unsafe { CACHE.replace(StateCache::default()) };
     // SAFETY: reset has the same exclusive lifecycle access described above.
     unsafe { OBJECTS.clear() };
+    // SAFETY: reset has the same exclusive lifecycle access described above.
+    unsafe { COLLECTIONS.reset() };
 }
 
 #[must_use]
@@ -75,10 +81,38 @@ pub(crate) fn snapshot_boundary(
     // SAFETY: snapshot capture and event observation are serialized on the
     // client main thread.
     unsafe { OBJECTS.replace(objects) };
+    // SAFETY: snapshot capture and packet observation are serialized on the
+    // client main thread.
+    unsafe { COLLECTIONS.replace(raw) };
     SnapshotBoundary {
         revision: next_nonzero(&REVISION),
         event_sequence: EVENT_SEQUENCE.load(Ordering::Acquire),
         tick_ms,
+    }
+}
+
+pub(crate) fn mark_collection_dirty(kind: CollectionKind, slot: u8, tick_ms: u32) {
+    // SAFETY: the event hook runs on the client main thread, which is the sole
+    // collection producer.
+    unsafe { COLLECTIONS.mark(kind, slot, tick_ms) };
+}
+
+pub(crate) fn mark_resync_required() {
+    let missing_sequence = next_nonzero(&EVENT_SEQUENCE);
+    QUEUE.mark_resync_required(missing_sequence);
+}
+
+pub(crate) fn observe_tick() {
+    #[cfg(windows)]
+    let tick_ms = sender_tick_ms();
+    #[cfg(not(windows))]
+    let tick_ms = 0;
+    // SAFETY: the tick hook runs on the client main thread, which is the sole
+    // collection producer.
+    unsafe {
+        COLLECTIONS.observe_tick(tick_ms, |update, tick_ms| {
+            push_event(QueuedStateUpdate::Collection(update), tick_ms);
+        });
     }
 }
 
@@ -265,6 +299,7 @@ impl QueuedStateEvent {
             QueuedStateUpdate::Effect(update) => StateUpdate::Effect(update),
             QueuedStateUpdate::Object(update) => StateUpdate::Object(update.into_model()),
             QueuedStateUpdate::Message(update) => StateUpdate::Message(update.into_model()),
+            QueuedStateUpdate::Collection(update) => update.into_model(self.tick_ms),
         };
         StateEvent {
             sequence: self.sequence,
@@ -276,12 +311,25 @@ impl QueuedStateEvent {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+// Queue entries are fixed, pointer-free copies. Boxing the collection variant
+// would allocate in the game-thread observer.
+#[allow(clippy::large_enum_variant)]
 enum QueuedStateUpdate {
     Status(StatusUpdate),
     Location(QueuedLocationUpdate),
     Effect(EffectUpdate),
     Object(QueuedObjectUpdate),
     Message(QueuedMessage),
+    Collection(QueuedCollectionUpdate),
+}
+
+impl QueuedStateUpdate {
+    fn collection_batch(self) -> Option<(CollectionKind, CollectionBatch)> {
+        match self {
+            Self::Collection(update) => Some((update.kind(), update.batch())),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -477,6 +525,13 @@ impl<const N: usize> EventQueue<N> {
             .store(write.wrapping_add(1), Ordering::Release);
     }
 
+    fn mark_resync_required(&self, missing_sequence: u32) {
+        self.latest_sequence
+            .store(missing_sequence, Ordering::Release);
+        self.latest_dropped_sequence
+            .store(missing_sequence, Ordering::Release);
+    }
+
     fn take_after(&self, after_sequence: u32, max_events: usize) -> EventPollResult {
         let dropped = self.latest_dropped_sequence.load(Ordering::Acquire);
         let latest = self.latest_sequence.load(Ordering::Acquire);
@@ -490,22 +545,66 @@ impl<const N: usize> EventQueue<N> {
         let mut events = Vec::with_capacity(max_events.min(N));
         let mut expected = next_sequence(after_sequence);
         while events.len() < max_events {
-            let Some(event) = self.pop() else {
+            let Some(next) = self.peek() else {
                 break;
             };
-            if !sequence_after(event.sequence, after_sequence) {
+            if !sequence_after(next.sequence, after_sequence) {
+                let _ = self.pop();
                 continue;
             }
-            if event.sequence != expected {
+            if next.sequence != expected {
                 return EventPollResult::ResyncRequired {
                     missing_sequence: expected,
                     latest_sequence: latest,
                 };
             }
-            expected = next_sequence(event.sequence);
-            events.push(event.into_model());
+            if let Some((kind, batch)) = next.update.collection_batch() {
+                let count = usize::from(batch.count);
+                if batch.index != 0 || count == 0 || count > max_events {
+                    return EventPollResult::ResyncRequired {
+                        missing_sequence: expected,
+                        latest_sequence: latest,
+                    };
+                }
+                if events.len() + count > max_events {
+                    break;
+                }
+                if self.available() < count {
+                    break;
+                }
+                for index in 0..batch.count {
+                    let event = self.pop().expect("complete collection batch is available");
+                    if event.sequence != expected
+                        || event.update.collection_batch()
+                            != Some((
+                                kind,
+                                CollectionBatch {
+                                    index,
+                                    count: batch.count,
+                                },
+                            ))
+                    {
+                        return EventPollResult::ResyncRequired {
+                            missing_sequence: expected,
+                            latest_sequence: latest,
+                        };
+                    }
+                    expected = next_sequence(event.sequence);
+                    events.push(event.into_model());
+                }
+            } else {
+                let event = self.pop().expect("peeked event is available");
+                expected = next_sequence(event.sequence);
+                events.push(event.into_model());
+            }
         }
         EventPollResult::Events(events)
+    }
+
+    fn available(&self) -> usize {
+        let read = self.read_position.load(Ordering::Relaxed);
+        let write = self.write_position.load(Ordering::Acquire);
+        usize::try_from(write.wrapping_sub(read)).unwrap_or(usize::MAX)
     }
 
     fn discard_through(&self, snapshot_sequence: u32) {
@@ -542,6 +641,38 @@ impl<const N: usize> EventQueue<N> {
         self.read_position
             .store(read.wrapping_add(1), Ordering::Release);
         Some(event)
+    }
+}
+
+struct MainThreadCollections(UnsafeCell<CollectionTracker>);
+
+// SAFETY: collection state is mutated only by the client main thread during
+// active hooks or by lifecycle reset while hooks and the IPC consumer are down.
+unsafe impl Sync for MainThreadCollections {}
+
+impl MainThreadCollections {
+    const fn new() -> Self {
+        Self(UnsafeCell::new(CollectionTracker::new()))
+    }
+
+    unsafe fn reset(&self) {
+        // SAFETY: the caller guarantees exclusive lifecycle access.
+        unsafe { &mut *self.0.get() }.reset();
+    }
+
+    unsafe fn replace(&self, raw: &RawStateSnapshot) {
+        // SAFETY: the caller guarantees client-main-thread access.
+        unsafe { &mut *self.0.get() }.replace(raw);
+    }
+
+    unsafe fn mark(&self, kind: CollectionKind, slot: u8, tick_ms: u32) {
+        // SAFETY: the caller guarantees client-main-thread access.
+        unsafe { &mut *self.0.get() }.mark(kind, slot, tick_ms);
+    }
+
+    unsafe fn observe_tick(&self, tick_ms: u32, emit: impl FnMut(QueuedCollectionUpdate, u32)) {
+        // SAFETY: the caller guarantees client-main-thread access.
+        unsafe { &mut *self.0.get() }.observe_tick(tick_ms, emit);
     }
 }
 
@@ -873,6 +1004,18 @@ mod tests {
         }
     }
 
+    fn collection_event(sequence: u32, batch_index: u8, batch_count: u8) -> QueuedStateEvent {
+        QueuedStateEvent {
+            sequence,
+            revision: sequence,
+            tick_ms: sequence,
+            update: QueuedStateUpdate::Collection(QueuedCollectionUpdate::test_inventory_batch(
+                batch_index,
+                batch_count,
+            )),
+        }
+    }
+
     #[test]
     fn queue_preserves_order_and_snapshot_boundary() {
         let queue = EventQueue::<4>::new();
@@ -901,6 +1044,21 @@ mod tests {
     }
 
     #[test]
+    fn explicit_resync_marker_requires_a_new_snapshot() {
+        let queue = EventQueue::<4>::new();
+        queue.push(event(1));
+        queue.mark_resync_required(2);
+        assert_eq!(
+            queue.take_after(1, 4),
+            EventPollResult::ResyncRequired {
+                missing_sequence: 2,
+                latest_sequence: 2,
+            }
+        );
+        assert_eq!(queue.take_after(2, 4), EventPollResult::Events(Vec::new()));
+    }
+
+    #[test]
     fn rebase_discards_only_events_covered_by_the_snapshot() {
         let queue = EventQueue::<4>::new();
         queue.push(event(1));
@@ -924,6 +1082,42 @@ mod tests {
                 missing_sequence: 2,
                 latest_sequence: 3,
             }
+        );
+    }
+
+    #[test]
+    fn collection_batches_are_never_split_across_polls() {
+        let queue = EventQueue::<4>::new();
+        queue.push(event(1));
+        queue.push(collection_event(2, 0, 2));
+        queue.push(collection_event(3, 1, 2));
+
+        assert_eq!(
+            queue.take_after(0, 2),
+            EventPollResult::Events(vec![event(1).into_model()])
+        );
+        assert_eq!(
+            queue.take_after(1, 4),
+            EventPollResult::Events(vec![
+                collection_event(2, 0, 2).into_model(),
+                collection_event(3, 1, 2).into_model(),
+            ])
+        );
+    }
+
+    #[test]
+    fn incomplete_collection_batches_wait_for_the_producer() {
+        let queue = EventQueue::<4>::new();
+        queue.push(collection_event(1, 0, 2));
+        assert_eq!(queue.take_after(0, 4), EventPollResult::Events(Vec::new()));
+
+        queue.push(collection_event(2, 1, 2));
+        assert_eq!(
+            queue.take_after(0, 4),
+            EventPollResult::Events(vec![
+                collection_event(1, 0, 2).into_model(),
+                collection_event(2, 1, 2).into_model(),
+            ])
         );
     }
 

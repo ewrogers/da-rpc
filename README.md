@@ -2,372 +2,255 @@
 
 [![Documentation](https://github.com/ewrogers/da-rpc/actions/workflows/docs.yml/badge.svg)](https://github.com/ewrogers/da-rpc/actions/workflows/docs.yml)
 
-daRPC, short for Dark Ages Remote Procedure Call, is a Rust workspace for
-integrating developer tools with the 32-bit Windows client of *Dark Ages*.
-The project is in early development. Injection, launch-time patches, direct
-named-pipe diagnostics, automatic client discovery, daemon-managed lifecycle,
-current client state, event-driven updates, and bounded main-thread commands
-are implemented. The x86 detour mechanism and live hooks are qualified through
-controlled and live-client testing.
+daRPC is a Rust toolkit for observing and controlling the 32-bit Windows client
+of *Dark Ages*. It attaches a small DLL to the client, reads the state the client
+already knows, and performs actions through the client's own code.
 
-Read the [daRPC Book](https://ewrogers.github.io/da-rpc/) for the architecture,
-current implementation status, protocol, safety requirements, and development
-guidance.
+Start with the [daRPC Book](https://ewrogers.github.io/da-rpc/) for the complete
+documentation, or continue below for a quick overview.
 
-daRPC is designed around an injected library instead of a network proxy. The
-library can attach to an existing client, observe internal events, maintain a
-separate state model, and submit actions through the client's native paths. A
-daemon discovers and manages connected clients and exposes their state through
-portable web APIs.
+> daRPC is in active development and currently supports one exact 7.41 client
+> build. It is intended for education, research, interoperability, and
+> user-controlled automation.
+
+## Why daRPC?
+
+Network proxies are excellent tools for inspecting game traffic, but the wire
+only tells part of the story. A proxy may need to redirect the client, recreate
+state from packets, and guess at details that exist only inside the client or
+its user interface.
+
+daRPC takes a different approach. Its DLL can attach to a running client and
+detach cleanly when it is no longer needed. This gives tools direct access to
+the client's current state without requiring all traffic to pass through a
+proxy. You can still use a network analyzer such as
+[Arbiter](https://github.com/ewrogers/Arbiter) alongside daRPC when packet-level
+visibility is useful.
+
+Actions also travel through the client's native methods instead of being
+created as injected network packets. This has a few important benefits:
+
+- The client user interface reflects actions normally.
+- Client-side timing and validation stay in the normal execution path.
+- Built-in pathfinding handles movement instead of an external controller
+  sending every step.
+- Player input can naturally interrupt or replace a path without competing
+  with a separate movement loop.
+
+The result is an integration that behaves more like part of the client and less
+like a second client trying to imitate it from the outside.
+
+## Highlights
+
+- Attach to an existing client or launch a new one.
+- Detach safely without closing the game client.
+- Read character status, inventory, equipment, spellbook, skillbook, effects,
+  visible objects, and recent messages.
+- Follow changes as they happen through an ordered event stream.
+- Turn, walk, use skills, and cast spells through native client behavior.
+- Manage several clients from one daemon.
+- Query state and submit actions through REST.
+- Subscribe to live events through Server-Sent Events (SSE).
+- Explore the API through its built-in Swagger UI and OpenAPI document.
+- Talk directly to one DLL with a lightweight command-line client when a daemon
+  is unnecessary.
+
+WebSocket support is planned. REST and SSE are available now.
+
+## How it works
+
+```text
+                         direct commands
+                    +---------------------- darpc.exe
+                    |
+Darkages.exe <-> darpc.dll <-> named pipe <-> darpcd.exe <-> REST / SSE
+     ^                                                       OpenAPI / Swagger
+     |
+ loader.exe
+```
+
+`loader.exe` launches a supported client or attaches `darpc.dll` to one that is
+already running. Each DLL maintains the state for its own client and exposes a
+process-specific named pipe. `darpc.exe` can use that pipe directly, while
+`darpcd.exe` discovers multiple clients and presents them through a web API.
+
+Small hooks observe the places where the client receives new state. They copy
+only the information needed and hand off the heavier work. Actions that depend
+on the client's main thread are scheduled there, so native methods run in the
+context they expect. During detach, daRPC stops new work, removes its hooks, and
+then unloads the DLL.
+
+This keeps the timing-sensitive parts short and lets the client continue to run
+if the daemon disconnects or restarts.
 
 ## Components
 
-| Component | Target | Responsibility |
-| --- | --- | --- |
-| `darpc.dll` | 32-bit Windows x86 | Integrates with one client, maintains local state, and hosts its named-pipe endpoint. |
-| `loader.exe` | 32-bit Windows x86 | Launches a compatible client or injects `darpc.dll` into an existing one. |
-| `darpc.exe` | 64-bit Windows x86-64 | Talks directly to one DLL through the binary protocol and presents human-readable or JSON results. |
-| `darpcd.exe` | 64-bit Windows x86-64 | Discovers clients, aggregates state and events, and exposes web APIs. |
+| File | Purpose |
+| --- | --- |
+| `darpc.dll` | Lives inside one game client, tracks its state, and runs native actions. |
+| `loader.exe` | Launches clients and attaches or detaches the DLL. |
+| `darpc.exe` | Talks directly to one injected client and prints text or JSON. |
+| `darpcd.exe` | Discovers clients and exposes their state and actions through web APIs. |
 
-daRPC supports one exact game-client build at a time. The `darpc-game-client`
-crate owns that build's fingerprint, layouts, addresses, and application binary
-interface boundaries. Supporting a different client is a fork-level change, not
-an in-tree matrix of versioned layout crates.
+The DLL and loader are 32-bit x86 programs because the game client is 32-bit.
+The command-line client and daemon are 64-bit x86-64 programs.
 
-The DLL remains independent of the daemon. If `darpcd.exe` is stopped or
-restarted, an injected client must continue operating normally and accept a new
-daemon connection later.
+## Getting started
 
-## Developer harnesses
+### Requirements
 
-| Harness | Target | Purpose |
-| --- | --- | --- |
-| `lifecycle-host.exe` | 32-bit Windows x86 | Loads `darpc.dll` locally, exercises its lifecycle contract, and verifies repeated loading and unloading. |
-| `injection-target.exe` | 32-bit Windows x86 | Provides an inert, persistent process for safe loader attach and detach testing. |
-| `hook-harness.exe` | 32-bit Windows x86 | Qualifies transactional detours, relocated trampolines, concurrent calls, rollback, and removal without touching the game client. |
+- Windows with the supported *Dark Ages* client
+- A current stable Rust toolchain
+- [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/)
+  with the Desktop development with C++ workload and a current Windows SDK
+- The `i686-pc-windows-msvc` and `x86_64-pc-windows-msvc` Rust targets
 
-These harnesses support local development and integration testing. They are not
-runtime components distributed to end users.
-
-## Workspace
-
-```text
-components/
-  rpc-client/   64-bit command-line client
-  loader/       32-bit launcher and injector
-  rpc-dll/      32-bit injected library
-  rpc-daemon/   64-bit daemon and web API
-
-crates/
-  game-client/  Supported game layouts, addresses, and client ABI boundaries
-  hook/         transactional in-process x86 detours and trampolines
-  model/        shared domain state, actions, and updates
-  protocol/     versioned binary IPC framing and codecs
-  win32/        shared Windows platform boundaries
-
-tools/
-  hook-harness/     controlled x86 detour qualification harness
-  injection-target/ inert process for loader integration testing
-  lifecycle-host/   local DLL lifecycle integration harness
-  loader-fixture-dll/ controlled failure DLL for loader integration testing
-  test-daemon.ps1   daemon discovery, lifecycle, and reconnect integration test
-  test-hook.ps1     debug and release hook qualification test
-  test-ipc.ps1      direct IPC and shutdown integration test
-
-docs/           architecture and developer documentation
-```
-
-Reusable library packages use the `darpc-` prefix. Component packages use
-concise role names, while their manifests define the intended artifact names.
-
-## Design priorities
-
-- Preserve the stability and normal behavior of the game client.
-- Keep hooks bounded, nonblocking, and fail-open.
-- Keep client memory and native calls on validated, version-specific boundaries.
-- Keep IPC independent from game loops and native client locks.
-- Prefer simple, idiomatic Rust over premature abstractions.
-- Use a minimal set of common, well-maintained dependencies.
-
-## Requirements
-
-Install Rust with `rustup`. Windows builds also require the current
-[Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/)
-with the **Desktop development with C++** workload. Ensure the installer
-includes the MSVC C++ x64/x86 build tools and a current Windows 11 SDK. The
-full Visual Studio IDE is not required.
-
-Install the Rust targets used by the runtime components from a Windows shell:
+Install the Rust targets from a Windows shell:
 
 ```text
 rustup target add i686-pc-windows-msvc x86_64-pc-windows-msvc
 ```
 
-Developers working natively on Windows can build and test directly from their
-normal checkout. On Apple silicon, Windows 11 Arm in a virtual machine can
-build and run the x86 artifacts. macOS can run platform-independent tests and
-cross-target checks, but MSVC builds and executable integration tests should
-run inside Windows.
-
-### Optional macOS and Parallels workflow
-
-Parallels Desktop can provide the native Windows verification environment while
-the repository remains in a macOS checkout. This is optional and is not
-required for developers already working on Windows.
-
-Share or mount the checkout into the guest, but discover its guest path rather
-than relying on a fixed drive letter. Mapped drives, virtual machine names, and
-Windows usernames vary by developer and session. Keep Cargo-generated files on
-the Windows-local filesystem. Choose one stable directory for the checkout and
-reuse it across builds; Cargo already separates explicit target architectures
-below that root. Do not create a new target directory for each task or test.
-For example, set an environment-specific local directory in PowerShell before
-building:
-
-```powershell
-$env:CARGO_TARGET_DIR = "C:\cargo-target\da-rpc"
-Set-Location "<guest-path-to-repository>"
-```
-
-Parallels Pro can invoke guest commands from macOS. First discover the virtual
-machine, then execute in the logged-in Windows user context so mapped drives and
-the user's Rust environment are available:
+Build the 32-bit client components from a Visual Studio x86 developer shell:
 
 ```text
-prlctl list -a
-prlctl exec "<vm-name>" --current-user powershell.exe <arguments>
+cargo build -p loader -p rpc-dll --target i686-pc-windows-msvc
 ```
 
-Use direct current-user remote commands for building, repository-owned
-integration targets, inspection, attach, and automated live-client launch. No
-scheduled task or other launch intermediary is required. A rapid launch from
-macOS has this general form:
-
-```sh
-prlctl exec "<vm-name>" --current-user powershell.exe -NoProfile -Command \
-  "& '<loader-path>' launch --allow-multiple --skip-intro --skip-notice '<client-path>' '<dll-path>'"
-```
-
-Add `--server '<host[:port]>'` when endpoint selection is part of the test.
-[Arbiter](https://github.com/ewrogers/Arbiter) is a Dark Ages network analyzer
-and local proxy; use `--server 127.0.0.1:2610` when Arbiter is configured to
-listen there and forward the connection. Automated checks must not enter
-credentials, record private game data, or force-terminate a client they do not
-clearly own.
-
-The intended development loop is:
-
-1. Run formatting, platform-independent tests, and cross-target checks on
-   macOS.
-2. Build the required MSVC target inside Windows with a Windows-local
-   `CARGO_TARGET_DIR`.
-3. Run the repository-owned Windows integration script inside the guest.
-4. Launch live-client checks through direct current-user guest execution when
-   the milestone requires them.
-5. Treat both host and native guest results as completion evidence.
-
-## Loader CLI
-
-`loader.exe` supports process inspection, late attach, detach, and suspended
-launch:
+Build the 64-bit tools from a Visual Studio x64 developer shell:
 
 ```text
-loader [--json] inspect <pid>
-loader [--json] attach <pid> <dll-path>
-loader [--json] detach <pid> <dll-path>
-loader [--json] launch [--allow-multiple] [--server <host[:port]>] \
-    [--skip-intro] [--skip-notice] \
-    <executable-path> <dll-path> [-- <argument>...]
+cargo build -p rpc-client -p rpc-daemon --target x86_64-pc-windows-msvc
 ```
 
-The standard launch profile combines all four launch options. It allows another
-client instance, selects a strict IPv4 endpoint, skips the intro, hides the
-notice, enables early title-menu pointer input, and removes the fixed one-second
-transfer delay. Launch options remain explicit so each behavior can be omitted
-during diagnosis.
+See the book's [development guide](https://ewrogers.github.io/da-rpc/development.html)
+for testing, macOS with Parallels, and repository-specific build guidance.
+
+## Usage
+
+### Attach to a running client
 
 ```text
-loader.exe launch --allow-multiple --server <host[:port]> \
-    --skip-intro --skip-notice <executable-path> <dll-path>
+loader.exe attach <pid> <path-to-darpc.dll>
 ```
 
-`--server` uses port 2610 when omitted. Arbiter can be selected by passing
-`--server 127.0.0.1:2610`, but its local proxy must already be listening and
-forwarding the connection. Arguments after `--` are forwarded unchanged to the
-client. See the [loader documentation](https://ewrogers.github.io/da-rpc/loader.html)
-for the detailed lifecycle, safety behavior, and result contract.
+Inspect or detach it later:
 
-## Direct IPC
+```text
+loader.exe inspect <pid>
+loader.exe detach <pid> <path-to-darpc.dll>
+```
 
-With `darpc.dll` initialized in a process and `darpcd.exe` disconnected, the
-64-bit client can exercise the PID-based pipe directly:
+### Launch a client
+
+```text
+loader.exe launch --allow-multiple --skip-intro --skip-notice \
+    <path-to-Darkages.exe> <path-to-darpc.dll>
+```
+
+The loader can also select a server endpoint for local development and network
+analysis. See the [loader guide](https://ewrogers.github.io/da-rpc/loader.html)
+for every launch option.
+
+### Use one client directly
+
+`darpc.exe` is the simplest way to inspect or control one injected client. It
+uses the binary named-pipe protocol directly and does not require the daemon.
 
 ```text
 darpc.exe hello --pid <pid>
-darpc.exe ping --pid <pid>
-darpc.exe echo --pid <pid> "hello"
-darpc.exe tick-health --pid <pid>
 darpc.exe snapshot --pid <pid>
-darpc.exe diagnostic --pid <pid>
 darpc.exe turn --pid <pid> north
-darpc.exe walk --pid <pid> east
 darpc.exe walk --pid <pid> 120 85
 darpc.exe skill-use --pid <pid> 5
-darpc.exe spell-cast --pid <pid> 1
 darpc.exe spell-cast --pid <pid> 2 --target-id <object-id>
-darpc.exe spell-cast --pid <pid> 7 --input "nothing"
-darpc.exe command-status --pid <pid> <command-id>
-darpc.exe command-cancel --pid <pid> <command-id>
-darpc.exe --output json hello --pid <pid>
+darpc.exe --output json snapshot --pid <pid>
 ```
 
-These commands perform the real binary handshake and validate ordering,
-correlation, and timing. `tick-health` samples the installed client tick hook
-twice and reports whether its bounded counter advances. `snapshot` reads the
-current character, map, inventory, equipment, spellbook, skillbook, active
-spell effects, and observed world objects.
-`diagnostic` proves bounded execution on the game main thread without changing
-client state. `turn` and `walk` use the client's native movement paths, including
-its own collision checks and tile pathfinding. `skill-use` invokes a learned
-one-based skill slot without selecting the skill panel or synthesizing input.
-`spell-cast` invokes a learned one-based spell slot with no argument, a visible
-object target, a zero-based map tile, or bounded ASCII text, as required by the
-spell. Omitting the target from a targeted spell casts it on the character.
-Status and cancel commands address retained work. See the
-[`darpc.exe` documentation](https://ewrogers.github.io/da-rpc/cli.html) for
-output fields and exit codes.
+See the [`darpc.exe` guide](https://ewrogers.github.io/da-rpc/cli.html) for the
+full command reference.
 
-`darpc.exe` does not call the daemon HTTP API. It remains usable with only the
-loader and an injected DLL. Multi-client aggregation is available directly
-through the `darpcd.exe` web API and its Swagger UI.
+### Run the daemon
 
-## Daemon client registry
-
-`darpcd.exe` discovers running clients by their verified `Darkages` top-level
-window class and persistently connects to every available daRPC pipe. Explicit
-PIDs remain available for controlled targets or clients without a window:
+Start `darpcd.exe` to discover and aggregate clients:
 
 ```text
 darpcd.exe
-darpcd.exe --pid 3780 --pid 6648
-darpcd.exe --auto-load
-darpcd.exe --loader-path <loader.exe> --dll-path <darpc.dll>
 ```
 
-The daemon prints connection status transitions and reconnects when a pipe or
-DLL returns. After each connection it obtains and retains a fresh current-state
-snapshot, then applies ordered absolute state updates between snapshots. A
-queue overflow or ordering gap automatically requests a new snapshot. While it
-owns a pipe, direct `darpc.exe` commands report that the endpoint is busy.
+To inject the DLL into discovered clients automatically, provide the loader and
+DLL paths and enable auto-load:
 
-`--auto-load` asks the daemon to load its configured DLL into each `not_loaded`
-client once per tracked process. It applies to clients present at startup and
-clients discovered later. An explicit unload remains unloaded for the rest of
-that tracked process lifetime; restarting the daemon with `--auto-load` makes
-the process eligible again. Validation and failures remain isolated per client.
+```text
+darpcd.exe --auto-load --loader-path <loader.exe> --dll-path <darpc.dll>
+```
 
-The loader and DLL default to files beside `darpcd.exe` and can be overridden
-only through daemon configuration. Each launch request supplies the full path
-to that installation's `Darkages.exe`; the loader uses its parent as the client
-working directory, so no installation directory is assumed.
+The daemon listens on `127.0.0.1:2626` by default. Open
+`http://127.0.0.1:2626/docs` for Swagger UI or
+`http://127.0.0.1:2626/openapi.json` for the OpenAPI document.
 
 ## Web API
 
-The daemon uses Axum and listens on `127.0.0.1:2626` by default. A single
-`--port <port>` option overrides the port while keeping the listener on
-loopback. It exposes one current, unversioned API:
+The web API is designed for scripts, desktop tools, dashboards, and other local
+integrations.
+
+- **REST** reads current state and submits actions.
+- **SSE** streams ordered state, message, object, and action events as they
+  happen.
+- **OpenAPI** describes the REST surface for tools such as Postman and API
+  client generators.
+- **Swagger UI** provides an interactive API browser without extra setup.
+- **WebSocket** support is planned for consumers that need two-way streaming.
+
+Clients can be addressed by process ID or, while in game, by character name.
+Some representative routes are:
 
 ```text
-GET /health
-GET /clients
-GET /clients/{client}/status
-GET /clients/{client}/inventory
-GET /clients/{client}/equipment
-GET /clients/{client}/spellbook
-GET /clients/{client}/skillbook
-GET /clients/{client}/effects
-GET /clients/{client}/objects
-GET /clients/{client}/events
+GET  /clients
+GET  /clients/{client}/status
+GET  /clients/{client}/inventory
+GET  /clients/{client}/objects
+GET  /clients/{client}/events
 POST /clients/{client}/turn
 POST /clients/{client}/walk
 POST /clients/{client}/skills/use
 POST /clients/{client}/spells/cast
-POST /clients/{client}/commands/diagnostic
-GET /clients/{client}/commands/{command_id}
-DELETE /clients/{client}/commands/{command_id}
 POST /clients/launch
 POST /clients/{client}/load
 POST /clients/{client}/unload
-GET /openapi.json
-GET /docs
 ```
 
-The default interactive documentation URL is
-`http://127.0.0.1:2626/docs`. Startup fails clearly if the selected port is
-unavailable rather than silently choosing another one. `/clients` reports each
-discovered or explicitly configured PID, current endpoint name, and status,
-plus the DLL `instance_id` and process `created_time` once identity is
-available. A `{client}` path accepts either a PID or a case-insensitive current
-in-game character name. The status and collection routes present focused views
-of the daemon's latest retained observation for one client. The event route is
-a bounded Server-Sent Events stream beginning with a current snapshot boundary;
-a lagging consumer is told to resynchronize and cannot block other consumers or
-the injected client. The [web API chapter](https://ewrogers.github.io/da-rpc/web-api.html)
-documents the REST models, SSE frame envelope, event payloads, and stream rules.
+The [web API guide](https://ewrogers.github.io/da-rpc/web-api.html) explains the
+request models, event format, ordering, filtering, and reconnect behavior.
 
-Managed launch requires `client_path` and accepts `allow_multiple`,
-`skip_intro`, `skip_notice`, and an optional `server` string in `host` or
-`host:port` form. A missing port defaults to `2610`. Arbitrary client arguments
-and request-selected loader or DLL paths are intentionally not part of the API.
+## Project status
 
-`utoipa` generates the OpenAPI document from the Rust HTTP models. A vendored
-Swagger UI serves the same contract at `/docs` without requiring internet
-access and uses an Ayu-inspired dark theme. `/openapi.json` can be imported
-into tools such as Postman and Apidog.
+daRPC is not a general-purpose game injection framework. It is deliberately
+specific to one supported client build and validates that build before using
+version-specific addresses or hooks.
+
+The current implementation includes client lifecycle management, local state,
+event-driven updates, native movement, skill and spell actions, REST, SSE, and
+direct binary IPC. See the [roadmap](https://ewrogers.github.io/da-rpc/roadmap.html)
+for current work and planned features.
 
 ## Development
 
-The workspace uses Rust 2024. The injected-process components target 32-bit
-Windows, while the daemon and command-line client target 64-bit Windows:
+The repository is a Rust workspace organized by runtime component and shared
+domain boundary:
 
 ```text
-rpc-dll, loader, lifecycle-host, injection-target: i686-pc-windows-msvc
-rpc-client, rpc-daemon:                          x86_64-pc-windows-msvc
+components/   DLL, loader, command-line client, and daemon
+crates/       game layout, hooks, models, protocol, and Windows support
+tools/        lifecycle, injection, hook, and integration test harnesses
+docs/         mdBook source
 ```
 
-The shared crates can be checked together on a supported development host:
-
-```text
-cargo check -p darpc-model -p darpc-protocol
-```
-
-Platform component checks should specify their intended Windows target. Build
-and test instructions will grow alongside the implementation.
-
-Coding agents may implement requested changes and also act as reviewers,
-debugging partners, and mentors. See [AGENTS.md](AGENTS.md) for the complete
-collaboration and engineering rules.
-
-All commits should follow the [Conventional Commits](https://www.conventionalcommits.org/)
-format with a short, focused, imperative summary.
-
-## Documentation
-
-The book contains the detailed state model, discovery design, IPC and HTTP
-protocols, the implemented Server-Sent Events interface, and the planned
-WebSocket interface.
-
-The [development roadmap](docs/src/roadmap.md) divides the work into small
-increments with a visible demonstration and exit checks for each milestone.
-The [command-line interface](docs/src/cli.md) documents the implemented direct
-commands and their separation from the daemon HTTP API.
-
-Build and serve it locally with the pinned mdBook version:
-
-```text
-cargo install mdbook --version 0.5.4 --locked
-mdbook serve docs --open
-```
+Before contributing, read the
+[development guide](https://ewrogers.github.io/da-rpc/development.html) and
+[repository conventions](AGENTS.md). Use short
+[Conventional Commits](https://www.conventionalcommits.org/) and include focused
+tests and documentation with behavioral changes.
 
 ## License
 

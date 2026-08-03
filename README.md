@@ -6,9 +6,9 @@ daRPC, short for Dark Ages Remote Procedure Call, is a Rust workspace for
 integrating developer tools with the 32-bit Windows client of *Dark Ages*.
 The project is in early development. Injection, launch-time patches, direct
 named-pipe diagnostics, automatic client discovery, daemon-managed lifecycle,
-current client state, event-driven updates, and a bounded main-thread
-diagnostic command are implemented. The x86 detour mechanism and live hooks
-are qualified through controlled and live-client testing.
+current client state, event-driven updates, and bounded main-thread commands
+are implemented. The x86 detour mechanism and live hooks are qualified through
+controlled and live-client testing.
 
 Read the [daRPC Book](https://ewrogers.github.io/da-rpc/) for the architecture,
 current implementation status, protocol, safety requirements, and development
@@ -118,8 +118,11 @@ required for developers already working on Windows.
 Share or mount the checkout into the guest, but discover its guest path rather
 than relying on a fixed drive letter. Mapped drives, virtual machine names, and
 Windows usernames vary by developer and session. Keep Cargo-generated files on
-the Windows-local filesystem. For example, set an environment-specific local
-directory in PowerShell before building:
+the Windows-local filesystem. Choose one stable directory for the checkout and
+reuse it across builds; Cargo already separates explicit target architectures
+below that root. Do not create a new target directory for each task or test.
+For example, set an environment-specific local directory in PowerShell before
+building:
 
 ```powershell
 $env:CARGO_TARGET_DIR = "C:\cargo-target\da-rpc"
@@ -206,6 +209,9 @@ darpc.exe echo --pid <pid> "hello"
 darpc.exe tick-health --pid <pid>
 darpc.exe snapshot --pid <pid>
 darpc.exe diagnostic --pid <pid>
+darpc.exe turn --pid <pid> north
+darpc.exe walk --pid <pid> east
+darpc.exe walk --pid <pid> 120 85
 darpc.exe command-status --pid <pid> <command-id>
 darpc.exe command-cancel --pid <pid> <command-id>
 darpc.exe --output json hello --pid <pid>
@@ -217,7 +223,8 @@ twice and reports whether its bounded counter advances. `snapshot` reads the
 current character, map, inventory, equipment, spellbook, skillbook, active
 spell effects, and observed world objects.
 `diagnostic` proves bounded execution on the game main thread without changing
-client state, while the status and cancel commands address retained work. See the
+client state. `turn` and `walk` use the client's native movement paths, including
+its own collision checks and tile pathfinding. Status and cancel commands address retained work. See the
 [`darpc.exe` documentation](https://ewrogers.github.io/da-rpc/cli.html) for
 output fields and exit codes.
 
@@ -272,6 +279,8 @@ GET /clients/{client}/skillbook
 GET /clients/{client}/effects
 GET /clients/{client}/objects
 GET /clients/{client}/events
+POST /clients/{client}/turn
+POST /clients/{client}/walk
 POST /clients/{client}/commands/diagnostic
 GET /clients/{client}/commands/{command_id}
 DELETE /clients/{client}/commands/{command_id}

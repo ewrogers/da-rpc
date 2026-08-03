@@ -189,6 +189,26 @@ pub(crate) fn execute(pid: u32, operation: Operation) -> Result<CommandResult> {
                 wait_ms: MAX_COMMAND_WAIT_MS,
             },
         ),
+        Operation::Turn(direction) => request_command(
+            &mut session,
+            pid,
+            "turn",
+            CommandOperation::Submit {
+                kind: CommandKind::Turn(direction),
+                timeout_ms: DEFAULT_COMMAND_TIMEOUT_MS,
+                wait_ms: MAX_COMMAND_WAIT_MS,
+            },
+        ),
+        Operation::Walk(target) => request_command(
+            &mut session,
+            pid,
+            "walk",
+            CommandOperation::Submit {
+                kind: CommandKind::Walk(target),
+                timeout_ms: DEFAULT_COMMAND_TIMEOUT_MS,
+                wait_ms: MAX_COMMAND_WAIT_MS,
+            },
+        ),
         Operation::CommandStatus(command_id) => request_command(
             &mut session,
             pid,

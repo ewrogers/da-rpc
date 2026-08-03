@@ -17,17 +17,16 @@ pub use types::{
     RawMapName, RawModifiers, RawPaneProgression, RawStateSnapshot, StateReadError,
 };
 
+use crate::{WORLD_PANE_ADJUSTMENT, WORLD_PANE_POINTER_RVA, WORLD_PANE_ROUTE_ACTIVE_OFFSET};
 use types::MAX_MAP_NAME_BYTES;
 
 const CHARACTER_NAME_RVA: u32 = 0x0033_D910;
 const EQUIPMENT_PANE_RVA: u32 = 0x002F_C914;
-const WORLD_IMPLEMENTATION_RVA: u32 = 0x0033_D964;
 const MAIN_MENU_PANE_RVA: u32 = 0x0033_D968;
 const MAIN_THREAD_ID_RVA: u32 = 0x0034_0400;
 const GUI_BACK_PANE_RVA: u32 = 0x0042_B768;
 const MAP_LOADING_PANE_RVA: u32 = 0x0045_1598;
 
-const WORLD_IMPLEMENTATION_ADJUSTMENT: u32 = 0x2EC;
 const GUI_BACK_PANE_ADJUSTMENT: u32 = 0x190;
 const MAX_MAP_DIMENSION: i32 = 255;
 const MAX_TREE_DEPTH: usize = 64;
@@ -316,11 +315,16 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
     }
 
     fn capture_roots(&self) -> Result<Roots, StateReadError> {
-        let world_interface = self.read_module_u32(WORLD_IMPLEMENTATION_RVA)?;
+        let world_interface = self.read_module_u32(
+            u32::try_from(WORLD_PANE_POINTER_RVA).expect("world pane pointer RVA fits u32"),
+        )?;
         let gui_back_interface = self.read_module_u32(GUI_BACK_PANE_RVA)?;
         Ok(Roots {
             world_interface,
-            world: adjusted(world_interface, WORLD_IMPLEMENTATION_ADJUSTMENT)?,
+            world: adjusted(
+                world_interface,
+                u32::try_from(WORLD_PANE_ADJUSTMENT).expect("world pane adjustment fits u32"),
+            )?,
             gui_back_interface,
             gui_back: adjusted(gui_back_interface, GUI_BACK_PANE_ADJUSTMENT)?,
             equipment: self.read_module_u32(EQUIPMENT_PANE_RVA)?,
@@ -375,6 +379,11 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
         output.class = self.read_u8(add(world_user, 0x1089)?)?;
         output.is_action_restricted = self.read_u8(add(world_user, 0x15C88)?)? & 0x01 != 0;
         output.is_blinded = self.read_u8(add(world_user, 0x108D)?)? == 0x08;
+        output.is_walking = self.read_u8(add(
+            roots.world,
+            u32::try_from(WORLD_PANE_ROUTE_ACTIVE_OFFSET)
+                .expect("world pane route flag offset fits u32"),
+        )?)? != 0;
         output.gold = self.read_u32(add(world_user, 0x105C)?)?;
         output.weight = self.read_u32(add(world_user, 0x15C84)?)?;
         output.max_weight = self.read_u32(add(world_user, 0x15C80)?)?;

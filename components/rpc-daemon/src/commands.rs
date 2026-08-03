@@ -7,11 +7,12 @@ use axum::{
     extract::{Path, State, rejection::JsonRejection},
     http::StatusCode,
 };
+use darpc_model::{ClientLifecycle, ClientSnapshot as GameSnapshot, Direction as ModelDirection};
 use darpc_protocol::{
     CommandFailure as ProtocolFailure, CommandKind as ProtocolKind, CommandOperation,
     CommandResult as ProtocolResult, CommandState as ProtocolState,
     CommandStatus as ProtocolStatus, DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS,
-    MAX_COMMAND_WAIT_MS,
+    MAX_COMMAND_WAIT_MS, WalkTarget,
 };
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -47,6 +48,47 @@ pub(crate) struct DiagnosticOptions {
     timeout_ms: u16,
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ActionDirection {
+    North,
+    East,
+    South,
+    West,
+}
+
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct TurnOptions {
+    direction: ActionDirection,
+}
+
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct WalkDirectionOptions {
+    direction: ActionDirection,
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct Destination {
+    x: i32,
+    y: i32,
+}
+
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct WalkDestinationOptions {
+    destination: Destination,
+}
+
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(untagged)]
+pub(crate) enum WalkOptions {
+    Direction(WalkDirectionOptions),
+    Destination(WalkDestinationOptions),
+}
+
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
 pub(crate) struct CommandStatus {
     pid: u32,
@@ -68,6 +110,8 @@ pub(crate) struct CommandStatus {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum CommandKind {
     Diagnostic,
+    Turn,
+    Walk,
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
@@ -84,6 +128,10 @@ pub(crate) enum CommandState {
 #[serde(rename_all = "snake_case")]
 pub(crate) enum CommandFailure {
     Internal,
+    InvalidState,
+    InvalidDestination,
+    Rejected,
+    NoPath,
 }
 
 #[utoipa::path(
@@ -140,6 +188,74 @@ pub(crate) async fn diagnostic(
         StatusCode::OK
     };
     Ok((response_status, Json(status)))
+}
+
+#[utoipa::path(
+    post,
+    path = "/clients/{client}/turn",
+    params(("client" = String, Path, description = "Process ID or current in-game character name")),
+    request_body = TurnOptions,
+    responses(
+        (status = 200, description = "The turn command completed", body = CommandStatus),
+        (status = 202, description = "The turn command was accepted and remains pending", body = CommandStatus),
+        (status = 400, description = "The direction was invalid", body = crate::api::ErrorState),
+        (status = 404, description = "The client was not found", body = crate::api::ErrorState),
+        (status = 409, description = "The client is not currently in game", body = crate::api::ErrorState),
+        (status = 429, description = "A bounded command queue is full", body = crate::api::ErrorState),
+        (status = 503, description = "The client command path is unavailable", body = crate::api::ErrorState),
+        (status = 504, description = "The daemon command route timed out", body = crate::api::ErrorState)
+    )
+)]
+pub(crate) async fn turn(
+    State(state): State<ApiState>,
+    Path(identifier): Path<String>,
+    request: Result<Json<TurnOptions>, JsonRejection>,
+) -> Result<(StatusCode, Json<CommandStatus>), ApiError> {
+    let Json(request) = action_request(request)?;
+    let (pid, identity, _) = action_client(&state, &identifier)?;
+    submit_action(
+        &state,
+        pid,
+        identity,
+        ProtocolKind::Turn(request.direction.into()),
+    )
+    .await
+}
+
+#[utoipa::path(
+    post,
+    path = "/clients/{client}/walk",
+    params(("client" = String, Path, description = "Process ID or current in-game character name")),
+    request_body = WalkOptions,
+    responses(
+        (status = 200, description = "The walk command completed; a valid unreachable tile reports failure `no_path`", body = CommandStatus),
+        (status = 202, description = "The walk command was accepted and remains pending", body = CommandStatus),
+        (status = 400, description = "The direction, body shape, or zero-based destination was invalid", body = crate::api::ErrorState),
+        (status = 404, description = "The client was not found", body = crate::api::ErrorState),
+        (status = 409, description = "The client is not in game or its map is unavailable", body = crate::api::ErrorState),
+        (status = 429, description = "A bounded command queue is full", body = crate::api::ErrorState),
+        (status = 503, description = "The client command path is unavailable", body = crate::api::ErrorState),
+        (status = 504, description = "The daemon command route timed out", body = crate::api::ErrorState)
+    )
+)]
+pub(crate) async fn walk(
+    State(state): State<ApiState>,
+    Path(identifier): Path<String>,
+    request: Result<Json<WalkOptions>, JsonRejection>,
+) -> Result<(StatusCode, Json<CommandStatus>), ApiError> {
+    let Json(request) = action_request(request)?;
+    let (pid, identity, snapshot) = action_client(&state, &identifier)?;
+    let target = match request {
+        WalkOptions::Direction(options) => WalkTarget::Direction(options.direction.into()),
+        WalkOptions::Destination(options) => {
+            validate_destination(pid, &snapshot, options.destination)?;
+            WalkTarget::Destination {
+                x: options.destination.x,
+                y: options.destination.y,
+            }
+        }
+    };
+    submit_action(&state, pid, identity, ProtocolKind::Walk(target)).await
 }
 
 #[utoipa::path(
@@ -247,6 +363,106 @@ async fn route(
     }
 }
 
+async fn submit_action(
+    state: &ApiState,
+    pid: u32,
+    identity: ClientIdentity,
+    kind: ProtocolKind,
+) -> Result<(StatusCode, Json<CommandStatus>), ApiError> {
+    let status = route(
+        state,
+        pid,
+        identity,
+        CommandOperation::Submit {
+            kind,
+            timeout_ms: DEFAULT_COMMAND_TIMEOUT_MS,
+            wait_ms: MAX_COMMAND_WAIT_MS,
+        },
+    )
+    .await?;
+    let response_status = if status.state == CommandState::Accepted {
+        StatusCode::ACCEPTED
+    } else {
+        StatusCode::OK
+    };
+    Ok((response_status, Json(status)))
+}
+
+fn action_request<T>(request: Result<Json<T>, JsonRejection>) -> Result<Json<T>, ApiError> {
+    request.map_err(|rejection| {
+        ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_request",
+            rejection.body_text(),
+            None,
+        )
+    })
+}
+
+fn action_client(
+    state: &ApiState,
+    identifier: &str,
+) -> Result<(u32, ClientIdentity, GameSnapshot), ApiError> {
+    let registry = state.snapshot();
+    let client = resolve_client(&registry, identifier)?;
+    let identity = client
+        .identity
+        .filter(|_| client.status == ClientSnapshotStatus::Connected)
+        .ok_or_else(|| unavailable(client.pid))?;
+    let snapshot = client.game_snapshot.clone().ok_or_else(|| {
+        ApiError::new(
+            StatusCode::CONFLICT,
+            "client_state_unavailable",
+            "the client does not have a ready state snapshot",
+            Some(client.pid),
+        )
+    })?;
+    if snapshot.lifecycle != ClientLifecycle::InGame {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "client_not_in_game",
+            "the client is not currently in game",
+            Some(client.pid),
+        ));
+    }
+    Ok((client.pid, identity, snapshot))
+}
+
+fn validate_destination(
+    pid: u32,
+    snapshot: &GameSnapshot,
+    destination: Destination,
+) -> Result<(), ApiError> {
+    let location = snapshot
+        .character
+        .as_ref()
+        .and_then(|character| character.location.as_ref())
+        .ok_or_else(|| {
+            ApiError::new(
+                StatusCode::CONFLICT,
+                "map_unavailable",
+                "the client's current map is unavailable",
+                Some(pid),
+            )
+        })?;
+    if destination.x < 0
+        || destination.y < 0
+        || destination.x >= location.width
+        || destination.y >= location.height
+    {
+        return Err(ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_destination",
+            format!(
+                "destination must satisfy 0 <= x < {} and 0 <= y < {}",
+                location.width, location.height
+            ),
+            Some(pid),
+        ));
+    }
+    Ok(())
+}
+
 fn connected_client(state: &ApiState, identifier: &str) -> Result<(u32, ClientIdentity), ApiError> {
     let registry = state.snapshot();
     let client = resolve_client(&registry, identifier)?;
@@ -308,6 +524,8 @@ impl From<ProtocolKind> for CommandKind {
     fn from(kind: ProtocolKind) -> Self {
         match kind {
             ProtocolKind::Diagnostic => Self::Diagnostic,
+            ProtocolKind::Turn(_) => Self::Turn,
+            ProtocolKind::Walk(_) => Self::Walk,
         }
     }
 }
@@ -328,6 +546,21 @@ impl From<ProtocolFailure> for CommandFailure {
     fn from(failure: ProtocolFailure) -> Self {
         match failure {
             ProtocolFailure::Internal => Self::Internal,
+            ProtocolFailure::InvalidState => Self::InvalidState,
+            ProtocolFailure::InvalidDestination => Self::InvalidDestination,
+            ProtocolFailure::Rejected => Self::Rejected,
+            ProtocolFailure::NoPath => Self::NoPath,
+        }
+    }
+}
+
+impl From<ActionDirection> for ModelDirection {
+    fn from(direction: ActionDirection) -> Self {
+        match direction {
+            ActionDirection::North => Self::North,
+            ActionDirection::East => Self::East,
+            ActionDirection::South => Self::South,
+            ActionDirection::West => Self::West,
         }
     }
 }

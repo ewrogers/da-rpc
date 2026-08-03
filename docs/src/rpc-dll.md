@@ -73,10 +73,15 @@ for a state transition, but it never executes client work. The existing tick
 hook removes at most one queue entry per tick and publishes accepted, executed,
 failed, cancelled, or timed-out status through atomics.
 
-The diagnostic command is the first implemented executor. It calls no client
-function and changes no game state. Its purpose is to prove main-thread routing
-and expose queue delay, execution duration, and thread identity before typed
-client actions are added. Terminal results remain queryable for a bounded
+The diagnostic executor calls no client function and changes no game state.
+Turn and walk executors resolve only the supported live world and call the
+client's confirmed direction, collision, reset, and pathfinding functions on
+the main thread. Exact-tile walking checks current zero-based map bounds first;
+a native builder that cannot reach a valid tile reports `no_path`. It uses the
+ground route builder and never enables the client's target pursuit or automatic
+attack loop. The DLL retains a daRPC-requested destination until the native
+route stops, then compares it with the latest accepted position for ordered
+walking lifecycle events. Terminal results remain queryable for a bounded
 period; new work may evict the oldest completed result rather than allowing
 retained history to consume pending queue capacity.
 

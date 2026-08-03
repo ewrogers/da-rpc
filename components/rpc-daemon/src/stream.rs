@@ -9,7 +9,10 @@ use axum::response::{
     sse::{Event, KeepAlive, Sse},
 };
 use chrono::{DateTime, Utc};
-use darpc_model::{CollectionChange, CreatureKind, Effect, ObjectUpdate, StateEvent, StateUpdate};
+use darpc_model::{
+    CollectionChange, CreatureKind, Effect, MovementUpdate, ObjectUpdate, StateEvent, StateUpdate,
+    TilePosition as ModelTilePosition,
+};
 use serde::Serialize;
 use std::{convert::Infallible, time::Duration};
 use tokio::sync::broadcast;
@@ -141,6 +144,8 @@ pub(crate) enum ClientEvent {
     ModifiersChanged(ModifiersChanged),
     LocationChanged(LocationChanged),
     BlindChanged(BlindChanged),
+    WalkingStarted(WalkingStarted),
+    WalkingStopped(WalkingStopped),
     ActionRestrictionChanged(ActionRestrictionChanged),
     EffectAdded(EffectAdded),
     EffectRemoved(EffectRemoved),
@@ -187,6 +192,8 @@ impl ClientEvent {
             Self::ModifiersChanged(_) => "modifiers.changed",
             Self::LocationChanged(_) => "location.changed",
             Self::BlindChanged(_) => "blind.changed",
+            Self::WalkingStarted(_) => "walking.started",
+            Self::WalkingStopped(_) => "walking.stopped",
             Self::ActionRestrictionChanged(_) => "action_restriction.changed",
             Self::EffectAdded(_) => "effect.added",
             Self::EffectRemoved(_) => "effect.removed",
@@ -233,6 +240,8 @@ impl ClientEvent {
             Self::ModifiersChanged(value) => value.observation.event_sequence,
             Self::LocationChanged(value) => value.observation.event_sequence,
             Self::BlindChanged(value) => value.observation.event_sequence,
+            Self::WalkingStarted(value) => value.observation.event_sequence,
+            Self::WalkingStopped(value) => value.observation.event_sequence,
             Self::ActionRestrictionChanged(value) => value.observation.event_sequence,
             Self::EffectAdded(value) => value.observation.event_sequence,
             Self::EffectRemoved(value) => value.observation.event_sequence,
@@ -413,6 +422,36 @@ pub(crate) struct BlindChanged {
     is_blinded: bool,
 }
 
+#[derive(Clone, Copy, Debug, Serialize, ToSchema)]
+pub(crate) struct TilePosition {
+    x: i32,
+    y: i32,
+}
+
+impl From<ModelTilePosition> for TilePosition {
+    fn from(value: ModelTilePosition) -> Self {
+        Self {
+            x: value.x,
+            y: value.y,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub(crate) struct WalkingStarted {
+    observation: EventObservation,
+    current: TilePosition,
+    destination: Option<TilePosition>,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub(crate) struct WalkingStopped {
+    observation: EventObservation,
+    current: TilePosition,
+    destination: Option<TilePosition>,
+    reached_destination: Option<bool>,
+}
+
 #[derive(Clone, Debug, Serialize, ToSchema)]
 pub(crate) struct ActionRestrictionChanged {
     observation: EventObservation,
@@ -548,6 +587,29 @@ fn expand(
                     height: map.height,
                 }),
             }));
+            return events;
+        }
+        StateUpdate::Movement(update) => {
+            events.push(match update {
+                MovementUpdate::Started {
+                    current,
+                    destination,
+                } => ClientEvent::WalkingStarted(WalkingStarted {
+                    observation,
+                    current: current.into(),
+                    destination: destination.map(Into::into),
+                }),
+                MovementUpdate::Stopped {
+                    current,
+                    destination,
+                    reached_destination,
+                } => ClientEvent::WalkingStopped(WalkingStopped {
+                    observation,
+                    current: current.into(),
+                    destination: destination.map(Into::into),
+                    reached_destination,
+                }),
+            });
             return events;
         }
         StateUpdate::Effect(update) => {
@@ -801,8 +863,9 @@ mod tests {
     use darpc_model::{
         CharacterStats, ClientMessage, CollectionChange, CooldownStatus, CoreStatus, CurrentVitals,
         Effect, EffectDuration, EffectUpdate, InventoryItem as ModelInventoryItem, LocationUpdate,
-        MapChange, MessageKind, Skill as ModelSkill, SlotUpdate, Spell as ModelSpell,
-        SpellTargetType, StateUpdate, StatusUpdate,
+        MapChange, MessageKind, MovementUpdate, Skill as ModelSkill, SlotUpdate,
+        Spell as ModelSpell, SpellTargetType, StateUpdate, StatusUpdate,
+        TilePosition as ModelTilePosition,
     };
 
     fn observed_at() -> DateTime<Utc> {
@@ -866,6 +929,55 @@ mod tests {
                 "action_restriction.changed",
             ]
         );
+    }
+
+    #[test]
+    fn movement_updates_expose_route_lifecycle_context() {
+        let identity = ClientIdentity {
+            pid: 42,
+            process_creation_time: 100,
+            dll_instance_id: [1; 16],
+        };
+        let destination = ModelTilePosition { x: 6, y: 5 };
+        let started = expand(
+            42,
+            identity,
+            StateEvent {
+                sequence: 10,
+                revision: 13,
+                tick_ms: 501,
+                update: StateUpdate::Movement(MovementUpdate::Started {
+                    current: ModelTilePosition { x: 2, y: 8 },
+                    destination: Some(destination),
+                }),
+            },
+            observed_at(),
+        );
+        assert_eq!(started.len(), 1);
+        assert_eq!(started[0].name(), "walking.started");
+        let started = serde_json::to_value(&started[0]).unwrap();
+        assert_eq!(started["data"]["current"]["x"], 2);
+        assert_eq!(started["data"]["destination"]["y"], 5);
+
+        let stopped = expand(
+            42,
+            identity,
+            StateEvent {
+                sequence: 11,
+                revision: 14,
+                tick_ms: 502,
+                update: StateUpdate::Movement(MovementUpdate::Stopped {
+                    current: destination,
+                    destination: Some(destination),
+                    reached_destination: Some(true),
+                }),
+            },
+            observed_at(),
+        );
+        assert_eq!(stopped.len(), 1);
+        assert_eq!(stopped[0].name(), "walking.stopped");
+        let stopped = serde_json::to_value(&stopped[0]).unwrap();
+        assert_eq!(stopped["data"]["reached_destination"], true);
     }
 
     #[test]

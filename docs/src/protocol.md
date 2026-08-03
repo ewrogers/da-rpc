@@ -218,6 +218,7 @@ struct CharacterSnapshot {
     class: CharacterClass;
     is_action_restricted: bool;
     is_blinded: bool;
+    is_walking: bool;
     gold: u32;
     weight: u32;
     max_weight: u32;
@@ -417,6 +418,7 @@ enum StateUpdate: u8 {
     Inventory(SlotUpdate<InventoryItem>) = 6,
     Spellbook(SlotUpdate<Spell>) = 7,
     Skillbook(SlotUpdate<Skill>) = 8,
+    Movement(MovementUpdate) = 9,
 }
 
 enum CollectionChange: u8 {
@@ -475,6 +477,23 @@ struct StatusUpdate {
     is_action_restricted: Option<bool>;       // field bit 6
 }
 
+struct TilePosition {
+    x: i32;
+    y: i32;
+}
+
+enum MovementUpdate: u8 {
+    Started {
+        current: TilePosition;
+        destination: Option<TilePosition>;
+    } = 1,
+    Stopped {
+        current: TilePosition;
+        destination: Option<TilePosition>;
+        reached_destination: Option<bool>;
+    } = 2,
+}
+
 struct CoreStatus {
     level: u8;
     ability_level: u8;
@@ -530,6 +549,16 @@ The latter replaces the map identity, name, dimensions, and coordinates in one
 reducer operation, so consumers never observe a new map paired with the prior
 map's position.
 
+A movement update describes the native queued-route lifecycle rather than a
+single directional step. `current` is copied from the DLL's accepted-position
+cache. A destination requested through daRPC is retained until the route stops;
+routes started directly through the game may have no known destination. A
+stopped update carries `reached_destination` only when the destination is
+known. It is true only when the stopped position equals that destination.
+Destination presence uses a strict Boolean byte. The stopped outcome uses `0`
+for unavailable, `1` for false, and `2` for true, and its presence must match
+the destination.
+
 Object updates also carry absolute values. Appeared, disappeared, moved, and
 direction-changed updates include the complete object at that boundary.
 `Cleared` contains no object and resets the observed collection at a map or
@@ -549,8 +578,9 @@ state from a fresh snapshot.
 
 ## Main-thread commands
 
-Commands use one bounded envelope. The only implemented kind is a diagnostic
-that records execution metadata and changes no game or client state.
+Commands use one bounded envelope. The diagnostic records execution metadata
+without changing client state. Turn and walk commands carry only scalar
+arguments and execute through confirmed native client functions.
 
 ```rust,ignore
 struct CommandRequest {
@@ -575,6 +605,13 @@ enum CommandOperation: u8 {
 
 enum CommandKind: u8 {
     Diagnostic = 0,
+    Turn(Direction) = 1,
+    Walk(WalkTarget) = 2,
+}
+
+enum WalkTarget: u8 {
+    Direction(Direction) = 0,
+    Destination { x: i32, y: i32 } = 1,
 }
 
 enum CommandState: u8 {
@@ -600,6 +637,10 @@ struct CommandStatus {
 
 enum CommandFailure: u8 {
     Internal = 0,
+    InvalidState = 1,
+    InvalidDestination = 2,
+    Rejected = 3,
+    NoPath = 4,
 }
 
 struct CommandResponse {
@@ -617,7 +658,10 @@ enum CommandResult: u8 {
 
 Each optional field is encoded as a strict Boolean followed by its `u32` value
 when present. Submission only validates and copies bounded scalar values on the
-IPC worker. Execution occurs later through the client tick hook. `Busy` is an
+IPC worker. Execution occurs later through the client tick hook. Directions use
+the same strict discriminants as object facing. Destination coordinates are
+signed wire values and must satisfy the live zero-based map bounds before native
+pathfinding. `Busy` is an
 immediate response when all fixed queue entries are pending, and `Unavailable`
 means the tick execution path is not installed. Terminal results are retained
 for bounded status queries and may be evicted under command pressure.

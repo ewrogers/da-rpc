@@ -11,7 +11,8 @@ use darpc_game_client::{RawCharacter, RawModifiers, RawObjects, RawStateSnapshot
 use darpc_model::{
     CharacterModifiers, CharacterStats, ClientMessage, CollectionBatch, CollectionKind, CoreStatus,
     CurrentVitals, Effect, EffectDuration, EffectUpdate, Element, LocationUpdate, MapChange,
-    MessageKind, ProgressionStatus, StateEvent, StateUpdate, StatusUpdate,
+    MessageKind, MovementUpdate, ProgressionStatus, StateEvent, StateUpdate, StatusUpdate,
+    TilePosition,
 };
 use darpc_protocol::EventPollResult;
 #[cfg(windows)]
@@ -49,6 +50,8 @@ pub(crate) fn reset() {
     REVISION.store(0, Ordering::Release);
     EVENT_SEQUENCE.store(0, Ordering::Release);
     QUEUE.reset();
+    #[cfg(windows)]
+    crate::movement::reset_tracking();
     // SAFETY: reset runs before the event hook is installed and after the IPC
     // consumer has stopped, so no other thread accesses the cache.
     unsafe { CACHE.replace(StateCache::default()) };
@@ -66,6 +69,8 @@ pub(crate) fn map_transition_pending() -> bool {
 }
 
 pub(crate) fn stage_map_transition(map_id: u32, width: i32, height: i32, name: &[u8]) {
+    #[cfg(windows)]
+    crate::movement::clear_route_destination();
     // SAFETY: the map-size hook runs on the client main thread, which is the
     // sole cache producer.
     unsafe { CACHE.stage_map_transition(map_id, width, height, name) };
@@ -114,6 +119,16 @@ pub(crate) fn observe_tick() {
         COLLECTIONS.observe_tick(tick_ms, |update, tick_ms| {
             push_event(QueuedStateUpdate::Collection(update), tick_ms);
         });
+    }
+    #[cfg(windows)]
+    if let Some(is_walking) = crate::movement::is_walking() {
+        let destination = crate::movement::route_destination();
+        if let Some(update) = unsafe { CACHE.movement(is_walking, destination) } {
+            if matches!(update, MovementUpdate::Stopped { .. }) {
+                crate::movement::clear_route_destination();
+            }
+            push_event(QueuedStateUpdate::Movement(update), tick_ms);
+        }
     }
 }
 
@@ -294,6 +309,7 @@ impl QueuedStateEvent {
     pub(crate) fn into_model(self) -> StateEvent {
         let update = match self.update {
             QueuedStateUpdate::Status(update) => StateUpdate::Status(update),
+            QueuedStateUpdate::Movement(update) => StateUpdate::Movement(update),
             QueuedStateUpdate::Location(update) => StateUpdate::Location(update.into_model()),
             QueuedStateUpdate::Effect(update) => StateUpdate::Effect(update),
             QueuedStateUpdate::Object(update) => StateUpdate::Object(update.into_model()),
@@ -315,6 +331,7 @@ impl QueuedStateEvent {
 #[allow(clippy::large_enum_variant)]
 enum QueuedStateUpdate {
     Status(StatusUpdate),
+    Movement(MovementUpdate),
     Location(QueuedLocationUpdate),
     Effect(EffectUpdate),
     Object(QueuedObjectUpdate),
@@ -519,6 +536,7 @@ struct StateCache {
     modifiers: Option<CharacterModifiers>,
     is_blinded: Option<bool>,
     is_action_restricted: Option<bool>,
+    is_walking: Option<bool>,
     map: Option<CachedMap>,
     position: Option<(i32, i32)>,
     pending_map: Option<QueuedMapChange>,
@@ -568,6 +586,7 @@ impl StateCache {
             modifiers: raw.modifiers.map(modifiers),
             is_blinded: Some(raw.is_blinded),
             is_action_restricted: Some(raw.is_action_restricted),
+            is_walking: Some(raw.is_walking),
             map: raw.location.map(|location| CachedMap {
                 id: location.map_id,
                 width: location.width,
@@ -600,6 +619,31 @@ impl StateCache {
                 update.is_action_restricted,
             ),
         }
+    }
+
+    fn movement(
+        &mut self,
+        is_walking: bool,
+        destination: Option<TilePosition>,
+    ) -> Option<MovementUpdate> {
+        if self.is_walking == Some(is_walking) {
+            return None;
+        }
+        let (x, y) = self.position?;
+        self.is_walking = Some(is_walking);
+        let current = TilePosition { x, y };
+        Some(if is_walking {
+            MovementUpdate::Started {
+                current,
+                destination,
+            }
+        } else {
+            MovementUpdate::Stopped {
+                current,
+                destination,
+                reached_destination: destination.map(|destination| destination == current),
+            }
+        })
     }
 
     fn stage_map_transition(&mut self, map_id: u32, width: i32, height: i32, name: &[u8]) {
@@ -702,6 +746,7 @@ impl MainThreadCache {
             modifiers: None,
             is_blinded: None,
             is_action_restricted: None,
+            is_walking: None,
             map: None,
             position: None,
             pending_map: None,
@@ -728,6 +773,15 @@ impl MainThreadCache {
     unsafe fn filter_status(&self, update: StatusUpdate) -> StatusUpdate {
         // SAFETY: the caller guarantees exclusive main-thread access.
         unsafe { (&mut *self.0.get()).filter_status(update) }
+    }
+
+    unsafe fn movement(
+        &self,
+        is_walking: bool,
+        destination: Option<TilePosition>,
+    ) -> Option<MovementUpdate> {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&mut *self.0.get()).movement(is_walking, destination) }
     }
 
     unsafe fn map_transition_pending(&self) -> bool {
@@ -845,6 +899,33 @@ mod tests {
                 batch_count,
             )),
         }
+    }
+
+    #[test]
+    fn movement_lifecycle_compares_the_confirmed_position_to_the_goal() {
+        let destination = TilePosition { x: 6, y: 5 };
+        let mut cache = StateCache {
+            is_walking: Some(false),
+            position: Some((2, 8)),
+            ..StateCache::default()
+        };
+        assert_eq!(
+            cache.movement(true, Some(destination)),
+            Some(MovementUpdate::Started {
+                current: TilePosition { x: 2, y: 8 },
+                destination: Some(destination),
+            })
+        );
+
+        cache.position = Some((5, 5));
+        assert_eq!(
+            cache.movement(false, Some(destination)),
+            Some(MovementUpdate::Stopped {
+                current: TilePosition { x: 5, y: 5 },
+                destination: Some(destination),
+                reached_destination: Some(false),
+            })
+        );
     }
 
     #[test]

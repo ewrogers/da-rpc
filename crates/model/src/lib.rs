@@ -7,8 +7,9 @@ mod snapshot;
 
 pub use event::{
     ApplyEventError, CollectionBatch, CollectionChange, CollectionKind, CoreStatus, CurrentVitals,
-    EffectUpdate, InventoryUpdate, LocationUpdate, MapChange, ProgressionStatus, SkillbookUpdate,
-    SlotUpdate, SpellbookUpdate, StateEvent, StateUpdate, StatusUpdate,
+    EffectUpdate, InventoryUpdate, LocationUpdate, MapChange, MovementUpdate, ProgressionStatus,
+    SkillbookUpdate, SlotUpdate, SpellbookUpdate, StateEvent, StateUpdate, StatusUpdate,
+    TilePosition,
 };
 
 pub use message::{ClientMessage, MessageKind};

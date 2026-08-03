@@ -256,6 +256,8 @@ fn router(state: ApiState) -> Router {
             "/clients/{client}/commands/diagnostic",
             post(crate::commands::diagnostic),
         )
+        .route("/clients/{client}/turn", post(crate::commands::turn))
+        .route("/clients/{client}/walk", post(crate::commands::walk))
         .route(
             "/clients/{client}/commands/{command_id}",
             get(crate::commands::status).delete(crate::commands::cancel),
@@ -293,7 +295,9 @@ async fn swagger_theme() -> impl IntoResponse {
 async fn reject_request_body(request: Request<Body>, next: Next) -> Response {
     if request.method() == Method::POST
         && (request.uri().path() == "/clients/launch"
-            || request.uri().path().ends_with("/commands/diagnostic"))
+            || request.uri().path().ends_with("/commands/diagnostic")
+            || request.uri().path().ends_with("/turn")
+            || request.uri().path().ends_with("/walk"))
     {
         return next.run(request).await;
     }
@@ -949,6 +953,8 @@ fn operation_in_progress(pid: u32) -> ApiError {
         unload,
         launch,
         crate::commands::diagnostic,
+        crate::commands::turn,
+        crate::commands::walk,
         crate::commands::status,
         crate::commands::cancel
     ),
@@ -1001,6 +1007,12 @@ fn operation_in_progress(pid: u32) -> ApiError {
         ErrorDetail,
         ClientEvent,
         crate::commands::DiagnosticOptions,
+        crate::commands::ActionDirection,
+        crate::commands::TurnOptions,
+        crate::commands::WalkDirectionOptions,
+        crate::commands::Destination,
+        crate::commands::WalkDestinationOptions,
+        crate::commands::WalkOptions,
         crate::commands::CommandStatus,
         crate::commands::CommandKind,
         crate::commands::CommandState,
@@ -1431,7 +1443,7 @@ mod tests {
     };
     use darpc_protocol::{
         Architecture, CommandKind, CommandOperation, CommandResult, CommandState, CommandStatus,
-        ComponentVersion, Hello, SUPPORTED_VERSIONS,
+        ComponentVersion, Hello, SUPPORTED_VERSIONS, WalkTarget,
     };
     use serde_json::Value;
     use std::{
@@ -1478,6 +1490,7 @@ mod tests {
                 class: CharacterClass::Wizard,
                 is_action_restricted: false,
                 is_blinded: true,
+                is_walking: false,
                 gold: 99,
                 weight: 25,
                 max_weight: 60,
@@ -1718,6 +1731,60 @@ mod tests {
             })
     }
 
+    fn assert_routes_action(path: &str, body: &str, expected_kind: CommandKind) {
+        let mut registry = Registry::new();
+        let hello = hello();
+        let identity = RegistryClientIdentity::from_hello(hello);
+        registry.apply(&ConnectionEvent::Connected {
+            pid: 42,
+            hello,
+            selected_version: SUPPORTED_VERSIONS.max,
+        });
+        registry.apply(&ConnectionEvent::Snapshot {
+            pid: 42,
+            identity,
+            snapshot: Box::new(game_snapshot()),
+        });
+        let (events, _event_receiver) = mpsc::channel();
+        let (commands, command_receiver) = mpsc::sync_channel(ROUTER_CAPACITY);
+        let state = ApiState::new(registry.snapshot(), Arc::new(FakeLifecycle), events)
+            .with_command_sender(commands);
+        let worker = std::thread::spawn(move || {
+            let call = command_receiver.recv().unwrap();
+            assert_eq!(call.pid, 42);
+            assert_eq!(call.identity, identity);
+            assert!(matches!(
+                call.operation,
+                CommandOperation::Submit {
+                    kind,
+                    timeout_ms: 1_000,
+                    wait_ms: 1_000,
+                } if kind == expected_kind
+            ));
+            call.reply
+                .send(CommandReply::Result(CommandResult::Status(CommandStatus {
+                    command_id: 9,
+                    kind: expected_kind,
+                    state: CommandState::Executed,
+                    enqueued_tick_ms: 100,
+                    deadline_tick_ms: 1_100,
+                    started_tick_ms: Some(104),
+                    completed_tick_ms: Some(104),
+                    execution_us: Some(2),
+                    main_thread_id: Some(77),
+                    failure: None,
+                })))
+                .unwrap();
+        });
+
+        let response = post_json(state, path, body);
+        assert_eq!(response.status(), StatusCode::OK);
+        let response = response_json(response);
+        assert_eq!(response["command_id"], 9);
+        assert_eq!(response["state"], "executed");
+        worker.join().unwrap();
+    }
+
     #[test]
     fn routes_a_diagnostic_through_the_bounded_command_path() {
         let mut registry = Registry::new();
@@ -1776,6 +1843,59 @@ mod tests {
         worker.join().unwrap();
     }
 
+    #[test]
+    fn routes_typed_turn_and_walk_actions() {
+        assert_routes_action(
+            "/clients/42/turn",
+            r#"{"direction":"north"}"#,
+            CommandKind::Turn(ModelDirection::North),
+        );
+        assert_routes_action(
+            "/clients/42/walk",
+            r#"{"direction":"east"}"#,
+            CommandKind::Walk(WalkTarget::Direction(ModelDirection::East)),
+        );
+        assert_routes_action(
+            "/clients/42/walk",
+            r#"{"destination":{"x":99,"y":79}}"#,
+            CommandKind::Walk(WalkTarget::Destination { x: 99, y: 79 }),
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_movement_requests() {
+        for (path, body) in [
+            ("/clients/42/turn", r#"{"direction":"up"}"#),
+            ("/clients/42/walk", r#"{}"#),
+            (
+                "/clients/42/walk",
+                r#"{"direction":"north","destination":{"x":1,"y":1}}"#,
+            ),
+            ("/clients/42/walk", r#"{"destination":{"x":-1,"y":0}}"#),
+            ("/clients/42/walk", r#"{"destination":{"x":100,"y":79}}"#),
+            ("/clients/42/walk", r#"{"destination":{"x":99,"y":80}}"#),
+        ] {
+            assert_eq!(
+                post_json(state(), path, body).status(),
+                StatusCode::BAD_REQUEST
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_movement_without_ready_in_game_state() {
+        let hello = hello();
+        let (state, _receiver) = state_with_status(ConnectionEvent::Connected {
+            pid: 42,
+            hello,
+            selected_version: SUPPORTED_VERSIONS.max,
+        });
+        assert_eq!(
+            post_json(state, "/clients/42/turn", r#"{"direction":"north"}"#).status(),
+            StatusCode::CONFLICT
+        );
+    }
+
     fn response_json(response: axum::response::Response) -> Value {
         tokio::runtime::Builder::new_current_thread()
             .build()
@@ -1825,6 +1945,7 @@ mod tests {
         assert_eq!(status["character"]["body_sprite"], 1);
         assert_eq!(status["character"]["is_action_restricted"], false);
         assert_eq!(status["character"]["is_blinded"], true);
+        assert_eq!(status["character"]["is_walking"], false);
         assert!(status["character"].get("gender_id").is_none());
         assert!(status["character"].get("class_id").is_none());
         assert!(status["character"].get("inventory").is_none());
@@ -2101,6 +2222,8 @@ mod tests {
             "/clients/{client}/objects",
             "/clients/{client}/messages",
             "/clients/{client}/events",
+            "/clients/{client}/turn",
+            "/clients/{client}/walk",
             "/clients/{client}/commands/diagnostic",
             "/clients/{client}/commands/{command_id}",
         ] {

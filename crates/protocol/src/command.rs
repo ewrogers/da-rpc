@@ -1,7 +1,8 @@
 use crate::{
     DecodeError, EncodeError,
-    message::{PayloadReader, push_u16, push_u32},
+    message::{PayloadReader, push_i32, push_u16, push_u32},
 };
+use darpc_model::Direction;
 
 pub const DEFAULT_COMMAND_TIMEOUT_MS: u16 = 1_000;
 pub const MAX_COMMAND_TIMEOUT_MS: u16 = 5_000;
@@ -10,21 +11,56 @@ pub const MAX_COMMAND_WAIT_MS: u16 = 1_000;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CommandKind {
     Diagnostic,
+    Turn(Direction),
+    Walk(WalkTarget),
 }
 
-impl CommandKind {
-    const fn wire_value(self) -> u8 {
-        match self {
-            Self::Diagnostic => 0,
-        }
-    }
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WalkTarget {
+    Direction(Direction),
+    Destination { x: i32, y: i32 },
+}
 
-    fn from_wire(actual: u8) -> Result<Self, DecodeError> {
-        match actual {
-            0 => Ok(Self::Diagnostic),
-            actual => Err(DecodeError::InvalidCommandKind { actual }),
+fn encode_kind(output: &mut Vec<u8>, kind: CommandKind) {
+    match kind {
+        CommandKind::Diagnostic => output.push(0),
+        CommandKind::Turn(direction) => {
+            output.push(1);
+            output.push(direction.raw());
+        }
+        CommandKind::Walk(WalkTarget::Direction(direction)) => {
+            output.push(2);
+            output.push(0);
+            output.push(direction.raw());
+        }
+        CommandKind::Walk(WalkTarget::Destination { x, y }) => {
+            output.push(2);
+            output.push(1);
+            push_i32(output, x);
+            push_i32(output, y);
         }
     }
+}
+
+fn decode_kind(reader: &mut PayloadReader<'_>) -> Result<CommandKind, DecodeError> {
+    match reader.read_u8()? {
+        0 => Ok(CommandKind::Diagnostic),
+        1 => Ok(CommandKind::Turn(decode_direction(reader)?)),
+        2 => Ok(CommandKind::Walk(match reader.read_u8()? {
+            0 => WalkTarget::Direction(decode_direction(reader)?),
+            1 => WalkTarget::Destination {
+                x: reader.read_i32()?,
+                y: reader.read_i32()?,
+            },
+            actual => return Err(DecodeError::InvalidWalkTarget { actual }),
+        })),
+        actual => Err(DecodeError::InvalidCommandKind { actual }),
+    }
+}
+
+fn decode_direction(reader: &mut PayloadReader<'_>) -> Result<Direction, DecodeError> {
+    let actual = reader.read_u8()?;
+    Direction::from_raw(actual).ok_or(DecodeError::InvalidDirection { actual })
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -89,18 +125,30 @@ impl CommandState {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CommandFailure {
     Internal,
+    InvalidState,
+    InvalidDestination,
+    Rejected,
+    NoPath,
 }
 
 impl CommandFailure {
     const fn wire_value(self) -> u8 {
         match self {
             Self::Internal => 0,
+            Self::InvalidState => 1,
+            Self::InvalidDestination => 2,
+            Self::Rejected => 3,
+            Self::NoPath => 4,
         }
     }
 
     fn from_wire(actual: u8) -> Result<Self, DecodeError> {
         match actual {
             0 => Ok(Self::Internal),
+            1 => Ok(Self::InvalidState),
+            2 => Ok(Self::InvalidDestination),
+            3 => Ok(Self::Rejected),
+            4 => Ok(Self::NoPath),
             actual => Err(DecodeError::InvalidCommandFailure { actual }),
         }
     }
@@ -148,7 +196,7 @@ pub(crate) fn encode_request(
             validate_timeout_encode(timeout_ms)?;
             validate_wait_encode(wait_ms)?;
             output.push(0);
-            output.push(kind.wire_value());
+            encode_kind(output, kind);
             push_u16(output, timeout_ms);
             push_u16(output, wait_ms);
         }
@@ -177,7 +225,7 @@ pub(crate) fn decode_request(
     let request_id = reader.read_u32()?;
     let operation = match reader.read_u8()? {
         0 => {
-            let kind = CommandKind::from_wire(reader.read_u8()?)?;
+            let kind = decode_kind(reader)?;
             let timeout_ms = reader.read_u16()?;
             validate_timeout_decode(timeout_ms)?;
             let wait_ms = reader.read_u16()?;
@@ -240,7 +288,7 @@ pub(crate) fn decode_response(
 
 fn encode_status(output: &mut Vec<u8>, status: CommandStatus) {
     push_u32(output, status.command_id);
-    output.push(status.kind.wire_value());
+    encode_kind(output, status.kind);
     output.push(status.state.wire_value());
     push_u32(output, status.enqueued_tick_ms);
     push_u32(output, status.deadline_tick_ms);
@@ -262,7 +310,7 @@ fn decode_status(reader: &mut PayloadReader<'_>) -> Result<CommandStatus, Decode
     validate_command_id_decode(command_id)?;
     Ok(CommandStatus {
         command_id,
-        kind: CommandKind::from_wire(reader.read_u8()?)?,
+        kind: decode_kind(reader)?,
         state: CommandState::from_wire(reader.read_u8()?)?,
         enqueued_tick_ms: reader.read_u32()?,
         deadline_tick_ms: reader.read_u32()?,

@@ -8,7 +8,8 @@ mod object_output;
 mod output;
 mod snapshot_output;
 
-use darpc_protocol::MAX_ECHO_TEXT_LEN;
+use darpc_model::Direction;
+use darpc_protocol::{MAX_ECHO_TEXT_LEN, WalkTarget};
 use error::{ClientError, ErrorKind, Result};
 use output::{CommandResult, OutputFormat, render_error};
 use std::{env, ffi::OsString, process::ExitCode};
@@ -21,6 +22,9 @@ usage:
     darpc [--output <table|json>] snapshot --pid <pid>
     darpc [--output <table|json>] echo --pid <pid> <text>
     darpc [--output <table|json>] diagnostic --pid <pid>
+    darpc [--output <table|json>] turn --pid <pid> <north|east|south|west>
+    darpc [--output <table|json>] walk --pid <pid> <north|east|south|west>
+    darpc [--output <table|json>] walk --pid <pid> <x> <y>
     darpc [--output <table|json>] command-status --pid <pid> <command-id>
     darpc [--output <table|json>] command-cancel --pid <pid> <command-id>";
 
@@ -38,6 +42,8 @@ enum Operation {
     Snapshot,
     Echo(String),
     Diagnostic,
+    Turn(Direction),
+    Walk(WalkTarget),
     CommandStatus(u32),
     CommandCancel(u32),
 }
@@ -51,6 +57,8 @@ impl Command {
             Operation::Snapshot => "snapshot",
             Operation::Echo(_) => "echo",
             Operation::Diagnostic => "diagnostic",
+            Operation::Turn(_) => "turn",
+            Operation::Walk(_) => "walk",
             Operation::CommandStatus(_) => "command-status",
             Operation::CommandCancel(_) => "command-cancel",
         }
@@ -140,6 +148,8 @@ fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
         "tick-health" => Operation::TickHealth,
         "snapshot" => Operation::Snapshot,
         "diagnostic" => Operation::Diagnostic,
+        "turn" => Operation::Turn(parse_direction(arguments.next())?),
+        "walk" => Operation::Walk(parse_walk_target(&mut arguments)?),
         "command-status" => Operation::CommandStatus(parse_command_id(arguments.next())?),
         "command-cancel" => Operation::CommandCancel(parse_command_id(arguments.next())?),
         "echo" => {
@@ -163,6 +173,42 @@ fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
     }
 
     Ok(Command { pid, operation })
+}
+
+fn parse_direction(argument: Option<OsString>) -> Result<Direction> {
+    let argument = argument.ok_or_else(|| invalid_arguments("direction is required"))?;
+    match argument.to_str() {
+        Some("north") => Ok(Direction::North),
+        Some("east") => Ok(Direction::East),
+        Some("south") => Ok(Direction::South),
+        Some("west") => Ok(Direction::West),
+        _ => Err(invalid_arguments(
+            "direction must be north, east, south, or west",
+        )),
+    }
+}
+
+fn parse_walk_target(arguments: &mut impl Iterator<Item = OsString>) -> Result<WalkTarget> {
+    let first = arguments
+        .next()
+        .ok_or_else(|| invalid_arguments("walk requires a direction or x and y coordinates"))?;
+    if matches!(first.to_str(), Some("north" | "east" | "south" | "west")) {
+        return Ok(WalkTarget::Direction(parse_direction(Some(first))?));
+    }
+    let x = parse_coordinate(Some(first), "x")?;
+    let y = parse_coordinate(arguments.next(), "y")?;
+    Ok(WalkTarget::Destination { x, y })
+}
+
+fn parse_coordinate(argument: Option<OsString>, name: &str) -> Result<i32> {
+    let argument =
+        argument.ok_or_else(|| invalid_arguments(format!("{name} coordinate is required")))?;
+    let argument = argument
+        .to_str()
+        .ok_or_else(|| invalid_arguments(format!("{name} coordinate must be valid Unicode")))?;
+    argument.parse().map_err(|_| {
+        invalid_arguments(format!("{name} coordinate must be a signed 32-bit integer"))
+    })
 }
 
 fn parse_command_id(argument: Option<OsString>) -> Result<u32> {
@@ -216,6 +262,8 @@ fn execute(_command: Command) -> Result<CommandResult> {
 #[cfg(test)]
 mod tests {
     use super::{Command, Operation, OutputFormat, parse};
+    use darpc_model::Direction;
+    use darpc_protocol::WalkTarget;
     use std::ffi::OsString;
 
     fn arguments(values: &[&str]) -> Vec<OsString> {
@@ -287,12 +335,45 @@ mod tests {
                 }
             )
         );
+        assert_eq!(
+            parse(arguments(&["turn", "--pid", "10", "west"])).unwrap(),
+            (
+                OutputFormat::Table,
+                Command {
+                    pid: 10,
+                    operation: Operation::Turn(Direction::West),
+                }
+            )
+        );
+        assert_eq!(
+            parse(arguments(&["walk", "--pid", "10", "north"])).unwrap(),
+            (
+                OutputFormat::Table,
+                Command {
+                    pid: 10,
+                    operation: Operation::Walk(WalkTarget::Direction(Direction::North)),
+                }
+            )
+        );
+        assert_eq!(
+            parse(arguments(&["walk", "--pid", "10", "120", "85"])).unwrap(),
+            (
+                OutputFormat::Table,
+                Command {
+                    pid: 10,
+                    operation: Operation::Walk(WalkTarget::Destination { x: 120, y: 85 }),
+                }
+            )
+        );
     }
 
     #[test]
     fn rejects_invalid_pid_and_extra_arguments() {
         assert!(parse(arguments(&["ping", "--pid", "0"])).is_err());
         assert!(parse(arguments(&["hello", "--pid", "1", "extra"])).is_err());
+        assert!(parse(arguments(&["turn", "--pid", "1", "up"])).is_err());
+        assert!(parse(arguments(&["walk", "--pid", "1", "10"])).is_err());
+        assert!(parse(arguments(&["walk", "--pid", "1", "north", "extra"])).is_err());
     }
 
     #[test]

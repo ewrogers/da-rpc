@@ -9,8 +9,8 @@ remain concise.
 
 ## Current focus
 
-M14, the bounded main-thread command queue, is complete. M15 is the next
-planned increment and will add the first low-risk typed client action.
+M15, the first typed client actions, is complete. M16 is the next planned
+increment and will add bounded outgoing-packet observation and local rules.
 
 ## Milestone snapshot
 
@@ -33,6 +33,7 @@ planned increment and will add the first low-risk typed client action.
 | M12, late-attach client snapshot | Complete | Main-thread capture, the full initial character, collection, spell-effect, and observed world-object surface, protocol and API presentation, and live-client comparison pass. |
 | M13, event-driven updates | Complete | Bounded status, location, spell-effect, collection, world-object, and typed message updates, daemon reduction and message lookback, resynchronization, per-client SSE, and live-client acceptance pass. |
 | M14, main-thread command queue | Complete | Fixed DLL and daemon queues, one command per tick, direct CLI and REST routing, explicit states, and live-client verification pass. |
+| M15, first typed action | Complete | Native turn, directional step, exact-tile pathfinding, validation, walking state and events, and live direct and REST verification pass. |
 
 ## Completed recently
 
@@ -77,6 +78,24 @@ planned increment and will add the first low-risk typed client action.
   tick, plus bounded daemon routing through each existing controller session.
 - [x] Added direct CLI and REST diagnostic submission, status, cancellation,
   timing, OpenAPI, and Swagger coverage.
+- [x] Added typed turn and walk commands through the existing bounded queue,
+  including zero-based destination validation and native `no_path` failures.
+- [x] Added queued-route state plus `walking.started` and `walking.stopped`
+  events with current position, requested destination, and reached outcome.
+
+## M15 completion evidence
+
+- [x] Unsupported lifecycle and unavailable map state reject before a native
+  call; malformed directions, bodies, and map coordinates return HTTP 400.
+- [x] Turn, collision-checked step, and exact-tile pathfinding execute only on
+  the client main thread through confirmed native functions.
+- [x] Exact-tile walking uses no pursuit target, attack call, or automatic
+  retry, and command execution remains distinct from route completion.
+- [x] Direct CLI and REST commands pass against the late-attached live client,
+  including native `no_path` and out-of-map validation behavior.
+- [x] Live Server-Sent Events report both interrupted and reached route
+  outcomes with the observed current tile and requested destination.
+- [x] Host workspace checks and native x86 and x64 Windows checks pass.
 
 ## M14 completion evidence
 

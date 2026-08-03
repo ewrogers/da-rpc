@@ -19,10 +19,10 @@ The command-line boundaries are:
 | `darpc.exe` | Exchange typed protocol messages directly with one injected DLL. |
 | `darpcd.exe` | Maintain multiple client connections and expose aggregate state through web APIs. |
 
-## Direct IPC diagnostics
+## Direct IPC commands
 
-The implemented operations prove communication, expose hook health, and read a
-current client snapshot:
+The implemented operations prove communication, expose hook health, read a
+current client snapshot, and submit movement through the client:
 
 ```text
 darpc hello --pid <pid>
@@ -31,6 +31,9 @@ darpc echo --pid <pid> "hello"
 darpc tick-health --pid <pid>
 darpc snapshot --pid <pid>
 darpc diagnostic --pid <pid>
+darpc turn --pid <pid> <north|east|south|west>
+darpc walk --pid <pid> <north|east|south|west>
+darpc walk --pid <pid> <x> <y>
 darpc command-status --pid <pid> <command-id>
 darpc command-cancel --pid <pid> <command-id>
 ```
@@ -52,6 +55,11 @@ behavior is:
 - `diagnostic` submits a no-op command to the bounded main-thread queue, waits
   up to one second, and reports its state, queue delay, execution duration, and
   client main-thread ID.
+- `turn` cancels any queued native route and asks the client to face one of the
+  four cardinal directions.
+- `walk` with a direction cancels any queued route and attempts one native,
+  collision-checked step. `walk` with x/y asks the client's native pathfinder to
+  follow a route to that zero-based map tile.
 - `command-status` reads a retained command result by its nonzero ID.
 - `command-cancel` atomically cancels a command that is still accepted. A
   command that already started retains its completed state.
@@ -71,6 +79,8 @@ darpc --output json echo --pid <pid> "hello"
 darpc --output json tick-health --pid <pid>
 darpc --output json snapshot --pid <pid>
 darpc --output json diagnostic --pid <pid>
+darpc --output json turn --pid <pid> north
+darpc --output json walk --pid <pid> 120 85
 darpc --output json command-status --pid <pid> <command-id>
 ```
 

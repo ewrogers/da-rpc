@@ -112,7 +112,9 @@ Windows-specific builds or runtime checks are unavailable:
   client the test does not clearly own.
 - Keep Cargo-generated files on a Windows-local filesystem when the source is
   mounted from macOS. The exact target directory is environment-specific and
-  must be discovered or chosen explicitly.
+  must be discovered or chosen explicitly. Reuse one stable target root for
+  the repository, with only the architecture-specific subdirectories Cargo
+  requires. Do not create milestone-, test-, or task-specific target trees.
 - Run repository-owned Windows verification scripts when available and report
   both the host checks and native guest results.
 - Prefer an already-running virtual machine. Do not start, stop, reconfigure,

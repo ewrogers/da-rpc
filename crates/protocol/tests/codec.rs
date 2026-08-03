@@ -3,9 +3,9 @@ use darpc_model::{
     CharacterSnapshot, CharacterStats, CharacterVitals, ClientLifecycle, ClientMessage,
     ClientSnapshot, CollectionChange, CooldownStatus, CoreStatus, CreatureKind, CurrentVitals,
     Direction, Effect, EffectDuration, EffectUpdate, Element, EquipmentItem, EquipmentSlot, Gender,
-    InventoryItem, LocationUpdate, MapChange, MapLocation, MessageKind, ObjectUpdate,
-    ProgressionStatus, Skill, SlotUpdate, Spell, SpellTargetType, StateEvent, StateUpdate,
-    StatusUpdate, WorldObject,
+    InventoryItem, LocationUpdate, MapChange, MapLocation, MessageKind, MovementUpdate,
+    ObjectUpdate, ProgressionStatus, Skill, SlotUpdate, Spell, SpellTargetType, StateEvent,
+    StateUpdate, StatusUpdate, TilePosition, WorldObject,
 };
 use darpc_protocol::{
     Architecture, CommandFailure, CommandKind, CommandOperation, CommandRequest, CommandResponse,
@@ -15,8 +15,8 @@ use darpc_protocol::{
     MAX_COMMAND_TIMEOUT_MS, MAX_COMMAND_WAIT_MS, MAX_ECHO_TEXT_LEN, MAX_PAYLOAD_LEN, Message,
     MessageType, PROTOCOL_VERSION_1_0, Ping, Pong, SnapshotRequest, SnapshotResponse,
     SnapshotResult, SnapshotUnavailableReason, TickHealthRequest, TickHealthResponse, VersionRange,
-    decode_frame, decode_header, encode_frame, protocol_version, protocol_version_major,
-    protocol_version_minor,
+    WalkTarget, decode_frame, decode_header, encode_frame, protocol_version,
+    protocol_version_major, protocol_version_minor,
 };
 
 fn hello() -> Hello {
@@ -60,6 +60,7 @@ fn snapshot() -> ClientSnapshot {
             class: CharacterClass::Wizard,
             is_action_restricted: false,
             is_blinded: true,
+            is_walking: false,
             gold: 123_456,
             weight: 88,
             max_weight: 120,
@@ -442,6 +443,25 @@ fn every_message_round_trips() {
                         after: None,
                     }),
                 },
+                StateEvent {
+                    sequence: 52,
+                    revision: 21,
+                    tick_ms: 133,
+                    update: StateUpdate::Movement(MovementUpdate::Started {
+                        current: TilePosition { x: 10, y: 20 },
+                        destination: Some(TilePosition { x: 30, y: 40 }),
+                    }),
+                },
+                StateEvent {
+                    sequence: 53,
+                    revision: 22,
+                    tick_ms: 134,
+                    update: StateUpdate::Movement(MovementUpdate::Stopped {
+                        current: TilePosition { x: 30, y: 40 },
+                        destination: Some(TilePosition { x: 30, y: 40 }),
+                        reached_destination: Some(true),
+                    }),
+                },
             ]),
         }),
         Message::EventPollResponse(EventPollResponse {
@@ -461,20 +481,44 @@ fn every_message_round_trips() {
         }),
         Message::CommandRequest(CommandRequest {
             request_id: 15,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::Turn(Direction::West),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 16,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::Walk(WalkTarget::Direction(Direction::North)),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 17,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::Walk(WalkTarget::Destination { x: 120, y: 85 }),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 18,
             operation: CommandOperation::Query {
                 command_id: 91,
                 wait_ms: 0,
             },
         }),
         Message::CommandRequest(CommandRequest {
-            request_id: 16,
+            request_id: 19,
             operation: CommandOperation::Cancel { command_id: 91 },
         }),
         Message::CommandResponse(CommandResponse {
-            request_id: 17,
+            request_id: 20,
             result: CommandResult::Status(CommandStatus {
                 command_id: 91,
-                kind: CommandKind::Diagnostic,
+                kind: CommandKind::Walk(WalkTarget::Destination { x: 120, y: 85 }),
                 state: CommandState::Failed,
                 enqueued_tick_ms: u32::MAX - 5,
                 deadline_tick_ms: 994,
@@ -482,15 +526,15 @@ fn every_message_round_trips() {
                 completed_tick_ms: Some(3),
                 execution_us: Some(17),
                 main_thread_id: Some(42),
-                failure: Some(CommandFailure::Internal),
+                failure: Some(CommandFailure::NoPath),
             }),
         }),
         Message::CommandResponse(CommandResponse {
-            request_id: 18,
+            request_id: 21,
             result: CommandResult::Busy,
         }),
         Message::CommandResponse(CommandResponse {
-            request_id: 19,
+            request_id: 22,
             result: CommandResult::Unavailable,
         }),
     ];

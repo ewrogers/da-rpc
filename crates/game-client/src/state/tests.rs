@@ -3,8 +3,8 @@ use super::{
     CHARACTER_NAME_RVA, EQUIPMENT_PANE_RVA, GUI_BACK_PANE_ADJUSTMENT, GUI_BACK_PANE_RVA,
     MAIN_MENU_PANE_RVA, MAIN_THREAD_ID_RVA, MAP_LOADING_PANE_RVA, MemoryReader, RawLifecycle,
     RawObjects, RawStateSnapshot, RawWorldObject, StateReadError, StateWalker,
-    WORLD_IMPLEMENTATION_ADJUSTMENT, WORLD_IMPLEMENTATION_RVA,
 };
+use crate::{WORLD_PANE_ADJUSTMENT, WORLD_PANE_POINTER_RVA};
 
 #[test]
 fn raw_snapshot_size_stays_bounded() {
@@ -52,8 +52,8 @@ impl FakeMemory {
         };
         memory.u32(BASE + MAIN_THREAD_ID_RVA, THREAD_ID);
         memory.u32(
-            BASE + WORLD_IMPLEMENTATION_RVA,
-            WORLD + WORLD_IMPLEMENTATION_ADJUSTMENT,
+            BASE + WORLD_PANE_POINTER_RVA as u32,
+            WORLD + WORLD_PANE_ADJUSTMENT as u32,
         );
         memory.u32(
             BASE + GUI_BACK_PANE_RVA,
@@ -350,7 +350,7 @@ fn action_lock_and_blinded_state_use_exact_client_values() {
 #[test]
 fn title_state_has_no_character() {
     let mut memory = FakeMemory::gameplay();
-    memory.u32(BASE + WORLD_IMPLEMENTATION_RVA, 0);
+    memory.u32(BASE + WORLD_PANE_POINTER_RVA as u32, 0);
     memory.u32(BASE + GUI_BACK_PANE_RVA, 0);
     memory.u32(BASE + MAIN_MENU_PANE_RVA, 0x1234);
 

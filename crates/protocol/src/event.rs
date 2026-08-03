@@ -6,8 +6,8 @@ use crate::{
 use darpc_model::{
     CharacterModifiers, CharacterStats, ClientMessage, CollectionChange, CoreStatus, CurrentVitals,
     Effect, EffectDuration, EffectUpdate, Element, InventoryItem, LocationUpdate, MapChange,
-    MessageKind, ObjectUpdate, ProgressionStatus, Skill, SlotUpdate, Spell, StateEvent,
-    StateUpdate, StatusUpdate,
+    MessageKind, MovementUpdate, ObjectUpdate, ProgressionStatus, Skill, SlotUpdate, Spell,
+    StateEvent, StateUpdate, StatusUpdate, TilePosition,
 };
 
 pub const MAX_EVENTS_PER_POLL: u16 = 192;
@@ -125,6 +125,10 @@ fn encode_event(output: &mut Vec<u8>, event: &StateEvent) -> Result<(), EncodeEr
             output.push(1);
             encode_status(output, *update);
         }
+        StateUpdate::Movement(update) => {
+            output.push(9);
+            encode_movement(output, *update)?;
+        }
         StateUpdate::Location(update) => {
             output.push(2);
             encode_location(output, update)?;
@@ -183,6 +187,7 @@ fn decode_event(reader: &mut PayloadReader<'_>) -> Result<StateEvent, DecodeErro
             reader,
             crate::snapshot::collections::decode_skill,
         )?),
+        9 => StateUpdate::Movement(decode_movement(reader)?),
         actual => return Err(DecodeError::InvalidStateUpdateType { actual }),
     };
     Ok(StateEvent {
@@ -508,7 +513,7 @@ fn encode_status(output: &mut Vec<u8>, update: StatusUpdate) {
 
 fn decode_status(reader: &mut PayloadReader<'_>) -> Result<StatusUpdate, DecodeError> {
     let fields = reader.read_u8()?;
-    if fields & !0x7F != 0 {
+    if fields == 0 || fields & 0x80 != 0 {
         return Err(DecodeError::InvalidStatusFields { actual: fields });
     }
     Ok(StatusUpdate {
@@ -534,6 +539,96 @@ fn decode_status(reader: &mut PayloadReader<'_>) -> Result<StatusUpdate, DecodeE
             .then(|| reader.read_bool())
             .transpose()?,
     })
+}
+
+fn encode_movement(output: &mut Vec<u8>, update: MovementUpdate) -> Result<(), EncodeError> {
+    match update {
+        MovementUpdate::Started {
+            current,
+            destination,
+        } => {
+            output.push(1);
+            encode_tile_position(output, current);
+            encode_destination(output, destination);
+        }
+        MovementUpdate::Stopped {
+            current,
+            destination,
+            reached_destination,
+        } => {
+            if destination.is_some() != reached_destination.is_some() {
+                return Err(EncodeError::InvalidMovementOutcome);
+            }
+            output.push(2);
+            encode_tile_position(output, current);
+            encode_destination(output, destination);
+            output.push(match reached_destination {
+                None => 0,
+                Some(false) => 1,
+                Some(true) => 2,
+            });
+        }
+    }
+    Ok(())
+}
+
+fn decode_movement(reader: &mut PayloadReader<'_>) -> Result<MovementUpdate, DecodeError> {
+    let kind = reader.read_u8()?;
+    let current = decode_tile_position(reader)?;
+    let destination = decode_destination(reader)?;
+    match kind {
+        1 => Ok(MovementUpdate::Started {
+            current,
+            destination,
+        }),
+        2 => {
+            let actual = reader.read_u8()?;
+            let reached_destination = match (destination.is_some(), actual) {
+                (false, 0) => None,
+                (true, 1) => Some(false),
+                (true, 2) => Some(true),
+                (has_destination, actual) => {
+                    return Err(DecodeError::InvalidMovementOutcome {
+                        actual,
+                        has_destination,
+                    });
+                }
+            };
+            Ok(MovementUpdate::Stopped {
+                current,
+                destination,
+                reached_destination,
+            })
+        }
+        actual => Err(DecodeError::InvalidMovementUpdateType { actual }),
+    }
+}
+
+fn encode_tile_position(output: &mut Vec<u8>, position: TilePosition) {
+    push_i32(output, position.x);
+    push_i32(output, position.y);
+}
+
+fn decode_tile_position(reader: &mut PayloadReader<'_>) -> Result<TilePosition, DecodeError> {
+    Ok(TilePosition {
+        x: reader.read_i32()?,
+        y: reader.read_i32()?,
+    })
+}
+
+fn encode_destination(output: &mut Vec<u8>, destination: Option<TilePosition>) {
+    push_bool(output, destination.is_some());
+    if let Some(destination) = destination {
+        encode_tile_position(output, destination);
+    }
+}
+
+fn decode_destination(reader: &mut PayloadReader<'_>) -> Result<Option<TilePosition>, DecodeError> {
+    match reader.read_u8()? {
+        0 => Ok(None),
+        1 => decode_tile_position(reader).map(Some),
+        actual => Err(DecodeError::InvalidMovementDestination { actual }),
+    }
 }
 
 fn encode_stats(output: &mut Vec<u8>, stats: CharacterStats) {
@@ -625,5 +720,21 @@ mod tests {
     #[test]
     fn empty_status_update_is_detected() {
         assert!(StatusUpdate::default().is_empty());
+    }
+
+    #[test]
+    fn movement_outcome_requires_a_known_destination() {
+        let mut output = Vec::new();
+        assert_eq!(
+            encode_movement(
+                &mut output,
+                MovementUpdate::Stopped {
+                    current: TilePosition { x: 2, y: 8 },
+                    destination: None,
+                    reached_destination: Some(false),
+                },
+            ),
+            Err(EncodeError::InvalidMovementOutcome)
+        );
     }
 }

@@ -1,9 +1,9 @@
 # Web API
 
 > **Status:** The client registry, managed lifecycle routes, OpenAPI document,
-> interactive documentation, current client state queries, a diagnostic
-> main-thread command, and per-client Server-Sent Events are implemented.
-> Typed game actions, WebSocket, and remote access remain planned.
+> interactive documentation, current client state queries, typed main-thread
+> movement commands, and per-client Server-Sent Events are implemented.
+> WebSocket and remote access remain planned.
 
 `darpcd.exe` exposes standard web interfaces so applications do not need to
 implement Windows injection, named-pipe IPC, or client-specific data layouts.
@@ -28,6 +28,8 @@ port. The API has no URL version prefix.
 | `GET /clients/{client}/objects` | Return world objects currently observed by this client. |
 | `GET /clients/{client}/messages` | Return filtered, paged recent chat and system message history. |
 | `GET /clients/{client}/events` | Stream ordered changes after a current snapshot boundary. |
+| `POST /clients/{client}/turn` | Turn the character through the native client path. |
+| `POST /clients/{client}/walk` | Take one directional step or begin native pathfinding to a tile. |
 | `POST /clients/{client}/commands/diagnostic` | Submit a no-op command for execution on a client tick. |
 | `GET /clients/{client}/commands/{command_id}` | Read a retained command state. |
 | `DELETE /clients/{client}/commands/{command_id}` | Cancel a command that has not started. |
@@ -182,7 +184,9 @@ and `body_sprite`; all four are null when the local character is using a
 monster-disguise image session. `is_action_restricted` reports the separate
 local movement, world-drop, exchange-start, and inventory rearrangement lock;
 it is not a promise that every possible action is blocked. `is_blinded` follows
-the client-retained `SStatus` blind code. Item sprites exclude the client's type
+the client-retained `SStatus` blind code. `is_walking` is true while the native
+pathfinder has an active queued route; a single directional step does not set
+it. Item sprites exclude the client's type
 flag bits, stackable item names exclude the rendered quantity suffix, and
 `can_stack` retains the independent client flag. Equipment `slot` is a stable
 snake-case name such as `left_ring` or `accessory1`.
@@ -206,6 +210,33 @@ Snapshot capture semantics and unavailable values are documented in
 
 ## Main-thread commands
 
+Turn accepts one cardinal direction:
+
+```text
+TurnOptions {
+    direction: "north" | "east" | "south" | "west",
+}
+```
+
+Walk accepts exactly one of these object shapes:
+
+```text
+WalkDirectionOptions {
+    direction: "north" | "east" | "south" | "west",
+}
+
+WalkDestinationOptions {
+    destination: { x: i32, y: i32 },
+}
+```
+
+Tile coordinates are zero-based. A destination must satisfy `0 <= x < width`
+and `0 <= y < height` for the retained current map. Bad directions, malformed
+choice bodies, and out-of-map tiles return `400 Bad Request`. A client that is
+not in game or has no current map returns `409 Conflict` without a native call.
+An in-bounds tile that the native pathfinder cannot reach is a completed command
+with `state: "failed"` and `failure: "no_path"`, not an HTTP validation error.
+
 The diagnostic route accepts this optional field in a JSON object:
 
 ```text
@@ -223,7 +254,7 @@ CommandStatus {
     pid: u32,
     instance_id: string,
     command_id: u32,
-    kind: "diagnostic",
+    kind: "diagnostic" | "turn" | "walk",
     state: "accepted" | "executed" | "failed" | "cancelled" | "timed_out",
     enqueued_tick_ms: u32,
     deadline_tick_ms: u32,
@@ -232,7 +263,8 @@ CommandStatus {
     queue_delay_ms: u32?,
     execution_us: u32?,
     main_thread_id: u32?,
-    failure: "internal"?,
+    failure: "internal" | "invalid_state" | "invalid_destination" |
+             "rejected" | "no_path"?,
 }
 ```
 
@@ -250,7 +282,13 @@ Unavailable`; an expired retained command returns `404 Not Found`.
 
 The client tick executes at most one command per tick. IPC, HTTP, allocation,
 serialization, and logging stay off the game thread. The diagnostic calls no
-client function and changes no game state.
+client function and changes no game state. Turn and walk cancel a previous
+queued route before using the client's native direction, collision, and
+pathfinding helpers. A successful command means the client accepted the local
+operation. Later `location.changed`, `walking.started`, and `walking.stopped`
+observations describe route progress and do not cause the command to be
+retried. Exact-tile walking uses the ground route builder only; it does not
+select a living target, pursue it, or automatically attack.
 
 ## Server-Sent Events
 
@@ -305,6 +343,8 @@ discriminators remain `snake_case` because they are ordinary JSON values.
 | `modifiers.changed` | `modifiers_changed` | Combat modifiers and attack and defense elements |
 | `location.changed` | `location_changed` | Absolute `x`, `y`, and optional atomic `map` change |
 | `blind.changed` | `blind_changed` | `is_blinded` |
+| `walking.started` | `walking_started` | `current`, optional `destination` |
+| `walking.stopped` | `walking_stopped` | `current`, optional `destination`, optional `reached_destination` |
 | `action_restriction.changed` | `action_restriction_changed` | `is_action_restricted` |
 | `effect.added` | `effect_added` | `icon`, `duration` |
 | `effect.removed` | `effect_removed` | `icon` |
@@ -343,6 +383,31 @@ discriminators remain `snake_case` because they are ordinary JSON values.
 | `message.world` | `message` | `timestamp`, `tick_ms`, `channel: "world"`, optional sender and recipient, and `text` |
 | `stream.resync_required` | `stream_resync_required` | `pid`, `instance_id`, `last_event_sequence`, `dropped_events` |
 | `stream.closed` | `stream_closed` | `pid`, `instance_id`, `last_event_sequence`, `reason` |
+
+Queued native routes use two lifecycle frames:
+
+```text
+WalkingStarted {
+    observation: EventObservation,
+    current: { x: i32, y: i32 },
+    destination: { x: i32, y: i32 }?,
+}
+
+WalkingStopped {
+    observation: EventObservation,
+    current: { x: i32, y: i32 },
+    destination: { x: i32, y: i32 }?,
+    reached_destination: bool?,
+}
+```
+
+For an exact-tile walk requested through daRPC, `destination` is the requested
+zero-based tile. `reached_destination` is true only when the stopped current
+position equals that tile, and false when the route ends somewhere else. A
+route started directly through the game may not expose a reliable destination;
+both destination and outcome are null in that case. Directional single steps
+do not create a queued route, so consumers observe their ordinary
+`location.changed` event instead.
 
 Several events may share one sequence and revision when one atomic client
 packet changed several groups. Values are absolute. Consumers replace the

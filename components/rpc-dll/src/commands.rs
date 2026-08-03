@@ -1,5 +1,7 @@
+use darpc_model::Direction;
 use darpc_protocol::{
     CommandFailure, CommandKind, CommandOperation, CommandResult, CommandState, CommandStatus,
+    WalkTarget,
 };
 use std::{
     panic,
@@ -37,6 +39,8 @@ struct CommandSlot {
     queued: AtomicBool,
     command_id: AtomicU32,
     kind: AtomicU8,
+    argument_x: AtomicU32,
+    argument_y: AtomicU32,
     enqueued_tick_ms: AtomicU32,
     deadline_tick_ms: AtomicU32,
     started_tick_ms: AtomicU32,
@@ -57,6 +61,8 @@ impl CommandSlot {
             queued: AtomicBool::new(false),
             command_id: AtomicU32::new(0),
             kind: AtomicU8::new(0),
+            argument_x: AtomicU32::new(0),
+            argument_y: AtomicU32::new(0),
             enqueued_tick_ms: AtomicU32::new(0),
             deadline_tick_ms: AtomicU32::new(0),
             started_tick_ms: AtomicU32::new(0),
@@ -72,8 +78,11 @@ impl CommandSlot {
     }
 
     fn initialize(&self, command_id: u32, kind: CommandKind, now: u32, timeout_ms: u16) {
+        let (kind, argument_x, argument_y) = stored_kind(kind);
         self.command_id.store(command_id, Ordering::Relaxed);
-        self.kind.store(kind_value(kind), Ordering::Relaxed);
+        self.kind.store(kind, Ordering::Relaxed);
+        self.argument_x.store(argument_x, Ordering::Relaxed);
+        self.argument_y.store(argument_y, Ordering::Relaxed);
         self.enqueued_tick_ms.store(now, Ordering::Relaxed);
         self.deadline_tick_ms
             .store(now.wrapping_add(u32::from(timeout_ms)), Ordering::Relaxed);
@@ -101,7 +110,11 @@ impl CommandSlot {
 
             let status = CommandStatus {
                 command_id: expected_id,
-                kind: kind_from_value(self.kind.load(Ordering::Relaxed)),
+                kind: kind_from_value(
+                    self.kind.load(Ordering::Relaxed),
+                    self.argument_x.load(Ordering::Relaxed),
+                    self.argument_y.load(Ordering::Relaxed),
+                ),
                 state: public_state(state),
                 enqueued_tick_ms: self.enqueued_tick_ms.load(Ordering::Relaxed),
                 deadline_tick_ms: self.deadline_tick_ms.load(Ordering::Relaxed),
@@ -335,7 +348,11 @@ fn execute(slot_index: usize) {
         .store(current_thread_id(), Ordering::Relaxed);
     slot.has_main_thread_id.store(true, Ordering::Relaxed);
     let started = Instant::now();
-    let kind = kind_from_value(slot.kind.load(Ordering::Relaxed));
+    let kind = kind_from_value(
+        slot.kind.load(Ordering::Relaxed),
+        slot.argument_x.load(Ordering::Relaxed),
+        slot.argument_y.load(Ordering::Relaxed),
+    );
     let result =
         panic::catch_unwind(|| execute_command(kind)).unwrap_or(Err(CommandFailure::Internal));
     let execution_us = u32::try_from(started.elapsed().as_micros()).unwrap_or(u32::MAX);
@@ -348,10 +365,14 @@ fn execute(slot_index: usize) {
     slot.queued.store(false, Ordering::Release);
 }
 
+#[cfg(all(windows, not(test)))]
 fn execute_command(kind: CommandKind) -> Result<(), CommandFailure> {
-    match kind {
-        CommandKind::Diagnostic => Ok(()),
-    }
+    crate::movement::execute(kind)
+}
+
+#[cfg(test)]
+const fn execute_command(_kind: CommandKind) -> Result<(), CommandFailure> {
+    Ok(())
 }
 
 fn complete_execution(slot: &CommandSlot, result: Result<(), CommandFailure>) {
@@ -411,14 +432,32 @@ fn next_command_id() -> u32 {
     }
 }
 
-const fn kind_value(kind: CommandKind) -> u8 {
+const fn stored_kind(kind: CommandKind) -> (u8, u32, u32) {
     match kind {
-        CommandKind::Diagnostic => 0,
+        CommandKind::Diagnostic => (0, 0, 0),
+        CommandKind::Turn(direction) => (1, direction.raw() as u32, 0),
+        CommandKind::Walk(WalkTarget::Direction(direction)) => (2, direction.raw() as u32, 0),
+        CommandKind::Walk(WalkTarget::Destination { x, y }) => (3, x as u32, y as u32),
     }
 }
 
-const fn kind_from_value(_value: u8) -> CommandKind {
-    CommandKind::Diagnostic
+const fn kind_from_value(value: u8, argument_x: u32, argument_y: u32) -> CommandKind {
+    match value {
+        1 => CommandKind::Turn(stored_direction(argument_x)),
+        2 => CommandKind::Walk(WalkTarget::Direction(stored_direction(argument_x))),
+        3 => CommandKind::Walk(WalkTarget::Destination {
+            x: argument_x as i32,
+            y: argument_y as i32,
+        }),
+        _ => CommandKind::Diagnostic,
+    }
+}
+
+const fn stored_direction(value: u32) -> Direction {
+    match Direction::from_raw(value as u8) {
+        Some(direction) => direction,
+        None => Direction::North,
+    }
 }
 
 const fn public_state(value: u8) -> CommandState {
@@ -443,16 +482,24 @@ fn optional_atomic(value: &AtomicU32, present: &AtomicBool) -> Option<u32> {
 }
 
 const fn failure_from_value(value: u8) -> Option<CommandFailure> {
-    if value == 0 {
-        None
-    } else {
-        Some(CommandFailure::Internal)
+    match value {
+        0 => None,
+        1 => Some(CommandFailure::Internal),
+        2 => Some(CommandFailure::InvalidState),
+        3 => Some(CommandFailure::InvalidDestination),
+        4 => Some(CommandFailure::Rejected),
+        5 => Some(CommandFailure::NoPath),
+        _ => Some(CommandFailure::Internal),
     }
 }
 
 const fn failure_value(failure: CommandFailure) -> u8 {
     match failure {
         CommandFailure::Internal => 1,
+        CommandFailure::InvalidState => 2,
+        CommandFailure::InvalidDestination => 3,
+        CommandFailure::Rejected => 4,
+        CommandFailure::NoPath => 5,
     }
 }
 
@@ -516,6 +563,32 @@ mod tests {
         assert_eq!(status(second).state, CommandState::Accepted);
         observe_tick();
         assert_eq!(status(second).state, CommandState::Executed);
+    }
+
+    #[test]
+    fn retains_typed_movement_arguments_through_execution() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset();
+        TEST_TICK_MS.store(10, Ordering::Relaxed);
+        let commands = [
+            CommandKind::Turn(Direction::West),
+            CommandKind::Walk(WalkTarget::Direction(Direction::North)),
+            CommandKind::Walk(WalkTarget::Destination { x: 120, y: 85 }),
+        ];
+
+        for kind in commands {
+            let id = submitted_id(handle(CommandOperation::Submit {
+                kind,
+                timeout_ms: 1_000,
+                wait_ms: 0,
+            }));
+            assert_eq!(status(id).kind, kind);
+            observe_tick();
+            assert_eq!(status(id).kind, kind);
+            assert_eq!(status(id).state, CommandState::Executed);
+        }
     }
 
     #[test]

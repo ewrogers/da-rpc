@@ -16,6 +16,7 @@ pub enum EncodeError {
     EventStringTooLong { length: usize, max: usize },
     InvalidCollectionBatch { index: u8, count: u8 },
     EmptyCollectionUpdate,
+    InvalidMovementOutcome,
     InvalidCommandId,
     InvalidCommandTimeout { actual: u16, max: u16 },
     InvalidCommandWait { actual: u16, max: u16 },
@@ -78,6 +79,8 @@ impl fmt::Display for EncodeError {
             Self::EmptyCollectionUpdate => {
                 formatter.write_str("collection update has no before or after value")
             }
+            Self::InvalidMovementOutcome => formatter
+                .write_str("movement completion requires matching destination and reached fields"),
             Self::InvalidCommandId => formatter.write_str("command ID must be nonzero"),
             Self::InvalidCommandTimeout { actual, max } => write!(
                 formatter,
@@ -230,6 +233,16 @@ pub enum DecodeError {
     InvalidStatusFields {
         actual: u8,
     },
+    InvalidMovementUpdateType {
+        actual: u8,
+    },
+    InvalidMovementDestination {
+        actual: u8,
+    },
+    InvalidMovementOutcome {
+        actual: u8,
+        has_destination: bool,
+    },
     InvalidClientLifecycle {
         actual: u8,
     },
@@ -238,6 +251,9 @@ pub enum DecodeError {
         actual: u8,
     },
     InvalidCommandKind {
+        actual: u8,
+    },
+    InvalidWalkTarget {
         actual: u8,
     },
     InvalidCommandState {
@@ -406,6 +422,19 @@ impl fmt::Display for DecodeError {
             Self::InvalidStatusFields { actual } => {
                 write!(formatter, "invalid status field mask 0x{actual:02X}")
             }
+            Self::InvalidMovementUpdateType { actual } => {
+                write!(formatter, "invalid movement update type {actual}")
+            }
+            Self::InvalidMovementDestination { actual } => {
+                write!(formatter, "invalid movement destination marker {actual}")
+            }
+            Self::InvalidMovementOutcome {
+                actual,
+                has_destination,
+            } => write!(
+                formatter,
+                "invalid movement outcome {actual} with destination present={has_destination}"
+            ),
             Self::InvalidClientLifecycle { actual } => {
                 write!(formatter, "invalid client lifecycle {actual}")
             }
@@ -415,6 +444,9 @@ impl fmt::Display for DecodeError {
             }
             Self::InvalidCommandKind { actual } => {
                 write!(formatter, "invalid command kind {actual}")
+            }
+            Self::InvalidWalkTarget { actual } => {
+                write!(formatter, "invalid walk target {actual}")
             }
             Self::InvalidCommandState { actual } => {
                 write!(formatter, "invalid command state {actual}")

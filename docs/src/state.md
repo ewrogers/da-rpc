@@ -69,6 +69,11 @@ Some fields need additional context:
   activation paths can still work.
 - `is_blinded` is true only when the retained status event contains the
   client's blind code, `0x08`.
+- `is_walking` is true while the client's native tile pathfinder has an active
+  queued route. A single directional step does not set it. The event stream
+  reports queued-route transitions as `walking.started` and `walking.stopped`.
+  Routes requested through daRPC retain their destination, and a stopped event
+  compares that goal with the latest accepted client position.
 - A spell cooldown may be known to be active even when the client does not keep
   an exact remaining duration.
 - Map names normally come from the visible map pane. An accepted map-change

@@ -22,6 +22,8 @@ mod map_name;
 mod map_size_hook;
 #[cfg(any(windows, test))]
 mod message_packet;
+#[cfg(windows)]
+mod movement;
 #[cfg(any(windows, test))]
 mod object_packet;
 #[cfg(any(windows, test))]

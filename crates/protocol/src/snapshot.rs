@@ -116,6 +116,7 @@ fn encode_character(
     output.push(character.class.raw());
     push_bool(output, character.is_action_restricted);
     push_bool(output, character.is_blinded);
+    push_bool(output, character.is_walking);
     push_u32(output, character.gold);
     push_u32(output, character.weight);
     push_u32(output, character.max_weight);
@@ -191,6 +192,7 @@ fn decode_character(reader: &mut PayloadReader<'_>) -> Result<CharacterSnapshot,
     let class = CharacterClass::from_raw(reader.read_u8()?);
     let is_action_restricted = reader.read_bool()?;
     let is_blinded = reader.read_bool()?;
+    let is_walking = reader.read_bool()?;
     let gold = reader.read_u32()?;
     let weight = reader.read_u32()?;
     let max_weight = reader.read_u32()?;
@@ -258,6 +260,7 @@ fn decode_character(reader: &mut PayloadReader<'_>) -> Result<CharacterSnapshot,
         class,
         is_action_restricted,
         is_blinded,
+        is_walking,
         gold,
         weight,
         max_weight,

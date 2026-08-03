@@ -99,6 +99,8 @@ fn render_status_json(
 fn kind(kind: CommandKind) -> &'static str {
     match kind {
         CommandKind::Diagnostic => "diagnostic",
+        CommandKind::Turn(_) => "turn",
+        CommandKind::Walk(_) => "walk",
     }
 }
 
@@ -119,6 +121,10 @@ fn failure(failure: Option<CommandFailure>) -> &'static str {
 fn failure_name(failure: CommandFailure) -> &'static str {
     match failure {
         CommandFailure::Internal => "internal",
+        CommandFailure::InvalidState => "invalid_state",
+        CommandFailure::InvalidDestination => "invalid_destination",
+        CommandFailure::Rejected => "rejected",
+        CommandFailure::NoPath => "no_path",
     }
 }
 

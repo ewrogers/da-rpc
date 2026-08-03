@@ -15,6 +15,7 @@ pub struct StateEvent {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StateUpdate {
     Status(StatusUpdate),
+    Movement(MovementUpdate),
     Location(LocationUpdate),
     Effect(EffectUpdate),
     Object(ObjectUpdate),
@@ -104,6 +105,25 @@ pub struct LocationUpdate {
     pub y: i32,
     /// Present only when this position completes a staged map transition.
     pub map: Option<MapChange>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TilePosition {
+    pub x: i32,
+    pub y: i32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MovementUpdate {
+    Started {
+        current: TilePosition,
+        destination: Option<TilePosition>,
+    },
+    Stopped {
+        current: TilePosition,
+        destination: Option<TilePosition>,
+        reached_destination: Option<bool>,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -218,6 +238,23 @@ impl ClientSnapshot {
                 if let Some(is_action_restricted) = update.is_action_restricted {
                     character.is_action_restricted = is_action_restricted;
                 }
+            }
+            StateUpdate::Movement(update) => {
+                let character = self
+                    .character
+                    .as_mut()
+                    .ok_or(ApplyEventError::CharacterUnavailable)?;
+                let (current, is_walking) = match update {
+                    MovementUpdate::Started { current, .. } => (current, true),
+                    MovementUpdate::Stopped { current, .. } => (current, false),
+                };
+                character.is_walking = is_walking;
+                let location = character
+                    .location
+                    .as_mut()
+                    .ok_or(ApplyEventError::LocationUnavailable)?;
+                location.x = Some(current.x);
+                location.y = Some(current.y);
             }
             StateUpdate::Location(update) => {
                 let character = self

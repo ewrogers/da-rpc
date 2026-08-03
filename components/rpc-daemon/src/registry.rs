@@ -468,8 +468,8 @@ mod tests {
     use darpc_model::{
         CharacterClass, CharacterProgression, CharacterSnapshot, CharacterStats, CharacterVitals,
         ClientLifecycle, ClientSnapshot as GameSnapshot, CollectionChange, CurrentVitals, Effect,
-        EffectDuration, EffectUpdate, InventoryItem, LocationUpdate, MapChange, SlotUpdate,
-        StateEvent, StateUpdate, StatusUpdate,
+        EffectDuration, EffectUpdate, InventoryItem, LocationUpdate, MapChange, MovementUpdate,
+        SlotUpdate, StateEvent, StateUpdate, StatusUpdate, TilePosition,
     };
     use darpc_protocol::{Architecture, ComponentVersion, Hello, SUPPORTED_VERSIONS};
 
@@ -511,6 +511,7 @@ mod tests {
                 class: CharacterClass::Warrior,
                 is_action_restricted: false,
                 is_blinded: false,
+                is_walking: false,
                 gold: 100,
                 weight: 25,
                 max_weight: 60,
@@ -743,6 +744,15 @@ mod tests {
                         duration: EffectDuration::White,
                     })),
                 },
+                StateEvent {
+                    sequence: 4,
+                    revision: 5,
+                    tick_ms: 23,
+                    update: StateUpdate::Movement(MovementUpdate::Started {
+                        current: TilePosition { x: 43, y: 40 },
+                        destination: Some(TilePosition { x: 50, y: 45 }),
+                    }),
+                },
             ],
         }));
 
@@ -750,13 +760,14 @@ mod tests {
             .game_snapshot
             .clone()
             .unwrap();
-        assert_eq!(snapshot.revision, 4);
-        assert_eq!(snapshot.event_sequence, 3);
-        assert_eq!(snapshot.updated_tick_ms, 22);
+        assert_eq!(snapshot.revision, 5);
+        assert_eq!(snapshot.event_sequence, 4);
+        assert_eq!(snapshot.updated_tick_ms, 23);
         let character = snapshot.character.unwrap();
         assert_eq!(character.vitals.health, 80);
         assert_eq!(character.gold, 125);
         assert!(character.is_action_restricted);
+        assert!(character.is_walking);
         assert_eq!(
             character.location,
             Some(darpc_model::MapLocation {

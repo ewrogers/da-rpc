@@ -49,8 +49,11 @@ The tick also drains at most one entry from the 64-slot command queue. The IPC
 worker is the sole producer and the client main thread is the sole consumer.
 It validates and enqueues only scalar, pointer-free command data; it never
 calls a client function. The tick path does not wait, allocate, serialize, log,
-or perform IPC. The implemented diagnostic changes no state and records only
-its start and completion ticks, execution duration, and main-thread ID.
+  or perform IPC. The diagnostic changes no state and records only its start
+  and completion ticks, execution duration, and main-thread ID. Turn and walk
+  entries resolve the validated live world on that same main thread, then call
+  the client's native direction, collision, or pathfinding helpers. Exact-tile
+  walking validates the live zero-based map bounds before building a route.
 
 Cancellation and timeout use atomic state transitions. An accepted command may
 be cancelled or expire before execution; a command already executing completes

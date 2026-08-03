@@ -57,8 +57,10 @@ This workaround is unnecessary on native x64 Windows or when the Arm64 MSVC
 workload is installed.
 
 The controlled IPC integration test requires both architectures. Keep build
-outputs on a Windows-local filesystem, then pass their artifact directories to
-the script:
+outputs under one stable Windows-local target root and reuse it across builds.
+Cargo separates the explicit target architectures below that root, so
+milestone- or test-specific target trees are unnecessary. Then pass the two
+artifact directories to the script:
 
 ```powershell
 $env:CARGO_TARGET_DIR = "C:\cargo-target\da-rpc"

@@ -1,573 +1,255 @@
 # Web API
 
-> **Status:** The client registry, managed lifecycle routes, OpenAPI document,
-> interactive documentation, current client state queries, typed main-thread
-> movement commands, and per-client Server-Sent Events are implemented.
-> WebSocket and remote access remain planned.
+`darpcd.exe` turns Windows-specific client integration into ordinary local web
+interfaces. A script or application can use REST and Server-Sent Events (SSE)
+without implementing DLL injection, named pipes, or Dark Ages client layouts.
 
-`darpcd.exe` exposes standard web interfaces so applications do not need to
-implement Windows injection, named-pipe IPC, or client-specific data layouts.
+REST and SSE are implemented. WebSocket support is planned.
 
-## Current REST surface
+## Starting the server
 
-The Axum server binds to `127.0.0.1:2626` by default. A single
-`--port <port>` option accepts values from 1 through 65535 and changes only the
-port. If the address is unavailable, startup fails instead of selecting another
-port. The API has no URL version prefix.
+The daemon listens on `127.0.0.1:2626` by default. Use `--port <port>` to choose
+another port from 1 through 65535. Startup fails if the address is already in
+use instead of silently selecting a different port.
+
+With the default port:
+
+- `http://127.0.0.1:2626/docs` opens the self-hosted Swagger UI.
+- `http://127.0.0.1:2626/openapi.json` returns the OpenAPI document.
+- `http://127.0.0.1:2626/health` reports daemon availability.
+
+The API has no URL version prefix. daRPC maintains one current API while it is
+in active development.
+
+## Choosing a client
+
+Every `{client}` path accepts either:
+
+- A decimal process ID, such as `6076`
+- A current character name, such as `ZiLo`, matched without case sensitivity
+
+Process ID addressing is always available for a discovered client. Character
+name addressing is available only when a connected snapshot is `in_game`.
+Title, transition, disconnected, and stale clients use their process ID. If two
+active clients have the same character name, the name is rejected as ambiguous
+rather than choosing one.
+
+Use `GET /clients` to discover the current path value and connection state for
+every tracked client.
+
+## Client registry
+
+```text
+GET /clients
+```
+
+The registry reports each process ID, usable name, connection status, and any
+available identity or compatibility details. Common statuses include
+`not_loaded`, `initializing`, `connecting`, `connected`, `busy`,
+`disconnected`, and `incompatible`.
+
+`instance_id` identifies one loaded DLL lifetime. It changes after unload and
+reload. Process creation time is encoded as a decimal string so JavaScript does
+not lose 64-bit precision. Instance IDs and executable fingerprints use
+lowercase hexadecimal text.
+
+## Current data routes
+
+The current game data is split by domain so consumers can request only what
+they need:
+
+| Route | Guide |
+| --- | --- |
+| `GET /clients/{client}/status` | [Character status](status.md) |
+| `GET /clients/{client}/inventory` | [Inventory](inventory.md) |
+| `GET /clients/{client}/equipment` | [Equipment](equipment.md) |
+| `GET /clients/{client}/skillbook` | [Skills](skills.md) |
+| `GET /clients/{client}/spellbook` | [Spells](spells.md) |
+| `GET /clients/{client}/effects` | [Effects](effects.md) |
+| `GET /clients/{client}/objects` | [World and movement](world.md) |
+| `GET /clients/{client}/messages` | [Messages](messages.md) |
+
+These routes read the daemon's retained state. They do not ask the DLL to scan
+the game client for every HTTP request. See [Client data](state.md) for baseline
+capture, revisions, and unavailable values.
+
+The complete field list and JSON schema are generated from the Rust API models
+and are available in Swagger. The domain guides explain what the fields mean in
+the game and how they change.
+
+## Action routes
 
 | Route | Purpose |
 | --- | --- |
-| `GET /health` | Report daemon availability. |
-| `GET /clients` | List discovered and configured targets, identity, compatibility, and connection health. |
-| `GET /clients/{client}/status` | Return lifecycle, character status, and map state. |
-| `GET /clients/{client}/inventory` | Return occupied inventory slots. |
-| `GET /clients/{client}/equipment` | Return occupied equipment slots. |
-| `GET /clients/{client}/spellbook` | Return occupied spellbook slots. |
-| `GET /clients/{client}/skillbook` | Return occupied skillbook slots. |
-| `GET /clients/{client}/effects` | Return active spell effects and relative duration bands. |
-| `GET /clients/{client}/objects` | Return world objects currently observed by this client. |
-| `GET /clients/{client}/messages` | Return filtered, paged recent chat and system message history. |
-| `GET /clients/{client}/events` | Stream ordered changes after a current snapshot boundary. |
-| `POST /clients/{client}/turn` | Turn the character through the native client path. |
-| `POST /clients/{client}/walk` | Take one directional step or begin native pathfinding to a tile. |
-| `POST /clients/{client}/skills/use` | Use one learned skill by one-based slot or case-insensitive name. |
-| `POST /clients/{client}/spells/cast` | Cast one learned spell by one-based slot or case-insensitive name. |
-| `POST /clients/{client}/commands/diagnostic` | Submit a no-op command for execution on a client tick. |
-| `GET /clients/{client}/commands/{command_id}` | Read a retained command state. |
+| `POST /clients/{client}/turn` | Face a cardinal direction. |
+| `POST /clients/{client}/walk` | Take one step or pathfind to a tile. |
+| `POST /clients/{client}/skills/use` | Use a skill by slot or name. |
+| `POST /clients/{client}/spells/cast` | Cast a spell by slot or name. |
+| `POST /clients/{client}/commands/diagnostic` | Run a no-op main-thread command for testing. |
+| `GET /clients/{client}/commands/{command_id}` | Read retained command status. |
 | `DELETE /clients/{client}/commands/{command_id}` | Cancel a command that has not started. |
-| `POST /clients/launch` | Launch the configured client and initialize the configured DLL. |
-| `POST /clients/{client}/load` | Load and initialize the configured DLL in a tracked client. |
-| `POST /clients/{client}/unload` | Shut down and unload the configured DLL from a tracked client. |
-| `GET /openapi.json` | Return the generated OpenAPI document. |
-| `GET /docs` | Open the self-hosted interactive Swagger UI. |
 
-With the default port, Swagger is available at
-`http://127.0.0.1:2626/docs`. Its vendored assets and Ayu-inspired dark theme
-work without an internet connection.
+Movement request bodies are documented in [World and movement](world.md).
+Skill and spell arguments are documented in their respective chapters.
 
-## Registry models
+### Native command results
 
-```text
-HealthState {
-    status: "ok",
-    version: string,
-}
+Native actions are queued for the client main thread. A response contains a
+`command_id`, command kind, current state, timing information, and an optional
+failure reason.
 
-ClientList {
-    clients: ClientState[],
-}
-
-ClientState {
-    pid: u32,
-    name: string,
-    status: "connecting" | "not_loaded" | "initializing" | "connected" |
-            "busy" | "disconnected" | "incompatible",
-    identity: ClientIdentity?,
-    connection: ConnectionMetadata?,
-    reason: string?,
-}
-
-ClientIdentity {
-    created_time: string,
-    instance_id: string,
-}
-
-ConnectionMetadata {
-    protocol_version: string,
-    architecture: "x86" | "x86_64",
-    dll_version: string,
-    executable_fingerprint: string,
-    client_version: string,
-}
-```
-
-Every `{client}` path accepts a decimal PID or a case-insensitive current
-character name. PID addressing is always available. Name addressing is
-available only for a connected snapshot whose lifecycle is `in_game`; title,
-transition, disconnected, and stale observations fall back to the decimal PID.
-`ClientState.name` exposes the currently eligible path value. A duplicate
-active name is rejected as ambiguous rather than selecting an arbitrary
-process.
-
-`created_time` is the unsigned 64-bit Windows process creation time encoded as
-a decimal string so JavaScript consumers do not lose precision. `instance_id`
-and `executable_fingerprint` are lowercase hexadecimal strings. Identity and
-connection metadata are `null` until the corresponding information has been
-observed. `client_version` is the supported Dark Ages release in dotted form,
-such as `"7.41"`.
-
-## Client state resources
-
-After connecting, the daemon requests one complete snapshot and retains it with
-the corresponding client identity. The public API presents focused resource
-views of that retained observation instead of returning the entire snapshot in
-one response:
+Command states are:
 
 ```text
-GameStatus { observation, lifecycle, character, map }
-Inventory { observation, items }
-Equipment { observation, items }
-Spellbook { observation, spells }
-Skillbook { observation, skills }
-Effects { observation, effects }
-WorldObjects { observation, objects }
-Messages { messages: Message[] }
-Message { timestamp, tick_ms, channel, sender?, recipient?, text }
+accepted, executed, failed, cancelled, timed_out
 ```
 
-Snapshot-backed responses include `observation` metadata with the source PID, revision,
-event sequence, capture tick, latest update tick, capture duration, and world
-generation. The capture fields describe the last complete memory walk;
-`updated_tick_ms` advances when an incremental update is applied. Consumers can
-correlate responses with the same revision. Separate HTTP requests can observe
-different revisions when the daemon receives a newer update between requests.
-Message records omit this snapshot metadata because their source client is
-already identified by the request path or event subscription.
+`200 OK` means the command reached a final state during the request's bounded
+wait. `202 Accepted` means it is still queued and can be checked later. A full
+queue returns `429 Too Many Requests`; an unavailable client returns
+`503 Service Unavailable`.
 
-`WorldObjects.objects` is `null` when the client lifecycle cannot expose a
-world. Otherwise it is an array tagged by `kind`: `player`, `monster`, `npc`, or
-`item`. The optional `types` query parameter filters this array using a
-comma-separated list, such as `/clients/Eidolon/objects?types=npc,monster`.
-Without it, the route returns every observed object type. Players and creatures
-include position and direction. Names and a
-creature's numeric sprite remain optional when the client does not retain that
-information. Items include position, sprite, and a per-tile `z_index`, where
-zero is the bottom item. This resource is one client's observation rather than
-a permanent or merged world list.
+An executed state means the client accepted and ran the local native call. A
+later game event is the better proof of the resulting state or server
+submission. daRPC does not automatically retry actions.
 
-State resource routes return `404 Not Found` for an unknown client and `503 Service
-Unavailable` when the target has not produced an observation, including a
-capture failure reason when one is available. A collection field is null when
-the client could not expose that group and an empty array when the group was
-read successfully but contained no occupied slots.
+Command IDs belong to one DLL `instance_id`. Do not apply a retained result to
+a different DLL lifetime. A command can be cancelled or expire before it
+starts. Once native execution has begun, it completes normally.
 
-An effect contains an icon and a relative `duration` band. It is not an exact
-remaining time. From longest to shortest, the values are `white`, `red`,
-`orange`, `yellow`, `green`, and `blue`.
-
-The message `channel` is one of `say`, `shout`, `whisper`, `guild`, `group`,
-`system`, or `world`. Sender and recipient are omitted when that participant is
-not meaningful or could not be resolved. The text excludes the channel and
-participant punctuation shown by the game. `tick_ms` is the wrapping Windows
-millisecond tick captured by the DLL. `timestamp` is when the daemon received
-the event, formatted as ISO 8601 in the daemon's local time with its UTC offset,
-for example `2026-08-02T16:24:05.137-04:00`. The daemon retains the underlying
-instant in UTC, so filtering is not affected by the displayed offset.
-Empty text is not retained or broadcast. World shouts appear once as `world`;
-the client's duplicate rendered shout is discarded.
-
-Message history is sorted by `timestamp` descending and returns 20 records by default. The
-route accepts these query parameters:
-
-| Parameter | Meaning |
-| --- | --- |
-| `channels` | Comma-separated channels, such as `say,shout`. |
-| `since` | Return messages strictly newer than an ISO 8601 timestamp with an offset. |
-| `skip` | Skip this many matching records after newest-first sorting. Defaults to `0`. |
-| `count` | Return at most this many records. Defaults to `20`; maximum `100`. |
-
-For example,
-`/clients/Eidolon/messages?channels=say,shout&since=2026-08-02T15:00:00-04:00&skip=0&count=20`
-returns the first page of recent local speech after the supplied instant.
-
-The daemon retains at most 4,096 messages and 1 MiB of message text per DLL
-instance, removing the oldest first. An empty array means no retained messages
-have been observed. The history is memory-only and is cleared by a daemon
-restart or a new DLL instance.
-
-Message history can include private whispers. daRPC does not write message text
-to its normal logs, but any local consumer with access to the loopback API can
-read the retained history. Run only consumers you trust.
-
-Character status contains identity, appearance, progression, attributes,
-vitals, weight, maximum weight, and modifiers. Map state is a separate top-level field in
-`GameStatus`. Appearance is flattened into `gender`, `hair_style`, `hair_color`,
-and `body_sprite`; all four are null when the local character is using a
-monster-disguise image session. `is_action_restricted` reports the separate
-local movement, world-drop, exchange-start, and inventory rearrangement lock;
-it is not a promise that every possible action is blocked. `is_blinded` follows
-the client-retained `SStatus` blind code. `is_walking` is true while the native
-pathfinder has an active queued route; a single directional step does not set
-it. `is_casting` is true while a delayed spell is in progress. Item sprites
-exclude the client's type
-flag bits, stackable item names exclude the rendered quantity suffix, and
-`can_stack` retains the independent client flag. Equipment `slot` is a stable
-snake-case name such as `left_ring` or `accessory1`.
-
-Text-input spells expose their ASCII-only prompt. Other spell target modes
-have a null prompt. Element and target-type names are exposed without duplicate
-numeric identifier fields.
-
-The `disconnected` lifecycle means that the active client is displaying its
-reconnect dialog. Character state remains present when the underlying world
-structures are still valid, so consumers should use the lifecycle rather than
-the presence of a character to decide whether the session is connected.
-
-Known enum values are represented with readable snake-case names. Duplicate
-numeric identifiers for character class and gender are not exposed. Raw memory
-addresses and version-specific layout details are never exposed.
-
-Snapshot capture semantics and unavailable values are documented in
-[Client state](state.md). The complete generated JSON schema is available in
-`/openapi.json` and Swagger UI.
-
-## Main-thread commands
-
-Turn accepts one cardinal direction:
-
-```text
-TurnOptions {
-    direction: "north" | "east" | "south" | "west",
-}
-```
-
-Walk accepts exactly one of these object shapes:
-
-```text
-WalkDirectionOptions {
-    direction: "north" | "east" | "south" | "west",
-}
-
-WalkDestinationOptions {
-    destination: { x: i32, y: i32 },
-}
-```
-
-Tile coordinates are zero-based. A destination must satisfy `0 <= x < width`
-and `0 <= y < height` for the retained current map. Bad directions, malformed
-choice bodies, and out-of-map tiles return `400 Bad Request`. A client that is
-not in game or has no current map returns `409 Conflict` without a native call.
-An in-bounds tile that the native pathfinder cannot reach is a completed command
-with `state: "failed"` and `failure: "no_path"`, not an HTTP validation error.
-
-Skill use accepts exactly one of these object shapes:
-
-```text
-SkillSlotOptions {
-    slot: u8,  // one-based, 1 through 90
-}
-
-SkillNameOptions {
-    name: string,  // exact case-insensitive learned-skill name
-}
-```
-
-The daemon resolves names against its current retained skillbook. Empty names,
-out-of-range slots, and bodies containing both selectors return `400 Bad
-Request`. An unmatched name or empty learned slot returns `404 Not Found`. The
-DLL revalidates the live slot and calls the same native entry activation routine
-as a normal click. It reads the already-live lower-tray objects without
-selecting the skill tab, changing focus, moving the mouse, or synthesizing
-input. The native routine preserves the client's action-delay checks and any
-configured skill text. `executed` means that local activation ran; later packet
-observation is required to prove that the server accepted the skill.
-
-Spell casting accepts exactly one spell selector and the argument required by
-that learned spell:
-
-```text
-CastSpellBySlot {
-    slot: u8,
-    target: string | u32 | { x: i32, y: i32 }?,
-    input: string?,
-}
-
-CastSpellByName {
-    name: string,
-    target: string | u32 | { x: i32, y: i32 }?,
-    input: string?,
-}
-```
-
-Names are case-insensitive. A string target resolves a visible player within
-14 tiles first, then a visible Mundane. Object IDs must also identify a current
-visible object within that distance. Tile targets use zero-based coordinates
-and must fit the current map. A targeted spell defaults to the casting
-character when `target` is omitted. Text-input spells accept 1 through 100
-ASCII bytes. Extra or mismatched arguments return `400 Bad Request`; an unknown
-spell or named target returns `404 Not Found`.
-
-The DLL revalidates the live spell slot, expected argument type, action delay,
-and target before using the matching native client routine. A new request is
-allowed while another spell is being chanted. The old cast produces an ordered
-`spell.cancelled` event before the new spell begins or casts.
-
-The diagnostic route accepts this optional field in a JSON object:
-
-```text
-DiagnosticOptions {
-    timeout_ms: u16,  // default 1,000; valid range 1 through 5,000
-}
-```
-
-It returns the current command state. `200 OK` means the command reached a
-terminal state during the bounded wait; `202 Accepted` means it remains queued.
-The same `command_id` can be queried or cancelled through the routes above.
-
-```text
-CommandStatus {
-    pid: u32,
-    instance_id: string,
-    command_id: u32,
-    kind: "diagnostic" | "turn" | "walk" | "use_skill" | "cast_spell",
-    state: "accepted" | "executed" | "failed" | "cancelled" | "timed_out",
-    enqueued_tick_ms: u32,
-    deadline_tick_ms: u32,
-    started_tick_ms: u32?,
-    completed_tick_ms: u32?,
-    queue_delay_ms: u32?,
-    execution_us: u32?,
-    main_thread_id: u32?,
-    failure: "internal" | "invalid_state" | "invalid_destination" |
-             "rejected" | "no_path" | "invalid_skill" | "invalid_spell" |
-             "invalid_arguments" | "invalid_target"?,
-}
-```
-
-Command IDs are local to the reported DLL `instance_id`. Results from a prior
-DLL lifetime must not be applied to a replacement instance. Terminal results
-are retained for bounded queries and may be evicted under pressure.
-
-The HTTP thread sends requests through a 64-entry daemon router. Each client
-has its own 16-entry worker channel and existing named-pipe session, so the
-daemon never opens a competing controller connection and one client cannot
-consume another client's worker capacity. The DLL then enqueues into its own
-64-slot pointer-free queue. Full daemon or DLL queues return `429 Too Many
-Requests` immediately; unavailable connections return `503 Service
-Unavailable`; an expired retained command returns `404 Not Found`.
-
-The client tick executes at most one command per tick. IPC, HTTP, allocation,
-serialization, and logging stay off the game thread. The diagnostic calls no
-client function and changes no game state. Turn and walk cancel a previous
-queued route before using the client's native direction, collision, and
-pathfinding helpers. A successful command means the client accepted the local
-operation. Later `location.changed`, `walking.started`, and `walking.stopped`
-observations describe route progress and do not cause the command to be
-retried. Exact-tile walking uses the ground route builder only; it does not
-select a living target, pursue it, or automatically attack.
-Skill use resolves an existing `SkillInvItemPane` and calls its normal native
-activation routine. It never activates or changes the visible lower-tray page.
-Spell casting similarly resolves a `SpellInvItemPane` without changing the
-visible page, then passes only validated bounded arguments to the native client.
+The DLL executes at most one queued command per client tick. Web handling,
+named-pipe input/output, allocation, serialization, and logging stay off the
+game thread. See [Runtime hooks](hooks.md#main-thread-affinity) for the reason.
 
 ## Server-Sent Events
 
-`GET /clients/{client}/events` requires a connected client with a current
-observation. The daemon subscribes to its bounded internal broadcast channel
-before reading that observation, then begins with:
+```text
+GET /clients/{client}/events
+```
+
+SSE is a one-way live stream. Use it for changing vitals, inventory updates,
+walking, spell activity, nearby objects, messages, and the other events listed
+in the domain chapters.
+
+The endpoint requires a connected client with current state. The first event
+is a `stream.ready` boundary:
 
 ```text
 id: 38
 event: stream.ready
-data: {"type":"stream_ready","data":{"pid":6964,"instance_id":"...","revision":40,"event_sequence":38}}
+data: {"type":"stream_ready","data":{"pid":6076,"instance_id":"...","revision":42,"event_sequence":38}}
 ```
 
-This establishes the exact state boundary already available through the REST
-resources. Every frame follows the same transport structure:
+After `stream.ready`, read the REST resources needed by the consumer, then
+apply later events in their delivered order. The daemon begins listening before
+it reads the ready boundary, so a change cannot slip between those two steps.
+
+### Event names and JSON types
+
+Each frame has an SSE `event` name and a JSON body:
 
 ```text
-id: <event_sequence>
-event: <routing name>
-data: {"type":"<schema discriminator>","data":{...}}
+id: <event sequence>
+event: <domain.action>
+data: {"type":"<snake_case_type>","data":{...}}
 ```
 
-The SSE `event` field selects an `EventSource` listener. The JSON `type` field
-selects the corresponding `ClientEvent` variant in generated clients. Routing
-names use the established public spelling, while JSON discriminators always use
-snake case. For example, `vitals.changed` carries `type: "vitals_changed"`.
+The SSE name uses `domain.action`, such as `vitals.changed` or
+`effect.added`. The JSON `type` uses snake case, such as `vitals_changed` or
+`effect_added`. Browser `EventSource` listeners select the SSE name, while
+generated clients can select the JSON type.
 
-Later state changes contain a common observation:
+The domain event indexes are:
+
+- [Character status events](status.md#live-status-events)
+- [Inventory events](inventory.md#inventory-events)
+- [Skillbook and use events](skills.md#skillbook-events)
+- [Spellbook and casting events](spells.md#casting-events)
+- [Effect events](effects.md#effect-events)
+- [World object and walking events](world.md#object-events)
+- [Message events](messages.md#live-message-events)
+
+Equipment currently has no dedicated change event. See
+[Equipment](equipment.md#updates-and-events).
+
+### Common observation
+
+Most state events contain:
 
 ```text
 EventObservation {
-    pid: u32,
-    instance_id: string,
-    revision: u32,
-    event_sequence: u32,
-    tick_ms: u32,
+    pid,
+    instance_id,
+    revision,
+    event_sequence,
+    tick_ms,
 }
 ```
 
-`tick_ms` is the client's wrapping Windows millisecond tick. Implemented frames
-are listed below. SSE routing names consistently use `noun.action`. JSON `type`
-discriminators remain `snake_case` because they are ordinary JSON values.
+`tick_ms` is the client's wrapping Windows millisecond tick. Event values are
+absolute replacements, not arithmetic deltas. Several events can share one
+revision and sequence when one client update changed several groups.
 
-| SSE event | JSON `type` | Payload after `observation` |
-| --- | --- | --- |
-| `stream.ready` | `stream_ready` | `pid`, `instance_id`, `revision`, `event_sequence` |
-| `stats.changed` | `stats_changed` | All five character attributes |
-| `vitals.changed` | `vitals_changed` | Changed current or maximum health and mana fields |
-| `progression.changed` | `progression_changed` | Changed level, ability, and experience fields |
-| `gold.changed` | `gold_changed` | `gold` |
-| `weight.changed` | `weight_changed` | `weight`, `max_weight` |
-| `modifiers.changed` | `modifiers_changed` | Combat modifiers and attack and defense elements |
-| `location.changed` | `location_changed` | Absolute `x`, `y`, and optional atomic `map` change |
-| `blind.changed` | `blind_changed` | `is_blinded` |
-| `walking.started` | `walking_started` | `current`, optional `destination` |
-| `walking.stopped` | `walking_stopped` | `current`, optional `destination`, optional `reached_destination` |
-| `action_restriction.changed` | `action_restriction_changed` | `is_action_restricted` |
-| `effect.added` | `effect_added` | `icon`, `duration` |
-| `effect.removed` | `effect_removed` | `icon` |
-| `effect.changed` | `effect_changed` | `icon`, new `duration` |
-| `item.added` | `item_added` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
-| `item.removed` | `item_removed` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
-| `item.changed` | `item_changed` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
-| `spell.added` | `spell_added` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
-| `spell.removed` | `spell_removed` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
-| `spell.changed` | `spell_changed` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
-| `skill.added` | `skill_added` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
-| `skill.removed` | `skill_removed` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
-| `skill.changed` | `skill_changed` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
-| `skill.used` | `skill_used` | `slot`, optional resolved `name` |
-| `spell.begin` | `spell_begin` | `slot`, optional resolved `name`, `total_lines` |
-| `spell.chant` | `spell_chant` | `slot`, optional resolved `name`, `line`, `total_lines` |
-| `spell.cast` | `spell_cast` | `slot`, optional resolved `name`, optional typed `arguments` |
-| `spell.cancelled` | `spell_cancelled` | `slot`, optional resolved `name`, `source` |
-| `player.appeared` | `player_appeared` | `object` |
-| `player.disappeared` | `player_disappeared` | `object` |
-| `player.moved` | `player_moved` | Updated `object` |
-| `player.direction_changed` | `player_direction_changed` | Updated `object` |
-| `monster.appeared` | `monster_appeared` | `object` |
-| `monster.disappeared` | `monster_disappeared` | `object` |
-| `monster.moved` | `monster_moved` | Updated `object` |
-| `monster.direction_changed` | `monster_direction_changed` | Updated `object` |
-| `npc.appeared` | `npc_appeared` | `object` |
-| `npc.disappeared` | `npc_disappeared` | `object` |
-| `npc.moved` | `npc_moved` | Updated `object` |
-| `npc.direction_changed` | `npc_direction_changed` | Updated `object` |
-| `item.appeared` | `item_appeared` | `object` |
-| `item.disappeared` | `item_disappeared` | `object` |
-| `item.moved` | `item_moved` | Updated `object` |
-| `objects.cleared` | `objects_cleared` | Observation only |
-| `message.say` | `message` | `timestamp`, `tick_ms`, `channel: "say"`, optional sender and recipient, and `text` |
-| `message.shout` | `message` | `timestamp`, `tick_ms`, `channel: "shout"`, optional sender and recipient, and `text` |
-| `message.whisper` | `message` | `timestamp`, `tick_ms`, `channel: "whisper"`, optional sender and recipient, and `text` |
-| `message.guild` | `message` | `timestamp`, `tick_ms`, `channel: "guild"`, optional sender and recipient, and `text` |
-| `message.group` | `message` | `timestamp`, `tick_ms`, `channel: "group"`, optional sender and recipient, and `text` |
-| `message.system` | `message` | `timestamp`, `tick_ms`, `channel: "system"`, optional sender and recipient, and `text` |
-| `message.world` | `message` | `timestamp`, `tick_ms`, `channel: "world"`, optional sender and recipient, and `text` |
-| `stream.resync_required` | `stream_resync_required` | `pid`, `instance_id`, `last_event_sequence`, `dropped_events` |
-| `stream.closed` | `stream_closed` | `pid`, `instance_id`, `last_event_sequence`, `reason` |
+Message events use their normalized message record instead of this observation
+object. Their SSE `id` still supplies stream ordering, and the subscription
+path identifies the client.
 
-Queued native routes use two lifecycle frames:
+### Collection batches
 
-```text
-WalkingStarted {
-    observation: EventObservation,
-    current: { x: i32, y: i32 },
-    destination: { x: i32, y: i32 }?,
-}
+Inventory, skillbook, and spellbook updates can change several slots together.
+Their events include a zero-based `batch_index`, shared `batch_count`, and the
+slot's `before` and `after` values. The daemon applies the whole batch to REST
+state before broadcasting the first frame.
 
-WalkingStopped {
-    observation: EventObservation,
-    current: { x: i32, y: i32 },
-    destination: { x: i32, y: i32 }?,
-    reached_destination: bool?,
-}
-```
+A consumer that handles slot details can wait for all frames in the batch. A
+simpler consumer can reread the matching REST resource after any event in that
+domain.
 
-For an exact-tile walk requested through daRPC, `destination` is the requested
-zero-based tile. `reached_destination` is true only when the stopped current
-position equals that tile, and false when the route ends somewhere else. A
-route started directly through the game may not expose a reliable destination;
-both destination and outcome are null in that case. Directional single steps
-do not create a queued route, so consumers observe their ordinary
-`location.changed` event instead.
-
-Several events may share one sequence and revision when one atomic client
-packet changed several groups. Values are absolute. Consumers replace the
-included fields instead of adding a delta.
-
-Effect events identify the icon. Added and changed events also carry its new
-relative duration band. Removed events carry no duration because the icon is no
-longer active.
-
-Inventory and ability-book collection events describe one slot before and after a change.
-`before` is null when the slot was empty, and `after` is null when it became
-empty. Moving, swapping, splitting, or merging entries may create several
-consecutive frames. Their zero-based `batch_index` and shared `batch_count`
-identify the complete batch. The daemon applies the entire batch to REST state
-before broadcasting its first frame. Identical same-slot updates are ignored.
-
-Inventory `item.added`, `item.removed`, and `item.changed` refer to carried
-inventory. Ground items use `item.appeared`, `item.disappeared`, and
-`item.moved`.
-
-Ability-use events observe the client's outbound submission path. Instant
-spells produce `spell.cast` directly. Delayed spells normally produce
-`spell.begin`, one or more `spell.chant` events, then `spell.cast`. The cast
-event retains the final submitted argument as one of these tagged shapes:
-
-```text
-SpellCastArguments =
-    { type: "unknown" } |
-    { type: "target", id: u32?, name: string?, x: i32, y: i32 } |
-    { type: "input", value: string } |
-    { type: "values", values: u16[] };
-```
-
-No-argument spells omit `arguments`. Target names are best-effort daemon
-enrichment from the current object snapshot; the object ID and coordinates are
-the retained packet values. Cancellation `source` is `client`, `server`, or
-`replaced`. A replacement cancellation is broadcast before the replacement
-spell's begin or cast event.
-
-Object events carry the complete public object after the change rather than a
-coordinate or direction delta. Disappearance carries the last retained object.
-`objects.cleared` marks an atomic map or world boundary and carries no object.
-
-Message events share the `message` JSON envelope and use `data.channel` for the
-channel. They omit the common observation object used by state changes because
-the event sequence remains in the SSE `id` field and the subscription identifies
-the client. Their distinct transport names let a browser listen to
-only the channels it needs. The same normalized record is appended to the REST
-message lookback before it is broadcast.
-
-```text
-id: 40
-event: effect.added
-data: {"type":"effect_added","data":{"observation":{"pid":6964,"instance_id":"...","revision":42,"event_sequence":40,"tick_ms":84156449},"icon":10,"duration":"yellow"}}
-```
-
-A browser subscribes to the transport event name and parses the JSON envelope:
+### Listening in a browser
 
 ```javascript
-const events = new EventSource("/clients/Eidolon/events");
-events.addEventListener("effect.added", (event) => {
+const events = new EventSource("/clients/ZiLo/events");
+
+events.addEventListener("vitals.changed", (event) => {
   const message = JSON.parse(event.data);
-  console.log(message.data.icon, message.data.duration);
+  console.log(message.data);
 });
 ```
 
-`location.changed` always includes absolute x/y. Its optional `map` object is
-present only when the same event atomically changes map identity, name,
-dimensions, and position.
+Swagger UI shows the SSE response schemas but is not a live stream viewer. Use
+a browser `EventSource` or another client with streaming response support.
 
-There is no SSE replay of events created before subscription. A reconnect
-receives a new `stream.ready` boundary and should read the desired REST
-resources, including `/messages` when recent conversation context matters. The
-daemon retains 4,096 broadcast entries. If a subscriber falls behind, it
-receives `stream.resync_required` with its last delivered sequence and the
-dropped count, then the connection closes. A process disconnect emits
-`stream.closed` and closes the stream. Fifteen-second SSE comments keep an idle
-connection observable without changing state ordering.
+### Ordering, lag, and reconnects
 
-OpenAPI declares the response as `text/event-stream`. Its `ClientEvent` `oneOf`
-schema describes the JSON envelope and every payload referenced by `data`.
-OpenAPI does not model the surrounding `id:` and `event:` lines, keepalive
-comments, ordering, replay, or disconnect rules, so this chapter defines those
-transport semantics. Swagger UI exposes the generated schemas but is not a live
-SSE viewer. A browser `EventSource`, command-line SSE client, or API tool with
-streaming support can consume the endpoint directly.
+Events are ordered within one client stream. There is no replay of state events
+created before the subscription.
 
-## Managed lifecycle
+The daemon retains a bounded 4,096-entry broadcast queue. If a subscriber falls
+behind, it receives `stream.resync_required` with the last delivered sequence
+and dropped count, then the connection closes. Read the needed REST resources
+and open a new stream.
 
-Load and unload requests have no body. They operate only on PIDs already
-discovered or explicitly configured in the daemon. The loader and DLL paths are
-daemon configuration, never request data.
+When the DLL disconnects, the stream sends `stream.closed` and closes.
+Fifteen-second SSE comments keep an idle connection observable without changing
+state ordering.
 
-Launch requires a JSON object containing the full path to the supported client
-executable. The smallest request is:
+The message history route has its own bounded lookback and can recover recent
+conversation context after reconnecting. See [Messages](messages.md#retention).
+
+## Managed client lifecycle
+
+The daemon can launch a client or load and unload the DLL:
+
+| Route | Purpose |
+| --- | --- |
+| `POST /clients/launch` | Launch the client and initialize the DLL. |
+| `POST /clients/{client}/load` | Load the DLL into a discovered client. |
+| `POST /clients/{client}/unload` | Shut down and unload the DLL. |
+
+Load and unload have no request body. The daemon's `--loader-path` and
+`--dll-path` settings choose the trusted tools.
+
+The smallest launch body is:
 
 ```json
 {
@@ -575,145 +257,68 @@ executable. The smallest request is:
 }
 ```
 
-The complete request model is:
+Available launch options are:
 
 ```text
-LaunchOptions {
-    client_path: string,
-    allow_multiple: bool = false,
-    skip_intro: bool = false,
-    skip_notice: bool = false,
-    server: string?,
-}
-```
-
-For example:
-
-```json
 {
-  "client_path": "D:\\Games\\Dark Ages\\Darkages.exe",
-  "allow_multiple": true,
-  "skip_intro": true,
-  "skip_notice": true,
-  "server": "127.0.0.1:2610"
+    client_path,
+    allow_multiple: false,
+    skip_intro: false,
+    skip_notice: false,
+    server: null,
 }
 ```
 
 `client_path` must be a fully qualified Windows drive or Universal Naming
-Convention (UNC) path. `loader.exe` validates the selected file as the supported
-client before creating a process and uses its parent directory as the client
-working directory.
+Convention (UNC) path. Its parent directory becomes the client's working
+directory. `server` accepts `host` or `host:port`, with port 2610 as the
+default. The API does not accept arbitrary game arguments or request-selected
+loader and DLL paths.
 
-`server` accepts `host` or `host:port`. The host must be a nonempty IPv4 address
-or hostname without whitespace or control characters. The port defaults to
-2610 and, when present, must be from 1 through 65535. IPv6 literals are not
-supported. Supplying `server` activates the loader's supported endpoint and
-fallback patch bundle. `skip_notice` activates its full notice,
-early-continue, and fast-transfer patch group.
+Load reports whether it actually changed an unloaded client. Unload reports
+whether it actually changed a loaded client. Launch returns the new process ID
+after the loader initializes and resumes it. Daemon discovery is asynchronous,
+so watch `GET /clients` until the process becomes connected or reports an
+error.
 
-Unknown fields are rejected. In particular, the API does not accept arbitrary
-client arguments or request-selected loader and DLL paths. The game client does
-not have a supported general-purpose argument surface.
+## Errors
 
-Successful load operations return:
+Validation errors use the applicable HTTP 4xx response. Environmental and
+client availability failures use a suitable 5xx response. Managed lifecycle
+errors use this general shape:
 
 ```text
-LoadResult {
-    operation: "load",
-    pid: u32,
-    was_loaded: bool,
+{
+  "error": {
+    "code": "...",
+    "message": "...",
+    "pid": 6076
+  }
 }
 ```
 
-Successful unload operations return:
+Unknown fields are rejected. Current request-size limits and exact response
+models are included in OpenAPI.
 
-```text
-UnloadResult {
-    operation: "unload",
-    pid: u32,
-    was_unloaded: bool,
-}
-```
+## OpenAPI and Swagger UI
 
-`was_loaded` and `was_unloaded` report whether that request performed the
-corresponding state transition. They are `false` when the DLL was already in
-the requested state.
+The OpenAPI document is generated from the Rust HTTP models. It can be imported
+into Postman, Apidog, client generators, or another OpenAPI consumer.
 
-Successful launch operations return:
+Swagger UI uses vendored assets and an Ayu-inspired dark theme, so it works
+without an internet connection. A Swagger rendering problem cannot affect the
+registry, JSON routes, or DLL connections.
 
-```text
-LifecycleResult {
-    operation: "launch",
-    pid: u32,
-    changed: bool,
-    darpc_loaded: bool,
-}
-```
+OpenAPI describes the JSON event envelopes but cannot fully express the
+surrounding SSE lines, stream ordering, lag, and reconnect behavior. This
+chapter is the source of truth for those transport rules.
 
-`load` returns `200 OK` when the client is already connected and `202 Accepted`
-after a new load. `unload` returns `200 OK`. `launch` returns `201 Created` after
-the loader has initialized and resumed the new process. Registry connection is
-asynchronous, so consumers should observe `GET /clients` until the returned PID
-reaches `connected` or a terminal error state.
+## Network access
 
-Malformed requests, unknown candidates, concurrent operations, validation
-failures, unavailable configured tools, and loader timeouts use the applicable
-4xx or 5xx status. Managed-operation errors have this shape:
+The implemented listener is loopback-only. It has no authentication because it
+is not exposed to the network. Any future remote-listening mode must add
+authentication, authorization, request limits, and transport security before
+it is considered safe for general use.
 
-```text
-ErrorState {
-    error: ErrorDetail,
-}
-
-ErrorDetail {
-    code: string,
-    message: string,
-    pid: u32?,
-}
-```
-
-The launch body is limited to 4 KiB. Other current routes reject nonempty
-request bodies. Unsupported methods and paths use the normal `405 Method Not
-Allowed` and `404 Not Found` responses.
-
-## OpenAPI and interactive documentation
-
-`utoipa` generates `/openapi.json` from the Rust HTTP models and route
-descriptions. The document can be imported into Postman, Apidog, or another
-OpenAPI consumer.
-
-`utoipa-swagger-ui` serves `/docs` with vendored assets. The UI is a developer
-convenience layered over the API: a rendering failure cannot affect JSON
-routes, the registry, or DLL connections.
-
-The OpenAPI `info.version` follows the daRPC release that produced the
-document. It does not imply URL versioning. daRPC maintains one current API and
-will add a compatibility mechanism only if real consumers require simultaneous
-incompatible schemas.
-
-The broader planned interfaces have distinct roles:
-
-| Interface | Primary role |
-| --- | --- |
-| REST | Discovery, current-state queries, configuration, and discrete actions. |
-| Server-Sent Events | One-way real-time event and state-update streams. |
-| WebSocket | Bidirectional real-time communication where interactive request and event traffic share a connection. |
-
-## Aggregation
-
-One daemon may manage multiple game clients. External models must identify the
-source client without exposing raw process pointers or version-specific memory
-layouts. A slow client or API consumer must not block unrelated connections.
-
-API models remain separate from both client memory layouts and binary protocol
-models so each boundary can evolve deliberately.
-
-## Remote access
-
-The implemented listener is loopback-only. Any future remote-listening mode
-must define authentication, authorization, request limits, and transport
-security before it is considered safe for general use.
-
-Server-Sent Events and WebSocket APIs must also define ordering, lag,
-disconnect, and replay behavior. A connection must not silently imply that
-transient events generated before subscription will be replayed.
+WebSocket support is planned for consumers that eventually need requests and
+events on one two-way stream. REST and SSE remain the implemented interfaces.

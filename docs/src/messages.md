@@ -1,0 +1,86 @@
+# Messages
+
+daRPC normalizes recent chat and system messages so a tool does not need to
+parse the punctuation the client uses for each channel.
+
+## Reading recent messages
+
+```text
+GET /clients/{client}/messages
+```
+
+Each message contains:
+
+- `timestamp`, formatted as ISO 8601 in the daemon's local time and UTC offset
+- `tick_ms`, the client's wrapping Windows millisecond tick
+- `channel`
+- Optional `sender` and `recipient`
+- Cleaned message `text`
+
+The channel is one of:
+
+```text
+say, shout, whisper, guild, group, system, world
+```
+
+Channel markers and participant punctuation shown by the game are removed from
+the text. Empty messages are ignored. A world shout is stored once as `world`,
+even though the client also renders a duplicate shout-form message.
+
+## Filtering and paging
+
+Messages are sorted newest first. The route returns 20 records by default.
+
+| Query | Meaning |
+| --- | --- |
+| `channels` | Comma-separated channels, such as `say,shout`. |
+| `since` | Only messages strictly newer than this ISO 8601 timestamp. |
+| `skip` | Skip this many matching records after sorting. Default `0`. |
+| `count` | Return at most this many records. Default `20`, maximum `100`. |
+
+Example:
+
+```text
+GET /clients/ZiLo/messages?channels=say,shout&since=2026-08-02T15:00:00-04:00&skip=0&count=20
+```
+
+`since` is optional. When it is omitted, the route searches the retained
+history without a time boundary.
+
+## Live message events
+
+Each channel has its own SSE routing name:
+
+```text
+message.say
+message.shout
+message.whisper
+message.guild
+message.group
+message.system
+message.world
+```
+
+All seven routes use the JSON discriminator `type: "message"`. The channel is
+inside `data.channel`. Separate SSE names let a browser subscribe only to the
+channels it cares about.
+
+Message events do not contain the common state `observation` object. The SSE
+`id` still provides ordering, and the subscription path identifies the client.
+The daemon adds the normalized message to REST history before broadcasting it.
+
+## Retention
+
+The daemon keeps at most 4,096 messages and 1 MiB of message text per DLL
+instance. It removes the oldest messages first. History is held in memory and
+is cleared when the daemon restarts or a new DLL instance replaces the old one.
+
+If an SSE connection is interrupted, read `/messages` with a suitable `since`
+value to recover recent conversation context. State events from before the
+subscription are not replayed.
+
+## Privacy
+
+Message history can contain private whispers. daRPC does not write message text
+to its normal logs, but any local program with access to the loopback API can
+read retained messages. Run only consumers you trust.

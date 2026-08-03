@@ -535,7 +535,7 @@ Done:
 
 Implemented in `darpc-hook` and the owned `hook-harness.exe`. Windows checks run
 the harness in debug and release builds without installing any game-client
-hook. Detailed invariants are documented in [Hook safety](hooks.md).
+hook. Detailed invariants are documented in [Runtime hooks](hooks.md).
 
 ### M11: first client tick hook
 

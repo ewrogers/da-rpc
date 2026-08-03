@@ -1,0 +1,169 @@
+# World and movement
+
+World data describes the current map, the objects this client can see, and the
+character's native walking state. It is a client-sized view of the world, not a
+permanent list of everything on the map.
+
+## Map and position
+
+The current map is part of:
+
+```text
+GET /clients/{client}/status
+```
+
+It includes the map ID, available name, zero-based x/y coordinates, width, and
+height.
+
+Ordinary movement acknowledgements update the character's absolute x/y
+position. A refresh or server correction can also replace it with an
+authoritative position.
+
+A map change arrives in two parts. The client first receives the new map
+identity and size, then receives the character's position on that map. daRPC
+holds the first part until the position arrives and publishes both together in
+one `location.changed` event. It does not expose a new map with coordinates
+left over from the previous map.
+
+## Visible objects
+
+```text
+GET /clients/{client}/objects
+```
+
+The response can contain four object kinds:
+
+| Kind | Available data |
+| --- | --- |
+| `player` | ID, optional name, x/y, and direction |
+| `monster` | ID, optional name and sprite, x/y, and direction |
+| `npc` | ID, optional name and sprite, x/y, and direction |
+| `item` | ID, sprite, x/y, and per-tile `z_index` |
+
+`npc` represents a Dark Ages Mundane. Item sprite values have the client's
+internal item classification flag removed.
+
+Ground-item `z_index` is local to one tile. Zero is the bottom item, and higher
+values are drawn above it.
+
+Filter the result with a comma-separated `types` query:
+
+```text
+GET /clients/ZiLo/objects?types=player,npc,monster
+```
+
+Without `types`, the route returns every observed kind. An unknown type or
+malformed filter returns `400 Bad Request`.
+
+The initial baseline walks the client's retained object collection. A creature
+name or numeric sprite can be unavailable after a late attach when the client
+no longer retains the original draw details. Pressing the normal client refresh
+key causes the server to redraw nearby objects and fills those details again.
+
+## Object events
+
+Players, monsters, and NPCs each use these actions:
+
+```text
+player.appeared              monster.appeared              npc.appeared
+player.disappeared           monster.disappeared           npc.disappeared
+player.moved                 monster.moved                 npc.moved
+player.direction_changed     monster.direction_changed     npc.direction_changed
+```
+
+Ground items use:
+
+```text
+item.appeared
+item.disappeared
+item.moved
+```
+
+Each object event carries the complete public object after the change.
+Disappearance carries the last retained object. `objects.cleared` marks a map
+or world boundary and carries no object.
+
+The server normally sends draw events for objects entering view but may not send
+an explicit removal when the local character simply walks out of range. After
+accepted self movement, daRPC culls retained objects outside the client-sized
+view and reports their disappearance. The collection is still this client's
+latest observation rather than an authoritative map population.
+
+## Turning
+
+```text
+POST /clients/{client}/turn
+```
+
+```json
+{
+  "direction": "north"
+}
+```
+
+The direction must be `north`, `east`, `south`, or `west`. daRPC calls the
+client's native direction path on its main thread.
+
+## Walking one step
+
+Use the same `/walk` route with a direction:
+
+```text
+POST /clients/{client}/walk
+```
+
+```json
+{
+  "direction": "south"
+}
+```
+
+This performs a native directional step. It does not create a queued route, so
+`is_walking` remains false and the resulting position arrives through
+`location.changed`.
+
+## Walking to a tile
+
+```json
+{
+  "destination": {
+    "x": 20,
+    "y": 14
+  }
+}
+```
+
+Coordinates are zero-based and must satisfy `0 <= x < width` and
+`0 <= y < height`. Bad directions, malformed choice bodies, and out-of-map
+tiles return `400 Bad Request`. A client that is not in game or has no current
+map returns `409 Conflict`.
+
+The client builds and follows its native ground route. daRPC does not select a
+living target, pursue it, or automatically attack. Ordinary player input can
+cancel or replace the route naturally.
+
+An in-bounds tile can still be unreachable. In that case, the command completes
+with `state: "failed"` and `failure: "no_path"`.
+
+## Walking events
+
+`walking.started` includes the current position and the requested destination
+when daRPC knows it.
+
+`walking.stopped` includes the final current position, the available
+destination, and `reached_destination`. The outcome is true only when the final
+position equals the requested tile. A route started directly through the game
+may not expose a reliable destination, so its destination and outcome can be
+null.
+
+Both route events update `is_walking` in [character status](status.md).
+
+## Command completion
+
+Turn and walk requests use the common bounded main-thread command system. The
+HTTP response tells you whether the local command executed, failed, or remains
+queued. Later location and walking events describe what happened in the game;
+the command is not retried automatically.
+
+See [Web API](web-api.md#native-command-results) for command status, timeout,
+and cancellation behavior.

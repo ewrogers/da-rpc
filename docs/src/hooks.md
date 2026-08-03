@@ -1,235 +1,147 @@
-# Hook safety
+# Runtime hooks
 
-daRPC uses a small in-process x86 detour implementation in the `darpc-hook`
-crate. The implementation is qualified against owned code before it is used
-with the game client. The current runtime uses it for the client tick, map-size
-handler, decoded-event dispatcher, and outbound-packet submission hooks.
+A hook gives daRPC a short callback at a useful point in the normal client
+flow. The original client function still runs. daRPC uses the callback to copy
+small pieces of state, observe an action, or execute one queued native command.
 
-## Organization
+Hooks are installed only after the executable has been identified as the exact
+supported client build.
 
-`darpc-hook` contains the platform-specific mechanism. It knows how to decode
-an x86 prologue, prepare a trampoline, enlist threads, replace code, and restore
-the original bytes. It contains no Dark Ages addresses, calling conventions,
-or state logic.
+## Installed hooks
 
-`hook-harness.exe` owns deterministic x86 target and detour routines. Its
-target computes `left * 3 + right` with wrapping 32-bit arithmetic. The harness
-checks the same inputs before installation, through the detour, and after
-removal while retaining only a bounded observation counter.
+| Hook | Purpose |
+| --- | --- |
+| Client tick | Captures requested baselines, settles collection changes, watches walking state, and executes at most one queued native command. |
+| Decoded server event | Observes supported updates after the client has handled them, including status, inventory, abilities, effects, objects, movement, and messages. |
+| Outbound packet submission | Observes skill use and spell casting stages before the client encrypts and sends them. |
+| Map size | Captures map identity, name, and dimensions so a map change can be committed atomically with the following position. |
 
-Client hooks belong in `darpc.dll`. They supply validated addresses, the exact
-native ABI, a detour code range, and an activity counter to the shared
-mechanism.
+These four hooks have different jobs because no single client boundary provides
+all the information daRPC needs.
 
-## Client tick hook
+## Client tick
 
-The DLL installs the tick hook only after validating the exact supported
-executable fingerprint. It derives the target from the executable module base
-and the version-specific relative virtual address, then verifies the expected
-entry bytes before preparing or changing code. A mismatch fails DLL
-initialization and rolls back the IPC worker.
+The client tick is daRPC's safe meeting point with the game main thread.
 
-The x86 detour preserves the target's `thiscall` receiver, increments a
-wrapping atomic `u32` counter, calls the original function through its relocated
-trampoline, and returns normally. The hook path takes no lock, allocates no
-memory, performs no I/O, and calls no unrelated client function.
+When requested, it copies a complete state baseline into preallocated DLL
+memory. The pipe worker converts and sends that copy later. Regular REST reads
+do not request another baseline.
 
-The DLL worker reads the atomic health state for `TickHealthRequest` messages
-and writes diagnostic samples to
-`%USERPROFILE%\darpc\logs\pid-<pid>.log`. `darpc.exe tick-health --pid
-<pid>` samples twice and reports installation, relocated-byte, counter, and
-advancement fields. Logging and named-pipe work never execute in the hook.
+The tick also:
 
-The same tick detour also observes pending snapshot requests. It performs the
-bounded main-thread memory copy described in [Client state](state.md), then
-publishes pointer-free fixed-capacity data for the pipe worker. Conversion and
-serialization remain outside the hook.
+- Reconciles inventory, spellbook, and skillbook slots after their short
+  settling window
+- Detects when native pathfinding starts and stops
+- Executes at most one queued turn, walk, skill, spell, or diagnostic command
+- Publishes small health counters used by hook diagnostics
 
-The tick also drains at most one entry from the 64-slot command queue. The IPC
-worker is the sole producer and the client main thread is the sole consumer.
-It validates and enqueues only scalar, pointer-free command data; it never
-calls a client function. The tick path does not wait, allocate, serialize, log,
-  or perform IPC. The diagnostic changes no state and records only its start
-  and completion ticks, execution duration, and main-thread ID. Turn and walk
-  entries resolve the validated live world on that same main thread, then call
-  the client's native direction, collision, or pathfinding helpers. Exact-tile
-  walking validates the live zero-based map bounds before building a route.
+This work is bounded. The callback does not allocate, serialize, log, wait for
+another thread, or perform named-pipe input/output.
 
-Cancellation and timeout use atomic state transitions. An accepted command may
-be cancelled or expire before execution; a command already executing completes
-normally. Shutdown stops the IPC producer, cancels remaining accepted entries,
-then removes hooks. A controller disconnect therefore cannot leave a queued
-controller pointer or cause an unbounded backlog.
+## Decoded server events
 
-## Decoded-event observer
+The event hook runs after the client has successfully handled a recognized
+server event. Running afterward lets the client remain authoritative and lets
+daRPC compare against the state the client accepted.
 
-The event observer targets the central `event_dispatch` function only for the
-supported client fingerprint and exact five-byte entry contract. The target is
-a 32-bit `thiscall` function that receives one event pointer and returns a
-Boolean while cleaning its four-byte argument.
+The hook copies only bounded data from event families daRPC understands. Those
+updates drive:
 
-The detour calls the relocated original first. It saves the return value, then
-observes only successfully handled server events and restores that exact return
-value. The event object remains valid for the duration of the call. The
-observer copies its type, body pointer, body length, and at most 128 body bytes
-through checked current-process reads; it never retains client pointers.
+- Character status, vitals, progression, gold, weight, and modifiers
+- Blind and action-restriction state
+- Position and map transition completion
+- Inventory, spellbook, and skillbook reconciliation
+- Active spell effects
+- Visible players, monsters, Mundanes, and ground items
+- Chat and system messages
 
-The hook path parses only the understood `SStatus`, `SSpelled`,
-`SUserAppearance` action-state, `SMove`, and `SUserPosition` bodies. Unknown,
-oversized,
-truncated, unreadable, or unhandled events are ignored and original behavior is
-unchanged. A panic boundary also fails open to the original result.
+Unknown, malformed, oversized, or unreadable events are ignored. The client's
+original result is preserved.
 
-Installation and removal use the same transactional thread enlistment,
-instruction-pointer translation, trampoline ownership, and activity draining
-as the tick hook. DLL shutdown stops the IPC consumer first, removes the event
-observer, then removes the remaining hooks in reverse installation order.
+## Outbound skill and spell observation
 
-## Outbound-packet observer
+Some useful events describe what the client sends rather than what it receives.
+The outbound hook watches the common plaintext submission path for:
 
-The outbound observer targets the common plaintext packet submission function
-only for the supported fingerprint and exact nine-byte entry contract. The x86
-detour preserves its `thiscall` receiver and stack arguments, calls the original
-function first, then restores the native return value unchanged.
+- Skill use
+- The start of a delayed spell
+- Each submitted chant line
+- Final spell use
 
-Observation is limited to calls from the client main thread. The callback
-copies at most 102 bytes into fixed stack storage and recognizes only skill use,
-spell-delay begin, spell-delay chant, and final spell-use opcodes. It performs
-no allocation, IPC, logging, or text conversion and retains no packet pointer.
-Unrecognized, oversized, unreadable, or nested calls are ignored. The original
-submission always remains authoritative.
+This is how daRPC reports `skill.used`, `spell.begin`, `spell.chant`, and
+`spell.cast` for actions started through either daRPC or the normal game
+interface. It also helps keep replacement and cancellation ordering sensible.
 
-The copied values drive `skill.used`, `spell.begin`, `spell.chant`,
-`spell.cast`, and replacement-aware `spell.cancelled` events. The final spell
-event retains only the bounded typed arguments needed by the state model. Full
-packet bodies are never written to the diagnostic log.
+Only the recognized, bounded fields needed by the state model are copied. Full
+packet bodies are not retained or written to the diagnostic log. The original
+client submission always continues normally.
 
-Installation is part of DLL initialization's transactional hook set. Failure
-removes already-installed hooks and stops the worker. Shutdown removes the
-outbound observer before the decoded-event and tick hooks, then waits for active
-callbacks to drain before code or DLL-owned state can disappear.
+## Atomic map changes
 
-## Map-size hook
+The game supplies a new map and the character's new position in separate
+updates. Publishing the map immediately could briefly pair it with coordinates
+from the old map.
 
-The map-size handler hook uses the same fingerprint, entry-byte, relocation,
-thread enlistment, activity tracking, and removal guarantees. Its synchronous
-callback copies the map identifier, dimensions, and bounded inline name into
-DLL-owned storage before calling the original handler. It retains no packet or
-client pointer after the callback. A panic is caught at the callback boundary
-and never crosses the native client application binary interface.
+The map-size hook stages the new map ID, name, width, and height. The decoded
+event hook commits that staged map only when the following position arrives.
+Snapshots and ordinary movement publication pause across this short boundary.
 
-The current snapshot walker normally reads the map name from the validated map
-pane. The event-owned copy supplements that baseline only when its world token
-and map identifier match the captured location.
+Consumers therefore see one `location.changed` event containing a consistent
+map and position.
 
-The same copy stages a pending map transition. The decoded-event observer
-publishes it only when the following `SUserPosition` supplies authoritative
-coordinates. Snapshot capture and ordinary movement publication pause across
-that short boundary, so map metadata and position change atomically.
+## Main-thread affinity
 
-## Preparation and relocation
+Most game state is owned and changed by the client main thread. Native movement,
+skill, and spell methods also expect the client state associated with that
+thread.
 
-Preparation does not modify the target. It performs these steps first:
+Calling them directly from the daemon's pipe worker would create two problems:
 
-1. Reserve the target so another daRPC detour cannot prepare over it.
-2. Decode complete instructions until at least the five bytes required by an
-   x86 near jump are covered. Reject a return, interrupt, exception, or
-   unconditional transfer that ends a shorter function before that boundary.
-3. Allocate writable trampoline memory.
-4. Re-encode the decoded instructions at the trampoline address with
-   `iced-x86`, allowing relative branches and calls to receive correct
-   displacements.
-5. Append a near jump from the trampoline back to the first untouched target
-   instruction.
-6. Change the complete trampoline from writable to executable and read-only,
-   then flush the process instruction cache.
+1. The game could change a structure while daRPC was reading it.
+2. A native method could run in a thread context it was never designed for.
 
-The owned fixture deliberately begins with a five-byte relative `call`. The
-harness therefore exercises relocation rather than merely copying
-position-independent instructions. The decoded replacement length is reported
-by the harness and asserted to be five bytes for this reviewed fixture.
+daRPC instead uses bounded handoffs:
 
-Callers must guarantee that the target range is readable executable x86 code,
-that the target and detour have the same application binary interface (ABI),
-and that no external branch enters the interior of the replaced prologue.
-Installation and removal must be initiated by a dedicated lifecycle or
-management thread, never from the target, detour, or trampoline call path. The
-commit code cannot suspend or inspect its own instruction pointer.
+```text
+read:   client hook -> fixed copy or event queue -> pipe worker -> daemon
+action: daemon -> pipe worker -> command queue -> client tick -> native method
+```
 
-## Transactional commit
+The client-facing side handles only fixed-size or preallocated data. Text
+conversion, JSON, logging, HTTP, and named-pipe work happen away from the game
+thread.
 
-Installation and removal use the same short commit boundary:
+The queues are deliberately bounded. If a producer cannot enqueue safely, it
+reports pressure or requests a later resynchronization instead of blocking the
+client or growing memory without limit.
 
-1. Enumerate and suspend every other thread owned by the current process.
-2. Repeat enumeration until no newly created thread remains unenlisted.
-3. Read each suspended thread's instruction pointer.
-4. Reject installation if a thread is inside the target range.
-5. Reject removal if a thread is inside the target, detour, or trampoline, or
-   if the detour activity counter is nonzero.
-6. Confirm the target still contains the expected bytes.
-7. Open the target page for execution and writing, replace the complete
-   instruction range, flush the instruction cache, and restore protection.
-8. Resume every enlisted thread, including on an error path.
+## Attach and detach lifecycle
 
-All allocation, instruction decoding, relocation, and trampoline writes happen
-before thread enlistment. The commit path performs no Rust heap allocation.
-A process with more than 256 enlistable threads is rejected instead of growing
-storage while other threads are suspended.
+Each hook installation is transactional. If a later hook cannot be installed,
+DLL initialization removes the hooks already installed and stops the worker.
 
-Every resume is checked and retried. A thread that exited while enlisted is no
-longer considered suspended; a live thread that still cannot be resumed is a
-lifecycle failure. Successful installation retains detour ownership even when
-resumption reports a warning. DLL initialization then returns `UNLOAD_UNSAFE`
-while keeping the lifecycle state, so the loader cannot accidentally discard a
-live trampoline or target reservation.
+Detaching follows the reverse flow:
 
-If cache flushing or protection restoration fails after a target write, the
-transaction restores the original bytes, flushes them, and restores the prior
-protection before returning an error. A native unit test injects a failure
-immediately after the write and verifies byte-exact rollback.
+1. Stop accepting new pipe work.
+2. Cancel commands that have not started.
+3. Remove the outbound, event, map, and tick hooks in safe reverse order.
+4. Wait for any callback already in progress to finish.
+5. Release DLL-owned state and unload the library.
 
-If rollback itself cannot be confirmed, DLL initialization returns the
-`UNLOAD_UNSAFE` lifecycle status. A late-attach loader leaves the DLL mapped
-instead of calling `FreeLibrary` against potentially referenced hook code.
+This order prevents a hook from calling code or using memory that has already
+been unloaded. Installation and removal also coordinate with the process's
+other threads so an instruction pointer is not left inside code while it is
+being replaced or restored.
 
-## Detour lifetime
+`DllMain` remains minimal. Substantial initialization and shutdown happen
+outside the Windows loader lock.
 
-The detour must increment its `DetourActivity` counter before execution can
-leave the declared detour entry range. It decrements the counter only
-immediately before returning. Removal suspends other threads and requires both
-an empty activity count and instruction pointers outside every hook-owned code
-range. Once the original target bytes are restored, no new detour call can
-begin and the trampoline may be released after the suspended threads resume.
+## Failure behavior
 
-An installed detour must be explicitly removed before its owning DLL unloads.
-If removal reports a transient active-call or instruction-pointer conflict,
-shutdown must retry while the DLL remains loaded. Dropping an installed detour
-does not free its trampoline; it intentionally leaks the allocation and target
-reservation so an accidental Rust drop cannot create an immediate dangling
-jump. The lifecycle owner must still refuse DLL unload until removal succeeds.
+Hook callbacks preserve original client behavior and do not unwind across the
+client boundary. A bad or unsupported observation is skipped. A daemon or pipe
+disconnect does not remove local client state or terminate the game.
 
-The owned detour catches Rust panics inside its native boundary and returns the
-original deterministic result. Production detours must apply the same rule:
-no panic or unwind may cross a native client ABI.
-
-## Qualification coverage
-
-Windows continuous integration runs the following on an x86 target:
-
-- decoder, code-range, reservation, and injected rollback unit tests;
-- deterministic target-instruction-pointer, active-call, and resume-failure
-  ownership tests;
-- Clippy for the hook crate and harness;
-- debug and release harness executions;
-- repeated preparation and removal checks;
-- original-call recursion detection;
-- a caught-panic boundary check;
-- concurrent installation and removal with four target callers;
-- byte-exact results before, during, and after the detour; and
-- proof that the observation counter stops changing after removal while target
-  calls continue.
-
-These checks qualify the mechanism. Each client hook additionally requires an
-exact client fingerprint, target address, entry-byte contract, native ABI,
-repeatable clean removal, and continued normal client behavior. The tick hook
-also requires advancing live-client health samples.
+The project also tests the reusable hook mechanism against an owned x86 harness
+before qualifying it in the live client. The harness covers installation,
+original-function trampolines, concurrent calls, rollback, and removal.

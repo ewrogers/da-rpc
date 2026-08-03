@@ -1,102 +1,109 @@
 # Architecture
 
-daRPC has four primary runtime components:
+daRPC is split into four programs so the game-specific work stays close to the
+client while tools can use ordinary command-line and web interfaces.
 
-| Component | Target | Responsibility |
-| --- | --- | --- |
-| `darpc.dll` | 32-bit Windows x86 | Integrates with one game client, reconstructs initial state, tracks game and UI changes, and hosts a named-pipe endpoint. |
-| `loader.exe` | 32-bit Windows x86 | Launches a client with daRPC or injects `darpc.dll` into an already-running compatible client. |
-| `darpc.exe` | 64-bit Windows x86-64 | Talks directly to one injected DLL and presents typed binary protocol results as text or JSON. |
-| `darpcd.exe` | 64-bit Windows x86-64 | Discovers clients, queries and aggregates their state and events, and exposes portable web APIs. |
+| Component | What it does |
+| --- | --- |
+| `darpc.dll` | Lives inside one game client, tracks its state, observes events, and runs native actions. |
+| `loader.exe` | Launches a supported client or attaches and detaches the DLL. |
+| `darpc.exe` | Talks directly to one DLL and prints human-readable text or JSON. |
+| `darpcd.exe` | Discovers several clients and exposes REST, SSE, OpenAPI, and Swagger UI. |
 
 ```text
-Remote or local application ---- REST / SSE / WebSocket ----> darpcd.exe
-                                                                  |
-                                                                  | Binary IPC
-darpc.exe ---------------------- Binary IPC ------------------+    |
-                                                             v    v
-                                                           darpc.dll
-                                                               ^
-                                                               | Load and initialize
-                                                          loader.exe
-                                                               |
-                                                               v
-                                                     Dark Ages game client
+                         direct CLI
+                    +---------------------- darpc.exe
+                    |
+Darkages.exe <-> darpc.dll <-> named pipe <-> darpcd.exe <-> REST / SSE
+     ^                                                       OpenAPI / Swagger
+     |
+ loader.exe
 ```
 
-## Responsibility boundaries
+The DLL and loader are 32-bit because the Dark Ages client is 32-bit. The
+direct CLI and daemon are ordinary 64-bit Windows programs.
 
-`darpc.dll` is the local state authority for the process into which it is
-injected. It understands client memory, hooks, events, and version-specific
-layouts. It continues tracking state whether or not `darpcd.exe` is connected.
+## One DLL per client
 
-`darpcd.exe` does not read client memory or independently reconstruct game state.
-It queries and aggregates the state supplied by each `darpc.dll`, listens for
-real-time updates, and presents stable models to API consumers.
-Character and user interface state remain client-scoped. A future shared-world
-projection may merge compatible map and entity observations, but it must retain
-their source and freshness instead of presenting partial client visibility as
-authoritative global state.
+Each injected DLL is responsible for its own game client. It understands the
+supported client layout, captures current state, and keeps that state updated
+as the game handles new events.
 
-`darpc.exe` connects directly to one DLL and remains usable without the daemon.
-It presents typed binary protocol operations as human-readable text or stable
-JSON. Because the DLL currently accepts one controller, the direct CLI reports
-a busy endpoint while `darpcd.exe` owns that pipe. It does not call or fall back
-to the daemon HTTP API.
+The DLL remains useful without the daemon. `darpc.exe` can connect directly for
+one-client scripts or diagnostics. The DLL also continues tracking local state
+when the daemon disconnects and accepts a replacement connection later.
 
-`loader.exe` owns process launch and injection mechanics. Discovery may present
-a process as an injection candidate, but the loader must still validate that
-the target is compatible before modifying it.
+Only one controller owns a DLL's named pipe at a time. If the daemon is
+connected, a direct CLI request reports that the endpoint is busy rather than
+silently sending the request through the daemon.
 
-The `darpc-hook` support crate owns the reusable, in-process x86 detour
-boundary. It has no game addresses or state knowledge. `darpc.dll` supplies
-validated client-specific targets and detours for each live hook.
-The separate `hook-harness.exe` exercises that boundary against owned code.
-See [Hook safety](hooks.md) for its transaction and shutdown contracts.
+## The daemon is the meeting point
 
-## Web boundary
+`darpcd.exe` discovers game clients and keeps a current public view of each
+one. It never reads game memory itself. It uses the typed state and events sent
+by each DLL, then presents player-friendly API models.
 
-The daemon web boundary uses Axum. It binds to `127.0.0.1:2626` by default and
-exposes health, client discovery, focused state resources, per-client
-Server-Sent Events, bounded client commands, lifecycle operations,
-`/openapi.json`, and `/docs`. A
-`--port <port>` option changes only the port; remote interfaces remain
-unavailable. HTTP response models remain separate from registry records,
-binary protocol messages, and client layouts.
+This boundary keeps Windows injection and client details out of dashboards,
+scripts, and other consumers. It also keeps a slow web request or event
+subscriber from blocking unrelated game clients.
 
-`utoipa` generates the OpenAPI document from the same Rust models and route
-descriptions used by the server. A vendored Swagger UI presents that document
-at `/docs` without a content delivery network or other runtime internet
-dependency. Consumers may instead import `/openapi.json` into their preferred
-OpenAPI tooling.
+REST reads current state and submits individual actions. Server-Sent Events
+(SSE) carry one-way live changes. WebSocket support is planned for consumers
+that eventually need requests and events on one two-way connection.
 
-The synchronous connection workers send events to the daemon's registry loop.
-After each changed event, that loop publishes a new immutable registry snapshot
-for the HTTP thread. A handler clones the published snapshot reference before
-building its response, so it never holds the live registry or a lock across
-network I/O. Ordered state events also enter a bounded broadcast channel for
-matching SSE subscribers. HTTP failures and slow subscribers therefore cannot
-stop client health checks or mutate registry state.
+## Reading game state
 
-Commands travel through a separate bounded daemon router into the existing
-connection worker for the selected client identity. That worker is the only
-owner of the named-pipe controller session. The DLL IPC thread validates and
-enqueues pointer-free work, and the client tick executes at most one command
-per tick. HTTP and IPC threads therefore never call client functions directly.
+A new daemon connection begins with a complete client baseline. The DLL then
+sends smaller ordered updates as relevant game events occur.
 
-The HTTP routes do not carry a version prefix. daRPC maintains one current API
-while it is evolving. The OpenAPI `info.version` identifies the documented
-daRPC release, not a parallel compatibility surface. Route or media-type
-versioning should be introduced only if supported consumers create a concrete
-need for simultaneous incompatible APIs.
+```text
+client main thread -> bounded copy -> DLL state -> named pipe -> daemon -> REST / SSE
+```
 
-## Design principles
+REST resources are views of the daemon's retained state. Reading inventory or
+status does not trigger a new memory walk. See [Client data](state.md) for the
+baseline, revisions, missing values, and reconnect behavior.
 
-- Keep injected code small, predictable, and resilient to failures.
-- Isolate unsafe Rust and document every memory and application binary
-  interface invariant.
-- Use the smallest practical set of reviewed dependencies.
-- Keep platform boundaries explicit, and keep the binary protocol versioned.
-- Do not expose raw client pointers outside the injected process.
-- Keep daemon and consumer failures from terminating the game session.
-- Let consumers use portable APIs without needing client internals.
+## Running native actions
+
+Actions travel in the opposite direction:
+
+```text
+REST or direct CLI -> named pipe -> bounded queue -> client tick -> native method
+```
+
+The pipe worker validates and queues pointer-free command data. A normal game
+tick executes at most one queued command on the client main thread. This is
+where the client expects its movement, skill, and spell methods to run.
+
+Using native methods keeps client timing, interface state, and local validation
+in the normal path. Native pathfinding owns its route, so player input can
+cancel or replace it naturally.
+
+## Hooks and main-thread affinity
+
+Small runtime hooks provide safe moments to copy changing state and drain
+native commands. They do not perform web requests, named-pipe input/output,
+logging, or large conversions.
+
+The [Runtime hooks](hooks.md) chapter explains every installed hook, why it
+exists, how work is moved off the main thread, and how daRPC removes the hooks
+before unloading.
+
+## Client views are not a global world
+
+Several clients can observe the same map, but each has its own view distance
+and last-seen time. daRPC keeps those observations separate. It does not claim
+that one client's visible-object list is the full map population.
+
+A future shared-world projection can merge compatible observations, but it
+must preserve their source and freshness.
+
+## Design goals
+
+- Keep injected work small and bounded.
+- Preserve the client's original behavior unless a feature explicitly changes it.
+- Validate the exact supported client before reading state or installing hooks.
+- Keep raw pointers and client layouts inside the injected process.
+- Let the DLL, daemon, and consumers disconnect without closing the game.
+- Give tool authors portable interfaces and game-friendly data names.

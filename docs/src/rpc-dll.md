@@ -27,17 +27,18 @@ not affect the client process.
 
 ## Event integration
 
-The client dispatches input and network events through a tree of user interface
-panes. Hooking this dispatch boundary allows daRPC to monitor events, block an
-event when explicitly requested, and inject new events.
+The client dispatches decoded server events through a central handler. daRPC
+observes supported events after the client handles them, preserving the
+client's original result and behavior.
 
 Client event handlers also use a common function to queue outgoing network
 actions. Integrating at that boundary allows daRPC to initiate actions through
 the client's own serialization and encryption path rather than implementing a
 second packet stack.
 
-Mouse and keyboard events remain important. Some operations change local user
-interface state and are not completed by sending a network packet alone.
+Native actions run through the client's own methods on its main thread. This
+keeps local interface state and client timing in the normal path instead of
+trying to recreate an action with a packet alone.
 
 ## State ownership
 
@@ -45,13 +46,13 @@ When attached to a running client, `darpc.dll` reconstructs a snapshot from
 validated pointers, relative virtual addresses, and version-specific client
 layouts. Capture is scheduled through the client tick hook and runs on the
 client main thread. Bounded raw values are published to the pipe worker, which
-owns text decoding, allocation, and serialization. See [Client state](state.md)
+owns text decoding, allocation, and serialization. See [Client data](state.md)
 for the snapshot surface and concurrency model.
 
 The DLL also observes the central decoded-event dispatcher after original
-handling. Bounded status, action-state, accepted-position, and spell-effect
-values update a main-thread cache and enter a fixed 1 MiB queue as ordered
-mutations. Map-size metadata is staged until an authoritative position
+handling. Bounded status, collection, effect, position, world-object, and
+message values update the retained state and enter a fixed 1 MiB queue as
+ordered mutations. Map-size metadata is staged until an authoritative position
 completes the transition. The pipe worker serves those mutations through
 bounded long polls. It requests no allocation, logging, serialization, or IPC
 work from the hook path.

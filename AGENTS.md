@@ -103,6 +103,11 @@ Windows-specific builds or runtime checks are unavailable:
 - Use `prlctl exec <vm> --current-user ...` directly for builds, controlled
   targets, inspection, attach, and automated live-client launches. A scheduled
   task or other launch intermediary is unnecessary.
+- For host-side HTTP checks, discover the guest's current Parallels
+  shared-network address and use it when the daemon has been deliberately bound
+  to a non-loopback address such as `0.0.0.0`. Keep loopback as the normal
+  daemon default, do not assume a guest address, and return to `prlctl exec`
+  when the current daemon build is loopback-only.
 - For rapid live-client launch checks, prefer `--allow-multiple`, `--skip-intro`,
   and `--skip-notice`. Add `--server <host[:port]>` only when the selected
   endpoint is part of the test. The paths, endpoint, and port remain
@@ -113,8 +118,11 @@ Windows-specific builds or runtime checks are unavailable:
 - Keep Cargo-generated files on a Windows-local filesystem when the source is
   mounted from macOS. The exact target directory is environment-specific and
   must be discovered or chosen explicitly. Reuse one stable target root for
-  the repository, with only the architecture-specific subdirectories Cargo
-  requires. Do not create milestone-, test-, or task-specific target trees.
+  the repository with one subdirectory per architecture. Reuse those exact
+  directories for every build and do not create milestone-, test-, task-, or
+  toolchain-specific target trees. When an architecture-specific Rust
+  toolchain already makes that architecture the host target, do not also pass
+  `--target`; Cargo would create an unnecessary nested target-triple directory.
 - Run repository-owned Windows verification scripts when available and report
   both the host checks and native guest results.
 - Prefer an already-running virtual machine. Do not start, stop, reconfigure,

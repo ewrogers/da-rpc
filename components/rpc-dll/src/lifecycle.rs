@@ -11,11 +11,13 @@ use std::{
 
 use crate::{
     commands,
-    event_hook::{self, EventHook},
+    hooks::{
+        event::{self, EventHook},
+        map_size::{self, MapSizeHook},
+        tick::{self, TickHook},
+    },
     identity,
     ipc::IpcWorker,
-    map_size_hook::{self, MapSizeHook},
-    tick_hook::{self, TickHook},
 };
 
 static LIFECYCLE: Mutex<Option<Lifecycle>> = Mutex::new(None);
@@ -103,7 +105,7 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
                         "event=hook_installed hook={} rva=0x{:08X} relocated_bytes={} ",
                         "command_capacity={} commands_per_tick={}"
                     ),
-                    tick_hook::NAME,
+                    tick::NAME,
                     darpc_game_client::EVENT_DISPATCHER_TICK_RVA,
                     hook.relocated_bytes(),
                     commands::COMMAND_CAPACITY,
@@ -113,7 +115,7 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
                     let _ = writeln!(
                         log,
                         "event=hook_install_warning hook={} error={warning}",
-                        tick_hook::NAME
+                        tick::NAME
                     );
                     hook_install_warning = Some(warning);
                 }
@@ -124,7 +126,7 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
                 let _ = writeln!(
                     log,
                     "event=initialization_failed stage=hook_install hook={} error={error}",
-                    tick_hook::NAME
+                    tick::NAME
                 );
                 let error = error.into_io_error();
                 if let Err(shutdown_error) = ipc.shutdown() {
@@ -145,7 +147,7 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
         let _ = writeln!(
             log,
             "event=hook_skipped hook={} reason=unsupported_client_debug_bypass",
-            tick_hook::NAME
+            tick::NAME
         );
         None
     };
@@ -156,7 +158,7 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
                 let _ = writeln!(
                     log,
                     "event=hook_installed hook={} rva=0x{:08X} relocated_bytes={}",
-                    map_size_hook::NAME,
+                    map_size::NAME,
                     darpc_game_client::MAP_SIZE_HANDLER_RVA,
                     hook.relocated_bytes()
                 );
@@ -164,7 +166,7 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
                     let _ = writeln!(
                         log,
                         "event=hook_install_warning hook={} error={warning}",
-                        map_size_hook::NAME
+                        map_size::NAME
                     );
                     hook_install_warning = Some(warning);
                 }
@@ -175,7 +177,7 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
                 let _ = writeln!(
                     log,
                     "event=initialization_failed stage=hook_install hook={} error={error}",
-                    map_size_hook::NAME
+                    map_size::NAME
                 );
                 let error = error.into_io_error();
                 commands::cancel_pending();
@@ -207,7 +209,7 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
             let _ = writeln!(
                 log,
                 "event=hook_skipped hook={} reason=unsupported_client_debug_bypass",
-                map_size_hook::NAME
+                map_size::NAME
             );
         }
         None
@@ -219,7 +221,7 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
                 let _ = writeln!(
                     log,
                     "event=hook_installed hook={} rva=0x{:08X} relocated_bytes={} queue_bytes={}",
-                    event_hook::NAME,
+                    event::NAME,
                     darpc_game_client::EVENT_DISPATCH_RVA,
                     hook.relocated_bytes(),
                     crate::state_events::EVENT_QUEUE_BYTES
@@ -228,7 +230,7 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
                     let _ = writeln!(
                         log,
                         "event=hook_install_warning hook={} error={warning}",
-                        event_hook::NAME
+                        event::NAME
                     );
                     hook_install_warning = Some(warning);
                 }
@@ -239,7 +241,7 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
                 let _ = writeln!(
                     log,
                     "event=initialization_failed stage=hook_install hook={} error={error}",
-                    event_hook::NAME
+                    event::NAME
                 );
                 let error = error.into_io_error();
                 commands::cancel_pending();
@@ -271,7 +273,7 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
             let _ = writeln!(
                 log,
                 "event=hook_skipped hook={} reason=unsupported_client_debug_bypass",
-                event_hook::NAME
+                event::NAME
             );
         }
         None
@@ -317,13 +319,13 @@ pub(crate) fn shutdown() -> io::Result<()> {
     commands::cancel_pending();
 
     if let Some(hook) = active.event_hook.as_mut() {
-        let final_health = event_hook::health();
+        let final_health = event::health();
         match hook.uninstall() {
             Ok(true) => {
                 writeln!(
                     active.log,
                     "event=hook_removed hook={} observations={} server_events={} events={} parse_errors={} read_failures={} invalid_bodies={}",
-                    event_hook::NAME,
+                    event::NAME,
                     final_health.observation_count,
                     final_health.server_event_count,
                     final_health.event_count,
@@ -335,7 +337,7 @@ pub(crate) fn shutdown() -> io::Result<()> {
                     writeln!(
                         active.log,
                         "event=hook_parse_failure hook={} opcode=0x{:02X} fields=0x{:02X} body_length={} offset={} needed={} remaining={}",
-                        event_hook::NAME,
+                        event::NAME,
                         final_health.last_parse_opcode,
                         final_health.last_parse_fields,
                         final_health.last_parse_body_length,
@@ -350,7 +352,7 @@ pub(crate) fn shutdown() -> io::Result<()> {
                 let _ = writeln!(
                     active.log,
                     "event=hook_remove_failed hook={} error={error}",
-                    event_hook::NAME
+                    event::NAME
                 );
                 return Err(error);
             }
@@ -360,18 +362,14 @@ pub(crate) fn shutdown() -> io::Result<()> {
     if let Some(hook) = active.map_size_hook.as_mut() {
         match hook.uninstall() {
             Ok(true) => {
-                writeln!(
-                    active.log,
-                    "event=hook_removed hook={}",
-                    map_size_hook::NAME
-                )?;
+                writeln!(active.log, "event=hook_removed hook={}", map_size::NAME)?;
             }
             Ok(false) => {}
             Err(error) => {
                 let _ = writeln!(
                     active.log,
                     "event=hook_remove_failed hook={} error={error}",
-                    map_size_hook::NAME
+                    map_size::NAME
                 );
                 return Err(error);
             }
@@ -379,13 +377,13 @@ pub(crate) fn shutdown() -> io::Result<()> {
     }
 
     if let Some(hook) = active.tick_hook.as_mut() {
-        let final_health = tick_hook::health();
+        let final_health = tick::health();
         match hook.uninstall() {
             Ok(true) => {
                 writeln!(
                     active.log,
                     "event=hook_removed hook={} ticks={}",
-                    tick_hook::NAME,
+                    tick::NAME,
                     final_health.tick_count
                 )?;
             }
@@ -394,7 +392,7 @@ pub(crate) fn shutdown() -> io::Result<()> {
                 let _ = writeln!(
                     active.log,
                     "event=hook_remove_failed hook={} error={error}",
-                    tick_hook::NAME
+                    tick::NAME
                 );
                 return Err(error);
             }

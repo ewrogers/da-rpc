@@ -13,7 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{commands, snapshot, state_events, tick_hook};
+use crate::{commands, hooks::tick, snapshot, state_events};
 
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -151,7 +151,7 @@ fn serve_connection(server: &PipeServer, hello: &Hello, log: &mut File) -> io::R
                 text: message.text,
             }),
             Message::TickHealthRequest(message) => {
-                let health = tick_hook::health();
+                let health = tick::health();
                 let sample_tick_ms = sender_tick_ms();
                 let _ = writeln!(
                     log,
@@ -159,7 +159,7 @@ fn serve_connection(server: &PipeServer, hello: &Hello, log: &mut File) -> io::R
                         "event=hook_health hook={} installed={} relocated_bytes={} ",
                         "ticks={} sample_tick_ms={}"
                     ),
-                    tick_hook::NAME,
+                    tick::NAME,
                     health.installed,
                     health.relocated_bytes,
                     health.tick_count,
@@ -173,7 +173,7 @@ fn serve_connection(server: &PipeServer, hello: &Hello, log: &mut File) -> io::R
                 })
             }
             Message::SnapshotRequest(message) => {
-                let result = if !tick_hook::health().installed {
+                let result = if !tick::health().installed {
                     SnapshotResult::Unavailable(SnapshotUnavailableReason::HookUnavailable)
                 } else {
                     let generation = snapshot::request();
@@ -232,7 +232,7 @@ fn serve_connection(server: &PipeServer, hello: &Hello, log: &mut File) -> io::R
                 })
             }
             Message::CommandRequest(message) => {
-                let result = if tick_hook::health().installed {
+                let result = if tick::health().installed {
                     commands::handle(message.operation)
                 } else {
                     CommandResult::Unavailable

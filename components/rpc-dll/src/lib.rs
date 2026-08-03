@@ -6,10 +6,10 @@ mod client_text;
 mod collections;
 #[cfg(any(windows, test))]
 mod commands;
-#[cfg(windows)]
-mod event_hook;
 #[cfg(any(windows, test))]
 mod event_queue;
+#[cfg(windows)]
+mod hooks;
 #[cfg(windows)]
 mod identity;
 #[cfg(windows)]
@@ -19,13 +19,7 @@ mod lifecycle;
 #[cfg(windows)]
 mod map_name;
 #[cfg(windows)]
-mod map_size_hook;
-#[cfg(any(windows, test))]
-mod message_packet;
-#[cfg(windows)]
 mod movement;
-#[cfg(any(windows, test))]
-mod object_packet;
 #[cfg(any(windows, test))]
 mod objects;
 #[cfg(any(windows, test))]
@@ -34,10 +28,6 @@ mod packet;
 mod snapshot;
 #[cfg(any(windows, test))]
 mod state_events;
-#[cfg(any(windows, test))]
-mod state_packet;
-#[cfg(windows)]
-mod tick_hook;
 
 #[cfg(windows)]
 use windows_sys::{

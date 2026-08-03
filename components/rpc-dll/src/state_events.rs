@@ -3,9 +3,11 @@
 use crate::{
     collections::{CollectionTracker, QueuedCollectionUpdate},
     event_queue::EventQueue,
-    message_packet::{ParsedMessage, Participant},
-    object_packet::WorldUpdate,
     objects::{ObjectCache, QueuedObjectUpdate},
+    packet::{
+        message::{ParsedMessage, Participant},
+        object::WorldUpdate,
+    },
 };
 use darpc_game_client::{RawCharacter, RawModifiers, RawObjects, RawStateSnapshot, RawWorldObject};
 use darpc_model::{

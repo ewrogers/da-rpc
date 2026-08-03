@@ -1,7 +1,11 @@
-use crate::{
-    message_packet::ParsedMessage,
-    object_packet::WorldUpdate,
-    state_packet::{CollectionDirty, Position, SpelledUpdate, StatePacketUpdate, UserAppearance},
+pub(crate) mod message;
+pub(crate) mod object;
+mod state;
+
+use self::{
+    message::ParsedMessage,
+    object::WorldUpdate,
+    state::{CollectionDirty, Position, SpelledUpdate, StatePacketUpdate, UserAppearance},
 };
 use darpc_game_client::RawObjects;
 use darpc_model::StatusUpdate;
@@ -82,13 +86,13 @@ pub(crate) fn update<'a>(
     body: &'a [u8],
     objects: &mut RawObjects,
 ) -> Result<Option<ServerUpdate<'a>>, ParseError> {
-    if let Some(update) = crate::message_packet::update(body)? {
+    if let Some(update) = message::update(body)? {
         return Ok(Some(ServerUpdate::Message(update)));
     }
-    if let Some(update) = crate::object_packet::update(body, objects)? {
+    if let Some(update) = object::update(body, objects)? {
         return Ok(Some(ServerUpdate::World(update)));
     }
-    Ok(crate::state_packet::update(body)?.map(ServerUpdate::from))
+    Ok(state::update(body)?.map(ServerUpdate::from))
 }
 
 impl From<StatePacketUpdate> for ServerUpdate<'_> {

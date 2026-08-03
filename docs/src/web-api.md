@@ -61,10 +61,10 @@ they need:
 | Route | Guide |
 | --- | --- |
 | `GET /clients/{client}/status` | [Character status](status.md) |
-| `GET /clients/{client}/inventory` | [Inventory](inventory.md) |
+| `GET /clients/{client}/items` | [Inventory](inventory.md) |
 | `GET /clients/{client}/equipment` | [Equipment](equipment.md) |
-| `GET /clients/{client}/skillbook` | [Skills](skills.md) |
-| `GET /clients/{client}/spellbook` | [Spells](spells.md) |
+| `GET /clients/{client}/skills` | [Skills](skills.md) |
+| `GET /clients/{client}/spells` | [Spells](spells.md) |
 | `GET /clients/{client}/effects` | [Effects](effects.md) |
 | `GET /clients/{client}/objects` | [World and movement](world.md) |
 | `GET /clients/{client}/messages` | [Messages](messages.md) |

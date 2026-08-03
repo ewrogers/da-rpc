@@ -7,7 +7,7 @@ normal activation.
 ## Reading the skillbook
 
 ```text
-GET /clients/{client}/skillbook
+GET /clients/{client}/skills
 ```
 
 Each occupied slot includes:

@@ -316,10 +316,10 @@ fn router(state: ApiState) -> Router {
         .route("/health", get(health))
         .route("/clients", get(clients))
         .route("/clients/{client}/status", get(client_status))
-        .route("/clients/{client}/inventory", get(client_inventory))
+        .route("/clients/{client}/items", get(client_items))
         .route("/clients/{client}/equipment", get(client_equipment))
-        .route("/clients/{client}/spellbook", get(client_spellbook))
-        .route("/clients/{client}/skillbook", get(client_skillbook))
+        .route("/clients/{client}/spells", get(client_spells))
+        .route("/clients/{client}/skills", get(client_skills))
         .route("/clients/{client}/effects", get(client_effects))
         .route("/clients/{client}/objects", get(client_objects))
         .route("/clients/{client}/messages", get(client_messages))
@@ -451,7 +451,7 @@ async fn client_status(
 
 #[utoipa::path(
     get,
-    path = "/clients/{client}/inventory",
+    path = "/clients/{client}/items",
     params(("client" = String, Path, description = "Process ID or current in-game character name")),
     responses(
         (status = 200, description = "The latest inventory observation", body = Inventory),
@@ -460,7 +460,7 @@ async fn client_status(
         (status = 503, description = "No client observation is currently available", body = ErrorState)
     )
 )]
-async fn client_inventory(
+async fn client_items(
     Path(identifier): Path<String>,
     State(state): State<ApiState>,
 ) -> Result<Json<Inventory>, ApiError> {
@@ -491,7 +491,7 @@ async fn client_equipment(
 
 #[utoipa::path(
     get,
-    path = "/clients/{client}/spellbook",
+    path = "/clients/{client}/spells",
     params(("client" = String, Path, description = "Process ID or current in-game character name")),
     responses(
         (status = 200, description = "The latest spellbook observation", body = Spellbook),
@@ -500,7 +500,7 @@ async fn client_equipment(
         (status = 503, description = "No client observation is currently available", body = ErrorState)
     )
 )]
-async fn client_spellbook(
+async fn client_spells(
     Path(identifier): Path<String>,
     State(state): State<ApiState>,
 ) -> Result<Json<Spellbook>, ApiError> {
@@ -511,7 +511,7 @@ async fn client_spellbook(
 
 #[utoipa::path(
     get,
-    path = "/clients/{client}/skillbook",
+    path = "/clients/{client}/skills",
     params(("client" = String, Path, description = "Process ID or current in-game character name")),
     responses(
         (status = 200, description = "The latest skillbook observation", body = Skillbook),
@@ -520,7 +520,7 @@ async fn client_spellbook(
         (status = 503, description = "No client observation is currently available", body = ErrorState)
     )
 )]
-async fn client_skillbook(
+async fn client_skills(
     Path(identifier): Path<String>,
     State(state): State<ApiState>,
 ) -> Result<Json<Skillbook>, ApiError> {
@@ -1023,10 +1023,10 @@ fn operation_in_progress(pid: u32) -> ApiError {
         health,
         clients,
         client_status,
-        client_inventory,
+        client_items,
         client_equipment,
-        client_spellbook,
-        client_skillbook,
+        client_spells,
+        client_skills,
         client_effects,
         client_objects,
         client_messages,
@@ -2147,7 +2147,7 @@ mod tests {
         assert_eq!(status["character"]["progression"]["level"], 50);
         assert_eq!(status["map"]["x"], 11);
 
-        let inventory = json("/clients/silo/inventory");
+        let inventory = json("/clients/silo/items");
         assert_eq!(inventory["observation"]["revision"], 3);
         assert_eq!(inventory["items"][0]["quantity"], 3);
         assert_eq!(inventory["items"][0]["can_stack"], true);
@@ -2158,13 +2158,13 @@ mod tests {
         assert_eq!(equipment["observation"]["revision"], 3);
         assert_eq!(equipment["items"][0]["slot"], "armor");
 
-        let spellbook = json("/clients/silo/spellbook");
+        let spellbook = json("/clients/silo/spells");
         assert_eq!(spellbook["observation"]["revision"], 3);
         assert_eq!(spellbook["spells"][0]["target_type"], "text_input");
         assert_eq!(spellbook["spells"][0]["prompt"], "Who?");
         assert!(spellbook["spells"][0].get("target_type_id").is_none());
 
-        let skillbook = json("/clients/silo/skillbook");
+        let skillbook = json("/clients/silo/skills");
         assert_eq!(skillbook["observation"]["revision"], 3);
         assert_eq!(skillbook["skills"][0]["max_level"], 100);
 
@@ -2406,10 +2406,10 @@ mod tests {
         assert!(openapi["paths"]["/clients"].is_object());
         for path in [
             "/clients/{client}/status",
-            "/clients/{client}/inventory",
+            "/clients/{client}/items",
             "/clients/{client}/equipment",
-            "/clients/{client}/spellbook",
-            "/clients/{client}/skillbook",
+            "/clients/{client}/spells",
+            "/clients/{client}/skills",
             "/clients/{client}/effects",
             "/clients/{client}/objects",
             "/clients/{client}/messages",

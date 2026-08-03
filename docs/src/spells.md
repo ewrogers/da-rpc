@@ -7,7 +7,7 @@ methods and report each stage of delayed casting.
 ## Reading the spellbook
 
 ```text
-GET /clients/{client}/spellbook
+GET /clients/{client}/spells
 ```
 
 Each occupied slot includes:

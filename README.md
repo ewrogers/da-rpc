@@ -208,7 +208,9 @@ Some representative routes are:
 ```text
 GET  /clients
 GET  /clients/{client}/status
-GET  /clients/{client}/inventory
+GET  /clients/{client}/items
+GET  /clients/{client}/skills
+GET  /clients/{client}/spells
 GET  /clients/{client}/objects
 GET  /clients/{client}/events
 POST /clients/{client}/turn

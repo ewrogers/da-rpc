@@ -7,7 +7,7 @@ present.
 ## Reading inventory
 
 ```text
-GET /clients/{client}/inventory
+GET /clients/{client}/items
 ```
 
 Each occupied item includes:

@@ -13,7 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{commands, hooks::tick, snapshot, state_events};
+use crate::{commands, hooks::tick, snapshot, state};
 
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -179,7 +179,7 @@ fn serve_connection(server: &PipeServer, hello: &Hello, log: &mut File) -> io::R
                     let generation = snapshot::request();
                     match snapshot::wait(generation, SNAPSHOT_TIMEOUT) {
                         Ok(snapshot) => {
-                            state_events::rebase(snapshot.event_sequence);
+                            state::rebase(snapshot.event_sequence);
                             let _ = writeln!(
                                 log,
                                 concat!(
@@ -224,7 +224,7 @@ fn serve_connection(server: &PipeServer, hello: &Hello, log: &mut File) -> io::R
                 }
                 Message::EventPollResponse(EventPollResponse {
                     request_id: message.request_id,
-                    result: state_events::poll(
+                    result: state::poll(
                         message.after_sequence,
                         message.max_events,
                         Duration::from_millis(u64::from(message.wait_ms)),

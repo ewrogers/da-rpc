@@ -27,7 +27,7 @@ mod packet;
 #[cfg(windows)]
 mod snapshot;
 #[cfg(any(windows, test))]
-mod state_events;
+mod state;
 
 #[cfg(windows)]
 use windows_sys::{

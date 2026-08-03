@@ -181,7 +181,7 @@ extern "C" fn observe_tick() {
     let _ = panic::catch_unwind(|| {
         TICK_COUNT.fetch_add(1, Ordering::Relaxed);
         commands::observe_tick();
-        crate::state_events::observe_tick();
+        crate::state::observe_tick();
         snapshot::observe_tick();
     });
 }

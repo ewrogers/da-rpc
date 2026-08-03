@@ -1,4 +1,4 @@
-use crate::state_events::QueuedStateEvent;
+use crate::state::QueuedStateEvent;
 use darpc_model::CollectionBatch;
 use darpc_protocol::EventPollResult;
 use std::{

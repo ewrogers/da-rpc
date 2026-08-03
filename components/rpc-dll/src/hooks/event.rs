@@ -18,7 +18,7 @@ use windows_sys::Win32::System::{
     Threading::GetCurrentProcess,
 };
 
-use crate::{packet, state_events};
+use crate::{packet, state};
 
 pub(crate) const NAME: &str = "event_dispatch";
 
@@ -332,34 +332,34 @@ extern "C" fn observe_event(event: *const core::ffi::c_void) {
         let tick_ms = sender_tick_ms();
         match update {
             packet::ServerUpdate::Status(update) => {
-                state_events::observe_status(update, tick_ms);
+                state::observe_status(update, tick_ms);
             }
             packet::ServerUpdate::UserAppearance(update) => {
-                state_events::observe_status(update.status, tick_ms);
+                state::observe_status(update.status, tick_ms);
                 if update.is_full {
-                    state_events::mark_resync_required();
+                    state::mark_resync_required();
                 }
             }
             packet::ServerUpdate::UserPosition(position) => {
-                state_events::observe_user_position(position.x, position.y, tick_ms);
+                state::observe_user_position(position.x, position.y, tick_ms);
             }
             packet::ServerUpdate::Move(position) => {
-                state_events::observe_move(position.x, position.y, tick_ms);
+                state::observe_move(position.x, position.y, tick_ms);
             }
             packet::ServerUpdate::Effect(effect) => {
-                state_events::observe_effect(effect.icon, effect.duration, tick_ms);
+                state::observe_effect(effect.icon, effect.duration, tick_ms);
             }
             packet::ServerUpdate::World(update) => {
-                state_events::observe_world(update, &scratch.objects, tick_ms);
+                state::observe_world(update, &scratch.objects, tick_ms);
             }
             packet::ServerUpdate::Message(message) => {
-                state_events::observe_message(message, tick_ms);
+                state::observe_message(message, tick_ms);
             }
             packet::ServerUpdate::Collection(collection) => {
-                state_events::mark_collection_dirty(collection.kind, collection.slot, tick_ms);
+                state::mark_collection_dirty(collection.kind, collection.slot, tick_ms);
             }
             packet::ServerUpdate::SpellCancelled => {
-                state_events::observe_spell_cancelled(tick_ms);
+                state::observe_spell_cancelled(tick_ms);
             }
         }
     });

@@ -61,7 +61,7 @@ pub(super) fn cast(cast: SpellCast) -> Result<(), CommandFailure> {
         }
         SpellArguments::None if actual_type == 2 => {
             let (id, position) =
-                crate::state_events::self_target().ok_or(CommandFailure::InvalidTarget)?;
+                crate::state::self_target().ok_or(CommandFailure::InvalidTarget)?;
             let x = u16::try_from(position.x).map_err(|_| CommandFailure::InvalidTarget)?;
             let y = u16::try_from(position.y).map_err(|_| CommandFailure::InvalidTarget)?;
             // SAFETY: the cached self ID and coordinates came from the current
@@ -108,12 +108,12 @@ pub(crate) fn argument_type(slot: u8) -> Option<u8> {
 fn resolve_target(target: SpellTarget) -> Result<(u32, u16, u16), CommandFailure> {
     let (id, x, y) = match target {
         SpellTarget::Object(id) => {
-            let position = crate::state_events::target_position(id.get())
-                .ok_or(CommandFailure::InvalidTarget)?;
+            let position =
+                crate::state::target_position(id.get()).ok_or(CommandFailure::InvalidTarget)?;
             (id.get(), position.x, position.y)
         }
         SpellTarget::Tile { x, y } => {
-            if !crate::state_events::valid_tile(x, y) {
+            if !crate::state::valid_tile(x, y) {
                 return Err(CommandFailure::InvalidTarget);
             }
             (0, x, y)

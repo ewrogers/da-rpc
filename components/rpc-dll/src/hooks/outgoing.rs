@@ -209,7 +209,7 @@ extern "C" fn observe_packet(body: *const u8, length: i16) {
         }
         OUTGOING_OBSERVATION_COUNT.fetch_add(1, Ordering::Relaxed);
         if prefix[0] != 0x0F {
-            crate::state_events::observe_outgoing(&prefix, sender_tick_ms());
+            crate::state::observe_outgoing(&prefix, sender_tick_ms());
             return;
         }
         if length > MAX_USE_SPELL_BODY {
@@ -220,7 +220,7 @@ extern "C" fn observe_packet(body: *const u8, length: i16) {
             OUTGOING_READ_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed);
             return;
         }
-        crate::state_events::observe_outgoing(&packet[..length], sender_tick_ms());
+        crate::state::observe_outgoing(&packet[..length], sender_tick_ms());
     });
 }
 

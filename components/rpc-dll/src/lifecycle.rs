@@ -226,7 +226,7 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
                     event::NAME,
                     darpc_game_client::EVENT_DISPATCH_RVA,
                     hook.relocated_bytes(),
-                    crate::state_events::EVENT_QUEUE_BYTES
+                    crate::state::EVENT_QUEUE_BYTES
                 );
                 if let Some(warning) = hook.take_install_warning() {
                     let _ = writeln!(

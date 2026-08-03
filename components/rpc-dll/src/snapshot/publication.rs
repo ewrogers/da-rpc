@@ -135,7 +135,7 @@ impl PublicationWriter<'_> {
                 .wrapping_add(1)
         };
         let captured_tick_ms = sender_tick_ms();
-        let boundary = crate::state_events::snapshot_boundary(raw, objects, captured_tick_ms);
+        let boundary = crate::state::snapshot_boundary(raw, objects, captured_tick_ms);
         self.finish(StoredPublication {
             request_generation,
             result: Ok(ReadyPublication {

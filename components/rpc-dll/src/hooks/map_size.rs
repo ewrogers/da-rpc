@@ -13,7 +13,7 @@ use std::{
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 
-use crate::{map_name, state_events};
+use crate::{map_name, state};
 
 pub(crate) const NAME: &str = "map_size_handler";
 
@@ -184,6 +184,6 @@ extern "C" fn observe_map_size(world: *const core::ffi::c_void, packet: *const u
             )
         };
         map_name::publish(world as usize as u32, map_id, name);
-        state_events::stage_map_transition(map_id, width, height, name);
+        state::stage_map_transition(map_id, width, height, name);
     });
 }

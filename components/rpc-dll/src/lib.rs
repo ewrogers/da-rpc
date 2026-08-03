@@ -8,6 +8,8 @@ mod collections;
 mod commands;
 #[cfg(windows)]
 mod event_hook;
+#[cfg(any(windows, test))]
+mod event_queue;
 #[cfg(windows)]
 mod identity;
 #[cfg(windows)]
@@ -21,17 +23,19 @@ mod map_size_hook;
 #[cfg(any(windows, test))]
 mod message_packet;
 #[cfg(any(windows, test))]
+mod object_packet;
+#[cfg(any(windows, test))]
+mod objects;
+#[cfg(any(windows, test))]
 mod packet;
 #[cfg(windows)]
 mod snapshot;
 #[cfg(any(windows, test))]
 mod state_events;
+#[cfg(any(windows, test))]
+mod state_packet;
 #[cfg(windows)]
 mod tick_hook;
-#[cfg(any(windows, test))]
-mod world;
-#[cfg(any(windows, test))]
-mod world_packet;
 
 #[cfg(windows)]
 use windows_sys::{

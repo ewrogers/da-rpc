@@ -13,7 +13,7 @@ use crate::{
         ClientIdentity as RegistryClientIdentity, ClientSnapshot as RegistryClientSnapshot,
         ClientSnapshotStatus, ConnectionEvent, RegistrySnapshot, architecture, hex,
     },
-    snapshot::{
+    state::{
         CharacterClass as SnapshotCharacterClass, CharacterGender, CharacterModifiers,
         CharacterProgression, CharacterStats, CharacterStatus, CharacterVitals,
         ClientLifecycle as SnapshotClientLifecycle, CooldownStatus, Direction, Effect,

@@ -1,7 +1,7 @@
 use crate::{
     messages::Message,
     registry::{ClientIdentity, hex},
-    snapshot::{EffectDuration, Element, InventoryItem, Skill, Spell, WorldObject},
+    state::{EffectDuration, Element, InventoryItem, Skill, Spell, WorldObject},
 };
 use async_stream::stream;
 use axum::response::{

@@ -19,7 +19,7 @@ mod messages;
 #[cfg(any(windows, test))]
 mod registry;
 #[cfg(any(windows, test))]
-mod snapshot;
+mod state;
 #[cfg(any(windows, test))]
 mod stream;
 

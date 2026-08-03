@@ -8,7 +8,7 @@ pub(super) struct CastingState {
     pub(super) current_line: u8,
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, not(test)))]
 pub(super) fn casting_state() -> Option<CastingState> {
     crate::actions::spell::casting_state().map(|state| CastingState {
         active: state.active,
@@ -18,17 +18,17 @@ pub(super) fn casting_state() -> Option<CastingState> {
     })
 }
 
-#[cfg(not(windows))]
+#[cfg(any(not(windows), test))]
 pub(super) const fn casting_state() -> Option<CastingState> {
     None
 }
 
-#[cfg(windows)]
+#[cfg(all(windows, not(test)))]
 fn spell_argument_type(slot: u8) -> Option<u8> {
     crate::actions::spell::argument_type(slot)
 }
 
-#[cfg(not(windows))]
+#[cfg(any(not(windows), test))]
 const fn spell_argument_type(_slot: u8) -> Option<u8> {
     None
 }

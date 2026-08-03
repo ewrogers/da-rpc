@@ -20,6 +20,7 @@ impl QueuedStateEvent {
     pub(crate) fn into_model(self) -> StateEvent {
         let update = match self.update {
             QueuedStateUpdate::Status(update) => StateUpdate::Status(update),
+            #[cfg(not(test))]
             QueuedStateUpdate::Movement(update) => StateUpdate::Movement(update),
             QueuedStateUpdate::Location(update) => StateUpdate::Location(update.into_model()),
             QueuedStateUpdate::Effect(update) => StateUpdate::Effect(update),
@@ -43,6 +44,7 @@ impl QueuedStateEvent {
 #[allow(clippy::large_enum_variant)]
 pub(super) enum QueuedStateUpdate {
     Status(StatusUpdate),
+    #[cfg(not(test))]
     Movement(MovementUpdate),
     Location(QueuedLocationUpdate),
     Effect(EffectUpdate),

@@ -1,6 +1,6 @@
 //! Injected daRPC client component.
 
-#[cfg(windows)]
+#[cfg(all(windows, not(test)))]
 mod actions;
 #[cfg(windows)]
 mod client_text;

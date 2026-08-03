@@ -60,6 +60,7 @@ impl ObjectCache {
         }
     }
 
+    #[cfg(not(test))]
     pub(crate) fn position(&self, id: u32) -> Option<(i32, i32)> {
         self.entries[self.find(id)?].map(object_position)
     }

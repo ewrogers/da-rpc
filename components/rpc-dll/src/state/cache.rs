@@ -195,10 +195,12 @@ impl StateCache {
         }
     }
 
+    #[cfg(not(test))]
     pub(super) const fn position(&self) -> Option<(i32, i32)> {
         self.position
     }
 
+    #[cfg(not(test))]
     pub(super) fn valid_tile(&self, x: i32, y: i32) -> bool {
         self.map
             .is_some_and(|map| x >= 0 && y >= 0 && x < map.width && y < map.height)
@@ -417,11 +419,13 @@ impl MainThreadCache {
         (cache.self_name_len != 0).then_some((cache.self_name, cache.self_name_len))
     }
 
+    #[cfg(not(test))]
     pub(super) unsafe fn position(&self) -> Option<(i32, i32)> {
         // SAFETY: the caller guarantees exclusive main-thread access.
         unsafe { (&*self.0.get()).position() }
     }
 
+    #[cfg(not(test))]
     pub(super) unsafe fn valid_tile(&self, x: i32, y: i32) -> bool {
         // SAFETY: the caller guarantees exclusive main-thread access.
         unsafe { (&*self.0.get()).valid_tile(x, y) }
@@ -455,6 +459,7 @@ impl MainThreadCache {
         unsafe { (&mut *self.0.get()).filter_status(update) }
     }
 
+    #[cfg(not(test))]
     pub(super) unsafe fn movement(
         &self,
         is_walking: bool,
@@ -528,6 +533,7 @@ impl MainThreadObjects {
         unsafe { (&*self.0.get()).name(id) }
     }
 
+    #[cfg(not(test))]
     pub(super) unsafe fn position(&self, id: u32) -> Option<(i32, i32)> {
         // SAFETY: the caller guarantees exclusive main-thread access.
         unsafe { (&*self.0.get()).position(id) }

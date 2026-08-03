@@ -73,7 +73,7 @@ pub(crate) fn reset() {
     REVISION.store(0, Ordering::Release);
     EVENT_SEQUENCE.store(0, Ordering::Release);
     QUEUE.reset();
-    #[cfg(windows)]
+    #[cfg(all(windows, not(test)))]
     crate::actions::movement::reset_tracking();
     // SAFETY: reset runs before the event hook is installed and after the IPC
     // consumer has stopped, so no other thread accesses the cache.
@@ -92,7 +92,7 @@ pub(crate) fn map_transition_pending() -> bool {
 }
 
 pub(crate) fn stage_map_transition(map_id: u32, width: i32, height: i32, name: &[u8]) {
-    #[cfg(windows)]
+    #[cfg(all(windows, not(test)))]
     crate::actions::movement::clear_route_destination();
     // SAFETY: the map-size hook runs on the client main thread, which is the
     // sole cache producer.
@@ -132,6 +132,7 @@ pub(crate) fn mark_resync_required() {
 }
 
 #[must_use]
+#[cfg(not(test))]
 pub(crate) fn target_position(id: u32) -> Option<TilePosition> {
     // SAFETY: commands execute from the tick hook on the client main thread,
     // which is the sole owner of both caches.
@@ -149,6 +150,7 @@ pub(crate) fn target_position(id: u32) -> Option<TilePosition> {
 }
 
 #[must_use]
+#[cfg(not(test))]
 pub(crate) fn self_target() -> Option<(u32, TilePosition)> {
     // SAFETY: commands execute from the tick hook on the client main thread,
     // which is the sole owner of the state cache.
@@ -157,6 +159,7 @@ pub(crate) fn self_target() -> Option<(u32, TilePosition)> {
 }
 
 #[must_use]
+#[cfg(not(test))]
 pub(crate) fn valid_tile(x: i32, y: i32) -> bool {
     // SAFETY: commands execute from the tick hook on the client main thread.
     unsafe { CACHE.valid_tile(x, y) }
@@ -174,7 +177,7 @@ pub(crate) fn observe_tick() {
             push_event(QueuedStateUpdate::Collection(update), tick_ms);
         });
     }
-    #[cfg(windows)]
+    #[cfg(all(windows, not(test)))]
     if let Some(is_walking) = crate::actions::movement::is_walking() {
         let destination = crate::actions::movement::route_destination();
         if let Some(update) = unsafe { CACHE.movement(is_walking, destination) } {

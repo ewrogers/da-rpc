@@ -1,7 +1,8 @@
 use darpc_model::Direction;
 use darpc_protocol::{
     CommandFailure, CommandKind, CommandOperation, CommandResult, CommandState, CommandStatus,
-    SkillSlot, WalkTarget,
+    MAX_SPELL_INPUT_LEN, SkillSlot, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget,
+    WalkTarget,
 };
 use std::{
     panic,
@@ -41,6 +42,9 @@ struct CommandSlot {
     kind: AtomicU8,
     argument_x: AtomicU32,
     argument_y: AtomicU32,
+    argument_z: AtomicU32,
+    argument_length: AtomicU8,
+    argument_bytes: [AtomicU8; MAX_SPELL_INPUT_LEN],
     enqueued_tick_ms: AtomicU32,
     deadline_tick_ms: AtomicU32,
     started_tick_ms: AtomicU32,
@@ -63,6 +67,9 @@ impl CommandSlot {
             kind: AtomicU8::new(0),
             argument_x: AtomicU32::new(0),
             argument_y: AtomicU32::new(0),
+            argument_z: AtomicU32::new(0),
+            argument_length: AtomicU8::new(0),
+            argument_bytes: [const { AtomicU8::new(0) }; MAX_SPELL_INPUT_LEN],
             enqueued_tick_ms: AtomicU32::new(0),
             deadline_tick_ms: AtomicU32::new(0),
             started_tick_ms: AtomicU32::new(0),
@@ -78,11 +85,23 @@ impl CommandSlot {
     }
 
     fn initialize(&self, command_id: u32, kind: CommandKind, now: u32, timeout_ms: u16) {
-        let (kind, argument_x, argument_y) = stored_kind(kind);
+        let (kind, argument_x, argument_y, argument_z, input) = stored_kind(kind);
         self.command_id.store(command_id, Ordering::Relaxed);
         self.kind.store(kind, Ordering::Relaxed);
         self.argument_x.store(argument_x, Ordering::Relaxed);
         self.argument_y.store(argument_y, Ordering::Relaxed);
+        self.argument_z.store(argument_z, Ordering::Relaxed);
+        let input = input.as_ref().map_or(&[][..], SpellInput::as_bytes);
+        self.argument_length.store(
+            u8::try_from(input.len()).expect("spell input limit fits u8"),
+            Ordering::Relaxed,
+        );
+        for (index, byte) in self.argument_bytes.iter().enumerate() {
+            byte.store(
+                input.get(index).copied().unwrap_or_default(),
+                Ordering::Relaxed,
+            );
+        }
         self.enqueued_tick_ms.store(now, Ordering::Relaxed);
         self.deadline_tick_ms
             .store(now.wrapping_add(u32::from(timeout_ms)), Ordering::Relaxed);
@@ -110,11 +129,7 @@ impl CommandSlot {
 
             let status = CommandStatus {
                 command_id: expected_id,
-                kind: kind_from_value(
-                    self.kind.load(Ordering::Relaxed),
-                    self.argument_x.load(Ordering::Relaxed),
-                    self.argument_y.load(Ordering::Relaxed),
-                ),
+                kind: self.kind(),
                 state: public_state(state),
                 enqueued_tick_ms: self.enqueued_tick_ms.load(Ordering::Relaxed),
                 deadline_tick_ms: self.deadline_tick_ms.load(Ordering::Relaxed),
@@ -147,6 +162,21 @@ impl CommandSlot {
         self.queued.store(false, Ordering::Relaxed);
         self.command_id.store(0, Ordering::Relaxed);
         self.state.store(EMPTY, Ordering::Release);
+    }
+
+    fn kind(&self) -> CommandKind {
+        let length = usize::from(self.argument_length.load(Ordering::Relaxed));
+        let mut input = [0; MAX_SPELL_INPUT_LEN];
+        for (destination, source) in input.iter_mut().zip(&self.argument_bytes).take(length) {
+            *destination = source.load(Ordering::Relaxed);
+        }
+        kind_from_value(
+            self.kind.load(Ordering::Relaxed),
+            self.argument_x.load(Ordering::Relaxed),
+            self.argument_y.load(Ordering::Relaxed),
+            self.argument_z.load(Ordering::Relaxed),
+            &input[..length.min(MAX_SPELL_INPUT_LEN)],
+        )
     }
 }
 
@@ -348,11 +378,7 @@ fn execute(slot_index: usize) {
         .store(current_thread_id(), Ordering::Relaxed);
     slot.has_main_thread_id.store(true, Ordering::Relaxed);
     let started = Instant::now();
-    let kind = kind_from_value(
-        slot.kind.load(Ordering::Relaxed),
-        slot.argument_x.load(Ordering::Relaxed),
-        slot.argument_y.load(Ordering::Relaxed),
-    );
+    let kind = slot.kind();
     let result =
         panic::catch_unwind(|| execute_command(kind)).unwrap_or(Err(CommandFailure::Internal));
     let execution_us = u32::try_from(started.elapsed().as_micros()).unwrap_or(u32::MAX);
@@ -432,17 +458,41 @@ fn next_command_id() -> u32 {
     }
 }
 
-const fn stored_kind(kind: CommandKind) -> (u8, u32, u32) {
+fn stored_kind(kind: CommandKind) -> (u8, u32, u32, u32, Option<SpellInput>) {
     match kind {
-        CommandKind::Diagnostic => (0, 0, 0),
-        CommandKind::Turn(direction) => (1, direction.raw() as u32, 0),
-        CommandKind::Walk(WalkTarget::Direction(direction)) => (2, direction.raw() as u32, 0),
-        CommandKind::Walk(WalkTarget::Destination { x, y }) => (3, x as u32, y as u32),
-        CommandKind::UseSkill(slot) => (4, slot.get() as u32, 0),
+        CommandKind::Diagnostic => (0, 0, 0, 0, None),
+        CommandKind::Turn(direction) => (1, direction.raw() as u32, 0, 0, None),
+        CommandKind::Walk(WalkTarget::Direction(direction)) => {
+            (2, direction.raw() as u32, 0, 0, None)
+        }
+        CommandKind::Walk(WalkTarget::Destination { x, y }) => (3, x as u32, y as u32, 0, None),
+        CommandKind::UseSkill(slot) => (4, slot.get() as u32, 0, 0, None),
+        CommandKind::CastSpell(SpellCast {
+            slot,
+            arguments: SpellArguments::None,
+        }) => (5, slot.get() as u32, 0, 0, None),
+        CommandKind::CastSpell(SpellCast {
+            slot,
+            arguments: SpellArguments::Target(SpellTarget::Object(id)),
+        }) => (6, slot.get() as u32, id.get(), 0, None),
+        CommandKind::CastSpell(SpellCast {
+            slot,
+            arguments: SpellArguments::Target(SpellTarget::Tile { x, y }),
+        }) => (7, slot.get() as u32, x as u32, y as u32, None),
+        CommandKind::CastSpell(SpellCast {
+            slot,
+            arguments: SpellArguments::Input(input),
+        }) => (8, slot.get() as u32, 0, 0, Some(input)),
     }
 }
 
-const fn kind_from_value(value: u8, argument_x: u32, argument_y: u32) -> CommandKind {
+fn kind_from_value(
+    value: u8,
+    argument_x: u32,
+    argument_y: u32,
+    argument_z: u32,
+    input: &[u8],
+) -> CommandKind {
     match value {
         1 => CommandKind::Turn(stored_direction(argument_x)),
         2 => CommandKind::Walk(WalkTarget::Direction(stored_direction(argument_x))),
@@ -454,6 +504,33 @@ const fn kind_from_value(value: u8, argument_x: u32, argument_y: u32) -> Command
             Some(slot) => CommandKind::UseSkill(slot),
             None => CommandKind::Diagnostic,
         },
+        5..=8 => {
+            let Some(slot) = SpellSlot::new(argument_x as u8) else {
+                return CommandKind::Diagnostic;
+            };
+            let arguments = match value {
+                5 => SpellArguments::None,
+                6 => match std::num::NonZeroU32::new(argument_y) {
+                    Some(id) => SpellArguments::Target(SpellTarget::Object(id)),
+                    None => return CommandKind::Diagnostic,
+                },
+                7 => SpellArguments::Target(SpellTarget::Tile {
+                    x: argument_y as i32,
+                    y: argument_z as i32,
+                }),
+                8 => {
+                    let Ok(input) = std::str::from_utf8(input) else {
+                        return CommandKind::Diagnostic;
+                    };
+                    let Some(input) = SpellInput::new(input) else {
+                        return CommandKind::Diagnostic;
+                    };
+                    SpellArguments::Input(input)
+                }
+                _ => unreachable!(),
+            };
+            CommandKind::CastSpell(SpellCast { slot, arguments })
+        }
         _ => CommandKind::Diagnostic,
     }
 }
@@ -495,6 +572,9 @@ const fn failure_from_value(value: u8) -> Option<CommandFailure> {
         4 => Some(CommandFailure::Rejected),
         5 => Some(CommandFailure::NoPath),
         6 => Some(CommandFailure::InvalidSkill),
+        7 => Some(CommandFailure::InvalidSpell),
+        8 => Some(CommandFailure::InvalidArguments),
+        9 => Some(CommandFailure::InvalidTarget),
         _ => Some(CommandFailure::Internal),
     }
 }
@@ -507,6 +587,9 @@ const fn failure_value(failure: CommandFailure) -> u8 {
         CommandFailure::Rejected => 4,
         CommandFailure::NoPath => 5,
         CommandFailure::InvalidSkill => 6,
+        CommandFailure::InvalidSpell => 7,
+        CommandFailure::InvalidArguments => 8,
+        CommandFailure::InvalidTarget => 9,
     }
 }
 

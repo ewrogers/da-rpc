@@ -1,11 +1,12 @@
 use darpc_model::{
-    CharacterAppearance, CharacterClass, CharacterModifiers, CharacterProgression,
+    AbilityUpdate, CharacterAppearance, CharacterClass, CharacterModifiers, CharacterProgression,
     CharacterSnapshot, CharacterStats, CharacterVitals, ClientLifecycle, ClientMessage,
     ClientSnapshot, CollectionChange, CooldownStatus, CoreStatus, CreatureKind, CurrentVitals,
     Direction, Effect, EffectDuration, EffectUpdate, Element, EquipmentItem, EquipmentSlot, Gender,
     InventoryItem, LocationUpdate, MapChange, MapLocation, MessageKind, MovementUpdate,
-    ObjectUpdate, ProgressionStatus, Skill, SlotUpdate, Spell, SpellTargetType, StateEvent,
-    StateUpdate, StatusUpdate, TilePosition, WorldObject,
+    ObjectUpdate, ProgressionStatus, Skill, SlotUpdate, Spell, SpellCancellationSource,
+    SpellCastArguments, SpellTargetType, StateEvent, StateUpdate, StatusUpdate, TilePosition,
+    WorldObject,
 };
 use darpc_protocol::{
     Architecture, CommandFailure, CommandKind, CommandOperation, CommandRequest, CommandResponse,
@@ -14,9 +15,9 @@ use darpc_protocol::{
     FRAME_HEADER_LEN, FRAME_MAGIC, FRAME_VERSION, Frame, FrameHeader, Hello, HelloAck,
     MAX_COMMAND_TIMEOUT_MS, MAX_COMMAND_WAIT_MS, MAX_ECHO_TEXT_LEN, MAX_PAYLOAD_LEN, Message,
     MessageType, PROTOCOL_VERSION_1_0, Ping, Pong, SkillSlot, SnapshotRequest, SnapshotResponse,
-    SnapshotResult, SnapshotUnavailableReason, TickHealthRequest, TickHealthResponse, VersionRange,
-    WalkTarget, decode_frame, decode_header, encode_frame, protocol_version,
-    protocol_version_major, protocol_version_minor,
+    SnapshotResult, SnapshotUnavailableReason, SpellArguments, SpellCast, SpellInput, SpellSlot,
+    SpellTarget, TickHealthRequest, TickHealthResponse, VersionRange, WalkTarget, decode_frame,
+    decode_header, encode_frame, protocol_version, protocol_version_major, protocol_version_minor,
 };
 
 fn hello() -> Hello {
@@ -61,6 +62,7 @@ fn snapshot() -> ClientSnapshot {
             is_action_restricted: false,
             is_blinded: true,
             is_walking: false,
+            is_casting: false,
             gold: 123_456,
             weight: 88,
             max_weight: 120,
@@ -286,6 +288,7 @@ fn every_message_round_trips() {
                         }),
                         is_blinded: Some(true),
                         is_action_restricted: Some(true),
+                        is_casting: Some(false),
                     }),
                 },
                 StateEvent {
@@ -462,6 +465,28 @@ fn every_message_round_trips() {
                         reached_destination: Some(true),
                     }),
                 },
+                StateEvent {
+                    sequence: 54,
+                    revision: 23,
+                    tick_ms: 135,
+                    update: StateUpdate::Ability(AbilityUpdate::SpellCast {
+                        slot: 4,
+                        arguments: SpellCastArguments::Target {
+                            id: Some(0x1122_3344),
+                            x: 30,
+                            y: 40,
+                        },
+                    }),
+                },
+                StateEvent {
+                    sequence: 55,
+                    revision: 24,
+                    tick_ms: 136,
+                    update: StateUpdate::Ability(AbilityUpdate::SpellCancelled {
+                        slot: 4,
+                        source: SpellCancellationSource::Replaced,
+                    }),
+                },
             ]),
         }),
         Message::EventPollResponse(EventPollResponse {
@@ -544,6 +569,41 @@ fn every_message_round_trips() {
         Message::CommandResponse(CommandResponse {
             request_id: 23,
             result: CommandResult::Unavailable,
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 24,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::CastSpell(SpellCast {
+                    slot: SpellSlot::new(4).unwrap(),
+                    arguments: SpellArguments::Target(SpellTarget::Object(
+                        std::num::NonZeroU32::new(0x1122_3344).unwrap(),
+                    )),
+                }),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 25,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::CastSpell(SpellCast {
+                    slot: SpellSlot::new(5).unwrap(),
+                    arguments: SpellArguments::Target(SpellTarget::Tile { x: 30, y: 40 }),
+                }),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 26,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::CastSpell(SpellCast {
+                    slot: SpellSlot::new(6).unwrap(),
+                    arguments: SpellArguments::Input(SpellInput::new("Eidolon").unwrap()),
+                }),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
         }),
     ];
 

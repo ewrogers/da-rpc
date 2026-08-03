@@ -3,11 +3,14 @@ use crate::{
     message::{PayloadReader, push_i32, push_u16, push_u32},
 };
 use darpc_model::Direction;
+use std::num::NonZeroU32;
 
 pub const DEFAULT_COMMAND_TIMEOUT_MS: u16 = 1_000;
 pub const MAX_COMMAND_TIMEOUT_MS: u16 = 5_000;
 pub const MAX_COMMAND_WAIT_MS: u16 = 1_000;
 pub const MAX_SKILL_SLOT: u8 = 90;
+pub const MAX_SPELL_SLOT: u8 = 90;
+pub const MAX_SPELL_INPUT_LEN: usize = 100;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CommandKind {
@@ -15,6 +18,56 @@ pub enum CommandKind {
     Turn(Direction),
     Walk(WalkTarget),
     UseSkill(SkillSlot),
+    CastSpell(SpellCast),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SpellCast {
+    pub slot: SpellSlot,
+    pub arguments: SpellArguments,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SpellArguments {
+    None,
+    Target(SpellTarget),
+    Input(SpellInput),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SpellTarget {
+    Object(NonZeroU32),
+    Tile { x: i32, y: i32 },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SpellInput {
+    length: u8,
+    bytes: [u8; MAX_SPELL_INPUT_LEN],
+}
+
+impl SpellInput {
+    #[must_use]
+    pub fn new(value: &str) -> Option<Self> {
+        Self::from_bytes(value.as_bytes())
+    }
+
+    fn from_bytes(value: &[u8]) -> Option<Self> {
+        if value.is_empty() || value.len() > MAX_SPELL_INPUT_LEN || !value.is_ascii() {
+            return None;
+        }
+        let mut bytes = [0; MAX_SPELL_INPUT_LEN];
+        bytes[..value.len()].copy_from_slice(value);
+        Some(Self {
+            length: u8::try_from(value.len()).expect("spell input limit fits u8"),
+            bytes,
+        })
+    }
+
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes[..usize::from(self.length)]
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -24,6 +77,25 @@ impl SkillSlot {
     #[must_use]
     pub const fn new(slot: u8) -> Option<Self> {
         if slot > 0 && slot <= MAX_SKILL_SLOT {
+            Some(Self(slot))
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
+    pub const fn get(self) -> u8 {
+        self.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SpellSlot(u8);
+
+impl SpellSlot {
+    #[must_use]
+    pub const fn new(slot: u8) -> Option<Self> {
+        if slot > 0 && slot <= MAX_SPELL_SLOT {
             Some(Self(slot))
         } else {
             None
@@ -64,6 +136,27 @@ fn encode_kind(output: &mut Vec<u8>, kind: CommandKind) {
             output.push(3);
             output.push(slot.get());
         }
+        CommandKind::CastSpell(cast) => {
+            output.push(4);
+            output.push(cast.slot.get());
+            match cast.arguments {
+                SpellArguments::None => output.push(0),
+                SpellArguments::Target(SpellTarget::Object(id)) => {
+                    output.push(1);
+                    push_u32(output, id.get());
+                }
+                SpellArguments::Target(SpellTarget::Tile { x, y }) => {
+                    output.push(2);
+                    push_i32(output, x);
+                    push_i32(output, y);
+                }
+                SpellArguments::Input(input) => {
+                    output.push(3);
+                    output.push(input.length);
+                    output.extend_from_slice(input.as_bytes());
+                }
+            }
+        }
     }
 }
 
@@ -87,6 +180,32 @@ fn decode_kind(reader: &mut PayloadReader<'_>) -> Result<CommandKind, DecodeErro
                     actual,
                     max: MAX_SKILL_SLOT,
                 })
+        }
+        4 => {
+            let actual = reader.read_u8()?;
+            let slot = SpellSlot::new(actual).ok_or(DecodeError::InvalidSpellSlot {
+                actual,
+                max: MAX_SPELL_SLOT,
+            })?;
+            let arguments = match reader.read_u8()? {
+                0 => SpellArguments::None,
+                1 => SpellArguments::Target(SpellTarget::Object(
+                    NonZeroU32::new(reader.read_u32()?).ok_or(DecodeError::InvalidSpellTarget)?,
+                )),
+                2 => SpellArguments::Target(SpellTarget::Tile {
+                    x: reader.read_i32()?,
+                    y: reader.read_i32()?,
+                }),
+                3 => {
+                    let length = usize::from(reader.read_u8()?);
+                    let bytes = reader.take(length)?;
+                    SpellArguments::Input(
+                        SpellInput::from_bytes(bytes).ok_or(DecodeError::InvalidSpellInput)?,
+                    )
+                }
+                actual => return Err(DecodeError::InvalidSpellArguments { actual }),
+            };
+            Ok(CommandKind::CastSpell(SpellCast { slot, arguments }))
         }
         actual => Err(DecodeError::InvalidCommandKind { actual }),
     }
@@ -164,6 +283,9 @@ pub enum CommandFailure {
     Rejected,
     NoPath,
     InvalidSkill,
+    InvalidSpell,
+    InvalidArguments,
+    InvalidTarget,
 }
 
 impl CommandFailure {
@@ -175,6 +297,9 @@ impl CommandFailure {
             Self::Rejected => 3,
             Self::NoPath => 4,
             Self::InvalidSkill => 5,
+            Self::InvalidSpell => 6,
+            Self::InvalidArguments => 7,
+            Self::InvalidTarget => 8,
         }
     }
 
@@ -186,6 +311,9 @@ impl CommandFailure {
             3 => Ok(Self::Rejected),
             4 => Ok(Self::NoPath),
             5 => Ok(Self::InvalidSkill),
+            6 => Ok(Self::InvalidSpell),
+            7 => Ok(Self::InvalidArguments),
+            8 => Ok(Self::InvalidTarget),
             actual => Err(DecodeError::InvalidCommandFailure { actual }),
         }
     }

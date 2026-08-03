@@ -15,6 +15,7 @@ const REMOVE_SPELL_OPCODE: u8 = 0x18;
 const ADD_SKILL_OPCODE: u8 = 0x2C;
 const REMOVE_SKILL_OPCODE: u8 = 0x2D;
 const SPELLED_OPCODE: u8 = 0x3A;
+const SPELL_DELAY_CANCEL_OPCODE: u8 = 0x48;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum StatePacketUpdate {
@@ -24,6 +25,7 @@ pub(crate) enum StatePacketUpdate {
     Move(Position),
     Effect(SpelledUpdate),
     Collection(CollectionDirty),
+    SpellCancelled,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -73,6 +75,11 @@ pub(crate) fn update(body: &[u8]) -> Result<Option<StatePacketUpdate>, ParseErro
             parse_remove(body, REMOVE_SKILL_OPCODE, CollectionKind::Skillbook, 90).map(Some)
         }
         Some(SPELLED_OPCODE) => parse_spelled(body).map(StatePacketUpdate::Effect).map(Some),
+        Some(SPELL_DELAY_CANCEL_OPCODE) => {
+            let mut reader = Reader::new(body);
+            reader.expect(SPELL_DELAY_CANCEL_OPCODE)?;
+            Ok(Some(StatePacketUpdate::SpellCancelled))
+        }
         _ => Ok(None),
     }
 }
@@ -282,6 +289,7 @@ fn parse_status(body: &[u8]) -> Result<StatusUpdate, ParseError> {
         modifiers,
         is_blinded,
         is_action_restricted: None,
+        is_casting: None,
     })
 }
 

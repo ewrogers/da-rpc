@@ -118,11 +118,21 @@ impl ApiState {
                 identity,
                 events,
             } => {
+                let registry = self.snapshot();
+                let game_snapshot = registry
+                    .clients
+                    .iter()
+                    .find(|client| client.pid == *pid && client.identity == Some(*identity))
+                    .and_then(|client| client.game_snapshot.as_ref());
                 for state_event in events {
+                    let (ability_name, target_name) =
+                        ability_context(game_snapshot, &state_event.update);
                     let _ = self.published_events.send(PublishedEvent::State {
                         pid: *pid,
                         identity: *identity,
-                        event: state_event.clone(),
+                        event: Box::new(state_event.clone()),
+                        ability_name,
+                        target_name,
                         observed_at_utc,
                     });
                 }
@@ -213,6 +223,68 @@ impl ApiState {
     }
 }
 
+fn ability_context(
+    snapshot: Option<&darpc_model::ClientSnapshot>,
+    update: &darpc_model::StateUpdate,
+) -> (Option<String>, Option<String>) {
+    let Some(snapshot) = snapshot else {
+        return (None, None);
+    };
+    let Some(character) = snapshot.character.as_ref() else {
+        return (None, None);
+    };
+    let (slot, skill, target_id) = match update {
+        darpc_model::StateUpdate::Ability(darpc_model::AbilityUpdate::SkillUsed { slot }) => {
+            (*slot, true, None)
+        }
+        darpc_model::StateUpdate::Ability(darpc_model::AbilityUpdate::SpellCast {
+            slot,
+            arguments: darpc_model::SpellCastArguments::Target { id, .. },
+        }) => (*slot, false, *id),
+        darpc_model::StateUpdate::Ability(
+            darpc_model::AbilityUpdate::SpellBegin { slot, .. }
+            | darpc_model::AbilityUpdate::SpellChant { slot, .. }
+            | darpc_model::AbilityUpdate::SpellCast { slot, .. }
+            | darpc_model::AbilityUpdate::SpellCancelled { slot, .. },
+        ) => (*slot, false, None),
+        _ => return (None, None),
+    };
+    let ability_name = if skill {
+        character.skillbook.as_ref().and_then(|abilities| {
+            abilities
+                .iter()
+                .find(|ability| ability.slot == slot)
+                .and_then(|ability| ability.name.clone())
+        })
+    } else {
+        character.spellbook.as_ref().and_then(|abilities| {
+            abilities
+                .iter()
+                .find(|ability| ability.slot == slot)
+                .and_then(|ability| ability.name.clone())
+        })
+    };
+    let target_name = target_id.and_then(|target_id| {
+        if character.id == Some(target_id) {
+            return character.name.clone();
+        }
+        snapshot
+            .objects
+            .as_ref()?
+            .iter()
+            .find_map(|object| match object {
+                darpc_model::WorldObject::Player { id, name, .. }
+                | darpc_model::WorldObject::Creature { id, name, .. }
+                    if *id == target_id =>
+                {
+                    name.clone()
+                }
+                _ => None,
+            })
+    });
+    (ability_name, target_name)
+}
+
 pub(crate) fn start(port: u16, state: ApiState) -> io::Result<JoinHandle<()>> {
     let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port))?;
     listener.set_nonblocking(true)?;
@@ -263,6 +335,10 @@ fn router(state: ApiState) -> Router {
             post(crate::commands::use_skill),
         )
         .route(
+            "/clients/{client}/spells/cast",
+            post(crate::commands::cast_spell),
+        )
+        .route(
             "/clients/{client}/commands/{command_id}",
             get(crate::commands::status).delete(crate::commands::cancel),
         )
@@ -302,7 +378,8 @@ async fn reject_request_body(request: Request<Body>, next: Next) -> Response {
             || request.uri().path().ends_with("/commands/diagnostic")
             || request.uri().path().ends_with("/turn")
             || request.uri().path().ends_with("/walk")
-            || request.uri().path().ends_with("/skills/use"))
+            || request.uri().path().ends_with("/skills/use")
+            || request.uri().path().ends_with("/spells/cast"))
     {
         return next.run(request).await;
     }
@@ -961,6 +1038,7 @@ fn operation_in_progress(pid: u32) -> ApiError {
         crate::commands::turn,
         crate::commands::walk,
         crate::commands::use_skill,
+        crate::commands::cast_spell,
         crate::commands::status,
         crate::commands::cancel
     ),
@@ -1022,6 +1100,10 @@ fn operation_in_progress(pid: u32) -> ApiError {
         crate::commands::SkillSlotOptions,
         crate::commands::SkillNameOptions,
         crate::commands::UseSkillOptions,
+        crate::commands::SpellTargetOptions,
+        crate::commands::CastSpellBySlot,
+        crate::commands::CastSpellByName,
+        crate::commands::CastSpellOptions,
         crate::commands::CommandStatus,
         crate::commands::CommandKind,
         crate::commands::CommandState,
@@ -1452,7 +1534,8 @@ mod tests {
     };
     use darpc_protocol::{
         Architecture, CommandKind, CommandOperation, CommandResult, CommandState, CommandStatus,
-        ComponentVersion, Hello, SUPPORTED_VERSIONS, SkillSlot, WalkTarget,
+        ComponentVersion, Hello, SUPPORTED_VERSIONS, SkillSlot, SpellArguments, SpellCast,
+        SpellInput, SpellSlot, SpellTarget, WalkTarget,
     };
     use serde_json::Value;
     use std::{
@@ -1500,6 +1583,7 @@ mod tests {
                 is_action_restricted: false,
                 is_blinded: true,
                 is_walking: false,
+                is_casting: false,
                 gold: 99,
                 weight: 25,
                 max_weight: 60,
@@ -1551,20 +1635,50 @@ mod tests {
                     durability: 900,
                     max_durability: 1_000,
                 }]),
-                spellbook: Some(vec![ModelSpell {
-                    slot: 7,
-                    icon: 0x0456,
-                    name: Some("Fas Spiorad".into()),
-                    level: 3,
-                    max_level: 5,
-                    lines: 4,
-                    target_type: ModelSpellTargetType::TextInput,
-                    prompt: Some("Who?".into()),
-                    cooldown: ModelCooldownStatus {
-                        active: true,
-                        remaining_ms: None,
+                spellbook: Some(vec![
+                    ModelSpell {
+                        slot: 7,
+                        icon: 0x0456,
+                        name: Some("Fas Spiorad".into()),
+                        level: 3,
+                        max_level: 5,
+                        lines: 4,
+                        target_type: ModelSpellTargetType::TextInput,
+                        prompt: Some("Who?".into()),
+                        cooldown: ModelCooldownStatus {
+                            active: true,
+                            remaining_ms: None,
+                        },
                     },
-                }]),
+                    ModelSpell {
+                        slot: 1,
+                        icon: 0x0400,
+                        name: Some("Mist".into()),
+                        level: 1,
+                        max_level: 100,
+                        lines: 0,
+                        target_type: ModelSpellTargetType::None,
+                        prompt: None,
+                        cooldown: ModelCooldownStatus {
+                            active: false,
+                            remaining_ms: None,
+                        },
+                    },
+                    ModelSpell {
+                        slot: 2,
+                        icon: 0x0401,
+                        name: Some("Ao Puinsein".into()),
+                        level: 1,
+                        max_level: 100,
+                        lines: 0,
+                        target_type: ModelSpellTargetType::Target,
+                        prompt: None,
+                        cooldown: ModelCooldownStatus {
+                            active: false,
+                            remaining_ms: None,
+                        },
+                    },
+                ]),
                 skillbook: Some(vec![ModelSkill {
                     slot: 4,
                     icon: 0x0123,
@@ -1732,6 +1846,7 @@ mod tests {
                     .oneshot(
                         Request::post(path)
                             .header("content-type", "application/json")
+                            .header("content-length", body.len())
                             .body(Body::from(body.to_owned()))
                             .unwrap(),
                     )
@@ -1872,6 +1987,49 @@ mod tests {
         let skill = CommandKind::UseSkill(SkillSlot::new(4).unwrap());
         assert_routes_action("/clients/42/skills/use", r#"{"slot":4}"#, skill);
         assert_routes_action("/clients/42/skills/use", r#"{"name":"aSsAiL"}"#, skill);
+
+        assert_routes_action(
+            "/clients/42/spells/cast",
+            r#"{"name":"mIsT"}"#,
+            CommandKind::CastSpell(SpellCast {
+                slot: SpellSlot::new(1).unwrap(),
+                arguments: SpellArguments::None,
+            }),
+        );
+        assert_routes_action(
+            "/clients/42/spells/cast",
+            r#"{"name":"AO PUINSEIN","target":"eidolon"}"#,
+            CommandKind::CastSpell(SpellCast {
+                slot: SpellSlot::new(2).unwrap(),
+                arguments: SpellArguments::Target(SpellTarget::Object(
+                    std::num::NonZeroU32::new(1).unwrap(),
+                )),
+            }),
+        );
+        assert_routes_action(
+            "/clients/42/spells/cast",
+            r#"{"name":"AO PUINSEIN"}"#,
+            CommandKind::CastSpell(SpellCast {
+                slot: SpellSlot::new(2).unwrap(),
+                arguments: SpellArguments::None,
+            }),
+        );
+        assert_routes_action(
+            "/clients/42/spells/cast",
+            r#"{"slot":2,"target":{"x":12,"y":20}}"#,
+            CommandKind::CastSpell(SpellCast {
+                slot: SpellSlot::new(2).unwrap(),
+                arguments: SpellArguments::Target(SpellTarget::Tile { x: 12, y: 20 }),
+            }),
+        );
+        assert_routes_action(
+            "/clients/42/spells/cast",
+            r#"{"name":"fas spiorad","input":"nothing"}"#,
+            CommandKind::CastSpell(SpellCast {
+                slot: SpellSlot::new(7).unwrap(),
+                arguments: SpellArguments::Input(SpellInput::new("nothing").unwrap()),
+            }),
+        );
     }
 
     #[test]
@@ -2258,6 +2416,8 @@ mod tests {
             "/clients/{client}/events",
             "/clients/{client}/turn",
             "/clients/{client}/walk",
+            "/clients/{client}/skills/use",
+            "/clients/{client}/spells/cast",
             "/clients/{client}/commands/diagnostic",
             "/clients/{client}/commands/{command_id}",
         ] {
@@ -2335,6 +2495,20 @@ mod tests {
             "StreamResyncRequired",
             "StreamClosed",
             "DiagnosticOptions",
+            "SkillSlotOptions",
+            "SkillNameOptions",
+            "UseSkillOptions",
+            "SpellTargetOptions",
+            "CastSpellBySlot",
+            "CastSpellByName",
+            "CastSpellOptions",
+            "SkillUsed",
+            "SpellBegin",
+            "SpellChant",
+            "SpellCast",
+            "SpellCastArguments",
+            "SpellCancelled",
+            "SpellCancellationSource",
             "CommandStatus",
             "CommandKind",
             "CommandState",
@@ -2383,6 +2557,11 @@ mod tests {
         assert!(schemas["LoadResult"]["properties"]["changed"].is_null());
         assert!(schemas["UnloadResult"]["properties"]["was_unloaded"].is_object());
         assert!(schemas["UnloadResult"]["properties"]["changed"].is_null());
+        assert_eq!(
+            openapi["paths"]["/clients/{client}/skills/use"]["post"]["requestBody"]["content"]["application/json"]
+                ["example"],
+            serde_json::json!({"name": "Assail"})
+        );
         assert!(
             schemas["CharacterStatus"]["properties"]
                 .get("gender_id")

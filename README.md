@@ -213,6 +213,9 @@ darpc.exe turn --pid <pid> north
 darpc.exe walk --pid <pid> east
 darpc.exe walk --pid <pid> 120 85
 darpc.exe skill-use --pid <pid> 5
+darpc.exe spell-cast --pid <pid> 1
+darpc.exe spell-cast --pid <pid> 2 --target-id <object-id>
+darpc.exe spell-cast --pid <pid> 7 --input "nothing"
 darpc.exe command-status --pid <pid> <command-id>
 darpc.exe command-cancel --pid <pid> <command-id>
 darpc.exe --output json hello --pid <pid>
@@ -227,6 +230,9 @@ spell effects, and observed world objects.
 client state. `turn` and `walk` use the client's native movement paths, including
 its own collision checks and tile pathfinding. `skill-use` invokes a learned
 one-based skill slot without selecting the skill panel or synthesizing input.
+`spell-cast` invokes a learned one-based spell slot with no argument, a visible
+object target, a zero-based map tile, or bounded ASCII text, as required by the
+spell. Omitting the target from a targeted spell casts it on the character.
 Status and cancel commands address retained work. See the
 [`darpc.exe` documentation](https://ewrogers.github.io/da-rpc/cli.html) for
 output fields and exit codes.
@@ -284,6 +290,8 @@ GET /clients/{client}/objects
 GET /clients/{client}/events
 POST /clients/{client}/turn
 POST /clients/{client}/walk
+POST /clients/{client}/skills/use
+POST /clients/{client}/spells/cast
 POST /clients/{client}/commands/diagnostic
 GET /clients/{client}/commands/{command_id}
 DELETE /clients/{client}/commands/{command_id}

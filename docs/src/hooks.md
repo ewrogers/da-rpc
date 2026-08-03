@@ -2,8 +2,8 @@
 
 daRPC uses a small in-process x86 detour implementation in the `darpc-hook`
 crate. The implementation is qualified against owned code before it is used
-with the game client. The current runtime uses it for the client tick and map
-size handler hooks.
+with the game client. The current runtime uses it for the client tick, map-size
+handler, decoded-event dispatcher, and outbound-packet submission hooks.
 
 ## Organization
 
@@ -84,6 +84,30 @@ Installation and removal use the same transactional thread enlistment,
 instruction-pointer translation, trampoline ownership, and activity draining
 as the tick hook. DLL shutdown stops the IPC consumer first, removes the event
 observer, then removes the remaining hooks in reverse installation order.
+
+## Outbound-packet observer
+
+The outbound observer targets the common plaintext packet submission function
+only for the supported fingerprint and exact nine-byte entry contract. The x86
+detour preserves its `thiscall` receiver and stack arguments, calls the original
+function first, then restores the native return value unchanged.
+
+Observation is limited to calls from the client main thread. The callback
+copies at most 102 bytes into fixed stack storage and recognizes only skill use,
+spell-delay begin, spell-delay chant, and final spell-use opcodes. It performs
+no allocation, IPC, logging, or text conversion and retains no packet pointer.
+Unrecognized, oversized, unreadable, or nested calls are ignored. The original
+submission always remains authoritative.
+
+The copied values drive `skill.used`, `spell.begin`, `spell.chant`,
+`spell.cast`, and replacement-aware `spell.cancelled` events. The final spell
+event retains only the bounded typed arguments needed by the state model. Full
+packet bodies are never written to the diagnostic log.
+
+Installation is part of DLL initialization's transactional hook set. Failure
+removes already-installed hooks and stops the worker. Shutdown removes the
+outbound observer before the decoded-event and tick hooks, then waits for active
+callbacks to drain before code or DLL-owned state can disappear.
 
 ## Map-size hook
 

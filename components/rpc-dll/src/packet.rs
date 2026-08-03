@@ -80,6 +80,7 @@ pub(crate) enum ServerUpdate<'a> {
     World(WorldUpdate),
     Message(ParsedMessage<'a>),
     Collection(CollectionDirty),
+    SpellCancelled,
 }
 
 pub(crate) fn update<'a>(
@@ -104,6 +105,7 @@ impl From<StatePacketUpdate> for ServerUpdate<'_> {
             StatePacketUpdate::Move(value) => Self::Move(value),
             StatePacketUpdate::Effect(value) => Self::Effect(value),
             StatePacketUpdate::Collection(value) => Self::Collection(value),
+            StatePacketUpdate::SpellCancelled => Self::SpellCancelled,
         }
     }
 }

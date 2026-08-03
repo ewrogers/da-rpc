@@ -105,12 +105,12 @@ directly for discovery, aggregation, action status, and multi-client behavior.
 | M12 | Late-attach client snapshot | The direct CLI and daemon API expose current character, map, collection, and spell-effect state. | Complete |
 | M13 | Event-driven updates | One normal game event updates state without another snapshot. | Complete |
 | M14 | Main-thread command queue | A diagnostic command completes on a client tick. | Complete |
-| M15 | First typed action | One low-risk action executes through a native client path. | Planned |
-| M16 | Packet observation and local rules | Bounded plaintext telemetry and fail-open decisions work locally. | Planned |
+| M15 | First typed action | One low-risk action executes through a native client path. | Complete |
+| M16 | Packet observation and local rules | Bounded plaintext telemetry and fail-open decisions work locally. | In progress |
 | M17 | Multi-client hardening and preview | Failure and soak evidence support a preview release. | Planned |
 | M18 | WebSocket and remote access | Added only for a proven use case and defined security model. | Deferred |
 
-M2 through M14 are complete. M15 is the next planned increment.
+M2 through M15 are complete. M16 is the current increment.
 M1 has been exercised manually, but its separate evidence checklist remains
 open until the lifecycle-host Windows continuous-integration coverage is
 present. The working checklist is maintained in the [repository progress
@@ -688,8 +688,8 @@ Done:
 - Non-idempotent actions are not automatically retried.
 
 Implemented with typed turn, directional step, exact-tile walk, and native
-skill-use commands through IPC and REST. Exact-tile walking uses the client's native route
-builder without pursuit or attacks, validates zero-based map bounds, and
+skill-use commands through IPC and REST. Exact-tile walking uses the client's
+native route builder without pursuit or attacks, validates zero-based map bounds, and
 reports unreachable tiles separately from invalid requests. Current state and
 Server-Sent Events expose the queued-route lifecycle, requested destination,
 current tile, and whether a stopped route reached its goal. Skill use accepts a
@@ -711,6 +711,16 @@ See:
 
 - Observe a controlled action before encryption, then apply a local test rule
   and see its revision and result.
+
+Current implementation:
+
+- The bounded outbound observer recognizes skill use and spell begin, chant,
+  cast, cancellation, and replacement without retaining packet pointers.
+- Native spell casting supports no argument, object or tile target, and text
+  input through direct IPC and REST. An omitted target defaults to the casting
+  character for targeted spells.
+- Local immutable rules remain to be implemented before this milestone is
+  complete.
 
 Done:
 

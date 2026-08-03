@@ -60,6 +60,10 @@ impl ObjectCache {
         }
     }
 
+    pub(crate) fn position(&self, id: u32) -> Option<(i32, i32)> {
+        self.entries[self.find(id)?].map(object_position)
+    }
+
     pub(crate) fn upsert(&mut self, mut object: RawWorldObject) -> Option<QueuedObjectUpdate> {
         if let Some(index) = self.find(object_id(object)) {
             let current = self.entries[index].expect("located object entry is populated");

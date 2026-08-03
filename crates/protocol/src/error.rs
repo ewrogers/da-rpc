@@ -17,6 +17,9 @@ pub enum EncodeError {
     InvalidCollectionBatch { index: u8, count: u8 },
     EmptyCollectionUpdate,
     InvalidMovementOutcome,
+    InvalidAbilitySlot { slot: u8 },
+    InvalidSpellProgress { line: u8, total: u8 },
+    InvalidSpellValues { count: usize },
     InvalidCommandId,
     InvalidCommandTimeout { actual: u16, max: u16 },
     InvalidCommandWait { actual: u16, max: u16 },
@@ -81,6 +84,21 @@ impl fmt::Display for EncodeError {
             }
             Self::InvalidMovementOutcome => formatter
                 .write_str("movement completion requires matching destination and reached fields"),
+            Self::InvalidAbilitySlot { slot } => {
+                write!(formatter, "ability slot {slot} is outside 1..=90")
+            }
+            Self::InvalidSpellProgress { line, total } => {
+                write!(
+                    formatter,
+                    "spell chant line {line} is invalid for {total} total lines"
+                )
+            }
+            Self::InvalidSpellValues { count } => {
+                write!(
+                    formatter,
+                    "spell cast contains {count} numeric values; expected 1..=4"
+                )
+            }
             Self::InvalidCommandId => formatter.write_str("command ID must be nonzero"),
             Self::InvalidCommandTimeout { actual, max } => write!(
                 formatter,
@@ -243,6 +261,25 @@ pub enum DecodeError {
         actual: u8,
         has_destination: bool,
     },
+    InvalidAbilityUpdateType {
+        actual: u8,
+    },
+    InvalidAbilitySlot {
+        actual: u8,
+    },
+    InvalidSpellProgress {
+        line: u8,
+        total: u8,
+    },
+    InvalidSpellCastArguments {
+        actual: u8,
+    },
+    InvalidSpellCancellationSource {
+        actual: u8,
+    },
+    InvalidSpellValues {
+        count: usize,
+    },
     InvalidClientLifecycle {
         actual: u8,
     },
@@ -260,6 +297,15 @@ pub enum DecodeError {
         actual: u8,
         max: u8,
     },
+    InvalidSpellSlot {
+        actual: u8,
+        max: u8,
+    },
+    InvalidSpellArguments {
+        actual: u8,
+    },
+    InvalidSpellTarget,
+    InvalidSpellInput,
     InvalidCommandState {
         actual: u8,
     },
@@ -439,6 +485,30 @@ impl fmt::Display for DecodeError {
                 formatter,
                 "invalid movement outcome {actual} with destination present={has_destination}"
             ),
+            Self::InvalidAbilityUpdateType { actual } => {
+                write!(formatter, "invalid ability update type {actual}")
+            }
+            Self::InvalidAbilitySlot { actual } => {
+                write!(formatter, "ability slot {actual} is outside 1..=90")
+            }
+            Self::InvalidSpellProgress { line, total } => {
+                write!(
+                    formatter,
+                    "spell chant line {line} is invalid for {total} total lines"
+                )
+            }
+            Self::InvalidSpellCastArguments { actual } => {
+                write!(formatter, "invalid spell cast argument type {actual}")
+            }
+            Self::InvalidSpellCancellationSource { actual } => {
+                write!(formatter, "invalid spell cancellation source {actual}")
+            }
+            Self::InvalidSpellValues { count } => {
+                write!(
+                    formatter,
+                    "spell cast contains {count} numeric values; expected 1..=4"
+                )
+            }
             Self::InvalidClientLifecycle { actual } => {
                 write!(formatter, "invalid client lifecycle {actual}")
             }
@@ -454,6 +524,16 @@ impl fmt::Display for DecodeError {
             }
             Self::InvalidSkillSlot { actual, max } => {
                 write!(formatter, "skill slot {actual} is outside 1..={max}")
+            }
+            Self::InvalidSpellSlot { actual, max } => {
+                write!(formatter, "spell slot {actual} is outside 1..={max}")
+            }
+            Self::InvalidSpellArguments { actual } => {
+                write!(formatter, "invalid spell argument type {actual}")
+            }
+            Self::InvalidSpellTarget => formatter.write_str("spell object target must be nonzero"),
+            Self::InvalidSpellInput => {
+                formatter.write_str("spell input must contain from 1 through 100 ASCII bytes")
             }
             Self::InvalidCommandState { actual } => {
                 write!(formatter, "invalid command state {actual}")

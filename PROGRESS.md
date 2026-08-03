@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-08-02
+Last updated: 2026-08-03
 
 This is the working task tracker for the
 [roadmap](docs/src/roadmap.md). The roadmap defines milestone scope and
@@ -9,8 +9,9 @@ remain concise.
 
 ## Current focus
 
-M15, the first typed client actions, is complete. M16 is the next planned
-increment and will add bounded outgoing-packet observation and local rules.
+M15, the first typed client actions, is complete. M16 is in progress with
+bounded outbound ability observation and native spell casting. Immutable local
+rules remain.
 
 ## Milestone snapshot
 
@@ -34,6 +35,7 @@ increment and will add bounded outgoing-packet observation and local rules.
 | M13, event-driven updates | Complete | Bounded status, location, spell-effect, collection, world-object, and typed message updates, daemon reduction and message lookback, resynchronization, per-client SSE, and live-client acceptance pass. |
 | M14, main-thread command queue | Complete | Fixed DLL and daemon queues, one command per tick, direct CLI and REST routing, explicit states, and live-client verification pass. |
 | M15, first typed action | Complete | Native turn, directional step, exact-tile pathfinding, non-disruptive skill use, validation, walking state and events, and live direct and REST verification pass. |
+| M16, packet observation and local rules | In progress | Bounded skill and spell observation, casting state, typed spell actions, and ordered events are implemented; local rules remain. |
 
 ## Completed recently
 
@@ -84,6 +86,14 @@ increment and will add bounded outgoing-packet observation and local rules.
   selecting the visible skill panel or synthesizing input.
 - [x] Added queued-route state plus `walking.started` and `walking.stopped`
   events with current position, requested destination, and reached outcome.
+- [x] Added native spell casting with validated no-argument, object or tile
+  target, and text-input forms through direct IPC and REST. Targeted spells
+  default to the casting character when no target is supplied.
+- [x] Added bounded outbound skill and spell observation, `is_casting`, and
+  ordered begin, chant, cast, cancellation, and replacement events with retained
+  cast arguments.
+- [x] Verified instant, delayed, targeted, text-input, and replacement casts on
+  a live client, including self-target resolution and SSE argument enrichment.
 
 ## M15 completion evidence
 

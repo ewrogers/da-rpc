@@ -219,6 +219,7 @@ struct CharacterSnapshot {
     is_action_restricted: bool;
     is_blinded: bool;
     is_walking: bool;
+    is_casting: bool;
     gold: u32;
     weight: u32;
     max_weight: u32;
@@ -419,6 +420,7 @@ enum StateUpdate: u8 {
     Spellbook(SlotUpdate<Spell>) = 7,
     Skillbook(SlotUpdate<Skill>) = 8,
     Movement(MovementUpdate) = 9,
+    Ability(AbilityUpdate) = 10,
 }
 
 enum CollectionChange: u8 {
@@ -475,6 +477,29 @@ struct StatusUpdate {
     modifiers: Option<CharacterModifiers>;    // field bit 4
     is_blinded: Option<bool>;                 // field bit 5
     is_action_restricted: Option<bool>;       // field bit 6
+    is_casting: Option<bool>;                 // field bit 7
+}
+
+enum AbilityUpdate: u8 {
+    SkillUsed { slot: u8 } = 1,
+    SpellBegin { slot: u8, total_lines: u8 } = 2,
+    SpellChant { slot: u8, line: u8, total_lines: u8 } = 3,
+    SpellCast { slot: u8, arguments: SpellCastArguments } = 4,
+    SpellCancelled { slot: u8, source: SpellCancellationSource } = 5,
+}
+
+enum SpellCastArguments: u8 {
+    None = 0,
+    Target { id: Option<u32>, x: i32, y: i32 } = 1,
+    Input(String) = 2,
+    Values(Vec<u16>) = 3,
+    Unknown = 4,
+}
+
+enum SpellCancellationSource: u8 {
+    Client = 1,
+    Server = 2,
+    Replaced = 3,
 }
 
 struct TilePosition {
@@ -517,6 +542,11 @@ struct MapChange {
     height: i32;
 }
 ```
+
+Within an ability update, fields specific to its discriminant are encoded
+before the final one-byte slot. Ability slots are strict one-based values from
+1 through 90. Spell input is bounded to 100 UTF-8 bytes on observed events;
+values contains from one through four `u16` entries.
 
 Message participant names are limited to 15 UTF-8 bytes and message text is
 limited to 4 KiB at the protocol boundary. The DLL's observed game messages are
@@ -579,8 +609,9 @@ state from a fresh snapshot.
 ## Main-thread commands
 
 Commands use one bounded envelope. The diagnostic records execution metadata
-without changing client state. Movement and skill-use commands carry only
-scalar arguments and execute through confirmed native client functions.
+without changing client state. Movement, skill-use, and spell-cast commands
+carry bounded pointer-free arguments and execute through confirmed native
+client functions.
 
 ```rust,ignore
 struct CommandRequest {
@@ -608,6 +639,19 @@ enum CommandKind: u8 {
     Turn(Direction) = 1,
     Walk(WalkTarget) = 2,
     UseSkill { slot: u8 } = 3,  // one-based, 1 through 90
+    CastSpell(SpellCast) = 4,
+}
+
+struct SpellCast {
+    slot: u8;                  // one-based, 1 through 90
+    arguments: SpellArguments;
+}
+
+enum SpellArguments: u8 {
+    None = 0,
+    ObjectTarget { id: u32 } = 1,  // nonzero
+    TileTarget { x: i32, y: i32 } = 2,
+    Input(String) = 3,             // 1 through 100 ASCII bytes
 }
 
 enum WalkTarget: u8 {
@@ -643,6 +687,9 @@ enum CommandFailure: u8 {
     Rejected = 3,
     NoPath = 4,
     InvalidSkill = 5,
+    InvalidSpell = 6,
+    InvalidArguments = 7,
+    InvalidTarget = 8,
 }
 
 struct CommandResponse {
@@ -665,6 +712,10 @@ the same strict discriminants as object facing. Destination coordinates are
 signed wire values and must satisfy the live zero-based map bounds before native
 pathfinding. Skill slots are strict one-based values from 1 through 90; the DLL
 also requires the live entry to retain the requested slot before activation.
+Spell slots use the same range. The DLL checks the live spell's expected
+argument type, current map or object target, action delay, and denial state
+before calling the native spell routine. A new spell may replace a delayed cast
+already in progress.
 `Busy` is an
 immediate response when all fixed queue entries are pending, and `Unavailable`
 means the tick execution path is not installed. Terminal results are retained

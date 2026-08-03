@@ -9,7 +9,10 @@ mod output;
 mod snapshot_output;
 
 use darpc_model::Direction;
-use darpc_protocol::{MAX_ECHO_TEXT_LEN, MAX_SKILL_SLOT, SkillSlot, WalkTarget};
+use darpc_protocol::{
+    MAX_ECHO_TEXT_LEN, MAX_SKILL_SLOT, MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT, SkillSlot,
+    SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget, WalkTarget,
+};
 use error::{ClientError, ErrorKind, Result};
 use output::{CommandResult, OutputFormat, render_error};
 use std::{env, ffi::OsString, process::ExitCode};
@@ -26,6 +29,10 @@ usage:
     darpc [--output <table|json>] walk --pid <pid> <north|east|south|west>
     darpc [--output <table|json>] walk --pid <pid> <x> <y>
     darpc [--output <table|json>] skill-use --pid <pid> <slot>
+    darpc [--output <table|json>] spell-cast --pid <pid> <slot>
+    darpc [--output <table|json>] spell-cast --pid <pid> <slot> --target-id <id>
+    darpc [--output <table|json>] spell-cast --pid <pid> <slot> --target <x> <y>
+    darpc [--output <table|json>] spell-cast --pid <pid> <slot> --input <text>
     darpc [--output <table|json>] command-status --pid <pid> <command-id>
     darpc [--output <table|json>] command-cancel --pid <pid> <command-id>";
 
@@ -46,6 +53,7 @@ enum Operation {
     Turn(Direction),
     Walk(WalkTarget),
     UseSkill(SkillSlot),
+    CastSpell(SpellCast),
     CommandStatus(u32),
     CommandCancel(u32),
 }
@@ -62,6 +70,7 @@ impl Command {
             Operation::Turn(_) => "turn",
             Operation::Walk(_) => "walk",
             Operation::UseSkill(_) => "skill-use",
+            Operation::CastSpell(_) => "spell-cast",
             Operation::CommandStatus(_) => "command-status",
             Operation::CommandCancel(_) => "command-cancel",
         }
@@ -154,6 +163,7 @@ fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
         "turn" => Operation::Turn(parse_direction(arguments.next())?),
         "walk" => Operation::Walk(parse_walk_target(&mut arguments)?),
         "skill-use" => Operation::UseSkill(parse_skill_slot(arguments.next())?),
+        "spell-cast" => Operation::CastSpell(parse_spell_cast(&mut arguments)?),
         "command-status" => Operation::CommandStatus(parse_command_id(arguments.next())?),
         "command-cancel" => Operation::CommandCancel(parse_command_id(arguments.next())?),
         "echo" => {
@@ -247,6 +257,71 @@ fn parse_skill_slot(argument: Option<OsString>) -> Result<SkillSlot> {
     })
 }
 
+fn parse_spell_cast(arguments: &mut impl Iterator<Item = OsString>) -> Result<SpellCast> {
+    let slot = parse_spell_slot(arguments.next())?;
+    let arguments = match arguments.next() {
+        None => SpellArguments::None,
+        Some(option) if option == "--target-id" => {
+            let id = parse_nonzero_u32(arguments.next(), "target ID")?;
+            SpellArguments::Target(SpellTarget::Object(id))
+        }
+        Some(option) if option == "--target" => {
+            let x = parse_coordinate(arguments.next(), "x")?;
+            let y = parse_coordinate(arguments.next(), "y")?;
+            SpellArguments::Target(SpellTarget::Tile { x, y })
+        }
+        Some(option) if option == "--input" => {
+            let input = arguments
+                .next()
+                .and_then(|value| value.into_string().ok())
+                .ok_or_else(|| invalid_arguments("spell input must be valid Unicode"))?;
+            let input = SpellInput::new(&input).ok_or_else(|| {
+                invalid_arguments(format!(
+                    "spell input must contain between 1 and {MAX_SPELL_INPUT_LEN} ASCII bytes"
+                ))
+            })?;
+            SpellArguments::Input(input)
+        }
+        Some(option) => {
+            return Err(invalid_arguments(format!(
+                "unknown spell argument `{}`",
+                option.to_string_lossy()
+            )));
+        }
+    };
+    Ok(SpellCast { slot, arguments })
+}
+
+fn parse_spell_slot(argument: Option<OsString>) -> Result<SpellSlot> {
+    let argument = argument.ok_or_else(|| invalid_arguments("spell slot is required"))?;
+    let argument = argument
+        .to_str()
+        .ok_or_else(|| invalid_arguments("spell slot must be valid Unicode"))?;
+    let slot: u32 = argument
+        .parse()
+        .map_err(|_| invalid_arguments("spell slot must be an unsigned integer"))?;
+    if !(1..=u32::from(MAX_SPELL_SLOT)).contains(&slot) {
+        return Err(invalid_arguments(format!(
+            "spell slot must be between 1 and {MAX_SPELL_SLOT}"
+        )));
+    }
+    SpellSlot::new(slot as u8).ok_or_else(|| {
+        invalid_arguments(format!("spell slot must be between 1 and {MAX_SPELL_SLOT}"))
+    })
+}
+
+fn parse_nonzero_u32(argument: Option<OsString>, name: &str) -> Result<std::num::NonZeroU32> {
+    let argument = argument.ok_or_else(|| invalid_arguments(format!("{name} is required")))?;
+    let argument = argument
+        .to_str()
+        .ok_or_else(|| invalid_arguments(format!("{name} must be valid Unicode")))?;
+    let value = argument
+        .parse()
+        .map_err(|_| invalid_arguments(format!("{name} must be an unsigned 32-bit integer")))?;
+    std::num::NonZeroU32::new(value)
+        .ok_or_else(|| invalid_arguments(format!("{name} must be greater than zero")))
+}
+
 fn parse_pid(argument: Option<OsString>) -> Result<u32> {
     let argument = argument.ok_or_else(|| invalid_arguments("--pid requires a value"))?;
     let argument = argument
@@ -285,7 +360,9 @@ fn execute(_command: Command) -> Result<CommandResult> {
 mod tests {
     use super::{Command, Operation, OutputFormat, parse};
     use darpc_model::Direction;
-    use darpc_protocol::{SkillSlot, WalkTarget};
+    use darpc_protocol::{
+        SkillSlot, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget, WalkTarget,
+    };
     use std::ffi::OsString;
 
     fn arguments(values: &[&str]) -> Vec<OsString> {
@@ -397,6 +474,50 @@ mod tests {
                 }
             )
         );
+        assert_eq!(
+            parse(arguments(&[
+                "spell-cast",
+                "--pid",
+                "10",
+                "7",
+                "--input",
+                "nothing",
+            ]))
+            .unwrap(),
+            (
+                OutputFormat::Table,
+                Command {
+                    pid: 10,
+                    operation: Operation::CastSpell(SpellCast {
+                        slot: SpellSlot::new(7).unwrap(),
+                        arguments: SpellArguments::Input(SpellInput::new("nothing").unwrap()),
+                    }),
+                }
+            )
+        );
+        assert_eq!(
+            parse(arguments(&[
+                "spell-cast",
+                "--pid",
+                "10",
+                "8",
+                "--target-id",
+                "77",
+            ]))
+            .unwrap(),
+            (
+                OutputFormat::Table,
+                Command {
+                    pid: 10,
+                    operation: Operation::CastSpell(SpellCast {
+                        slot: SpellSlot::new(8).unwrap(),
+                        arguments: SpellArguments::Target(SpellTarget::Object(
+                            std::num::NonZeroU32::new(77).unwrap(),
+                        )),
+                    }),
+                }
+            )
+        );
     }
 
     #[test]
@@ -408,6 +529,8 @@ mod tests {
         assert!(parse(arguments(&["walk", "--pid", "1", "north", "extra"])).is_err());
         assert!(parse(arguments(&["skill-use", "--pid", "1", "0"])).is_err());
         assert!(parse(arguments(&["skill-use", "--pid", "1", "91"])).is_err());
+        assert!(parse(arguments(&["spell-cast", "--pid", "1", "0"])).is_err());
+        assert!(parse(arguments(&["spell-cast", "--pid", "1", "1", "--input"])).is_err());
     }
 
     #[test]

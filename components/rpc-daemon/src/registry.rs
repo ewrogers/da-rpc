@@ -512,6 +512,7 @@ mod tests {
                 is_action_restricted: false,
                 is_blinded: false,
                 is_walking: false,
+                is_casting: false,
                 gold: 100,
                 weight: 25,
                 max_weight: 60,

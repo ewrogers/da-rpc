@@ -219,6 +219,16 @@ pub(crate) fn execute(pid: u32, operation: Operation) -> Result<CommandResult> {
                 wait_ms: MAX_COMMAND_WAIT_MS,
             },
         ),
+        Operation::CastSpell(cast) => request_command(
+            &mut session,
+            pid,
+            "spell-cast",
+            CommandOperation::Submit {
+                kind: CommandKind::CastSpell(cast),
+                timeout_ms: DEFAULT_COMMAND_TIMEOUT_MS,
+                wait_ms: MAX_COMMAND_WAIT_MS,
+            },
+        ),
         Operation::CommandStatus(command_id) => request_command(
             &mut session,
             pid,

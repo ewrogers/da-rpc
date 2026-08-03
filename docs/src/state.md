@@ -21,8 +21,8 @@ snapshot includes:
 
 - Lifecycle, revision, capture tick and duration, and world generation.
 - Character identity, name, gender, hairstyle, hair color, body sprite, class,
-  action restriction, gold, weight and maximum weight, progression, attributes,
-  vitals, combat modifiers, and elemental affinities.
+  action restriction, active casting state, gold, weight and maximum weight,
+  progression, attributes, vitals, combat modifiers, and elemental affinities.
 - Map identity, name, coordinates, and dimensions.
 - Occupied inventory and equipment slots with appearance, names, quantities,
   and durability where applicable.
@@ -74,6 +74,9 @@ Some fields need additional context:
   reports queued-route transitions as `walking.started` and `walking.stopped`.
   Routes requested through daRPC retain their destination, and a stopped event
   compares that goal with the latest accepted client position.
+- `is_casting` is true while the client is progressing through a delayed spell.
+  Instant spells normally begin and finish between snapshots, so their
+  `spell.cast` event is the reliable observation.
 - A spell cooldown may be known to be active even when the client does not keep
   an exact remaining duration.
 - Map names normally come from the visible map pane. An accepted map-change
@@ -153,6 +156,7 @@ Together, these events keep the following values current:
 - Occupied inventory, spellbook, and skillbook slots.
 - Known world-object appearance, removal, movement, and direction.
 - Typed chat and system messages.
+- Active delayed-spell state plus skill and spell use observations.
 
 The event observer also runs on the game thread, so it performs only bounded
 work. It copies at most 8 KiB from a recognized event into guarded static
@@ -180,6 +184,28 @@ the result.
 Game-world state and local user-interface state do not always follow the same
 rules. Dialogs, selections, focus, and other client-only values may require
 memory or local input observation because a network proxy cannot see them.
+
+## Ability use and casting
+
+daRPC observes the client's common outbound packet submission function before
+encryption. It copies only bounded opcode-first bodies for skill use, delayed
+spell progress, and final spell use. This preserves the same observations for
+actions initiated through the game interface and actions requested through
+daRPC.
+
+A skill submission produces `skill.used`. Delayed spells produce
+`spell.begin`, one `spell.chant` per visible chant line, and finally
+`spell.cast`. An instant spell produces only `spell.cast`. The final event
+retains the spell arguments present in the outbound body: an object and its
+coordinates, a map tile, text input, or the bounded numeric values used by
+less common spell types. The daemon adds the current spell name and visible
+target name when its retained state can resolve them.
+
+A delayed cast can end without a final spell packet. A server cancellation,
+local client cancellation, or replacement by another spell produces
+`spell.cancelled`. Replacement is ordered before the new spell's begin or cast
+event. This prevents one interrupted cast from appearing to overlap its
+replacement. The reducer updates `is_casting` from the same ordered events.
 
 ## Map movement and transitions
 

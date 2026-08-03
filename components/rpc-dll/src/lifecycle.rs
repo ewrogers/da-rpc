@@ -14,6 +14,7 @@ use crate::{
     hooks::{
         event::{self, EventHook},
         map_size::{self, MapSizeHook},
+        outgoing::{self, OutgoingHook},
         tick::{self, TickHook},
     },
     identity,
@@ -26,6 +27,7 @@ struct Lifecycle {
     log: File,
     ipc: IpcWorker,
     event_hook: Option<EventHook>,
+    outgoing_hook: Option<OutgoingHook>,
     map_size_hook: Option<MapSizeHook>,
     tick_hook: Option<TickHook>,
 }
@@ -215,7 +217,7 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
         None
     };
 
-    let event_hook = if identity.supported_client && hook_install_warning.is_none() {
+    let mut event_hook = if identity.supported_client && hook_install_warning.is_none() {
         match EventHook::install() {
             Ok(mut hook) => {
                 let _ = writeln!(
@@ -279,6 +281,71 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
         None
     };
 
+    let outgoing_hook = if identity.supported_client && hook_install_warning.is_none() {
+        match OutgoingHook::install() {
+            Ok(mut hook) => {
+                let _ = writeln!(
+                    log,
+                    "event=hook_installed hook={} rva=0x{:08X} relocated_bytes={}",
+                    outgoing::NAME,
+                    darpc_game_client::CLIENT_PACKET_SUBMIT_RVA,
+                    hook.relocated_bytes()
+                );
+                if let Some(warning) = hook.take_install_warning() {
+                    let _ = writeln!(
+                        log,
+                        "event=hook_install_warning hook={} error={warning}",
+                        outgoing::NAME
+                    );
+                    hook_install_warning = Some(warning);
+                }
+                Some(hook)
+            }
+            Err(error) => {
+                let mut unload_safe = error.unload_is_safe();
+                let _ = writeln!(
+                    log,
+                    "event=initialization_failed stage=hook_install hook={} error={error}",
+                    outgoing::NAME
+                );
+                let error = error.into_io_error();
+                commands::cancel_pending();
+                let event_error = event_hook.as_mut().and_then(|hook| hook.uninstall().err());
+                let map_error = map_size_hook
+                    .as_mut()
+                    .and_then(|hook| hook.uninstall().err());
+                let tick_error = tick_hook.as_mut().and_then(|hook| hook.uninstall().err());
+                if event_error.is_some() || map_error.is_some() || tick_error.is_some() {
+                    unload_safe = false;
+                }
+                let ipc_error = ipc.shutdown().err();
+                let source = match (&event_error, &map_error, &tick_error, &ipc_error) {
+                    (None, None, None, None) => error,
+                    _ => io::Error::other(format!(
+                        "outgoing hook installation failed: {error}; event-hook rollback: {}; map-hook rollback: {}; tick-hook rollback: {}; IPC rollback: {}",
+                        rollback_result(event_error),
+                        rollback_result(map_error),
+                        rollback_result(tick_error),
+                        rollback_result(ipc_error)
+                    )),
+                };
+                return Err(InitializeError {
+                    source,
+                    unload_safe,
+                });
+            }
+        }
+    } else {
+        if !identity.supported_client {
+            let _ = writeln!(
+                log,
+                "event=hook_skipped hook={} reason=unsupported_client_debug_bypass",
+                outgoing::NAME
+            );
+        }
+        None
+    };
+
     if hook_install_warning.is_none() {
         let _ = writeln!(
             log,
@@ -292,6 +359,7 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
         log,
         ipc,
         event_hook,
+        outgoing_hook,
         map_size_hook,
         tick_hook,
     });
@@ -317,6 +385,30 @@ pub(crate) fn shutdown() -> io::Result<()> {
 
     active.ipc.shutdown()?;
     commands::cancel_pending();
+
+    if let Some(hook) = active.outgoing_hook.as_mut() {
+        let final_health = outgoing::health();
+        match hook.uninstall() {
+            Ok(true) => {
+                writeln!(
+                    active.log,
+                    "event=hook_removed hook={} observations={} read_failures={}",
+                    outgoing::NAME,
+                    final_health.observation_count,
+                    final_health.read_failure_count
+                )?;
+            }
+            Ok(false) => {}
+            Err(error) => {
+                let _ = writeln!(
+                    active.log,
+                    "event=hook_remove_failed hook={} error={error}",
+                    outgoing::NAME
+                );
+                return Err(error);
+            }
+        }
+    }
 
     if let Some(hook) = active.event_hook.as_mut() {
         let final_health = event::health();

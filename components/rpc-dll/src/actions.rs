@@ -1,5 +1,7 @@
+mod ability;
 pub(crate) mod movement;
 mod skill;
+pub(crate) mod spell;
 
 use darpc_protocol::{CommandFailure, CommandKind, WalkTarget};
 use std::{ffi::c_void, mem, ptr};
@@ -15,6 +17,7 @@ pub(crate) fn execute(command: CommandKind) -> Result<(), CommandFailure> {
         CommandKind::Walk(WalkTarget::Direction(direction)) => movement::walk(direction),
         CommandKind::Walk(WalkTarget::Destination { x, y }) => movement::walk_to(x, y),
         CommandKind::UseSkill(slot) => skill::use_skill(slot),
+        CommandKind::CastSpell(cast) => spell::cast(cast),
     }
 }
 

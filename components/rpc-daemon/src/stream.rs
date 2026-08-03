@@ -113,13 +113,94 @@ pub(crate) struct SkillSlotChanged {
     after: Option<Skill>,
 }
 
+#[derive(Clone, Debug, Serialize, ToSchema)]
+/// A skill packet was submitted by the client.
+pub(crate) struct SkillUsed {
+    observation: EventObservation,
+    slot: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+/// A positive-line spell entered the native delayed-cast sequence.
+pub(crate) struct SpellBegin {
+    observation: EventObservation,
+    slot: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    total_lines: u8,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+/// One visible chant line was submitted during a delayed spell cast.
+pub(crate) struct SpellChant {
+    observation: EventObservation,
+    slot: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    line: u8,
+    total_lines: u8,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+/// The final spell packet was submitted by the client.
+pub(crate) struct SpellCast {
+    observation: EventObservation,
+    slot: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    arguments: Option<SpellCastArguments>,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub(crate) enum SpellCastArguments {
+    Unknown,
+    Target {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        id: Option<u32>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        x: i32,
+        y: i32,
+    },
+    Input {
+        value: String,
+    },
+    Values {
+        values: Vec<u16>,
+    },
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+/// A positive-line cast ended before its final spell packet was submitted.
+pub(crate) struct SpellCancelled {
+    observation: EventObservation,
+    slot: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    name: Option<String>,
+    source: SpellCancellationSource,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SpellCancellationSource {
+    Client,
+    Server,
+    Replaced,
+}
+
 #[derive(Clone, Debug)]
 pub(crate) enum PublishedEvent {
     #[cfg_attr(not(windows), allow(dead_code))]
     State {
         pid: u32,
         identity: ClientIdentity,
-        event: StateEvent,
+        event: Box<StateEvent>,
+        ability_name: Option<String>,
+        target_name: Option<String>,
         observed_at_utc: DateTime<Utc>,
     },
     #[cfg_attr(not(windows), allow(dead_code))]
@@ -159,6 +240,11 @@ pub(crate) enum ClientEvent {
     SkillAdded(SkillSlotChanged),
     SkillRemoved(SkillSlotChanged),
     SkillChanged(SkillSlotChanged),
+    SkillUsed(SkillUsed),
+    SpellBegin(SpellBegin),
+    SpellChant(SpellChant),
+    SpellCast(SpellCast),
+    SpellCancelled(SpellCancelled),
     PlayerAppeared(ObjectChanged),
     PlayerDisappeared(ObjectChanged),
     PlayerMoved(ObjectChanged),
@@ -207,6 +293,11 @@ impl ClientEvent {
             Self::SkillAdded(_) => "skill.added",
             Self::SkillRemoved(_) => "skill.removed",
             Self::SkillChanged(_) => "skill.changed",
+            Self::SkillUsed(_) => "skill.used",
+            Self::SpellBegin(_) => "spell.begin",
+            Self::SpellChant(_) => "spell.chant",
+            Self::SpellCast(_) => "spell.cast",
+            Self::SpellCancelled(_) => "spell.cancelled",
             Self::PlayerAppeared(_) => "player.appeared",
             Self::PlayerDisappeared(_) => "player.disappeared",
             Self::PlayerMoved(_) => "player.moved",
@@ -255,6 +346,11 @@ impl ClientEvent {
             Self::SkillAdded(value) | Self::SkillRemoved(value) | Self::SkillChanged(value) => {
                 value.observation.event_sequence
             }
+            Self::SkillUsed(value) => value.observation.event_sequence,
+            Self::SpellBegin(value) => value.observation.event_sequence,
+            Self::SpellChant(value) => value.observation.event_sequence,
+            Self::SpellCast(value) => value.observation.event_sequence,
+            Self::SpellCancelled(value) => value.observation.event_sequence,
             Self::PlayerAppeared(value)
             | Self::PlayerDisappeared(value)
             | Self::PlayerMoved(value)
@@ -508,6 +604,8 @@ pub(crate) fn response(
                     pid: event_pid,
                     identity: event_identity,
                     event,
+                    ability_name,
+                    target_name,
                     observed_at_utc,
                 }) if event_pid == pid && event_identity == identity => {
                     if !sequence_after(event.sequence, last_sequence) {
@@ -524,7 +622,14 @@ pub(crate) fn response(
                         break;
                     }
                     last_sequence = event.sequence;
-                    for api_event in expand(pid, identity, event, observed_at_utc) {
+                    for api_event in expand(
+                        pid,
+                        identity,
+                        *event,
+                        ability_name,
+                        target_name,
+                        observed_at_utc,
+                    ) {
                         yield Ok(api_event.into_sse());
                     }
                 }
@@ -569,6 +674,8 @@ fn expand(
     pid: u32,
     identity: ClientIdentity,
     event: StateEvent,
+    ability_name: Option<String>,
+    target_name: Option<String>,
     observed_at_utc: DateTime<Utc>,
 ) -> Vec<ClientEvent> {
     let observation = EventObservation::new(pid, identity, &event);
@@ -677,6 +784,63 @@ fn expand(
             });
             return events;
         }
+        StateUpdate::Ability(update) => {
+            events.push(match update {
+                darpc_model::AbilityUpdate::SkillUsed { slot } => {
+                    ClientEvent::SkillUsed(SkillUsed {
+                        observation,
+                        slot,
+                        name: ability_name,
+                    })
+                }
+                darpc_model::AbilityUpdate::SpellBegin { slot, total_lines } => {
+                    ClientEvent::SpellBegin(SpellBegin {
+                        observation,
+                        slot,
+                        name: ability_name,
+                        total_lines,
+                    })
+                }
+                darpc_model::AbilityUpdate::SpellChant {
+                    slot,
+                    line,
+                    total_lines,
+                } => ClientEvent::SpellChant(SpellChant {
+                    observation,
+                    slot,
+                    name: ability_name,
+                    line,
+                    total_lines,
+                }),
+                darpc_model::AbilityUpdate::SpellCast { slot, arguments } => {
+                    ClientEvent::SpellCast(SpellCast {
+                        observation,
+                        slot,
+                        name: ability_name,
+                        arguments: spell_arguments(arguments, target_name),
+                    })
+                }
+                darpc_model::AbilityUpdate::SpellCancelled { slot, source } => {
+                    ClientEvent::SpellCancelled(SpellCancelled {
+                        observation,
+                        slot,
+                        name: ability_name,
+                        source: match source {
+                            darpc_model::SpellCancellationSource::Client => {
+                                SpellCancellationSource::Client
+                            }
+                            darpc_model::SpellCancellationSource::Server => {
+                                SpellCancellationSource::Server
+                            }
+                            darpc_model::SpellCancellationSource::Replaced => {
+                                SpellCancellationSource::Replaced
+                            }
+                        },
+                    })
+                }
+            });
+            return events;
+        }
         StateUpdate::Object(update) => {
             if let Some(event) = object_event(observation, update) {
                 events.push(event);
@@ -765,6 +929,26 @@ fn expand(
         ));
     }
     events
+}
+
+fn spell_arguments(
+    arguments: darpc_model::SpellCastArguments,
+    target_name: Option<String>,
+) -> Option<SpellCastArguments> {
+    match arguments {
+        darpc_model::SpellCastArguments::Unknown => Some(SpellCastArguments::Unknown),
+        darpc_model::SpellCastArguments::None => None,
+        darpc_model::SpellCastArguments::Target { id, x, y } => Some(SpellCastArguments::Target {
+            id,
+            name: target_name,
+            x,
+            y,
+        }),
+        darpc_model::SpellCastArguments::Input(value) => Some(SpellCastArguments::Input { value }),
+        darpc_model::SpellCastArguments::Values(values) => {
+            Some(SpellCastArguments::Values { values })
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -861,10 +1045,11 @@ fn sequence_after(candidate: u32, baseline: u32) -> bool {
 mod tests {
     use super::*;
     use darpc_model::{
-        CharacterStats, ClientMessage, CollectionChange, CooldownStatus, CoreStatus, CurrentVitals,
-        Effect, EffectDuration, EffectUpdate, InventoryItem as ModelInventoryItem, LocationUpdate,
-        MapChange, MessageKind, MovementUpdate, Skill as ModelSkill, SlotUpdate,
-        Spell as ModelSpell, SpellTargetType, StateUpdate, StatusUpdate,
+        AbilityUpdate, CharacterStats, ClientMessage, CollectionChange, CooldownStatus, CoreStatus,
+        CurrentVitals, Effect, EffectDuration, EffectUpdate, InventoryItem as ModelInventoryItem,
+        LocationUpdate, MapChange, MessageKind, MovementUpdate, Skill as ModelSkill, SlotUpdate,
+        Spell as ModelSpell, SpellCancellationSource as ModelSpellCancellationSource,
+        SpellCastArguments as ModelSpellCastArguments, SpellTargetType, StateUpdate, StatusUpdate,
         TilePosition as ModelTilePosition,
     };
 
@@ -912,6 +1097,8 @@ mod tests {
                 dll_instance_id: [1; 16],
             },
             event,
+            None,
+            None,
             observed_at(),
         )
         .iter()
@@ -951,6 +1138,8 @@ mod tests {
                     destination: Some(destination),
                 }),
             },
+            None,
+            None,
             observed_at(),
         );
         assert_eq!(started.len(), 1);
@@ -972,6 +1161,8 @@ mod tests {
                     reached_destination: Some(true),
                 }),
             },
+            None,
+            None,
             observed_at(),
         );
         assert_eq!(stopped.len(), 1);
@@ -1074,6 +1265,8 @@ mod tests {
                         tick_ms: 500,
                         update,
                     },
+                    None,
+                    None,
                     observed_at(),
                 );
                 assert_eq!(events.len(), 1);
@@ -1108,6 +1301,8 @@ mod tests {
                     }),
                 }),
             },
+            None,
+            None,
             observed_at(),
         );
         assert_eq!(events.len(), 1);
@@ -1151,6 +1346,8 @@ mod tests {
                     tick_ms: sequence,
                     update: StateUpdate::Effect(update),
                 },
+                None,
+                None,
                 observed_at(),
             );
             assert_eq!(events.len(), 1);
@@ -1241,6 +1438,8 @@ mod tests {
                     tick_ms: sequence,
                     update: StateUpdate::Object(update),
                 },
+                None,
+                None,
                 observed_at(),
             );
             assert_eq!(events.len(), 1);
@@ -1278,6 +1477,8 @@ mod tests {
                         text: "hello".into(),
                     }),
                 },
+                None,
+                None,
                 observed_at(),
             );
             assert_eq!(events.len(), 1);
@@ -1307,9 +1508,79 @@ mod tests {
                         text: text.into(),
                     }),
                 },
+                None,
+                None,
                 observed_at(),
             );
             assert!(events.is_empty());
         }
+    }
+
+    #[test]
+    fn spell_cast_retains_resolved_name_and_target_context() {
+        let events = expand(
+            42,
+            ClientIdentity {
+                pid: 42,
+                process_creation_time: 100,
+                dll_instance_id: [1; 16],
+            },
+            StateEvent {
+                sequence: 8,
+                revision: 9,
+                tick_ms: 500,
+                update: StateUpdate::Ability(AbilityUpdate::SpellCast {
+                    slot: 4,
+                    arguments: ModelSpellCastArguments::Target {
+                        id: Some(77),
+                        x: 10,
+                        y: 12,
+                    },
+                }),
+            },
+            Some("Ao Puinsein".into()),
+            Some("Eidolon".into()),
+            observed_at(),
+        );
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].name(), "spell.cast");
+        let event = serde_json::to_value(&events[0]).unwrap();
+        assert_eq!(event["data"]["name"], "Ao Puinsein");
+        assert_eq!(event["data"]["arguments"]["type"], "target");
+        assert_eq!(event["data"]["arguments"]["id"], 77);
+        assert_eq!(event["data"]["arguments"]["name"], "Eidolon");
+        assert_eq!(event["data"]["arguments"]["x"], 10);
+        assert_eq!(event["data"]["arguments"]["y"], 12);
+    }
+
+    #[test]
+    fn interrupted_spell_reports_replacement_as_the_cancellation_source() {
+        let events = expand(
+            42,
+            ClientIdentity {
+                pid: 42,
+                process_creation_time: 100,
+                dll_instance_id: [1; 16],
+            },
+            StateEvent {
+                sequence: 8,
+                revision: 9,
+                tick_ms: 500,
+                update: StateUpdate::Ability(AbilityUpdate::SpellCancelled {
+                    slot: 4,
+                    source: ModelSpellCancellationSource::Replaced,
+                }),
+            },
+            Some("Inner Fire".into()),
+            None,
+            observed_at(),
+        );
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].name(), "spell.cancelled");
+        let event = serde_json::to_value(&events[0]).unwrap();
+        assert_eq!(event["data"]["name"], "Inner Fire");
+        assert_eq!(event["data"]["source"], "replaced");
     }
 }

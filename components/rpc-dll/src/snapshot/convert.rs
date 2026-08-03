@@ -115,6 +115,7 @@ fn character_snapshot(raw: &RawCharacter, world_token: u32, tick_ms: u32) -> Cha
         class: CharacterClass::from_raw(raw.class),
         is_action_restricted: raw.is_action_restricted,
         is_blinded: raw.is_blinded,
+        is_casting: raw.is_casting,
         is_walking: raw.is_walking,
         gold: raw.gold,
         weight: raw.weight,

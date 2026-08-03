@@ -145,6 +145,7 @@ pub struct CharacterSnapshot {
     pub class: CharacterClass,
     pub is_action_restricted: bool,
     pub is_blinded: bool,
+    pub is_casting: bool,
     pub is_walking: bool,
     pub gold: u32,
     pub weight: u32,

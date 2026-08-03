@@ -6,10 +6,10 @@ mod object;
 mod snapshot;
 
 pub use event::{
-    ApplyEventError, CollectionBatch, CollectionChange, CollectionKind, CoreStatus, CurrentVitals,
-    EffectUpdate, InventoryUpdate, LocationUpdate, MapChange, MovementUpdate, ProgressionStatus,
-    SkillbookUpdate, SlotUpdate, SpellbookUpdate, StateEvent, StateUpdate, StatusUpdate,
-    TilePosition,
+    AbilityUpdate, ApplyEventError, CollectionBatch, CollectionChange, CollectionKind, CoreStatus,
+    CurrentVitals, EffectUpdate, InventoryUpdate, LocationUpdate, MapChange, MovementUpdate,
+    ProgressionStatus, SkillbookUpdate, SlotUpdate, SpellCancellationSource, SpellCastArguments,
+    SpellbookUpdate, StateEvent, StateUpdate, StatusUpdate, TilePosition,
 };
 
 pub use message::{ClientMessage, MessageKind};

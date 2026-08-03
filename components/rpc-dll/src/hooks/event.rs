@@ -358,6 +358,9 @@ extern "C" fn observe_event(event: *const core::ffi::c_void) {
             packet::ServerUpdate::Collection(collection) => {
                 state_events::mark_collection_dirty(collection.kind, collection.slot, tick_ms);
             }
+            packet::ServerUpdate::SpellCancelled => {
+                state_events::observe_spell_cancelled(tick_ms);
+            }
         }
     });
 }

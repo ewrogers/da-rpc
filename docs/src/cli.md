@@ -35,6 +35,10 @@ darpc turn --pid <pid> <north|east|south|west>
 darpc walk --pid <pid> <north|east|south|west>
 darpc walk --pid <pid> <x> <y>
 darpc skill-use --pid <pid> <slot>
+darpc spell-cast --pid <pid> <slot>
+darpc spell-cast --pid <pid> <slot> --target-id <object-id>
+darpc spell-cast --pid <pid> <slot> --target <x> <y>
+darpc spell-cast --pid <pid> <slot> --input <text>
 darpc command-status --pid <pid> <command-id>
 darpc command-cancel --pid <pid> <command-id>
 ```
@@ -64,6 +68,12 @@ behavior is:
 - `skill-use` invokes a learned one-based skill slot through the client's native
   activation routine. It does not select the skill panel, change focus, or
   synthesize keyboard or mouse input.
+- `spell-cast` invokes a learned one-based spell slot through the matching
+  native client routine. Its optional argument is one visible object ID, one
+  zero-based map tile, or 1 through 100 ASCII bytes. The DLL checks that the
+  selected spell expects that argument shape. A targeted spell defaults to the
+  casting character when no target is supplied. A new cast may replace a
+  delayed cast already in progress.
 - `command-status` reads a retained command result by its nonzero ID.
 - `command-cancel` atomically cancels a command that is still accepted. A
   command that already started retains its completed state.
@@ -86,6 +96,7 @@ darpc --output json diagnostic --pid <pid>
 darpc --output json turn --pid <pid> north
 darpc --output json walk --pid <pid> 120 85
 darpc --output json skill-use --pid <pid> 5
+darpc --output json spell-cast --pid <pid> 7 --input "nothing"
 darpc --output json command-status --pid <pid> <command-id>
 ```
 

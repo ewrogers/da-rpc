@@ -31,6 +31,7 @@ port. The API has no URL version prefix.
 | `POST /clients/{client}/turn` | Turn the character through the native client path. |
 | `POST /clients/{client}/walk` | Take one directional step or begin native pathfinding to a tile. |
 | `POST /clients/{client}/skills/use` | Use one learned skill by one-based slot or case-insensitive name. |
+| `POST /clients/{client}/spells/cast` | Cast one learned spell by one-based slot or case-insensitive name. |
 | `POST /clients/{client}/commands/diagnostic` | Submit a no-op command for execution on a client tick. |
 | `GET /clients/{client}/commands/{command_id}` | Read a retained command state. |
 | `DELETE /clients/{client}/commands/{command_id}` | Cancel a command that has not started. |
@@ -187,7 +188,8 @@ local movement, world-drop, exchange-start, and inventory rearrangement lock;
 it is not a promise that every possible action is blocked. `is_blinded` follows
 the client-retained `SStatus` blind code. `is_walking` is true while the native
 pathfinder has an active queued route; a single directional step does not set
-it. Item sprites exclude the client's type
+it. `is_casting` is true while a delayed spell is in progress. Item sprites
+exclude the client's type
 flag bits, stackable item names exclude the rendered quantity suffix, and
 `can_stack` retains the independent client flag. Equipment `slot` is a stable
 snake-case name such as `left_ring` or `accessory1`.
@@ -260,6 +262,36 @@ input. The native routine preserves the client's action-delay checks and any
 configured skill text. `executed` means that local activation ran; later packet
 observation is required to prove that the server accepted the skill.
 
+Spell casting accepts exactly one spell selector and the argument required by
+that learned spell:
+
+```text
+CastSpellBySlot {
+    slot: u8,
+    target: string | u32 | { x: i32, y: i32 }?,
+    input: string?,
+}
+
+CastSpellByName {
+    name: string,
+    target: string | u32 | { x: i32, y: i32 }?,
+    input: string?,
+}
+```
+
+Names are case-insensitive. A string target resolves a visible player within
+14 tiles first, then a visible Mundane. Object IDs must also identify a current
+visible object within that distance. Tile targets use zero-based coordinates
+and must fit the current map. A targeted spell defaults to the casting
+character when `target` is omitted. Text-input spells accept 1 through 100
+ASCII bytes. Extra or mismatched arguments return `400 Bad Request`; an unknown
+spell or named target returns `404 Not Found`.
+
+The DLL revalidates the live spell slot, expected argument type, action delay,
+and target before using the matching native client routine. A new request is
+allowed while another spell is being chanted. The old cast produces an ordered
+`spell.cancelled` event before the new spell begins or casts.
+
 The diagnostic route accepts this optional field in a JSON object:
 
 ```text
@@ -277,7 +309,7 @@ CommandStatus {
     pid: u32,
     instance_id: string,
     command_id: u32,
-    kind: "diagnostic" | "turn" | "walk" | "use_skill",
+    kind: "diagnostic" | "turn" | "walk" | "use_skill" | "cast_spell",
     state: "accepted" | "executed" | "failed" | "cancelled" | "timed_out",
     enqueued_tick_ms: u32,
     deadline_tick_ms: u32,
@@ -287,7 +319,8 @@ CommandStatus {
     execution_us: u32?,
     main_thread_id: u32?,
     failure: "internal" | "invalid_state" | "invalid_destination" |
-             "rejected" | "no_path" | "invalid_skill"?,
+             "rejected" | "no_path" | "invalid_skill" | "invalid_spell" |
+             "invalid_arguments" | "invalid_target"?,
 }
 ```
 
@@ -314,6 +347,8 @@ retried. Exact-tile walking uses the ground route builder only; it does not
 select a living target, pursue it, or automatically attack.
 Skill use resolves an existing `SkillInvItemPane` and calls its normal native
 activation routine. It never activates or changes the visible lower-tray page.
+Spell casting similarly resolves a `SpellInvItemPane` without changing the
+visible page, then passes only validated bounded arguments to the native client.
 
 ## Server-Sent Events
 
@@ -383,6 +418,11 @@ discriminators remain `snake_case` because they are ordinary JSON values.
 | `skill.added` | `skill_added` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
 | `skill.removed` | `skill_removed` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
 | `skill.changed` | `skill_changed` | `batch_index`, `batch_count`, `slot`, `before`, `after` |
+| `skill.used` | `skill_used` | `slot`, optional resolved `name` |
+| `spell.begin` | `spell_begin` | `slot`, optional resolved `name`, `total_lines` |
+| `spell.chant` | `spell_chant` | `slot`, optional resolved `name`, `line`, `total_lines` |
+| `spell.cast` | `spell_cast` | `slot`, optional resolved `name`, optional typed `arguments` |
+| `spell.cancelled` | `spell_cancelled` | `slot`, optional resolved `name`, `source` |
 | `player.appeared` | `player_appeared` | `object` |
 | `player.disappeared` | `player_disappeared` | `object` |
 | `player.moved` | `player_moved` | Updated `object` |
@@ -442,7 +482,7 @@ Effect events identify the icon. Added and changed events also carry its new
 relative duration band. Removed events carry no duration because the icon is no
 longer active.
 
-Inventory and ability events describe one slot before and after a change.
+Inventory and ability-book collection events describe one slot before and after a change.
 `before` is null when the slot was empty, and `after` is null when it became
 empty. Moving, swapping, splitting, or merging entries may create several
 consecutive frames. Their zero-based `batch_index` and shared `batch_count`
@@ -452,6 +492,25 @@ before broadcasting its first frame. Identical same-slot updates are ignored.
 Inventory `item.added`, `item.removed`, and `item.changed` refer to carried
 inventory. Ground items use `item.appeared`, `item.disappeared`, and
 `item.moved`.
+
+Ability-use events observe the client's outbound submission path. Instant
+spells produce `spell.cast` directly. Delayed spells normally produce
+`spell.begin`, one or more `spell.chant` events, then `spell.cast`. The cast
+event retains the final submitted argument as one of these tagged shapes:
+
+```text
+SpellCastArguments =
+    { type: "unknown" } |
+    { type: "target", id: u32?, name: string?, x: i32, y: i32 } |
+    { type: "input", value: string } |
+    { type: "values", values: u16[] };
+```
+
+No-argument spells omit `arguments`. Target names are best-effort daemon
+enrichment from the current object snapshot; the object ID and coordinates are
+the retained packet values. Cancellation `source` is `client`, `server`, or
+`replaced`. A replacement cancellation is broadcast before the replacement
+spell's begin or cast event.
 
 Object events carry the complete public object after the change rather than a
 coordinate or direction delta. Disappearance carries the last retained object.

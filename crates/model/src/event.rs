@@ -23,6 +23,47 @@ pub enum StateUpdate {
     Inventory(InventoryUpdate),
     Spellbook(SpellbookUpdate),
     Skillbook(SkillbookUpdate),
+    Ability(AbilityUpdate),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AbilityUpdate {
+    SkillUsed {
+        slot: u8,
+    },
+    SpellBegin {
+        slot: u8,
+        total_lines: u8,
+    },
+    SpellChant {
+        slot: u8,
+        line: u8,
+        total_lines: u8,
+    },
+    SpellCast {
+        slot: u8,
+        arguments: SpellCastArguments,
+    },
+    SpellCancelled {
+        slot: u8,
+        source: SpellCancellationSource,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum SpellCastArguments {
+    Unknown,
+    None,
+    Target { id: Option<u32>, x: i32, y: i32 },
+    Input(String),
+    Values(Vec<u16>),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SpellCancellationSource {
+    Client,
+    Server,
+    Replaced,
 }
 
 pub type InventoryUpdate = SlotUpdate<InventoryItem>;
@@ -143,6 +184,7 @@ pub struct StatusUpdate {
     pub modifiers: Option<CharacterModifiers>,
     pub is_blinded: Option<bool>,
     pub is_action_restricted: Option<bool>,
+    pub is_casting: Option<bool>,
 }
 
 impl StatusUpdate {
@@ -155,6 +197,7 @@ impl StatusUpdate {
             && self.modifiers.is_none()
             && self.is_blinded.is_none()
             && self.is_action_restricted.is_none()
+            && self.is_casting.is_none()
     }
 }
 
@@ -237,6 +280,9 @@ impl ClientSnapshot {
                 }
                 if let Some(is_action_restricted) = update.is_action_restricted {
                     character.is_action_restricted = is_action_restricted;
+                }
+                if let Some(is_casting) = update.is_casting {
+                    character.is_casting = is_casting;
                 }
             }
             StateUpdate::Movement(update) => {
@@ -387,6 +433,19 @@ impl ClientSnapshot {
                         collection: CollectionKind::Skillbook,
                     })?;
                 apply_slot_update(skillbook, update, CollectionKind::Skillbook)?;
+            }
+            StateUpdate::Ability(update) => {
+                let character = self
+                    .character
+                    .as_mut()
+                    .ok_or(ApplyEventError::CharacterUnavailable)?;
+                match update {
+                    AbilityUpdate::SpellBegin { .. } => character.is_casting = true,
+                    AbilityUpdate::SpellCast { .. } | AbilityUpdate::SpellCancelled { .. } => {
+                        character.is_casting = false;
+                    }
+                    AbilityUpdate::SkillUsed { .. } | AbilityUpdate::SpellChant { .. } => {}
+                }
             }
         }
         self.revision = event.revision;

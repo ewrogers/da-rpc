@@ -11,9 +11,10 @@ use crate::{
 };
 use darpc_game_client::{RawCharacter, RawModifiers, RawObjects, RawStateSnapshot, RawWorldObject};
 use darpc_model::{
-    CharacterModifiers, CharacterStats, ClientMessage, CollectionBatch, CollectionKind, CoreStatus,
-    CurrentVitals, Effect, EffectDuration, EffectUpdate, Element, LocationUpdate, MapChange,
-    MessageKind, MovementUpdate, ProgressionStatus, StateEvent, StateUpdate, StatusUpdate,
+    AbilityUpdate, CharacterModifiers, CharacterStats, ClientMessage, CollectionBatch,
+    CollectionKind, CoreStatus, CurrentVitals, Effect, EffectDuration, EffectUpdate, Element,
+    LocationUpdate, MapChange, MessageKind, MovementUpdate, ProgressionStatus,
+    SpellCancellationSource, SpellCastArguments, StateEvent, StateUpdate, StatusUpdate,
     TilePosition,
 };
 use darpc_protocol::EventPollResult;
@@ -31,6 +32,7 @@ pub(crate) const EVENT_QUEUE_BYTES: usize = 1024 * 1024;
 const MAX_EVENT_MAP_NAME_BYTES: usize = u8::MAX as usize;
 const MAX_EVENT_MESSAGE_NAME_BYTES: usize = 15;
 const MAX_EVENT_MESSAGE_TEXT_BYTES: usize = 256;
+const MAX_SPELL_INPUT_BYTES: usize = 100;
 const EVENT_QUEUE_CAPACITY: usize = EVENT_QUEUE_BYTES / size_of::<QueuedStateEvent>();
 const POLL_INTERVAL: Duration = Duration::from_millis(2);
 
@@ -40,6 +42,39 @@ static CACHE: MainThreadCache = MainThreadCache::new();
 static OBJECTS: MainThreadObjects = MainThreadObjects::new();
 static COLLECTIONS: MainThreadCollections = MainThreadCollections::new();
 static QUEUE: EventQueue<EVENT_QUEUE_CAPACITY> = EventQueue::new();
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct CastingState {
+    active: bool,
+    slot: Option<u8>,
+    total_lines: u8,
+    current_line: u8,
+}
+
+#[cfg(windows)]
+fn casting_state() -> Option<CastingState> {
+    crate::actions::spell::casting_state().map(|state| CastingState {
+        active: state.active,
+        slot: state.slot,
+        total_lines: state.total_lines,
+        current_line: state.current_line,
+    })
+}
+
+#[cfg(not(windows))]
+const fn casting_state() -> Option<CastingState> {
+    None
+}
+
+#[cfg(windows)]
+fn spell_argument_type(slot: u8) -> Option<u8> {
+    crate::actions::spell::argument_type(slot)
+}
+
+#[cfg(not(windows))]
+const fn spell_argument_type(_slot: u8) -> Option<u8> {
+    None
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct SnapshotBoundary {
@@ -110,6 +145,37 @@ pub(crate) fn mark_resync_required() {
     QUEUE.mark_resync_required(missing_sequence);
 }
 
+#[must_use]
+pub(crate) fn target_position(id: u32) -> Option<TilePosition> {
+    // SAFETY: commands execute from the tick hook on the client main thread,
+    // which is the sole owner of both caches.
+    let position = unsafe {
+        if CACHE.self_id() == Some(id) {
+            CACHE.position()
+        } else {
+            OBJECTS.position(id)
+        }
+    }?;
+    Some(TilePosition {
+        x: position.0,
+        y: position.1,
+    })
+}
+
+#[must_use]
+pub(crate) fn self_target() -> Option<(u32, TilePosition)> {
+    // SAFETY: commands execute from the tick hook on the client main thread,
+    // which is the sole owner of the state cache.
+    let id = unsafe { CACHE.self_id() }?;
+    target_position(id).map(|position| (id, position))
+}
+
+#[must_use]
+pub(crate) fn valid_tile(x: i32, y: i32) -> bool {
+    // SAFETY: commands execute from the tick hook on the client main thread.
+    unsafe { CACHE.valid_tile(x, y) }
+}
+
 pub(crate) fn observe_tick() {
     #[cfg(windows)]
     let tick_ms = sender_tick_ms();
@@ -132,6 +198,155 @@ pub(crate) fn observe_tick() {
             push_event(QueuedStateUpdate::Movement(update), tick_ms);
         }
     }
+    #[cfg(windows)]
+    if let Some(casting) = casting_state() {
+        // SAFETY: casting state is observed by the client main-thread tick.
+        if let Some(update) = unsafe { CACHE.observe_casting(casting) } {
+            push_event(QueuedStateUpdate::Ability(update), tick_ms);
+        }
+    }
+}
+
+pub(crate) fn observe_outgoing(body: &[u8], tick_ms: u32) {
+    let Some((&opcode, fields)) = body.split_first() else {
+        return;
+    };
+    match opcode {
+        0x3E => {
+            let Some(&slot) = fields.first().filter(|slot| **slot != 0 && **slot <= 90) else {
+                return;
+            };
+            push_event(
+                QueuedStateUpdate::Ability(QueuedAbilityUpdate::SkillUsed { slot }),
+                tick_ms,
+            );
+        }
+        0x4D => {
+            let Some(casting) = casting_state()
+                .filter(|state| state.active && state.total_lines != 0 && state.slot.is_some())
+            else {
+                return;
+            };
+            let slot = casting.slot.expect("filtered casting slot is present");
+            // SAFETY: outbound packet observation runs synchronously on the
+            // client main thread.
+            if let Some(cancelled_slot) = unsafe { CACHE.spell_begin(slot, casting.total_lines) } {
+                push_event(
+                    QueuedStateUpdate::Ability(QueuedAbilityUpdate::SpellCancelled {
+                        slot: cancelled_slot,
+                        source: SpellCancellationSource::Replaced,
+                    }),
+                    tick_ms,
+                );
+            }
+            push_event(
+                QueuedStateUpdate::Ability(QueuedAbilityUpdate::SpellBegin {
+                    slot,
+                    total_lines: casting.total_lines,
+                }),
+                tick_ms,
+            );
+        }
+        0x4E => {
+            let Some(casting) = casting_state().filter(|state| {
+                state.active
+                    && state.total_lines != 0
+                    && state.current_line < state.total_lines
+                    && state.slot.is_some()
+            }) else {
+                return;
+            };
+            let slot = casting.slot.expect("filtered casting slot is present");
+            let line = casting.current_line.saturating_add(1);
+            push_event(
+                QueuedStateUpdate::Ability(QueuedAbilityUpdate::SpellChant {
+                    slot,
+                    line,
+                    total_lines: casting.total_lines,
+                }),
+                tick_ms,
+            );
+        }
+        0x0F => {
+            let Some(&slot) = fields.first().filter(|slot| **slot != 0 && **slot <= 90) else {
+                return;
+            };
+            let arguments = parse_spell_arguments(slot, body);
+            // SAFETY: outbound packet observation runs synchronously on the
+            // client main thread.
+            if let Some(cancelled_slot) = unsafe { CACHE.spell_cast(slot) } {
+                push_event(
+                    QueuedStateUpdate::Ability(QueuedAbilityUpdate::SpellCancelled {
+                        slot: cancelled_slot,
+                        source: SpellCancellationSource::Replaced,
+                    }),
+                    tick_ms,
+                );
+            }
+            push_event(
+                QueuedStateUpdate::Ability(QueuedAbilityUpdate::SpellCast { slot, arguments }),
+                tick_ms,
+            );
+        }
+        _ => {}
+    }
+}
+
+pub(crate) fn observe_spell_cancelled(tick_ms: u32) {
+    let native = casting_state();
+    // SAFETY: decoded server events run on the client main thread after the
+    // native handler has cleared the casting controller.
+    let slot = unsafe { CACHE.spell_cancelled(native.and_then(|state| state.slot)) };
+    let Some(slot) = slot else {
+        return;
+    };
+    push_event(
+        QueuedStateUpdate::Ability(QueuedAbilityUpdate::SpellCancelled {
+            slot,
+            source: SpellCancellationSource::Server,
+        }),
+        tick_ms,
+    );
+}
+
+fn parse_spell_arguments(slot: u8, body: &[u8]) -> QueuedSpellArguments {
+    match spell_argument_type(slot) {
+        Some(1) => QueuedClientText::new(body.get(2..).unwrap_or_default())
+            .map_or(QueuedSpellArguments::Unknown, QueuedSpellArguments::Input),
+        Some(2) if body.len() == 10 => QueuedSpellArguments::Target {
+            id: nonzero(u32::from_be_bytes(
+                body[2..6].try_into().expect("target ID field"),
+            )),
+            x: i32::from(u16::from_be_bytes(
+                body[6..8].try_into().expect("target X field"),
+            )),
+            y: i32::from(u16::from_be_bytes(
+                body[8..10].try_into().expect("target Y field"),
+            )),
+        },
+        Some(3 | 4 | 6 | 7) => parse_spell_values(body),
+        Some(5) if body.len() == 2 => QueuedSpellArguments::None,
+        _ => QueuedSpellArguments::Unknown,
+    }
+}
+
+fn parse_spell_values(body: &[u8]) -> QueuedSpellArguments {
+    let bytes = body.get(2..).unwrap_or_default();
+    if bytes.is_empty() || bytes.len() > 8 || bytes.len() % 2 != 0 {
+        return QueuedSpellArguments::Unknown;
+    }
+    let mut values = [0; 4];
+    for (destination, source) in values.iter_mut().zip(bytes.chunks_exact(2)) {
+        *destination = u16::from_be_bytes([source[0], source[1]]);
+    }
+    QueuedSpellArguments::Values {
+        count: (bytes.len() / 2) as u8,
+        values,
+    }
+}
+
+const fn nonzero(value: u32) -> Option<u32> {
+    if value == 0 { None } else { Some(value) }
 }
 
 pub(crate) fn observe_status(update: StatusUpdate, tick_ms: u32) {
@@ -317,6 +532,7 @@ impl QueuedStateEvent {
             QueuedStateUpdate::Object(update) => StateUpdate::Object(update.into_model()),
             QueuedStateUpdate::Message(update) => StateUpdate::Message(update.into_model()),
             QueuedStateUpdate::Collection(update) => update.into_model(self.tick_ms),
+            QueuedStateUpdate::Ability(update) => StateUpdate::Ability(update.into_model()),
         };
         StateEvent {
             sequence: self.sequence,
@@ -339,6 +555,7 @@ enum QueuedStateUpdate {
     Object(QueuedObjectUpdate),
     Message(QueuedMessage),
     Collection(QueuedCollectionUpdate),
+    Ability(QueuedAbilityUpdate),
 }
 
 impl QueuedStateUpdate {
@@ -346,6 +563,81 @@ impl QueuedStateUpdate {
         match self {
             Self::Collection(update) => Some((update.kind(), update.batch())),
             _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum QueuedAbilityUpdate {
+    SkillUsed {
+        slot: u8,
+    },
+    SpellBegin {
+        slot: u8,
+        total_lines: u8,
+    },
+    SpellChant {
+        slot: u8,
+        line: u8,
+        total_lines: u8,
+    },
+    SpellCast {
+        slot: u8,
+        arguments: QueuedSpellArguments,
+    },
+    SpellCancelled {
+        slot: u8,
+        source: SpellCancellationSource,
+    },
+}
+
+impl QueuedAbilityUpdate {
+    fn into_model(self) -> AbilityUpdate {
+        match self {
+            Self::SkillUsed { slot } => AbilityUpdate::SkillUsed { slot },
+            Self::SpellBegin { slot, total_lines } => {
+                AbilityUpdate::SpellBegin { slot, total_lines }
+            }
+            Self::SpellChant {
+                slot,
+                line,
+                total_lines,
+            } => AbilityUpdate::SpellChant {
+                slot,
+                line,
+                total_lines,
+            },
+            Self::SpellCast { slot, arguments } => AbilityUpdate::SpellCast {
+                slot,
+                arguments: arguments.into_model(),
+            },
+            Self::SpellCancelled { slot, source } => AbilityUpdate::SpellCancelled { slot, source },
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum QueuedSpellArguments {
+    Unknown,
+    None,
+    Target { id: Option<u32>, x: i32, y: i32 },
+    Input(QueuedClientText<MAX_SPELL_INPUT_BYTES>),
+    Values { count: u8, values: [u16; 4] },
+}
+
+impl QueuedSpellArguments {
+    fn into_model(self) -> SpellCastArguments {
+        match self {
+            Self::Unknown => SpellCastArguments::Unknown,
+            Self::None => SpellCastArguments::None,
+            Self::Target { id, x, y } => SpellCastArguments::Target { id, x, y },
+            Self::Input(input) => input
+                .decode()
+                .map(SpellCastArguments::Input)
+                .unwrap_or(SpellCastArguments::Unknown),
+            Self::Values { count, values } => {
+                SpellCastArguments::Values(values[..usize::from(count)].to_vec())
+            }
         }
     }
 }
@@ -450,6 +742,12 @@ struct CachedMap {
     height: i32,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct CachedCast {
+    slot: u8,
+    total_lines: u8,
+}
+
 impl From<QueuedMapChange> for CachedMap {
     fn from(value: QueuedMapChange) -> Self {
         Self {
@@ -538,10 +836,12 @@ struct StateCache {
     modifiers: Option<CharacterModifiers>,
     is_blinded: Option<bool>,
     is_action_restricted: Option<bool>,
+    is_casting: Option<bool>,
     is_walking: Option<bool>,
     map: Option<CachedMap>,
     position: Option<(i32, i32)>,
     pending_map: Option<QueuedMapChange>,
+    active_spell: Option<CachedCast>,
     effects: [Option<Effect>; 10],
 }
 
@@ -588,6 +888,7 @@ impl StateCache {
             modifiers: raw.modifiers.map(modifiers),
             is_blinded: Some(raw.is_blinded),
             is_action_restricted: Some(raw.is_action_restricted),
+            is_casting: Some(raw.is_casting),
             is_walking: Some(raw.is_walking),
             map: raw.location.map(|location| CachedMap {
                 id: location.map_id,
@@ -596,6 +897,7 @@ impl StateCache {
             }),
             position: raw.location.and_then(|location| location.x.zip(location.y)),
             pending_map: None,
+            active_spell: None,
             effects: raw.effects.map_or([None; 10], |effects| {
                 effects.effects.map(|effect| {
                     effect.map(|effect| Effect {
@@ -620,7 +922,69 @@ impl StateCache {
                 &mut self.is_action_restricted,
                 update.is_action_restricted,
             ),
+            is_casting: changed(&mut self.is_casting, update.is_casting),
         }
+    }
+
+    const fn position(&self) -> Option<(i32, i32)> {
+        self.position
+    }
+
+    fn valid_tile(&self, x: i32, y: i32) -> bool {
+        self.map
+            .is_some_and(|map| x >= 0 && y >= 0 && x < map.width && y < map.height)
+    }
+
+    fn spell_begin(&mut self, slot: u8, total_lines: u8) -> Option<u8> {
+        let replaced = (self.is_casting == Some(true))
+            .then(|| self.active_spell.map(|cast| cast.slot))
+            .flatten();
+        let cast = CachedCast { slot, total_lines };
+        self.is_casting = Some(true);
+        self.active_spell = Some(cast);
+        replaced
+    }
+
+    fn spell_finished(&mut self) {
+        self.is_casting = Some(false);
+        self.active_spell = None;
+    }
+
+    fn spell_cast(&mut self, slot: u8) -> Option<u8> {
+        let replaced = (self.is_casting == Some(true))
+            .then(|| self.active_spell.map(|cast| cast.slot))
+            .flatten()
+            .filter(|active_slot| *active_slot != slot);
+        self.spell_finished();
+        replaced
+    }
+
+    fn spell_cancelled(&mut self, fallback_slot: Option<u8>) -> Option<u8> {
+        let slot = self.active_spell.map(|cast| cast.slot).or(fallback_slot);
+        self.spell_finished();
+        slot.filter(|slot| *slot != 0 && *slot <= 90)
+    }
+
+    fn observe_casting(&mut self, state: CastingState) -> Option<QueuedAbilityUpdate> {
+        if state.active {
+            self.is_casting = Some(true);
+            if let Some(slot) = state.slot.filter(|slot| *slot != 0 && *slot <= 90) {
+                self.active_spell = Some(CachedCast {
+                    slot,
+                    total_lines: state.total_lines,
+                });
+            }
+            return None;
+        }
+        if self.is_casting != Some(true) {
+            self.is_casting = Some(false);
+            return None;
+        }
+        self.spell_cancelled(state.slot)
+            .map(|slot| QueuedAbilityUpdate::SpellCancelled {
+                slot,
+                source: SpellCancellationSource::Client,
+            })
     }
 
     fn movement(
@@ -748,10 +1112,12 @@ impl MainThreadCache {
             modifiers: None,
             is_blinded: None,
             is_action_restricted: None,
+            is_casting: None,
             is_walking: None,
             map: None,
             position: None,
             pending_map: None,
+            active_spell: None,
             effects: [None; 10],
         }))
     }
@@ -770,6 +1136,36 @@ impl MainThreadCache {
         // SAFETY: the caller guarantees exclusive main-thread access.
         let cache = unsafe { &*self.0.get() };
         (cache.self_name_len != 0).then_some((cache.self_name, cache.self_name_len))
+    }
+
+    unsafe fn position(&self) -> Option<(i32, i32)> {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&*self.0.get()).position() }
+    }
+
+    unsafe fn valid_tile(&self, x: i32, y: i32) -> bool {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&*self.0.get()).valid_tile(x, y) }
+    }
+
+    unsafe fn spell_begin(&self, slot: u8, total_lines: u8) -> Option<u8> {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&mut *self.0.get()).spell_begin(slot, total_lines) }
+    }
+
+    unsafe fn spell_cast(&self, slot: u8) -> Option<u8> {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&mut *self.0.get()).spell_cast(slot) }
+    }
+
+    unsafe fn spell_cancelled(&self, fallback_slot: Option<u8>) -> Option<u8> {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&mut *self.0.get()).spell_cancelled(fallback_slot) }
+    }
+
+    unsafe fn observe_casting(&self, state: CastingState) -> Option<QueuedAbilityUpdate> {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&mut *self.0.get()).observe_casting(state) }
     }
 
     unsafe fn filter_status(&self, update: StatusUpdate) -> StatusUpdate {
@@ -831,6 +1227,11 @@ impl MainThreadObjects {
     unsafe fn name(&self, id: u32) -> Option<([u8; darpc_game_client::MAX_OBJECT_NAME_BYTES], u8)> {
         // SAFETY: the caller guarantees exclusive main-thread access.
         unsafe { (&*self.0.get()).name(id) }
+    }
+
+    unsafe fn position(&self, id: u32) -> Option<(i32, i32)> {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&*self.0.get()).position(id) }
     }
 
     unsafe fn draw(&self, object: RawWorldObject) -> Option<QueuedObjectUpdate> {
@@ -928,6 +1329,33 @@ mod tests {
                 reached_destination: Some(false),
             })
         );
+    }
+
+    #[test]
+    fn replacing_a_cast_cancels_the_previous_spell_before_tracking_the_new_one() {
+        let mut cache = StateCache::default();
+        assert_eq!(cache.spell_begin(4, 3), None);
+        assert_eq!(cache.spell_begin(7, 2), Some(4));
+        assert_eq!(
+            cache.active_spell,
+            Some(CachedCast {
+                slot: 7,
+                total_lines: 2
+            })
+        );
+        assert_eq!(cache.is_casting, Some(true));
+    }
+
+    #[test]
+    fn an_instant_spell_only_replaces_a_different_active_spell() {
+        let mut cache = StateCache::default();
+        assert_eq!(cache.spell_begin(4, 3), None);
+        assert_eq!(cache.spell_cast(7), Some(4));
+        assert_eq!(cache.is_casting, Some(false));
+        assert_eq!(cache.active_spell, None);
+
+        assert_eq!(cache.spell_begin(4, 3), None);
+        assert_eq!(cache.spell_cast(4), None);
     }
 
     #[test]

@@ -17,7 +17,10 @@ pub use types::{
     RawMapName, RawModifiers, RawPaneProgression, RawStateSnapshot, StateReadError,
 };
 
-use crate::{WORLD_PANE_ADJUSTMENT, WORLD_PANE_POINTER_RVA, WORLD_PANE_ROUTE_ACTIVE_OFFSET};
+use crate::{
+    SPELL_DELAY_ACTIVE_OFFSET, SPELL_DELAY_CONTROL_PANE_POINTER_RVA, WORLD_PANE_ADJUSTMENT,
+    WORLD_PANE_POINTER_RVA, WORLD_PANE_ROUTE_ACTIVE_OFFSET,
+};
 use types::MAX_MAP_NAME_BYTES;
 
 const CHARACTER_NAME_RVA: u32 = 0x0033_D910;
@@ -91,6 +94,7 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
             || current_roots.gui_back_interface != roots.gui_back_interface
             || current_roots.equipment != roots.equipment
             || current_roots.event_dispatcher != roots.event_dispatcher
+            || current_roots.spell_delay != roots.spell_delay
         {
             return Err(StateReadError::PointersChanged);
         }
@@ -331,6 +335,10 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
             event_dispatcher: self.read_module_u32(panes::EVENT_DISPATCHER_RVA)?,
             main_menu: self.read_module_u32(MAIN_MENU_PANE_RVA)?,
             map_loading: self.read_module_u32(MAP_LOADING_PANE_RVA)?,
+            spell_delay: self.read_module_u32(
+                u32::try_from(SPELL_DELAY_CONTROL_PANE_POINTER_RVA)
+                    .expect("spell delay pointer RVA fits u32"),
+            )?,
         })
     }
 
@@ -379,6 +387,12 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
         output.class = self.read_u8(add(world_user, 0x1089)?)?;
         output.is_action_restricted = self.read_u8(add(world_user, 0x15C88)?)? & 0x01 != 0;
         output.is_blinded = self.read_u8(add(world_user, 0x108D)?)? == 0x08;
+        output.is_casting = roots.spell_delay != 0
+            && self.read_u8(add(
+                roots.spell_delay,
+                u32::try_from(SPELL_DELAY_ACTIVE_OFFSET)
+                    .expect("spell delay active offset fits u32"),
+            )?)? != 0;
         output.is_walking = self.read_u8(add(
             roots.world,
             u32::try_from(WORLD_PANE_ROUTE_ACTIVE_OFFSET)
@@ -620,6 +634,7 @@ struct Roots {
     event_dispatcher: u32,
     main_menu: u32,
     map_loading: u32,
+    spell_delay: u32,
 }
 
 fn adjusted(pointer: u32, adjustment: u32) -> Result<u32, StateReadError> {

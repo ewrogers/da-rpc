@@ -56,6 +56,12 @@ completes the transition. The pipe worker serves those mutations through
 bounded long polls. It requests no allocation, logging, serialization, or IPC
 work from the hook path.
 
+A separate observer watches the common outbound submission boundary after the
+client has processed an action. It copies only bounded skill and spell fields,
+preserves the original result, and records ordered ability-use and casting
+events. The DLL tracks an active delayed spell so completion, server or client
+cancellation, and replacement by another spell remain distinct.
+
 A complete snapshot records the latest event sequence already represented in
 its values. The queue rebases to that boundary, and overflow or an ordering gap
 causes the controller to request another complete snapshot. This keeps state
@@ -91,6 +97,14 @@ activation routine. These pane objects exist independently of the visible tab;
 daRPC does not select the skill page, synthesize input, or disturb focus. A
 missing or changed entry fails closed. The native routine retains its ordinary
 action-delay checks and configured skill-text behavior.
+
+Spell casting resolves the equivalent live spell entry and checks its expected
+argument type, action delay, denial state, object or map target, and bounded
+text before calling the matching native routine. It supports no-argument,
+object-target, tile-target, and text-input spells without selecting the spell
+page or synthesizing input. A new cast is allowed to replace a delayed cast in
+progress; ordered outbound observations identify the interrupted and new
+spells separately.
 
 ## Operational boundaries
 

@@ -55,13 +55,47 @@ pub const GUI_BACK_PANE_GET_RVA: usize = 0x001A_9C40;
 /// Module-relative address of the normal skill-entry activation routine.
 pub const SKILL_ACTIVATE_RVA: usize = 0x0009_92F0;
 
+/// Module-relative address of the complete spell-delay controller pointer.
+pub const SPELL_DELAY_CONTROL_PANE_POINTER_RVA: usize = 0x0033_FD78;
+
+/// Byte offset of the active delayed-cast flag in `SpellDelayControlPane`.
+pub const SPELL_DELAY_ACTIVE_OFFSET: usize = 0x8C94;
+
+/// Module-relative address of the spell-delay controller accessor.
+pub const SPELL_DELAY_CONTROL_PANE_GET_RVA: usize = 0x0009_3630;
+
+/// Module-relative address of the targeted spell builder.
+pub const SPELL_TARGET_RVA: usize = 0x0009_AB60;
+
+/// Module-relative address of the client-side denied-spell lookup.
+pub const SPELL_DENIED_RVA: usize = 0x0009_AC90;
+
+/// Module-relative address of the no-argument spell builder.
+pub const SPELL_NO_ARGS_RVA: usize = 0x0009_AD40;
+
+/// Module-relative address of the completed-body spell-cast starter.
+pub const SPELL_START_RVA: usize = 0x0009_B900;
+
+/// Module-relative address of the shared outbound client-packet submission path.
+pub const CLIENT_PACKET_SUBMIT_RVA: usize = 0x0016_3E00;
+
+/// Complete entry instructions required before observing outbound packets.
+pub const CLIENT_PACKET_SUBMIT_ENTRY: [u8; 9] =
+    [0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x38, 0x89, 0x4D, 0xC8];
+
+/// Module-relative address of the client main thread identifier.
+pub const CLIENT_MAIN_THREAD_ID_RVA: usize = 0x0034_0400;
+
 #[cfg(test)]
 mod tests {
     use super::{
-        ADVANCE_PATH_RVA, BUILD_PATH_RVA, EVENT_DISPATCH_ENTRY, EVENT_DISPATCH_RVA,
+        ADVANCE_PATH_RVA, BUILD_PATH_RVA, CLIENT_MAIN_THREAD_ID_RVA, CLIENT_PACKET_SUBMIT_ENTRY,
+        CLIENT_PACKET_SUBMIT_RVA, EVENT_DISPATCH_ENTRY, EVENT_DISPATCH_RVA,
         EVENT_DISPATCHER_TICK_ENTRY, EVENT_DISPATCHER_TICK_RVA, GUI_BACK_PANE_GET_RVA,
         MAP_SIZE_HANDLER_ENTRY, MAP_SIZE_HANDLER_RVA, RESET_MOVEMENT_RVA, SELF_OBJECT_RVA,
-        SKILL_ACTIVATE_RVA, TURN_RVA, WALK_RVA, WORLD_PANE_ADJUSTMENT, WORLD_PANE_POINTER_RVA,
+        SKILL_ACTIVATE_RVA, SPELL_DELAY_ACTIVE_OFFSET, SPELL_DELAY_CONTROL_PANE_GET_RVA,
+        SPELL_DELAY_CONTROL_PANE_POINTER_RVA, SPELL_DENIED_RVA, SPELL_NO_ARGS_RVA, SPELL_START_RVA,
+        SPELL_TARGET_RVA, TURN_RVA, WALK_RVA, WORLD_PANE_ADJUSTMENT, WORLD_PANE_POINTER_RVA,
         WORLD_PANE_ROUTE_ACTIVE_OFFSET,
     };
 
@@ -100,5 +134,22 @@ mod tests {
     fn skill_activation_contract_is_stable() {
         assert_eq!(GUI_BACK_PANE_GET_RVA, 0x001A_9C40);
         assert_eq!(SKILL_ACTIVATE_RVA, 0x0009_92F0);
+    }
+
+    #[test]
+    fn spell_casting_contract_is_stable() {
+        assert_eq!(SPELL_DELAY_CONTROL_PANE_POINTER_RVA, 0x0033_FD78);
+        assert_eq!(SPELL_DELAY_ACTIVE_OFFSET, 0x8C94);
+        assert_eq!(SPELL_DELAY_CONTROL_PANE_GET_RVA, 0x0009_3630);
+        assert_eq!(SPELL_TARGET_RVA, 0x0009_AB60);
+        assert_eq!(SPELL_DENIED_RVA, 0x0009_AC90);
+        assert_eq!(SPELL_NO_ARGS_RVA, 0x0009_AD40);
+        assert_eq!(SPELL_START_RVA, 0x0009_B900);
+        assert_eq!(CLIENT_PACKET_SUBMIT_RVA, 0x0016_3E00);
+        assert_eq!(CLIENT_MAIN_THREAD_ID_RVA, 0x0034_0400);
+        assert_eq!(
+            CLIENT_PACKET_SUBMIT_ENTRY,
+            [0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x38, 0x89, 0x4D, 0xC8]
+        );
     }
 }

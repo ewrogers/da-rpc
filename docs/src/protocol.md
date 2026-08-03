@@ -579,8 +579,8 @@ state from a fresh snapshot.
 ## Main-thread commands
 
 Commands use one bounded envelope. The diagnostic records execution metadata
-without changing client state. Turn and walk commands carry only scalar
-arguments and execute through confirmed native client functions.
+without changing client state. Movement and skill-use commands carry only
+scalar arguments and execute through confirmed native client functions.
 
 ```rust,ignore
 struct CommandRequest {
@@ -607,6 +607,7 @@ enum CommandKind: u8 {
     Diagnostic = 0,
     Turn(Direction) = 1,
     Walk(WalkTarget) = 2,
+    UseSkill { slot: u8 } = 3,  // one-based, 1 through 90
 }
 
 enum WalkTarget: u8 {
@@ -641,6 +642,7 @@ enum CommandFailure: u8 {
     InvalidDestination = 2,
     Rejected = 3,
     NoPath = 4,
+    InvalidSkill = 5,
 }
 
 struct CommandResponse {
@@ -661,7 +663,9 @@ when present. Submission only validates and copies bounded scalar values on the
 IPC worker. Execution occurs later through the client tick hook. Directions use
 the same strict discriminants as object facing. Destination coordinates are
 signed wire values and must satisfy the live zero-based map bounds before native
-pathfinding. `Busy` is an
+pathfinding. Skill slots are strict one-based values from 1 through 90; the DLL
+also requires the live entry to retain the requested slot before activation.
+`Busy` is an
 immediate response when all fixed queue entries are pending, and `Unavailable`
 means the tick execution path is not installed. Terminal results are retained
 for bounded status queries and may be evicted under command pressure.

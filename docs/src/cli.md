@@ -34,6 +34,7 @@ darpc diagnostic --pid <pid>
 darpc turn --pid <pid> <north|east|south|west>
 darpc walk --pid <pid> <north|east|south|west>
 darpc walk --pid <pid> <x> <y>
+darpc skill-use --pid <pid> <slot>
 darpc command-status --pid <pid> <command-id>
 darpc command-cancel --pid <pid> <command-id>
 ```
@@ -60,6 +61,9 @@ behavior is:
 - `walk` with a direction cancels any queued route and attempts one native,
   collision-checked step. `walk` with x/y asks the client's native pathfinder to
   follow a route to that zero-based map tile.
+- `skill-use` invokes a learned one-based skill slot through the client's native
+  activation routine. It does not select the skill panel, change focus, or
+  synthesize keyboard or mouse input.
 - `command-status` reads a retained command result by its nonzero ID.
 - `command-cancel` atomically cancels a command that is still accepted. A
   command that already started retains its completed state.
@@ -81,6 +85,7 @@ darpc --output json snapshot --pid <pid>
 darpc --output json diagnostic --pid <pid>
 darpc --output json turn --pid <pid> north
 darpc --output json walk --pid <pid> 120 85
+darpc --output json skill-use --pid <pid> 5
 darpc --output json command-status --pid <pid> <command-id>
 ```
 

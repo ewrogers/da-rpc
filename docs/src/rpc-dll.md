@@ -85,6 +85,13 @@ walking lifecycle events. Terminal results remain queryable for a bounded
 period; new work may evict the oldest completed result rather than allowing
 retained history to consume pending queue capacity.
 
+Skill use resolves the live lower-tray root, skill inventory, pointer table,
+and one-based entry on the main thread, then calls the client's normal skill
+activation routine. These pane objects exist independently of the visible tab;
+daRPC does not select the skill page, synthesize input, or disturb focus. A
+missing or changed entry fails closed. The native routine retains its ordinary
+action-delay checks and configured skill-text behavior.
+
 ## Operational boundaries
 
 - Client layouts and addresses are version-specific.

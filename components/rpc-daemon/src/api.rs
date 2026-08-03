@@ -259,6 +259,10 @@ fn router(state: ApiState) -> Router {
         .route("/clients/{client}/turn", post(crate::commands::turn))
         .route("/clients/{client}/walk", post(crate::commands::walk))
         .route(
+            "/clients/{client}/skills/use",
+            post(crate::commands::use_skill),
+        )
+        .route(
             "/clients/{client}/commands/{command_id}",
             get(crate::commands::status).delete(crate::commands::cancel),
         )
@@ -297,7 +301,8 @@ async fn reject_request_body(request: Request<Body>, next: Next) -> Response {
         && (request.uri().path() == "/clients/launch"
             || request.uri().path().ends_with("/commands/diagnostic")
             || request.uri().path().ends_with("/turn")
-            || request.uri().path().ends_with("/walk"))
+            || request.uri().path().ends_with("/walk")
+            || request.uri().path().ends_with("/skills/use"))
     {
         return next.run(request).await;
     }
@@ -955,6 +960,7 @@ fn operation_in_progress(pid: u32) -> ApiError {
         crate::commands::diagnostic,
         crate::commands::turn,
         crate::commands::walk,
+        crate::commands::use_skill,
         crate::commands::status,
         crate::commands::cancel
     ),
@@ -1013,6 +1019,9 @@ fn operation_in_progress(pid: u32) -> ApiError {
         crate::commands::Destination,
         crate::commands::WalkDestinationOptions,
         crate::commands::WalkOptions,
+        crate::commands::SkillSlotOptions,
+        crate::commands::SkillNameOptions,
+        crate::commands::UseSkillOptions,
         crate::commands::CommandStatus,
         crate::commands::CommandKind,
         crate::commands::CommandState,
@@ -1443,7 +1452,7 @@ mod tests {
     };
     use darpc_protocol::{
         Architecture, CommandKind, CommandOperation, CommandResult, CommandState, CommandStatus,
-        ComponentVersion, Hello, SUPPORTED_VERSIONS, WalkTarget,
+        ComponentVersion, Hello, SUPPORTED_VERSIONS, SkillSlot, WalkTarget,
     };
     use serde_json::Value;
     use std::{
@@ -1844,7 +1853,7 @@ mod tests {
     }
 
     #[test]
-    fn routes_typed_turn_and_walk_actions() {
+    fn routes_typed_actions() {
         assert_routes_action(
             "/clients/42/turn",
             r#"{"direction":"north"}"#,
@@ -1860,6 +1869,9 @@ mod tests {
             r#"{"destination":{"x":99,"y":79}}"#,
             CommandKind::Walk(WalkTarget::Destination { x: 99, y: 79 }),
         );
+        let skill = CommandKind::UseSkill(SkillSlot::new(4).unwrap());
+        assert_routes_action("/clients/42/skills/use", r#"{"slot":4}"#, skill);
+        assert_routes_action("/clients/42/skills/use", r#"{"name":"aSsAiL"}"#, skill);
     }
 
     #[test]
@@ -1878,6 +1890,28 @@ mod tests {
             assert_eq!(
                 post_json(state(), path, body).status(),
                 StatusCode::BAD_REQUEST
+            );
+        }
+    }
+
+    #[test]
+    fn rejects_invalid_or_unknown_skill_selectors() {
+        for body in [
+            r#"{}"#,
+            r#"{"slot":4,"name":"Assail"}"#,
+            r#"{"slot":0}"#,
+            r#"{"slot":91}"#,
+            r#"{"name":""}"#,
+        ] {
+            assert_eq!(
+                post_json(state(), "/clients/42/skills/use", body).status(),
+                StatusCode::BAD_REQUEST
+            );
+        }
+        for body in [r#"{"slot":5}"#, r#"{"name":"Kick"}"#] {
+            assert_eq!(
+                post_json(state(), "/clients/42/skills/use", body).status(),
+                StatusCode::NOT_FOUND
             );
         }
     }

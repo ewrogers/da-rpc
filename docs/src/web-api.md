@@ -30,6 +30,7 @@ port. The API has no URL version prefix.
 | `GET /clients/{client}/events` | Stream ordered changes after a current snapshot boundary. |
 | `POST /clients/{client}/turn` | Turn the character through the native client path. |
 | `POST /clients/{client}/walk` | Take one directional step or begin native pathfinding to a tile. |
+| `POST /clients/{client}/skills/use` | Use one learned skill by one-based slot or case-insensitive name. |
 | `POST /clients/{client}/commands/diagnostic` | Submit a no-op command for execution on a client tick. |
 | `GET /clients/{client}/commands/{command_id}` | Read a retained command state. |
 | `DELETE /clients/{client}/commands/{command_id}` | Cancel a command that has not started. |
@@ -237,6 +238,28 @@ not in game or has no current map returns `409 Conflict` without a native call.
 An in-bounds tile that the native pathfinder cannot reach is a completed command
 with `state: "failed"` and `failure: "no_path"`, not an HTTP validation error.
 
+Skill use accepts exactly one of these object shapes:
+
+```text
+SkillSlotOptions {
+    slot: u8,  // one-based, 1 through 90
+}
+
+SkillNameOptions {
+    name: string,  // exact case-insensitive learned-skill name
+}
+```
+
+The daemon resolves names against its current retained skillbook. Empty names,
+out-of-range slots, and bodies containing both selectors return `400 Bad
+Request`. An unmatched name or empty learned slot returns `404 Not Found`. The
+DLL revalidates the live slot and calls the same native entry activation routine
+as a normal click. It reads the already-live lower-tray objects without
+selecting the skill tab, changing focus, moving the mouse, or synthesizing
+input. The native routine preserves the client's action-delay checks and any
+configured skill text. `executed` means that local activation ran; later packet
+observation is required to prove that the server accepted the skill.
+
 The diagnostic route accepts this optional field in a JSON object:
 
 ```text
@@ -254,7 +277,7 @@ CommandStatus {
     pid: u32,
     instance_id: string,
     command_id: u32,
-    kind: "diagnostic" | "turn" | "walk",
+    kind: "diagnostic" | "turn" | "walk" | "use_skill",
     state: "accepted" | "executed" | "failed" | "cancelled" | "timed_out",
     enqueued_tick_ms: u32,
     deadline_tick_ms: u32,
@@ -264,7 +287,7 @@ CommandStatus {
     execution_us: u32?,
     main_thread_id: u32?,
     failure: "internal" | "invalid_state" | "invalid_destination" |
-             "rejected" | "no_path"?,
+             "rejected" | "no_path" | "invalid_skill"?,
 }
 ```
 
@@ -289,6 +312,8 @@ operation. Later `location.changed`, `walking.started`, and `walking.stopped`
 observations describe route progress and do not cause the command to be
 retried. Exact-tile walking uses the ground route builder only; it does not
 select a living target, pursue it, or automatically attack.
+Skill use resolves an existing `SkillInvItemPane` and calls its normal native
+activation routine. It never activates or changes the visible lower-tray page.
 
 ## Server-Sent Events
 

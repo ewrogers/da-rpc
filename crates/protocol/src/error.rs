@@ -256,6 +256,10 @@ pub enum DecodeError {
     InvalidWalkTarget {
         actual: u8,
     },
+    InvalidSkillSlot {
+        actual: u8,
+        max: u8,
+    },
     InvalidCommandState {
         actual: u8,
     },
@@ -447,6 +451,9 @@ impl fmt::Display for DecodeError {
             }
             Self::InvalidWalkTarget { actual } => {
                 write!(formatter, "invalid walk target {actual}")
+            }
+            Self::InvalidSkillSlot { actual, max } => {
+                write!(formatter, "skill slot {actual} is outside 1..={max}")
             }
             Self::InvalidCommandState { actual } => {
                 write!(formatter, "invalid command state {actual}")

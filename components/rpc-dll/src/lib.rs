@@ -1,6 +1,8 @@
 //! Injected daRPC client component.
 
 #[cfg(windows)]
+mod actions;
+#[cfg(windows)]
 mod client_text;
 #[cfg(any(windows, test))]
 mod collections;
@@ -18,8 +20,6 @@ mod ipc;
 mod lifecycle;
 #[cfg(windows)]
 mod map_name;
-#[cfg(windows)]
-mod movement;
 #[cfg(any(windows, test))]
 mod objects;
 #[cfg(any(windows, test))]

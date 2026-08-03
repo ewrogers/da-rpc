@@ -209,6 +209,16 @@ pub(crate) fn execute(pid: u32, operation: Operation) -> Result<CommandResult> {
                 wait_ms: MAX_COMMAND_WAIT_MS,
             },
         ),
+        Operation::UseSkill(slot) => request_command(
+            &mut session,
+            pid,
+            "skill-use",
+            CommandOperation::Submit {
+                kind: CommandKind::UseSkill(slot),
+                timeout_ms: DEFAULT_COMMAND_TIMEOUT_MS,
+                wait_ms: MAX_COMMAND_WAIT_MS,
+            },
+        ),
         Operation::CommandStatus(command_id) => request_command(
             &mut session,
             pid,

@@ -212,6 +212,7 @@ darpc.exe diagnostic --pid <pid>
 darpc.exe turn --pid <pid> north
 darpc.exe walk --pid <pid> east
 darpc.exe walk --pid <pid> 120 85
+darpc.exe skill-use --pid <pid> 5
 darpc.exe command-status --pid <pid> <command-id>
 darpc.exe command-cancel --pid <pid> <command-id>
 darpc.exe --output json hello --pid <pid>
@@ -224,7 +225,9 @@ current character, map, inventory, equipment, spellbook, skillbook, active
 spell effects, and observed world objects.
 `diagnostic` proves bounded execution on the game main thread without changing
 client state. `turn` and `walk` use the client's native movement paths, including
-its own collision checks and tile pathfinding. Status and cancel commands address retained work. See the
+its own collision checks and tile pathfinding. `skill-use` invokes a learned
+one-based skill slot without selecting the skill panel or synthesizing input.
+Status and cancel commands address retained work. See the
 [`darpc.exe` documentation](https://ewrogers.github.io/da-rpc/cli.html) for
 output fields and exit codes.
 

@@ -53,7 +53,7 @@ pub(crate) fn reset() {
     EVENT_SEQUENCE.store(0, Ordering::Release);
     QUEUE.reset();
     #[cfg(windows)]
-    crate::movement::reset_tracking();
+    crate::actions::movement::reset_tracking();
     // SAFETY: reset runs before the event hook is installed and after the IPC
     // consumer has stopped, so no other thread accesses the cache.
     unsafe { CACHE.replace(StateCache::default()) };
@@ -72,7 +72,7 @@ pub(crate) fn map_transition_pending() -> bool {
 
 pub(crate) fn stage_map_transition(map_id: u32, width: i32, height: i32, name: &[u8]) {
     #[cfg(windows)]
-    crate::movement::clear_route_destination();
+    crate::actions::movement::clear_route_destination();
     // SAFETY: the map-size hook runs on the client main thread, which is the
     // sole cache producer.
     unsafe { CACHE.stage_map_transition(map_id, width, height, name) };
@@ -123,11 +123,11 @@ pub(crate) fn observe_tick() {
         });
     }
     #[cfg(windows)]
-    if let Some(is_walking) = crate::movement::is_walking() {
-        let destination = crate::movement::route_destination();
+    if let Some(is_walking) = crate::actions::movement::is_walking() {
+        let destination = crate::actions::movement::route_destination();
         if let Some(update) = unsafe { CACHE.movement(is_walking, destination) } {
             if matches!(update, MovementUpdate::Stopped { .. }) {
-                crate::movement::clear_route_destination();
+                crate::actions::movement::clear_route_destination();
             }
             push_event(QueuedStateUpdate::Movement(update), tick_ms);
         }

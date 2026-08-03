@@ -101,6 +101,7 @@ fn kind(kind: CommandKind) -> &'static str {
         CommandKind::Diagnostic => "diagnostic",
         CommandKind::Turn(_) => "turn",
         CommandKind::Walk(_) => "walk",
+        CommandKind::UseSkill(_) => "use_skill",
     }
 }
 
@@ -125,6 +126,7 @@ fn failure_name(failure: CommandFailure) -> &'static str {
         CommandFailure::InvalidDestination => "invalid_destination",
         CommandFailure::Rejected => "rejected",
         CommandFailure::NoPath => "no_path",
+        CommandFailure::InvalidSkill => "invalid_skill",
     }
 }
 

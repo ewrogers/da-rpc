@@ -12,7 +12,7 @@ use darpc_protocol::{
     CommandFailure as ProtocolFailure, CommandKind as ProtocolKind, CommandOperation,
     CommandResult as ProtocolResult, CommandState as ProtocolState,
     CommandStatus as ProtocolStatus, DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS,
-    MAX_COMMAND_WAIT_MS, WalkTarget,
+    MAX_COMMAND_WAIT_MS, MAX_SKILL_SLOT, SkillSlot, WalkTarget,
 };
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
@@ -24,6 +24,7 @@ pub(crate) const ROUTER_CAPACITY: usize = 64;
 pub(crate) const WORKER_CAPACITY: usize = 16;
 
 const ROUTE_TIMEOUT: Duration = Duration::from_secs(2);
+const MAX_SKILL_NAME_BYTES: usize = 128;
 
 pub(crate) struct CommandCall {
     pub(crate) pid: u32,
@@ -89,6 +90,25 @@ pub(crate) enum WalkOptions {
     Destination(WalkDestinationOptions),
 }
 
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SkillSlotOptions {
+    slot: u8,
+}
+
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SkillNameOptions {
+    name: String,
+}
+
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(untagged)]
+pub(crate) enum UseSkillOptions {
+    Slot(SkillSlotOptions),
+    Name(SkillNameOptions),
+}
+
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
 pub(crate) struct CommandStatus {
     pid: u32,
@@ -112,6 +132,7 @@ pub(crate) enum CommandKind {
     Diagnostic,
     Turn,
     Walk,
+    UseSkill,
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
@@ -132,6 +153,7 @@ pub(crate) enum CommandFailure {
     InvalidDestination,
     Rejected,
     NoPath,
+    InvalidSkill,
 }
 
 #[utoipa::path(
@@ -256,6 +278,33 @@ pub(crate) async fn walk(
         }
     };
     submit_action(&state, pid, identity, ProtocolKind::Walk(target)).await
+}
+
+#[utoipa::path(
+    post,
+    path = "/clients/{client}/skills/use",
+    params(("client" = String, Path, description = "Process ID or current in-game character name")),
+    request_body = UseSkillOptions,
+    responses(
+        (status = 200, description = "The normal client skill activation routine completed or reported a local rejection", body = CommandStatus),
+        (status = 202, description = "The skill command was accepted and remains pending", body = CommandStatus),
+        (status = 400, description = "The selector body, slot, or name was invalid", body = crate::api::ErrorState),
+        (status = 404, description = "The client or selected learned skill was not found", body = crate::api::ErrorState),
+        (status = 409, description = "The client is not in game or its skillbook is unavailable", body = crate::api::ErrorState),
+        (status = 429, description = "A bounded command queue is full", body = crate::api::ErrorState),
+        (status = 503, description = "The client command path is unavailable", body = crate::api::ErrorState),
+        (status = 504, description = "The daemon command route timed out", body = crate::api::ErrorState)
+    )
+)]
+pub(crate) async fn use_skill(
+    State(state): State<ApiState>,
+    Path(identifier): Path<String>,
+    request: Result<Json<UseSkillOptions>, JsonRejection>,
+) -> Result<(StatusCode, Json<CommandStatus>), ApiError> {
+    let Json(request) = action_request(request)?;
+    let (pid, identity, snapshot) = action_client(&state, &identifier)?;
+    let slot = resolve_skill(pid, &snapshot, request)?;
+    submit_action(&state, pid, identity, ProtocolKind::UseSkill(slot)).await
 }
 
 #[utoipa::path(
@@ -463,6 +512,84 @@ fn validate_destination(
     Ok(())
 }
 
+fn resolve_skill(
+    pid: u32,
+    snapshot: &GameSnapshot,
+    request: UseSkillOptions,
+) -> Result<SkillSlot, ApiError> {
+    let skills = snapshot
+        .character
+        .as_ref()
+        .and_then(|character| character.skillbook.as_ref())
+        .ok_or_else(|| {
+            ApiError::new(
+                StatusCode::CONFLICT,
+                "skillbook_unavailable",
+                "the client's current skillbook is unavailable",
+                Some(pid),
+            )
+        })?;
+    match request {
+        UseSkillOptions::Slot(options) => {
+            let slot = SkillSlot::new(options.slot).ok_or_else(|| {
+                ApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    "invalid_skill_slot",
+                    format!("slot must be from 1 through {MAX_SKILL_SLOT}"),
+                    Some(pid),
+                )
+            })?;
+            skills
+                .iter()
+                .any(|skill| skill.slot == slot.get())
+                .then_some(slot)
+                .ok_or_else(|| skill_not_found(pid))
+        }
+        UseSkillOptions::Name(options) => {
+            if options.name.is_empty() || options.name.len() > MAX_SKILL_NAME_BYTES {
+                return Err(ApiError::new(
+                    StatusCode::BAD_REQUEST,
+                    "invalid_skill_name",
+                    format!("name must contain from 1 through {MAX_SKILL_NAME_BYTES} bytes"),
+                    Some(pid),
+                ));
+            }
+            let mut matches = skills.iter().filter(|skill| {
+                skill
+                    .name
+                    .as_deref()
+                    .is_some_and(|name| name.eq_ignore_ascii_case(&options.name))
+            });
+            let skill = matches.next().ok_or_else(|| skill_not_found(pid))?;
+            if matches.next().is_some() {
+                return Err(ApiError::new(
+                    StatusCode::CONFLICT,
+                    "ambiguous_skill_name",
+                    "more than one learned skill has that case-insensitive name",
+                    Some(pid),
+                ));
+            }
+            SkillSlot::new(skill.slot).ok_or_else(|| {
+                ApiError::new(
+                    StatusCode::CONFLICT,
+                    "invalid_skillbook",
+                    "the retained skillbook contains an invalid slot",
+                    Some(pid),
+                )
+            })
+        }
+    }
+}
+
+fn skill_not_found(pid: u32) -> ApiError {
+    ApiError::new(
+        StatusCode::NOT_FOUND,
+        "skill_not_found",
+        "the selected skill is not currently learned",
+        Some(pid),
+    )
+}
+
 fn connected_client(state: &ApiState, identifier: &str) -> Result<(u32, ClientIdentity), ApiError> {
     let registry = state.snapshot();
     let client = resolve_client(&registry, identifier)?;
@@ -526,6 +653,7 @@ impl From<ProtocolKind> for CommandKind {
             ProtocolKind::Diagnostic => Self::Diagnostic,
             ProtocolKind::Turn(_) => Self::Turn,
             ProtocolKind::Walk(_) => Self::Walk,
+            ProtocolKind::UseSkill(_) => Self::UseSkill,
         }
     }
 }
@@ -550,6 +678,7 @@ impl From<ProtocolFailure> for CommandFailure {
             ProtocolFailure::InvalidDestination => Self::InvalidDestination,
             ProtocolFailure::Rejected => Self::Rejected,
             ProtocolFailure::NoPath => Self::NoPath,
+            ProtocolFailure::InvalidSkill => Self::InvalidSkill,
         }
     }
 }

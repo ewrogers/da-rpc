@@ -33,7 +33,7 @@ increment and will add bounded outgoing-packet observation and local rules.
 | M12, late-attach client snapshot | Complete | Main-thread capture, the full initial character, collection, spell-effect, and observed world-object surface, protocol and API presentation, and live-client comparison pass. |
 | M13, event-driven updates | Complete | Bounded status, location, spell-effect, collection, world-object, and typed message updates, daemon reduction and message lookback, resynchronization, per-client SSE, and live-client acceptance pass. |
 | M14, main-thread command queue | Complete | Fixed DLL and daemon queues, one command per tick, direct CLI and REST routing, explicit states, and live-client verification pass. |
-| M15, first typed action | Complete | Native turn, directional step, exact-tile pathfinding, validation, walking state and events, and live direct and REST verification pass. |
+| M15, first typed action | Complete | Native turn, directional step, exact-tile pathfinding, non-disruptive skill use, validation, walking state and events, and live direct and REST verification pass. |
 
 ## Completed recently
 
@@ -80,6 +80,8 @@ increment and will add bounded outgoing-packet observation and local rules.
   timing, OpenAPI, and Swagger coverage.
 - [x] Added typed turn and walk commands through the existing bounded queue,
   including zero-based destination validation and native `no_path` failures.
+- [x] Added native skill use by one-based slot or case-insensitive name without
+  selecting the visible skill panel or synthesizing input.
 - [x] Added queued-route state plus `walking.started` and `walking.stopped`
   events with current position, requested destination, and reached outcome.
 

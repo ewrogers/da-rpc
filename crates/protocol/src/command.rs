@@ -7,12 +7,33 @@ use darpc_model::Direction;
 pub const DEFAULT_COMMAND_TIMEOUT_MS: u16 = 1_000;
 pub const MAX_COMMAND_TIMEOUT_MS: u16 = 5_000;
 pub const MAX_COMMAND_WAIT_MS: u16 = 1_000;
+pub const MAX_SKILL_SLOT: u8 = 90;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CommandKind {
     Diagnostic,
     Turn(Direction),
     Walk(WalkTarget),
+    UseSkill(SkillSlot),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SkillSlot(u8);
+
+impl SkillSlot {
+    #[must_use]
+    pub const fn new(slot: u8) -> Option<Self> {
+        if slot > 0 && slot <= MAX_SKILL_SLOT {
+            Some(Self(slot))
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
+    pub const fn get(self) -> u8 {
+        self.0
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -39,6 +60,10 @@ fn encode_kind(output: &mut Vec<u8>, kind: CommandKind) {
             push_i32(output, x);
             push_i32(output, y);
         }
+        CommandKind::UseSkill(slot) => {
+            output.push(3);
+            output.push(slot.get());
+        }
     }
 }
 
@@ -54,6 +79,15 @@ fn decode_kind(reader: &mut PayloadReader<'_>) -> Result<CommandKind, DecodeErro
             },
             actual => return Err(DecodeError::InvalidWalkTarget { actual }),
         })),
+        3 => {
+            let actual = reader.read_u8()?;
+            SkillSlot::new(actual)
+                .map(CommandKind::UseSkill)
+                .ok_or(DecodeError::InvalidSkillSlot {
+                    actual,
+                    max: MAX_SKILL_SLOT,
+                })
+        }
         actual => Err(DecodeError::InvalidCommandKind { actual }),
     }
 }
@@ -129,6 +163,7 @@ pub enum CommandFailure {
     InvalidDestination,
     Rejected,
     NoPath,
+    InvalidSkill,
 }
 
 impl CommandFailure {
@@ -139,6 +174,7 @@ impl CommandFailure {
             Self::InvalidDestination => 2,
             Self::Rejected => 3,
             Self::NoPath => 4,
+            Self::InvalidSkill => 5,
         }
     }
 
@@ -149,6 +185,7 @@ impl CommandFailure {
             2 => Ok(Self::InvalidDestination),
             3 => Ok(Self::Rejected),
             4 => Ok(Self::NoPath),
+            5 => Ok(Self::InvalidSkill),
             actual => Err(DecodeError::InvalidCommandFailure { actual }),
         }
     }

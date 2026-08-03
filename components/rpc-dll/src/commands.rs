@@ -1,7 +1,7 @@
 use darpc_model::Direction;
 use darpc_protocol::{
     CommandFailure, CommandKind, CommandOperation, CommandResult, CommandState, CommandStatus,
-    WalkTarget,
+    SkillSlot, WalkTarget,
 };
 use std::{
     panic,
@@ -367,7 +367,7 @@ fn execute(slot_index: usize) {
 
 #[cfg(all(windows, not(test)))]
 fn execute_command(kind: CommandKind) -> Result<(), CommandFailure> {
-    crate::movement::execute(kind)
+    crate::actions::execute(kind)
 }
 
 #[cfg(test)]
@@ -438,6 +438,7 @@ const fn stored_kind(kind: CommandKind) -> (u8, u32, u32) {
         CommandKind::Turn(direction) => (1, direction.raw() as u32, 0),
         CommandKind::Walk(WalkTarget::Direction(direction)) => (2, direction.raw() as u32, 0),
         CommandKind::Walk(WalkTarget::Destination { x, y }) => (3, x as u32, y as u32),
+        CommandKind::UseSkill(slot) => (4, slot.get() as u32, 0),
     }
 }
 
@@ -449,6 +450,10 @@ const fn kind_from_value(value: u8, argument_x: u32, argument_y: u32) -> Command
             x: argument_x as i32,
             y: argument_y as i32,
         }),
+        4 => match SkillSlot::new(argument_x as u8) {
+            Some(slot) => CommandKind::UseSkill(slot),
+            None => CommandKind::Diagnostic,
+        },
         _ => CommandKind::Diagnostic,
     }
 }
@@ -489,6 +494,7 @@ const fn failure_from_value(value: u8) -> Option<CommandFailure> {
         3 => Some(CommandFailure::InvalidDestination),
         4 => Some(CommandFailure::Rejected),
         5 => Some(CommandFailure::NoPath),
+        6 => Some(CommandFailure::InvalidSkill),
         _ => Some(CommandFailure::Internal),
     }
 }
@@ -500,6 +506,7 @@ const fn failure_value(failure: CommandFailure) -> u8 {
         CommandFailure::InvalidDestination => 3,
         CommandFailure::Rejected => 4,
         CommandFailure::NoPath => 5,
+        CommandFailure::InvalidSkill => 6,
     }
 }
 
@@ -566,7 +573,7 @@ mod tests {
     }
 
     #[test]
-    fn retains_typed_movement_arguments_through_execution() {
+    fn retains_typed_command_arguments_through_execution() {
         let _guard = TEST_LOCK
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -576,6 +583,7 @@ mod tests {
             CommandKind::Turn(Direction::West),
             CommandKind::Walk(WalkTarget::Direction(Direction::North)),
             CommandKind::Walk(WalkTarget::Destination { x: 120, y: 85 }),
+            CommandKind::UseSkill(SkillSlot::new(7).unwrap()),
         ];
 
         for kind in commands {

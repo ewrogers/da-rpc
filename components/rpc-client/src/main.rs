@@ -9,7 +9,7 @@ mod output;
 mod snapshot_output;
 
 use darpc_model::Direction;
-use darpc_protocol::{MAX_ECHO_TEXT_LEN, WalkTarget};
+use darpc_protocol::{MAX_ECHO_TEXT_LEN, MAX_SKILL_SLOT, SkillSlot, WalkTarget};
 use error::{ClientError, ErrorKind, Result};
 use output::{CommandResult, OutputFormat, render_error};
 use std::{env, ffi::OsString, process::ExitCode};
@@ -25,6 +25,7 @@ usage:
     darpc [--output <table|json>] turn --pid <pid> <north|east|south|west>
     darpc [--output <table|json>] walk --pid <pid> <north|east|south|west>
     darpc [--output <table|json>] walk --pid <pid> <x> <y>
+    darpc [--output <table|json>] skill-use --pid <pid> <slot>
     darpc [--output <table|json>] command-status --pid <pid> <command-id>
     darpc [--output <table|json>] command-cancel --pid <pid> <command-id>";
 
@@ -44,6 +45,7 @@ enum Operation {
     Diagnostic,
     Turn(Direction),
     Walk(WalkTarget),
+    UseSkill(SkillSlot),
     CommandStatus(u32),
     CommandCancel(u32),
 }
@@ -59,6 +61,7 @@ impl Command {
             Operation::Diagnostic => "diagnostic",
             Operation::Turn(_) => "turn",
             Operation::Walk(_) => "walk",
+            Operation::UseSkill(_) => "skill-use",
             Operation::CommandStatus(_) => "command-status",
             Operation::CommandCancel(_) => "command-cancel",
         }
@@ -150,6 +153,7 @@ fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
         "diagnostic" => Operation::Diagnostic,
         "turn" => Operation::Turn(parse_direction(arguments.next())?),
         "walk" => Operation::Walk(parse_walk_target(&mut arguments)?),
+        "skill-use" => Operation::UseSkill(parse_skill_slot(arguments.next())?),
         "command-status" => Operation::CommandStatus(parse_command_id(arguments.next())?),
         "command-cancel" => Operation::CommandCancel(parse_command_id(arguments.next())?),
         "echo" => {
@@ -225,6 +229,24 @@ fn parse_command_id(argument: Option<OsString>) -> Result<u32> {
     Ok(command_id)
 }
 
+fn parse_skill_slot(argument: Option<OsString>) -> Result<SkillSlot> {
+    let argument = argument.ok_or_else(|| invalid_arguments("skill slot is required"))?;
+    let argument = argument
+        .to_str()
+        .ok_or_else(|| invalid_arguments("skill slot must be valid Unicode"))?;
+    let slot: u32 = argument
+        .parse()
+        .map_err(|_| invalid_arguments("skill slot must be an unsigned integer"))?;
+    if !(1..=u32::from(MAX_SKILL_SLOT)).contains(&slot) {
+        return Err(invalid_arguments(format!(
+            "skill slot must be between 1 and {MAX_SKILL_SLOT}"
+        )));
+    }
+    SkillSlot::new(slot as u8).ok_or_else(|| {
+        invalid_arguments(format!("skill slot must be between 1 and {MAX_SKILL_SLOT}"))
+    })
+}
+
 fn parse_pid(argument: Option<OsString>) -> Result<u32> {
     let argument = argument.ok_or_else(|| invalid_arguments("--pid requires a value"))?;
     let argument = argument
@@ -263,7 +285,7 @@ fn execute(_command: Command) -> Result<CommandResult> {
 mod tests {
     use super::{Command, Operation, OutputFormat, parse};
     use darpc_model::Direction;
-    use darpc_protocol::WalkTarget;
+    use darpc_protocol::{SkillSlot, WalkTarget};
     use std::ffi::OsString;
 
     fn arguments(values: &[&str]) -> Vec<OsString> {
@@ -365,6 +387,16 @@ mod tests {
                 }
             )
         );
+        assert_eq!(
+            parse(arguments(&["skill-use", "--pid", "10", "5"])).unwrap(),
+            (
+                OutputFormat::Table,
+                Command {
+                    pid: 10,
+                    operation: Operation::UseSkill(SkillSlot::new(5).unwrap()),
+                }
+            )
+        );
     }
 
     #[test]
@@ -374,6 +406,8 @@ mod tests {
         assert!(parse(arguments(&["turn", "--pid", "1", "up"])).is_err());
         assert!(parse(arguments(&["walk", "--pid", "1", "10"])).is_err());
         assert!(parse(arguments(&["walk", "--pid", "1", "north", "extra"])).is_err());
+        assert!(parse(arguments(&["skill-use", "--pid", "1", "0"])).is_err());
+        assert!(parse(arguments(&["skill-use", "--pid", "1", "91"])).is_err());
     }
 
     #[test]

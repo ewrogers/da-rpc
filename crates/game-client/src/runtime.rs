@@ -49,13 +49,20 @@ pub const ADVANCE_PATH_RVA: usize = 0x001F_4990;
 /// Module-relative address of the native exact-tile route builder.
 pub const BUILD_PATH_RVA: usize = 0x001F_4DE0;
 
+/// Module-relative address of the null-safe live lower-tray pane accessor.
+pub const GUI_BACK_PANE_GET_RVA: usize = 0x001A_9C40;
+
+/// Module-relative address of the normal skill-entry activation routine.
+pub const SKILL_ACTIVATE_RVA: usize = 0x0009_92F0;
+
 #[cfg(test)]
 mod tests {
     use super::{
         ADVANCE_PATH_RVA, BUILD_PATH_RVA, EVENT_DISPATCH_ENTRY, EVENT_DISPATCH_RVA,
-        EVENT_DISPATCHER_TICK_ENTRY, EVENT_DISPATCHER_TICK_RVA, MAP_SIZE_HANDLER_ENTRY,
-        MAP_SIZE_HANDLER_RVA, RESET_MOVEMENT_RVA, SELF_OBJECT_RVA, TURN_RVA, WALK_RVA,
-        WORLD_PANE_ADJUSTMENT, WORLD_PANE_POINTER_RVA, WORLD_PANE_ROUTE_ACTIVE_OFFSET,
+        EVENT_DISPATCHER_TICK_ENTRY, EVENT_DISPATCHER_TICK_RVA, GUI_BACK_PANE_GET_RVA,
+        MAP_SIZE_HANDLER_ENTRY, MAP_SIZE_HANDLER_RVA, RESET_MOVEMENT_RVA, SELF_OBJECT_RVA,
+        SKILL_ACTIVATE_RVA, TURN_RVA, WALK_RVA, WORLD_PANE_ADJUSTMENT, WORLD_PANE_POINTER_RVA,
+        WORLD_PANE_ROUTE_ACTIVE_OFFSET,
     };
 
     #[test]
@@ -87,5 +94,11 @@ mod tests {
         assert_eq!(RESET_MOVEMENT_RVA, 0x001F_4900);
         assert_eq!(ADVANCE_PATH_RVA, 0x001F_4990);
         assert_eq!(BUILD_PATH_RVA, 0x001F_4DE0);
+    }
+
+    #[test]
+    fn skill_activation_contract_is_stable() {
+        assert_eq!(GUI_BACK_PANE_GET_RVA, 0x001A_9C40);
+        assert_eq!(SKILL_ACTIVATE_RVA, 0x0009_92F0);
     }
 }

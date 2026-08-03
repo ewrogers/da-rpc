@@ -13,7 +13,7 @@ use darpc_protocol::{
     EchoResponse, EncodeError, EventPollRequest, EventPollResponse, EventPollResult,
     FRAME_HEADER_LEN, FRAME_MAGIC, FRAME_VERSION, Frame, FrameHeader, Hello, HelloAck,
     MAX_COMMAND_TIMEOUT_MS, MAX_COMMAND_WAIT_MS, MAX_ECHO_TEXT_LEN, MAX_PAYLOAD_LEN, Message,
-    MessageType, PROTOCOL_VERSION_1_0, Ping, Pong, SnapshotRequest, SnapshotResponse,
+    MessageType, PROTOCOL_VERSION_1_0, Ping, Pong, SkillSlot, SnapshotRequest, SnapshotResponse,
     SnapshotResult, SnapshotUnavailableReason, TickHealthRequest, TickHealthResponse, VersionRange,
     WalkTarget, decode_frame, decode_header, encode_frame, protocol_version,
     protocol_version_major, protocol_version_minor,
@@ -505,17 +505,25 @@ fn every_message_round_trips() {
         }),
         Message::CommandRequest(CommandRequest {
             request_id: 18,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::UseSkill(SkillSlot::new(7).unwrap()),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 19,
             operation: CommandOperation::Query {
                 command_id: 91,
                 wait_ms: 0,
             },
         }),
         Message::CommandRequest(CommandRequest {
-            request_id: 19,
+            request_id: 20,
             operation: CommandOperation::Cancel { command_id: 91 },
         }),
         Message::CommandResponse(CommandResponse {
-            request_id: 20,
+            request_id: 21,
             result: CommandResult::Status(CommandStatus {
                 command_id: 91,
                 kind: CommandKind::Walk(WalkTarget::Destination { x: 120, y: 85 }),
@@ -530,11 +538,11 @@ fn every_message_round_trips() {
             }),
         }),
         Message::CommandResponse(CommandResponse {
-            request_id: 21,
+            request_id: 22,
             result: CommandResult::Busy,
         }),
         Message::CommandResponse(CommandResponse {
-            request_id: 22,
+            request_id: 23,
             result: CommandResult::Unavailable,
         }),
     ];

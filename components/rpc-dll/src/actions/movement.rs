@@ -1,18 +1,15 @@
+use super::{module_base, read};
 use darpc_game_client::{
     ADVANCE_PATH_RVA, BUILD_PATH_RVA, RESET_MOVEMENT_RVA, SELF_OBJECT_RVA, TURN_RVA, WALK_RVA,
     WORLD_PANE_ADJUSTMENT, WORLD_PANE_POINTER_RVA, WORLD_PANE_ROUTE_ACTIVE_OFFSET,
 };
 use darpc_model::{Direction, TilePosition};
-use darpc_protocol::{CommandFailure, CommandKind, WalkTarget};
+use darpc_protocol::CommandFailure;
 use std::{
     ffi::c_void,
-    mem, ptr,
+    mem,
     ptr::NonNull,
     sync::atomic::{AtomicBool, AtomicI32, Ordering},
-};
-use windows_sys::Win32::System::{
-    Diagnostics::Debug::ReadProcessMemory, LibraryLoader::GetModuleHandleW,
-    Threading::GetCurrentProcess,
 };
 
 const LOCAL_Y_OFFSET: usize = 0x40;
@@ -31,13 +28,16 @@ static HAS_ROUTE_DESTINATION: AtomicBool = AtomicBool::new(false);
 static ROUTE_DESTINATION_X: AtomicI32 = AtomicI32::new(0);
 static ROUTE_DESTINATION_Y: AtomicI32 = AtomicI32::new(0);
 
-pub(crate) fn execute(command: CommandKind) -> Result<(), CommandFailure> {
-    match command {
-        CommandKind::Diagnostic => Ok(()),
-        CommandKind::Turn(direction) => Movement::resolve()?.turn(direction),
-        CommandKind::Walk(WalkTarget::Direction(direction)) => Movement::resolve()?.walk(direction),
-        CommandKind::Walk(WalkTarget::Destination { x, y }) => Movement::resolve()?.walk_to(x, y),
-    }
+pub(super) fn turn(direction: Direction) -> Result<(), CommandFailure> {
+    Movement::resolve()?.turn(direction)
+}
+
+pub(super) fn walk(direction: Direction) -> Result<(), CommandFailure> {
+    Movement::resolve()?.walk(direction)
+}
+
+pub(super) fn walk_to(x: i32, y: i32) -> Result<(), CommandFailure> {
+    Movement::resolve()?.walk_to(x, y)
 }
 
 pub(crate) fn is_walking() -> Option<bool> {
@@ -68,13 +68,7 @@ struct Movement {
 
 impl Movement {
     fn resolve() -> Result<Self, CommandFailure> {
-        // SAFETY: a null module name requests the executable module for the
-        // current process and does not transfer ownership.
-        let module = unsafe { GetModuleHandleW(ptr::null()) };
-        let module_base = module as usize;
-        if module_base == 0 {
-            return Err(CommandFailure::InvalidState);
-        }
+        let module_base = module_base()?;
         let interface = read::<u32>(
             module_base
                 .checked_add(WORLD_PANE_POINTER_RVA)
@@ -212,25 +206,4 @@ fn set_route_destination(x: i32, y: i32) {
     ROUTE_DESTINATION_X.store(x, Ordering::Relaxed);
     ROUTE_DESTINATION_Y.store(y, Ordering::Relaxed);
     HAS_ROUTE_DESTINATION.store(true, Ordering::Release);
-}
-
-fn read<T: Copy>(address: usize) -> Option<T> {
-    let mut value = mem::MaybeUninit::<T>::uninit();
-    let mut read = 0_usize;
-    // SAFETY: the destination is valid for one T. ReadProcessMemory validates
-    // the source range and reports failure rather than dereferencing it here.
-    let succeeded = unsafe {
-        ReadProcessMemory(
-            GetCurrentProcess(),
-            address as *const c_void,
-            value.as_mut_ptr().cast(),
-            mem::size_of::<T>(),
-            &mut read,
-        )
-    };
-    (succeeded != 0 && read == mem::size_of::<T>()).then(|| {
-        // SAFETY: ReadProcessMemory initialized every byte of T on this branch,
-        // and every T used here is an integer or pointer-sized plain value.
-        unsafe { value.assume_init() }
-    })
 }

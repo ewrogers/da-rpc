@@ -11,7 +11,7 @@ mod snapshot;
 pub use command::{
     CommandFailure, CommandKind, CommandOperation, CommandRequest, CommandResponse, CommandResult,
     CommandState, CommandStatus, DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS,
-    MAX_COMMAND_WAIT_MS, WalkTarget,
+    MAX_COMMAND_WAIT_MS, MAX_SKILL_SLOT, SkillSlot, WalkTarget,
 };
 pub use error::{DecodeError, EncodeError};
 pub use event::{

@@ -361,14 +361,16 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
         } else {
             self.find_local_object(roots.world, self_id).ok().flatten()
         };
-        let (appearance, x, y) = if let Some(object) = local_object {
+        let (appearance, x, y, direction) = if let Some(object) = local_object {
+            let direction = self.read_u8(add(object, 0x192)?)?;
             (
                 self.capture_appearance(object)?,
                 Some(self.read_i32(add(object, 0x44)?)?),
                 Some(self.read_i32(add(object, 0x40)?)?),
+                (direction <= 3).then_some(direction),
             )
         } else {
-            (None, None, None)
+            (None, None, None, None)
         };
 
         let pane_progression = self.capture_pane_progression(roots.gui_back)?;
@@ -383,6 +385,7 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
         output.id = (self_id != 0).then_some(self_id);
         output.name = name;
         output.name_len = u8::try_from(name_len).expect("character name buffer length fits u8");
+        output.direction = direction;
         output.appearance = appearance;
         output.class = self.read_u8(add(world_user, 0x1089)?)?;
         output.is_action_restricted = self.read_u8(add(world_user, 0x15C88)?)? & 0x01 != 0;

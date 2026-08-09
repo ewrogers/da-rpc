@@ -98,6 +98,7 @@ pub(super) struct StateCache {
     pub(super) self_id: Option<u32>,
     pub(super) self_name: [u8; 16],
     pub(super) self_name_len: u8,
+    pub(super) self_direction: Option<u8>,
     pub(super) core: Option<CoreStatus>,
     pub(super) vitals: Option<CurrentVitals>,
     pub(super) progression: Option<ProgressionStatus>,
@@ -128,6 +129,7 @@ impl StateCache {
             self_id: raw.id,
             self_name: raw.name,
             self_name_len: raw.name_len,
+            self_direction: raw.direction,
             core: Some(CoreStatus {
                 level: raw.level,
                 ability_level: raw.ability_level,
@@ -386,6 +388,7 @@ impl MainThreadCache {
             self_id: None,
             self_name: [0; 16],
             self_name_len: 0,
+            self_direction: None,
             core: None,
             vitals: None,
             progression: None,
@@ -417,6 +420,27 @@ impl MainThreadCache {
         // SAFETY: the caller guarantees exclusive main-thread access.
         let cache = unsafe { &*self.0.get() };
         (cache.self_name_len != 0).then_some((cache.self_name, cache.self_name_len))
+    }
+
+    pub(super) unsafe fn self_entity(&self, id: u32) -> Option<RawWorldObject> {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        let cache = unsafe { &*self.0.get() };
+        if cache.self_id != Some(id) {
+            return None;
+        }
+        let (x, y) = cache.position?;
+        let direction = cache.self_direction?;
+        let name_len = usize::from(cache.self_name_len).min(MAX_OBJECT_NAME_BYTES);
+        let mut name = [0; MAX_OBJECT_NAME_BYTES];
+        name[..name_len].copy_from_slice(&cache.self_name[..name_len]);
+        Some(RawWorldObject::Player {
+            id,
+            name,
+            name_len: u8::try_from(name_len).expect("self name length fits u8"),
+            x,
+            y,
+            direction,
+        })
     }
 
     #[cfg(not(test))]

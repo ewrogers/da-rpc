@@ -10,7 +10,9 @@ use crate::{
         visual::VisualUpdate,
     },
 };
-use darpc_game_client::{RawCharacter, RawModifiers, RawObjects, RawStateSnapshot, RawWorldObject};
+use darpc_game_client::{
+    MAX_OBJECT_NAME_BYTES, RawCharacter, RawModifiers, RawObjects, RawStateSnapshot, RawWorldObject,
+};
 use darpc_model::{
     AbilityUpdate, ActionUpdate, CharacterModifiers, CharacterStats, ClientMessage,
     CollectionBatch, CollectionKind, CoreStatus, CurrentVitals, Effect, EffectDuration,
@@ -153,7 +155,7 @@ fn observe_entity_effect(
 fn observed_entity(id: u32) -> Option<RawWorldObject> {
     // SAFETY: decoded packet observation runs on the client main thread, which
     // is the sole owner of the object cache.
-    unsafe { OBJECTS.get(id) }
+    unsafe { OBJECTS.get(id).or_else(|| CACHE.self_entity(id)) }
 }
 
 pub(crate) const EVENT_QUEUE_BYTES: usize = 1024 * 1024;

@@ -243,6 +243,7 @@ fn captures_the_scalar_gameplay_snapshot() {
     assert_eq!(snapshot.lifecycle, RawLifecycle::InGame);
     assert_eq!(character.id, Some(0x1122_3344));
     assert_eq!(&character.name[..usize::from(character.name_len)], b"SiLo");
+    assert_eq!(character.direction, Some(2));
     assert_eq!(appearance.gender, 0);
     assert_eq!(appearance.hair_style, 17);
     assert_eq!(appearance.hair_color, 6);

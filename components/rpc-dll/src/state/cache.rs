@@ -533,6 +533,11 @@ impl MainThreadObjects {
         unsafe { (&*self.0.get()).name(id) }
     }
 
+    pub(super) unsafe fn get(&self, id: u32) -> Option<RawWorldObject> {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&*self.0.get()).get(id) }
+    }
+
     #[cfg(not(test))]
     pub(super) unsafe fn position(&self, id: u32) -> Option<(i32, i32)> {
         // SAFETY: the caller guarantees exclusive main-thread access.

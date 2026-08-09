@@ -1,6 +1,7 @@
 //! Shared domain model for daRPC.
 
 mod emote;
+mod entity;
 mod event;
 mod message;
 mod object;
@@ -15,6 +16,7 @@ pub use event::{
 };
 
 pub use emote::{NAMED_EMOTES, NamedEmote, emote_code, is_client_emote_code};
+pub use entity::EntityUpdate;
 
 pub use message::{ClientMessage, MessageKind};
 

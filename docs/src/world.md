@@ -37,10 +37,11 @@ The response can contain four object kinds:
 | --- | --- |
 | `player` | ID, optional name, x/y, and direction |
 | `monster` | ID, optional name and sprite, x/y, and direction |
-| `npc` | ID, optional name and sprite, x/y, and direction |
+| `mundane` | ID, optional name and sprite, x/y, and direction |
 | `item` | ID, sprite, x/y, and per-tile `z_index` |
 
-`npc` represents a Dark Ages Mundane. Item sprite values have the client's
+Mundane is the Dark Ages name for a non-player character (NPC). The `npc`
+filter remains accepted as an alias. Item sprite values have the client's
 internal item classification flag removed.
 
 Ground-item `z_index` is local to one tile. Zero is the bottom item, and higher
@@ -49,7 +50,7 @@ values are drawn above it.
 Filter the result with a comma-separated `types` query:
 
 ```text
-GET /clients/ZiLo/objects?types=player,npc,monster
+GET /clients/ZiLo/objects?types=player,mundane,monster
 ```
 
 Without `types`, the route returns every observed kind. An unknown type or
@@ -62,13 +63,13 @@ key causes the server to redraw nearby objects and fills those details again.
 
 ## Object events
 
-Players, monsters, and NPCs each use these actions:
+Players, monsters, and Mundanes each use these actions:
 
 ```text
-player.appeared              monster.appeared              npc.appeared
-player.disappeared           monster.disappeared           npc.disappeared
-player.moved                 monster.moved                 npc.moved
-player.direction_changed     monster.direction_changed     npc.direction_changed
+player.appeared              monster.appeared              mundane.appeared
+player.disappeared           monster.disappeared           mundane.disappeared
+player.moved                 monster.moved                 mundane.moved
+player.direction_changed     monster.direction_changed     mundane.direction_changed
 ```
 
 Ground items use:
@@ -88,6 +89,30 @@ an explicit removal when the local character simply walks out of range. After
 accepted self movement, daRPC culls retained objects outside the client-sized
 view and reports their disappearance. The collection is still this client's
 latest observation rather than an authoritative map population.
+
+## Entity visual events
+
+The stream also reports temporary visuals for visible players, monsters, and
+Mundanes:
+
+```text
+player.animated              monster.animated              mundane.animated
+player.effect                monster.effect                mundane.effect
+player.damaged               monster.damaged               mundane.damaged
+```
+
+An `*.animated` payload contains the complete entity, the client animation
+number, and `initial_duration_ms`. That timer is the initial value sent by the
+server, not a promise that the animation remains visible for exactly that long.
+
+An `*.effect` payload contains the entity and the one-based `effect` number
+sent by the server. It can also contain a source entity and a frame interval
+when the packet supplies them. Effects drawn only at ground coordinates are
+not published yet.
+
+An `*.damaged` payload contains the entity and `health_percent`, the server's
+0 through 100 value used for the temporary health meter. It is a percentage,
+not the amount of damage dealt.
 
 ## Turning
 

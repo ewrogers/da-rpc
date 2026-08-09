@@ -20,6 +20,7 @@ pub enum EncodeError {
     InvalidAbilitySlot { slot: u8 },
     InvalidSpellProgress { line: u8, total: u8 },
     InvalidSpellValues { count: usize },
+    InvalidHealthPercent { actual: u8 },
     InvalidCommandId,
     InvalidCommandTimeout { actual: u16, max: u16 },
     InvalidCommandWait { actual: u16, max: u16 },
@@ -98,6 +99,9 @@ impl fmt::Display for EncodeError {
                     formatter,
                     "spell cast contains {count} numeric values; expected 1..=4"
                 )
+            }
+            Self::InvalidHealthPercent { actual } => {
+                write!(formatter, "health percentage {actual} is outside 0..=100")
             }
             Self::InvalidCommandId => formatter.write_str("command ID must be nonzero"),
             Self::InvalidCommandTimeout { actual, max } => write!(
@@ -210,6 +214,12 @@ pub enum DecodeError {
         actual: u8,
     },
     InvalidObjectUpdateType {
+        actual: u8,
+    },
+    InvalidEntityUpdateType {
+        actual: u8,
+    },
+    InvalidHealthPercent {
         actual: u8,
     },
     InvalidMessageKind {
@@ -438,6 +448,12 @@ impl fmt::Display for DecodeError {
             }
             Self::InvalidObjectUpdateType { actual } => {
                 write!(formatter, "invalid world object update type {actual}")
+            }
+            Self::InvalidEntityUpdateType { actual } => {
+                write!(formatter, "invalid entity update type {actual}")
+            }
+            Self::InvalidHealthPercent { actual } => {
+                write!(formatter, "health percentage {actual} is outside 0..=100")
             }
             Self::InvalidMessageKind { actual } => {
                 write!(formatter, "invalid client message kind {actual}")

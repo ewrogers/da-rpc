@@ -53,6 +53,8 @@ updates drive:
 - Inventory, spellbook, and skillbook reconciliation
 - Active spell effects
 - Visible players, monsters, Mundanes, and ground items
+- Body animations, attached visual effects, and temporary health meters for
+  visible living entities
 - Chat and system messages
 
 Unknown, malformed, oversized, or unreadable events are ignored. The client's

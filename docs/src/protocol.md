@@ -422,6 +422,25 @@ enum StateUpdate: u8 {
     Movement(MovementUpdate) = 9,
     Ability(AbilityUpdate) = 10,
     Action(ActionUpdate) = 11,
+    Entity(EntityUpdate) = 12,
+}
+
+enum EntityUpdate: u8 {
+    Animated {
+        entity: WorldObject,
+        animation: u8,
+        duration_10ms: u16,
+    } = 1,
+    Effect {
+        entity: WorldObject,
+        effect: u16,
+        source: Option<WorldObject>,
+        frame_interval_ms: Option<i16>,
+    } = 2,
+    Damaged {
+        entity: WorldObject,
+        health_percent: u8,
+    } = 3,
 }
 
 enum CollectionChange: u8 {

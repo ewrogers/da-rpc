@@ -20,6 +20,8 @@ use utoipa::ToSchema;
 
 mod action;
 use action::*;
+mod entity;
+use entity::*;
 
 pub(crate) const EVENT_CHANNEL_CAPACITY: usize = 4_096;
 
@@ -265,10 +267,19 @@ pub(crate) enum ClientEvent {
     MonsterDisappeared(ObjectChanged),
     MonsterMoved(ObjectChanged),
     MonsterDirectionChanged(ObjectChanged),
-    NpcAppeared(ObjectChanged),
-    NpcDisappeared(ObjectChanged),
-    NpcMoved(ObjectChanged),
-    NpcDirectionChanged(ObjectChanged),
+    MundaneAppeared(ObjectChanged),
+    MundaneDisappeared(ObjectChanged),
+    MundaneMoved(ObjectChanged),
+    MundaneDirectionChanged(ObjectChanged),
+    PlayerAnimated(EntityAnimated),
+    MonsterAnimated(EntityAnimated),
+    MundaneAnimated(EntityAnimated),
+    PlayerEffect(EntityEffect),
+    MonsterEffect(EntityEffect),
+    MundaneEffect(EntityEffect),
+    PlayerDamaged(EntityDamaged),
+    MonsterDamaged(EntityDamaged),
+    MundaneDamaged(EntityDamaged),
     ItemAppeared(ObjectChanged),
     ItemDisappeared(ObjectChanged),
     ItemMoved(ObjectChanged),
@@ -327,10 +338,19 @@ impl ClientEvent {
             Self::MonsterDisappeared(_) => "monster.disappeared",
             Self::MonsterMoved(_) => "monster.moved",
             Self::MonsterDirectionChanged(_) => "monster.direction_changed",
-            Self::NpcAppeared(_) => "npc.appeared",
-            Self::NpcDisappeared(_) => "npc.disappeared",
-            Self::NpcMoved(_) => "npc.moved",
-            Self::NpcDirectionChanged(_) => "npc.direction_changed",
+            Self::MundaneAppeared(_) => "mundane.appeared",
+            Self::MundaneDisappeared(_) => "mundane.disappeared",
+            Self::MundaneMoved(_) => "mundane.moved",
+            Self::MundaneDirectionChanged(_) => "mundane.direction_changed",
+            Self::PlayerAnimated(_) => "player.animated",
+            Self::MonsterAnimated(_) => "monster.animated",
+            Self::MundaneAnimated(_) => "mundane.animated",
+            Self::PlayerEffect(_) => "player.effect",
+            Self::MonsterEffect(_) => "monster.effect",
+            Self::MundaneEffect(_) => "mundane.effect",
+            Self::PlayerDamaged(_) => "player.damaged",
+            Self::MonsterDamaged(_) => "monster.damaged",
+            Self::MundaneDamaged(_) => "mundane.damaged",
             Self::ItemAppeared(_) => "item.appeared",
             Self::ItemDisappeared(_) => "item.disappeared",
             Self::ItemMoved(_) => "item.moved",
@@ -389,13 +409,22 @@ impl ClientEvent {
             | Self::MonsterDisappeared(value)
             | Self::MonsterMoved(value)
             | Self::MonsterDirectionChanged(value)
-            | Self::NpcAppeared(value)
-            | Self::NpcDisappeared(value)
-            | Self::NpcMoved(value)
-            | Self::NpcDirectionChanged(value)
+            | Self::MundaneAppeared(value)
+            | Self::MundaneDisappeared(value)
+            | Self::MundaneMoved(value)
+            | Self::MundaneDirectionChanged(value)
             | Self::ItemAppeared(value)
             | Self::ItemDisappeared(value)
             | Self::ItemMoved(value) => value.observation.event_sequence,
+            Self::PlayerAnimated(value)
+            | Self::MonsterAnimated(value)
+            | Self::MundaneAnimated(value) => value.observation.event_sequence,
+            Self::PlayerEffect(value) | Self::MonsterEffect(value) | Self::MundaneEffect(value) => {
+                value.observation.event_sequence
+            }
+            Self::PlayerDamaged(value)
+            | Self::MonsterDamaged(value)
+            | Self::MundaneDamaged(value) => value.observation.event_sequence,
             Self::ObjectsCleared(value) => value.observation.event_sequence,
             Self::Message(message) => message.sequence(),
             Self::StreamResyncRequired(value) => value.last_event_sequence,
@@ -875,6 +904,12 @@ fn expand(
             events.push(action::expand(observation, update));
             return events;
         }
+        StateUpdate::Entity(update) => {
+            if let Some(event) = entity::expand(observation, update) {
+                events.push(event);
+            }
+            return events;
+        }
         StateUpdate::Object(update) => {
             if let Some(event) = object_event(observation, update) {
                 events.push(event);
@@ -1048,13 +1083,13 @@ fn object_event(observation: EventObservation, update: ObjectUpdate) -> Option<C
         (ObjectCategory::Monster, ObjectChangeKind::DirectionChanged) => {
             ClientEvent::MonsterDirectionChanged(changed)
         }
-        (ObjectCategory::Npc, ObjectChangeKind::Appeared) => ClientEvent::NpcAppeared(changed),
+        (ObjectCategory::Npc, ObjectChangeKind::Appeared) => ClientEvent::MundaneAppeared(changed),
         (ObjectCategory::Npc, ObjectChangeKind::Disappeared) => {
-            ClientEvent::NpcDisappeared(changed)
+            ClientEvent::MundaneDisappeared(changed)
         }
-        (ObjectCategory::Npc, ObjectChangeKind::Moved) => ClientEvent::NpcMoved(changed),
+        (ObjectCategory::Npc, ObjectChangeKind::Moved) => ClientEvent::MundaneMoved(changed),
         (ObjectCategory::Npc, ObjectChangeKind::DirectionChanged) => {
-            ClientEvent::NpcDirectionChanged(changed)
+            ClientEvent::MundaneDirectionChanged(changed)
         }
         (ObjectCategory::Item, ObjectChangeKind::Appeared) => ClientEvent::ItemAppeared(changed),
         (ObjectCategory::Item, ObjectChangeKind::Disappeared) => {
@@ -1081,7 +1116,7 @@ mod tests {
     use darpc_model::{
         AbilityUpdate, ActionUpdate, CharacterStats, ClientMessage, CollectionChange,
         CooldownStatus, CoreStatus, CurrentVitals, Effect, EffectDuration, EffectUpdate,
-        InventoryItem as ModelInventoryItem, LocationUpdate, MapChange, MessageKind,
+        EntityUpdate, InventoryItem as ModelInventoryItem, LocationUpdate, MapChange, MessageKind,
         MovementUpdate, Skill as ModelSkill, SlotUpdate, Spell as ModelSpell,
         SpellCancellationSource as ModelSpellCancellationSource,
         SpellCastArguments as ModelSpellCastArguments, SpellTargetType, StateUpdate, StatusUpdate,
@@ -1504,10 +1539,16 @@ mod tests {
                 ObjectUpdate::DirectionChanged(monster),
                 "monster.direction_changed",
             ),
-            (ObjectUpdate::Appeared(npc.clone()), "npc.appeared"),
-            (ObjectUpdate::Disappeared(npc.clone()), "npc.disappeared"),
-            (ObjectUpdate::Moved(npc.clone()), "npc.moved"),
-            (ObjectUpdate::DirectionChanged(npc), "npc.direction_changed"),
+            (ObjectUpdate::Appeared(npc.clone()), "mundane.appeared"),
+            (
+                ObjectUpdate::Disappeared(npc.clone()),
+                "mundane.disappeared",
+            ),
+            (ObjectUpdate::Moved(npc.clone()), "mundane.moved"),
+            (
+                ObjectUpdate::DirectionChanged(npc),
+                "mundane.direction_changed",
+            ),
             (ObjectUpdate::Appeared(item.clone()), "item.appeared"),
             (ObjectUpdate::Disappeared(item.clone()), "item.disappeared"),
             (ObjectUpdate::Moved(item), "item.moved"),
@@ -1531,6 +1572,85 @@ mod tests {
             );
             assert_eq!(events.len(), 1);
             assert_eq!(events[0].name(), expected);
+        }
+    }
+
+    #[test]
+    fn entity_visual_updates_expose_packet_values() {
+        use darpc_model::{Direction, WorldObject as ModelWorldObject};
+
+        let identity = ClientIdentity {
+            pid: 42,
+            process_creation_time: 100,
+            dll_instance_id: [1; 16],
+        };
+        let player = ModelWorldObject::Player {
+            id: 1,
+            name: Some("ZiLo".into()),
+            x: 10,
+            y: 20,
+            direction: Direction::East,
+        };
+        let mundane = ModelWorldObject::Creature {
+            id: 2,
+            kind: CreatureKind::Npc,
+            sprite: Some(7),
+            name: Some("Beggar".into()),
+            x: 11,
+            y: 20,
+            direction: Direction::South,
+        };
+        let cases = [
+            (
+                StateUpdate::Entity(EntityUpdate::Animated {
+                    entity: player.clone(),
+                    animation: 9,
+                    duration_10ms: 25,
+                }),
+                "player.animated",
+                "\"animation\":9",
+            ),
+            (
+                StateUpdate::Entity(EntityUpdate::Effect {
+                    entity: mundane.clone(),
+                    effect: 123,
+                    source: Some(player),
+                    frame_interval_ms: Some(50),
+                }),
+                "mundane.effect",
+                "\"effect\":123",
+            ),
+            (
+                StateUpdate::Entity(EntityUpdate::Damaged {
+                    entity: mundane,
+                    health_percent: 73,
+                }),
+                "mundane.damaged",
+                "\"health_percent\":73",
+            ),
+        ];
+
+        for (index, (update, expected_name, expected_json)) in cases.into_iter().enumerate() {
+            let events = expand(
+                42,
+                identity,
+                StateEvent {
+                    sequence: u32::try_from(index + 1).unwrap(),
+                    revision: 1,
+                    tick_ms: 100,
+                    update,
+                },
+                None,
+                None,
+                observed_at(),
+            );
+            assert_eq!(events.len(), 1);
+            assert_eq!(events[0].name(), expected_name);
+            assert!(
+                serde_json::to_string(&events[0])
+                    .unwrap()
+                    .contains(expected_json)
+            );
         }
     }
 

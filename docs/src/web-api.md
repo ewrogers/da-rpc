@@ -174,7 +174,7 @@ The domain event indexes are:
 - [Skillbook and use events](skills.md#skillbook-events)
 - [Spellbook and casting events](spells.md#casting-events)
 - [Effect events](effects.md#effect-events)
-- [World object and walking events](world.md#object-events)
+- [World object, entity visual, and walking events](world.md#object-events)
 - [Message events](messages.md#live-message-events)
 
 Equipment currently has no dedicated change event. See

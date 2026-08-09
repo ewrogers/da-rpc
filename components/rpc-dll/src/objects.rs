@@ -60,6 +60,10 @@ impl ObjectCache {
         }
     }
 
+    pub(crate) fn get(&self, id: u32) -> Option<RawWorldObject> {
+        self.entries[self.find(id)?]
+    }
+
     #[cfg(not(test))]
     pub(crate) fn position(&self, id: u32) -> Option<(i32, i32)> {
         self.entries[self.find(id)?].map(object_position)
@@ -249,7 +253,7 @@ impl ObjectCache {
     }
 }
 
-fn object_model(raw: RawWorldObject) -> WorldObject {
+pub(crate) fn object_model(raw: RawWorldObject) -> WorldObject {
     match raw {
         RawWorldObject::Player {
             id,

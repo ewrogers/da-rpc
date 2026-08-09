@@ -7,13 +7,14 @@ use crate::{
     packet::{
         message::{ParsedMessage, Participant},
         object::WorldUpdate,
+        visual::VisualUpdate,
     },
 };
 use darpc_game_client::{RawCharacter, RawModifiers, RawObjects, RawStateSnapshot, RawWorldObject};
 use darpc_model::{
     AbilityUpdate, ActionUpdate, CharacterModifiers, CharacterStats, ClientMessage,
     CollectionBatch, CollectionKind, CoreStatus, CurrentVitals, Effect, EffectDuration,
-    EffectUpdate, Element, LocationUpdate, MapChange, MessageKind, MovementUpdate,
+    EffectUpdate, Element, EntityUpdate, LocationUpdate, MapChange, MessageKind, MovementUpdate,
     ProgressionStatus, SpellCancellationSource, SpellCastArguments, StateEvent, StateUpdate,
     StatusUpdate, TilePosition,
 };
@@ -47,6 +48,112 @@ pub(crate) fn observe_outgoing(body: &[u8], tick_ms: u32) {
 
 pub(crate) fn observe_spell_cancelled(tick_ms: u32) {
     ability::observe_spell_cancelled(tick_ms);
+}
+
+pub(crate) fn observe_visual(update: VisualUpdate, tick_ms: u32) {
+    match update {
+        VisualUpdate::Motion {
+            object_id,
+            animation,
+            duration_10ms,
+        } => {
+            let Some(entity) = observed_entity(object_id) else {
+                return;
+            };
+            push_event(
+                QueuedStateUpdate::Entity(QueuedEntityUpdate::Animated {
+                    entity,
+                    animation,
+                    duration_10ms,
+                }),
+                tick_ms,
+            );
+        }
+        VisualUpdate::Damage {
+            object_id,
+            health_percent,
+        } => {
+            if health_percent > 100 {
+                return;
+            }
+            let Some(entity) = observed_entity(object_id) else {
+                return;
+            };
+            push_event(
+                QueuedStateUpdate::Entity(QueuedEntityUpdate::Damaged {
+                    entity,
+                    health_percent,
+                }),
+                tick_ms,
+            );
+        }
+        VisualUpdate::Effect {
+            target_id,
+            source_id,
+            target_effect,
+            source_effect,
+            frame_interval_ms,
+        } => observe_entity_effect(
+            target_id,
+            source_id,
+            target_effect,
+            source_effect,
+            frame_interval_ms,
+            tick_ms,
+        ),
+    }
+}
+
+fn observe_entity_effect(
+    target_id: u32,
+    source_id: u32,
+    target_effect: u16,
+    source_effect: u16,
+    frame_interval_ms: i16,
+    tick_ms: u32,
+) {
+    if target_effect == 0 || target_effect == 0x00FF {
+        return;
+    }
+    let Some(target) = observed_entity(target_id) else {
+        return;
+    };
+    let source = (source_id != 0)
+        .then(|| observed_entity(source_id))
+        .flatten();
+    let moving = (10_000..=11_999).contains(&target_effect);
+    if moving && source.is_none() {
+        return;
+    }
+    push_event(
+        QueuedStateUpdate::Entity(QueuedEntityUpdate::Effect {
+            entity: target,
+            effect: target_effect,
+            source,
+            frame_interval_ms: (!moving).then_some(frame_interval_ms),
+        }),
+        tick_ms,
+    );
+    if !moving
+        && source_effect != 0
+        && let Some(source) = source
+    {
+        push_event(
+            QueuedStateUpdate::Entity(QueuedEntityUpdate::Effect {
+                entity: source,
+                effect: source_effect,
+                source: None,
+                frame_interval_ms: Some(frame_interval_ms),
+            }),
+            tick_ms,
+        );
+    }
+}
+
+fn observed_entity(id: u32) -> Option<RawWorldObject> {
+    // SAFETY: decoded packet observation runs on the client main thread, which
+    // is the sole owner of the object cache.
+    unsafe { OBJECTS.get(id) }
 }
 
 pub(crate) const EVENT_QUEUE_BYTES: usize = 1024 * 1024;

@@ -610,7 +610,7 @@ async fn client_objects(
 #[derive(Debug, Default, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 struct WorldObjectQuery {
-    /// Comma-separated object types: `npc`, `player`, `monster`, and `item`.
+    /// Comma-separated object types: `mundane`, `player`, `monster`, and `item`.
     #[param(example = "npc,player")]
     types: Option<String>,
 }
@@ -624,7 +624,7 @@ impl WorldObjectQuery {
                     .map(|kind| {
                         kind.parse::<WorldObjectKind>().map_err(|()| {
                             invalid_object_query(format!(
-                                "unknown object type `{kind}`; expected npc, player, monster, or item"
+                                "unknown object type `{kind}`; expected mundane, player, monster, or item"
                             ))
                         })
                     })
@@ -2395,7 +2395,7 @@ mod tests {
             .iter()
             .map(|object| object["kind"].as_str().unwrap())
             .collect::<Vec<_>>();
-        assert_eq!(kinds, ["player", "npc"]);
+        assert_eq!(kinds, ["player", "mundane"]);
 
         let invalid = response("/clients/silo/objects?types=dragon");
         assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);

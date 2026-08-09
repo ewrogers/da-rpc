@@ -29,6 +29,7 @@ impl QueuedStateEvent {
             QueuedStateUpdate::Collection(update) => update.into_model(self.tick_ms),
             QueuedStateUpdate::Ability(update) => StateUpdate::Ability(update.into_model()),
             QueuedStateUpdate::Action(update) => StateUpdate::Action(update),
+            QueuedStateUpdate::Entity(update) => StateUpdate::Entity(update.into_model()),
         };
         StateEvent {
             sequence: self.sequence,
@@ -54,6 +55,7 @@ pub(super) enum QueuedStateUpdate {
     Collection(QueuedCollectionUpdate),
     Ability(QueuedAbilityUpdate),
     Action(ActionUpdate),
+    Entity(QueuedEntityUpdate),
 }
 
 impl QueuedStateUpdate {
@@ -61,6 +63,59 @@ impl QueuedStateUpdate {
         match self {
             Self::Collection(update) => Some((update.kind(), update.batch())),
             _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum QueuedEntityUpdate {
+    Animated {
+        entity: RawWorldObject,
+        animation: u8,
+        duration_10ms: u16,
+    },
+    Effect {
+        entity: RawWorldObject,
+        effect: u16,
+        source: Option<RawWorldObject>,
+        frame_interval_ms: Option<i16>,
+    },
+    Damaged {
+        entity: RawWorldObject,
+        health_percent: u8,
+    },
+}
+
+impl QueuedEntityUpdate {
+    fn into_model(self) -> EntityUpdate {
+        match self {
+            Self::Animated {
+                entity,
+                animation,
+                duration_10ms,
+            } => EntityUpdate::Animated {
+                entity: crate::objects::object_model(entity),
+                animation,
+                duration_10ms,
+            },
+            Self::Effect {
+                entity,
+                effect,
+                source,
+                frame_interval_ms,
+            } => EntityUpdate::Effect {
+                entity: crate::objects::object_model(entity),
+                effect,
+                source: source.map(crate::objects::object_model),
+                frame_interval_ms,
+            },
+            Self::Damaged {
+                entity,
+                health_percent,
+            } => EntityUpdate::Damaged {
+                entity: crate::objects::object_model(entity),
+                health_percent,
+            },
         }
     }
 }

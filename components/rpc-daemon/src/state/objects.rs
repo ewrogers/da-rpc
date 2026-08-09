@@ -35,7 +35,7 @@ impl WorldObjects {
 pub(crate) enum WorldObjectKind {
     Player,
     Monster,
-    Npc,
+    Mundane,
     Item,
 }
 
@@ -46,7 +46,7 @@ impl FromStr for WorldObjectKind {
         match value {
             "player" => Ok(Self::Player),
             "monster" => Ok(Self::Monster),
-            "npc" => Ok(Self::Npc),
+            "mundane" | "npc" => Ok(Self::Mundane),
             "item" => Ok(Self::Item),
             _ => Err(()),
         }
@@ -70,7 +70,7 @@ pub(crate) enum WorldObject {
         y: i32,
         direction: Direction,
     },
-    Npc {
+    Mundane {
         id: u32,
         sprite: Option<u16>,
         name: Option<String>,
@@ -93,7 +93,7 @@ impl WorldObject {
         match self {
             Self::Player { .. } => WorldObjectKind::Player,
             Self::Monster { .. } => WorldObjectKind::Monster,
-            Self::Npc { .. } => WorldObjectKind::Npc,
+            Self::Mundane { .. } => WorldObjectKind::Mundane,
             Self::Item { .. } => WorldObjectKind::Item,
         }
     }
@@ -138,7 +138,7 @@ impl From<&ModelWorldObject> for WorldObject {
                 x,
                 y,
                 direction,
-            } => Self::Npc {
+            } => Self::Mundane {
                 id: *id,
                 sprite: *sprite,
                 name: name.clone(),

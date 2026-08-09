@@ -6,9 +6,10 @@ use crate::{
 use darpc_model::{
     AbilityUpdate, ActionUpdate, CharacterModifiers, CharacterStats, ClientMessage,
     CollectionChange, CoreStatus, CurrentVitals, Direction, Effect, EffectDuration, EffectUpdate,
-    Element, EquipmentSlot, InventoryItem, LocationUpdate, MapChange, MessageKind, MovementUpdate,
-    ObjectUpdate, ProgressionStatus, Skill, SlotUpdate, Spell, SpellCancellationSource,
-    SpellCastArguments, StateEvent, StateUpdate, StatusUpdate, TilePosition,
+    Element, EntityUpdate, EquipmentSlot, InventoryItem, LocationUpdate, MapChange, MessageKind,
+    MovementUpdate, ObjectUpdate, ProgressionStatus, Skill, SlotUpdate, Spell,
+    SpellCancellationSource, SpellCastArguments, StateEvent, StateUpdate, StatusUpdate,
+    TilePosition,
 };
 
 pub const MAX_EVENTS_PER_POLL: u16 = 192;
@@ -170,6 +171,10 @@ fn encode_event(output: &mut Vec<u8>, event: &StateEvent) -> Result<(), EncodeEr
             output.push(11);
             encode_action(output, *update);
         }
+        StateUpdate::Entity(update) => {
+            output.push(12);
+            encode_entity(output, update)?;
+        }
     }
     Ok(())
 }
@@ -199,6 +204,7 @@ fn decode_event(reader: &mut PayloadReader<'_>) -> Result<StateEvent, DecodeErro
         9 => StateUpdate::Movement(decode_movement(reader)?),
         10 => StateUpdate::Ability(decode_ability(reader)?),
         11 => StateUpdate::Action(decode_action(reader)?),
+        12 => StateUpdate::Entity(decode_entity(reader)?),
         actual => return Err(DecodeError::InvalidStateUpdateType { actual }),
     };
     Ok(StateEvent {
@@ -718,6 +724,90 @@ fn decode_object_update(reader: &mut PayloadReader<'_>) -> Result<ObjectUpdate, 
         3 => Ok(ObjectUpdate::Moved(object)),
         4 => Ok(ObjectUpdate::DirectionChanged(object)),
         actual => Err(DecodeError::InvalidObjectUpdateType { actual }),
+    }
+}
+
+fn encode_entity(output: &mut Vec<u8>, update: &EntityUpdate) -> Result<(), EncodeError> {
+    match update {
+        EntityUpdate::Animated {
+            entity,
+            animation,
+            duration_10ms,
+        } => {
+            output.push(1);
+            crate::snapshot::objects::encode_object(output, entity)?;
+            output.push(*animation);
+            push_u16(output, *duration_10ms);
+        }
+        EntityUpdate::Effect {
+            entity,
+            effect,
+            source,
+            frame_interval_ms,
+        } => {
+            output.push(2);
+            crate::snapshot::objects::encode_object(output, entity)?;
+            push_u16(output, *effect);
+            push_bool(output, source.is_some());
+            if let Some(source) = source {
+                crate::snapshot::objects::encode_object(output, source)?;
+            }
+            push_bool(output, frame_interval_ms.is_some());
+            if let Some(frame_interval_ms) = frame_interval_ms {
+                push_u16(output, *frame_interval_ms as u16);
+            }
+        }
+        EntityUpdate::Damaged {
+            entity,
+            health_percent,
+        } => {
+            if *health_percent > 100 {
+                return Err(EncodeError::InvalidHealthPercent {
+                    actual: *health_percent,
+                });
+            }
+            output.push(3);
+            crate::snapshot::objects::encode_object(output, entity)?;
+            output.push(*health_percent);
+        }
+    }
+    Ok(())
+}
+
+fn decode_entity(reader: &mut PayloadReader<'_>) -> Result<EntityUpdate, DecodeError> {
+    let kind = reader.read_u8()?;
+    let entity = crate::snapshot::objects::decode_object(reader)?;
+    match kind {
+        1 => Ok(EntityUpdate::Animated {
+            entity,
+            animation: reader.read_u8()?,
+            duration_10ms: reader.read_u16()?,
+        }),
+        2 => Ok(EntityUpdate::Effect {
+            entity,
+            effect: reader.read_u16()?,
+            source: reader
+                .read_bool()?
+                .then(|| crate::snapshot::objects::decode_object(reader))
+                .transpose()?,
+            frame_interval_ms: reader
+                .read_bool()?
+                .then(|| reader.read_u16().map(|value| value as i16))
+                .transpose()?,
+        }),
+        3 => {
+            let health_percent = reader.read_u8()?;
+            if health_percent > 100 {
+                return Err(DecodeError::InvalidHealthPercent {
+                    actual: health_percent,
+                });
+            }
+            Ok(EntityUpdate::Damaged {
+                entity,
+                health_percent,
+            })
+        }
+        actual => Err(DecodeError::InvalidEntityUpdateType { actual }),
     }
 }
 

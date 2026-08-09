@@ -1,11 +1,13 @@
 pub(crate) mod message;
 pub(crate) mod object;
 mod state;
+pub(crate) mod visual;
 
 use self::{
     message::ParsedMessage,
     object::WorldUpdate,
     state::{CollectionDirty, Position, SpelledUpdate, StatePacketUpdate, UserAppearance},
+    visual::VisualUpdate,
 };
 use darpc_game_client::RawObjects;
 use darpc_model::StatusUpdate;
@@ -81,6 +83,7 @@ pub(crate) enum ServerUpdate<'a> {
     Message(ParsedMessage<'a>),
     Collection(CollectionDirty),
     SpellCancelled,
+    Visual(VisualUpdate),
 }
 
 pub(crate) fn update<'a>(
@@ -92,6 +95,9 @@ pub(crate) fn update<'a>(
     }
     if let Some(update) = object::update(body, objects)? {
         return Ok(Some(ServerUpdate::World(update)));
+    }
+    if let Some(update) = visual::update(body)? {
+        return Ok(Some(ServerUpdate::Visual(update)));
     }
     Ok(state::update(body)?.map(ServerUpdate::from))
 }

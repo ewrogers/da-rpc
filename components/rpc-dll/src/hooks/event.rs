@@ -361,6 +361,9 @@ extern "C" fn observe_event(event: *const core::ffi::c_void) {
             packet::ServerUpdate::SpellCancelled => {
                 state::observe_spell_cancelled(tick_ms);
             }
+            packet::ServerUpdate::Visual(update) => {
+                state::observe_visual(update, tick_ms);
+            }
         }
     });
 }

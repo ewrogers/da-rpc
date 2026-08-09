@@ -2086,6 +2086,15 @@ mod tests {
         );
         assert_routes_action(
             "/clients/42/items/drop",
+            r#"{"name":"DARK BELT","destination":{"x":11,"y":22}}"#,
+            CommandKind::DropItem(ItemTransfer {
+                slot: ItemSlot::new(1).unwrap(),
+                quantity: 1,
+                target: TransferTarget::Tile(TilePosition { x: 11, y: 22 }),
+            }),
+        );
+        assert_routes_action(
+            "/clients/42/items/drop",
             r#"{"slot":1,"quantity":2,"target":2}"#,
             CommandKind::DropItem(ItemTransfer {
                 slot: ItemSlot::new(1).unwrap(),

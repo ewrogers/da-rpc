@@ -12,7 +12,9 @@ pub(crate) struct UseItemOptions {
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct DropItemOptions {
+    /// Select the item by its one-based inventory slot.
     slot: Option<u8>,
+    /// Select the item by its case-insensitive inventory name.
     name: Option<String>,
     #[serde(default = "one")]
     quantity: u32,

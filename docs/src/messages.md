@@ -69,6 +69,11 @@ Message events do not contain the common state `observation` object. The SSE
 `id` still provides ordering, and the subscription path identifies the client.
 The daemon adds the normalized message to REST history before broadcasting it.
 
+Some system messages also confirm spell results. In those cases the stream
+contains both `message.system` and a semantic `spell.succeeded`, `spell.failed`,
+or `spell.received` event. The original message remains available for display
+and debugging. See [Spells](spells.md#cast-results) for correlation behavior.
+
 ## Retention
 
 The daemon keeps at most 4,096 messages and 1 MiB of message text per DLL

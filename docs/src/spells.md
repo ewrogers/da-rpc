@@ -86,6 +86,9 @@ interface and casts requested through REST.
 | `spell.chant` | One visible chant line was submitted. Includes `line` and `total_lines`. |
 | `spell.cast` | The final spell use was submitted. Includes any retained arguments. |
 | `spell.cancelled` | A delayed spell ended without a final cast. |
+| `spell.succeeded` | The game confirmed a submitted spell by name. |
+| `spell.failed` | The game reported that a submitted spell failed or was rejected. |
+| `spell.received` | Another player, Mundane, or monster cast or attacked with a spell on this character. |
 
 An instant spell normally produces only `spell.cast`. A delayed spell normally
 produces `spell.begin`, one or more `spell.chant` events, and then `spell.cast`.
@@ -109,6 +112,46 @@ enrichment. The object ID and coordinates come from the observed submission.
 
 `is_casting` in [character status](status.md) follows the same ordered begin,
 cast, and cancellation events.
+
+### Cast results
+
+`spell.cast` means the client submitted the spell. It does not by itself mean
+the server accepted the result. The daemon keeps up to 256 recent submissions
+for each connected DLL instance and compares later system feedback with that
+queue. A submission expires after five seconds.
+
+A named success such as `You cast Mist` matches the oldest queued cast with
+that spell name. Generic failures match the oldest queued cast. This keeps
+rapid instant casts in order while allowing named replies to find the right
+submission. The queue is held only in memory and is cleared when the DLL
+disconnects or the daemon restarts.
+
+`spell.succeeded` and `spell.failed` retain the submitted `slot`, available
+spell `name`, and cast `arguments`. They also include:
+
+```text
+feedback:          original system feedback
+submitted_tick_ms: client tick when spell.cast was observed
+elapsed_ms:        wrapping millisecond difference to the feedback
+```
+
+Failure `reason` is one of:
+
+```text
+failed, error, resisted, already_active, conflicting_effect
+```
+
+For a conflicting curse, `active_spell` contains the spell named by the game
+when available. The attempted spell remains in `name`.
+
+`spell.received` does not need a matching local submission. It contains the
+reported `caster`, spell `name`, and a `kind` of `cast` or `attack`. If that
+caster is still visible, `caster_object` supplies the current world object as
+best-effort context. Friendly feedback uses the game's "cast ... spell on you"
+form, while harmful feedback uses its "attacks you with ... spell" form.
+
+The original `message.system` is still retained and broadcast. Semantic spell
+events add useful structure without hiding the text that appeared in the game.
 
 ## Spellbook events
 

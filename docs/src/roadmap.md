@@ -723,6 +723,9 @@ Current implementation:
   equipment removal, and emote actions are available through direct IPC and
   REST. Item slots and quantities are validated again on the client main
   thread immediately before submission.
+- The daemon correlates up to 256 recent per-client spell submissions with
+  bounded system feedback and exposes confirmed success, failure, and incoming
+  spell events without changing protocol 1.0.
 - Local immutable rules remain to be implemented before this milestone is
   complete.
 

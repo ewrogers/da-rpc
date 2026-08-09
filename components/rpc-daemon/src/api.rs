@@ -21,7 +21,7 @@ use crate::{
         Inventory, InventoryItem, MapLocation, ObservationMetadata, Skill, Skillbook, Spell,
         SpellTargetType, Spellbook, WorldObject, WorldObjectKind, WorldObjects,
     },
-    stream::{self, ClientEvent, PublishedEvent},
+    stream::{self, ClientEvent, PublishedEvent, SpellFeedbackTrackers},
 };
 use axum::{
     Json, Router,
@@ -43,7 +43,7 @@ use std::{
     io,
     net::{Ipv4Addr, SocketAddrV4, TcpListener},
     sync::{
-        Arc, RwLock,
+        Arc, Mutex, RwLock,
         mpsc::{self, Sender, SyncSender, TrySendError},
     },
     thread::{self, JoinHandle},
@@ -65,6 +65,7 @@ pub(crate) struct ApiState {
     commands: SyncSender<CommandCall>,
     published_events: broadcast::Sender<PublishedEvent>,
     messages: Arc<RwLock<MessageStore>>,
+    spell_feedback: Arc<Mutex<SpellFeedbackTrackers>>,
 }
 
 impl ApiState {
@@ -84,6 +85,7 @@ impl ApiState {
             commands,
             published_events,
             messages: Arc::new(RwLock::new(MessageStore::default())),
+            spell_feedback: Arc::new(Mutex::new(SpellFeedbackTrackers::default())),
         }
     }
 
@@ -124,15 +126,27 @@ impl ApiState {
                     .iter()
                     .find(|client| client.pid == *pid && client.identity == Some(*identity))
                     .and_then(|client| client.game_snapshot.as_ref());
+                let mut spell_feedback = self
+                    .spell_feedback
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 for state_event in events {
                     let (ability_name, target_name) =
                         ability_context(game_snapshot, &state_event.update);
+                    let feedback = spell_feedback.observe(
+                        *identity,
+                        game_snapshot,
+                        state_event,
+                        ability_name.as_deref(),
+                        target_name.as_deref(),
+                    );
                     let _ = self.published_events.send(PublishedEvent::State {
                         pid: *pid,
                         identity: *identity,
                         event: Box::new(state_event.clone()),
                         ability_name,
                         target_name,
+                        feedback,
                         observed_at_utc,
                     });
                 }
@@ -147,6 +161,10 @@ impl ApiState {
                 identity: Some(identity),
                 reason,
             } => {
+                self.spell_feedback
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .remove(*identity);
                 let _ = self.published_events.send(PublishedEvent::Closed {
                     pid: *pid,
                     identity: *identity,
@@ -1554,6 +1572,7 @@ mod tests {
             LifecycleOutcome, ManagementError,
         },
         registry::{ClientIdentity as RegistryClientIdentity, ConnectionEvent, Registry},
+        stream::{PublishedEvent, SpellFeedback},
     };
     use axum::{
         body::{Body, to_bytes},
@@ -1561,15 +1580,16 @@ mod tests {
     };
     use chrono::DateTime;
     use darpc_model::{
-        CharacterAppearance, CharacterClass, CharacterProgression,
+        AbilityUpdate, CharacterAppearance, CharacterClass, CharacterProgression,
         CharacterSnapshot as ModelCharacterSnapshot, CharacterStats, CharacterVitals,
         ClientLifecycle, ClientMessage as ModelClientMessage,
         ClientSnapshot as ModelClientSnapshot, CooldownStatus as ModelCooldownStatus, CreatureKind,
         Direction as ModelDirection, Effect as ModelEffect, EffectDuration as ModelEffectDuration,
         EquipmentItem as ModelEquipmentItem, EquipmentSlot as ModelEquipmentSlot, Gender,
         InventoryItem as ModelInventoryItem, MapLocation, MessageKind as ModelMessageKind,
-        Skill as ModelSkill, Spell as ModelSpell, SpellTargetType as ModelSpellTargetType,
-        StateEvent, StateUpdate, WorldObject as ModelWorldObject,
+        Skill as ModelSkill, Spell as ModelSpell, SpellCastArguments as ModelSpellCastArguments,
+        SpellTargetType as ModelSpellTargetType, StateEvent, StateUpdate,
+        WorldObject as ModelWorldObject,
     };
     use darpc_protocol::{
         Architecture, CommandKind, CommandOperation, CommandResult, CommandState, CommandStatus,
@@ -2384,6 +2404,51 @@ mod tests {
     }
 
     #[test]
+    fn correlates_spell_feedback_before_broadcasting_to_subscribers() {
+        let state = state();
+        let identity = RegistryClientIdentity::from_hello(hello());
+        let mut receiver = state.subscribe();
+        state.publish_connection_event(&ConnectionEvent::StateEvents {
+            pid: 42,
+            identity,
+            events: vec![
+                StateEvent {
+                    sequence: 3,
+                    revision: 4,
+                    tick_ms: 520,
+                    update: StateUpdate::Ability(AbilityUpdate::SpellCast {
+                        slot: 1,
+                        arguments: ModelSpellCastArguments::None,
+                    }),
+                },
+                StateEvent {
+                    sequence: 4,
+                    revision: 5,
+                    tick_ms: 545,
+                    update: StateUpdate::Message(ModelClientMessage {
+                        kind: ModelMessageKind::System,
+                        sender: None,
+                        recipient: None,
+                        text: "You cast Mist.".into(),
+                    }),
+                },
+            ],
+        });
+
+        assert!(matches!(
+            receiver.try_recv().unwrap(),
+            PublishedEvent::State { feedback: None, .. }
+        ));
+        assert!(matches!(
+            receiver.try_recv().unwrap(),
+            PublishedEvent::State {
+                feedback: Some(SpellFeedback::Succeeded(_)),
+                ..
+            }
+        ));
+    }
+
+    #[test]
     fn filters_world_objects_by_type() {
         let all = json("/clients/silo/objects");
         assert_eq!(all["objects"].as_array().unwrap().len(), 4);
@@ -2624,6 +2689,11 @@ mod tests {
             "SpellCastArguments",
             "SpellCancelled",
             "SpellCancellationSource",
+            "SpellSucceeded",
+            "SpellFailed",
+            "SpellFailureReason",
+            "SpellReceived",
+            "ReceivedSpellKind",
             "CommandStatus",
             "CommandKind",
             "CommandState",
@@ -2654,6 +2724,9 @@ mod tests {
             "effect_removed",
             "effect_changed",
             "message",
+            "spell_succeeded",
+            "spell_failed",
+            "spell_received",
         ] {
             assert!(event_variants.iter().any(|variant| {
                 variant["properties"]["type"]["enum"]

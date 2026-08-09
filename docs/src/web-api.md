@@ -202,6 +202,12 @@ Message events use their normalized message record instead of this observation
 object. Their SSE `id` still supplies stream ordering, and the subscription
 path identifies the client.
 
+One observed client update can produce more than one SSE frame with the same
+`id`. For example, spell feedback remains a `message.system` and can also
+produce a semantic `spell.succeeded`, `spell.failed`, or `spell.received`
+frame. Process frames in delivery order rather than treating the ID as a
+unique event key.
+
 ### Collection batches
 
 Inventory, skillbook, and spellbook updates can change several slots together.

@@ -22,6 +22,9 @@ mod action;
 use action::*;
 mod entity;
 use entity::*;
+mod feedback;
+use feedback::*;
+pub(crate) use feedback::{SpellFeedback, SpellFeedbackTrackers};
 
 pub(crate) const EVENT_CHANNEL_CAPACITY: usize = 4_096;
 
@@ -206,6 +209,7 @@ pub(crate) enum PublishedEvent {
         event: Box<StateEvent>,
         ability_name: Option<String>,
         target_name: Option<String>,
+        feedback: Option<SpellFeedback>,
         observed_at_utc: DateTime<Utc>,
     },
     #[cfg_attr(not(windows), allow(dead_code))]
@@ -250,6 +254,9 @@ pub(crate) enum ClientEvent {
     SpellChant(SpellChant),
     SpellCast(SpellCast),
     SpellCancelled(SpellCancelled),
+    SpellSucceeded(SpellSucceeded),
+    SpellFailed(SpellFailed),
+    SpellReceived(SpellReceived),
     ItemUsed(ItemUsed),
     ItemDropped(ItemDropped),
     ItemGiven(ItemGiven),
@@ -321,6 +328,9 @@ impl ClientEvent {
             Self::SpellChant(_) => "spell.chant",
             Self::SpellCast(_) => "spell.cast",
             Self::SpellCancelled(_) => "spell.cancelled",
+            Self::SpellSucceeded(_) => "spell.succeeded",
+            Self::SpellFailed(_) => "spell.failed",
+            Self::SpellReceived(_) => "spell.received",
             Self::ItemUsed(_) => "item.used",
             Self::ItemDropped(_) => "item.dropped",
             Self::ItemGiven(_) => "item.given",
@@ -392,6 +402,9 @@ impl ClientEvent {
             Self::SpellChant(value) => value.observation.event_sequence,
             Self::SpellCast(value) => value.observation.event_sequence,
             Self::SpellCancelled(value) => value.observation.event_sequence,
+            Self::SpellSucceeded(value) => value.observation.event_sequence,
+            Self::SpellFailed(value) => value.observation.event_sequence,
+            Self::SpellReceived(value) => value.observation.event_sequence,
             Self::ItemUsed(value) => value.observation.event_sequence,
             Self::ItemDropped(value) => value.observation.event_sequence,
             Self::ItemGiven(value) => value.observation.event_sequence,
@@ -665,6 +678,7 @@ pub(crate) fn response(
                     event,
                     ability_name,
                     target_name,
+                    feedback,
                     observed_at_utc,
                 }) if event_pid == pid && event_identity == identity => {
                     if !sequence_after(event.sequence, last_sequence) {
@@ -681,14 +695,19 @@ pub(crate) fn response(
                         break;
                     }
                     last_sequence = event.sequence;
-                    for api_event in expand(
+                    let feedback_observation = EventObservation::new(pid, identity, &event);
+                    let mut api_events = expand(
                         pid,
                         identity,
                         *event,
                         ability_name,
                         target_name,
                         observed_at_utc,
-                    ) {
+                    );
+                    if let Some(feedback) = feedback {
+                        api_events.push(feedback.into_event(feedback_observation));
+                    }
+                    for api_event in api_events {
                         yield Ok(api_event.into_sse());
                     }
                 }

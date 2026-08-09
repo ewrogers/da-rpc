@@ -1,6 +1,6 @@
 # Progress
 
-Last updated: 2026-08-03
+Last updated: 2026-08-09
 
 This is the working task tracker for the
 [roadmap](docs/src/roadmap.md). The roadmap defines milestone scope and
@@ -94,6 +94,11 @@ rules remain.
   cast arguments.
 - [x] Verified instant, delayed, targeted, text-input, and replacement casts on
   a live client, including self-target resolution and SSE argument enrichment.
+- [x] Added a bounded 256-entry, five-second per-client cast correlation queue
+  with `spell.succeeded`, `spell.failed`, and `spell.received` events while
+  preserving original system messages.
+- [x] Live-verified named success, conflicting-curse failure, and both friendly
+  and harmful incoming spell feedback with retained target and caster context.
 - [x] Added item use, tile drop, player or monster exchange, gold transfer,
   ground pickup, equipment removal, and emote commands through direct IPC and
   REST with strict live-state validation.

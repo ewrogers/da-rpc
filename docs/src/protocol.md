@@ -214,6 +214,7 @@ struct ClientSnapshot {
     lifecycle: ClientLifecycle;
     character: Option<CharacterSnapshot>;
     objects: Option<Vec<WorldObject>>;
+    dialog: Option<DialogState>;
 }
 
 struct CharacterSnapshot {
@@ -353,6 +354,10 @@ enum EffectDuration: u8 {
 }
 ```
 
+The dialog field was appended during protocol 1.0 development. A 1.0 decoder
+accepts an older snapshot that ends after `objects` and treats its dialog as
+`None`. New encoders always include the optional-field marker.
+
 Optional values begin with a strict boolean byte. Strings use a `u16` UTF-8
 byte length. Character collections use a `u8` count followed by occupied
 entries; inventory permits at most 60 entries, equipment 18, each ability book
@@ -428,6 +433,21 @@ enum StateUpdate: u8 {
     Ability(AbilityUpdate) = 10,
     Action(ActionUpdate) = 11,
     Entity(EntityUpdate) = 12,
+    Dialog(DialogUpdate) = 13,
+}
+
+enum DialogUpdate: u8 {
+    Opened(DialogState) = 1,
+    Changed(DialogState) = 2,
+    Submitted {
+        state: DialogState,
+        previous_revision: u32,
+        submission: DialogSubmission,
+    } = 3,
+    Closed {
+        previous: Option<DialogState>,
+        reason: DialogCloseReason,
+    } = 4,
 }
 
 enum EntityUpdate: u8 {
@@ -686,6 +706,21 @@ enum CommandKind: u8 {
     GiveItem(ItemTransfer) = 11,
     GiveGold(GoldTransfer) = 12,
     SwapSlots(SlotSwap) = 13,
+    Interact { id: u32 } = 14,       // nonzero visible Mundane object ID
+    Dialog(DialogCommand) = 15,
+}
+
+struct DialogCommand {
+    revision: u32;
+    action: DialogAction;
+}
+
+enum DialogAction: u8 {
+    Select { index: u16, quantity: u8 } = 0,
+    Input(String) = 1,       // 1 through 255 ASCII bytes
+    Previous = 2,
+    Next = 3,
+    Close = 4,
 }
 
 struct ItemTransfer {

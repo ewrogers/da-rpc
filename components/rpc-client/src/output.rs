@@ -15,6 +15,8 @@ pub(crate) enum OutputFormat {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(windows), allow(dead_code))]
+// Command output owns complete snapshots and dialog text for direct JSON presentation.
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum CommandResult {
     Hello {
         requested_pid: u32,

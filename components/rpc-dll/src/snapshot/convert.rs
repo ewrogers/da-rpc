@@ -17,6 +17,7 @@ pub(super) fn snapshot(
     ready: ReadyPublication,
     raw: &darpc_game_client::RawStateSnapshot,
     raw_objects: &RawObjects,
+    raw_dialog: crate::dialog::RawDialog,
 ) -> ClientSnapshot {
     ClientSnapshot {
         revision: ready.revision,
@@ -34,6 +35,7 @@ pub(super) fn snapshot(
             RawLifecycle::InGame | RawLifecycle::Disconnected
         )
         .then(|| objects(raw_objects)),
+        dialog: crate::dialog::decode_current(raw_dialog),
     }
 }
 

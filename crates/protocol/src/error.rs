@@ -258,6 +258,10 @@ pub enum DecodeError {
     InvalidStateUpdateType {
         actual: u8,
     },
+    InvalidDialogField {
+        actual: u8,
+    },
+    InvalidDialogText,
     InvalidStatusFields {
         actual: u8,
     },
@@ -495,6 +499,10 @@ impl fmt::Display for DecodeError {
             Self::InvalidStateUpdateType { actual } => {
                 write!(formatter, "invalid state update type {actual}")
             }
+            Self::InvalidDialogField { actual } => {
+                write!(formatter, "invalid dialog field value {actual}")
+            }
+            Self::InvalidDialogText => formatter.write_str("dialog text is not valid UTF-8"),
             Self::InvalidStatusFields { actual } => {
                 write!(formatter, "invalid status field mask 0x{actual:02X}")
             }

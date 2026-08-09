@@ -2,24 +2,25 @@ use darpc_model::{
     AbilityUpdate, ActionUpdate, CharacterAppearance, CharacterClass, CharacterModifiers,
     CharacterProgression, CharacterSnapshot, CharacterStats, CharacterVitals, ClientLifecycle,
     ClientMessage, ClientSnapshot, CollectionChange, CooldownStatus, CoreStatus, CreatureKind,
-    CurrentVitals, Direction, Effect, EffectDuration, EffectUpdate, Element, EntityUpdate,
-    EquipmentItem, EquipmentSlot, Gender, InventoryItem, LocationUpdate, MapChange, MapLocation,
-    MessageKind, MovementUpdate, ObjectUpdate, ProgressionStatus, Skill, SlotUpdate, Spell,
-    SpellCancellationSource, SpellCastArguments, SpellTargetType, StateEvent, StateUpdate,
-    StatusUpdate, TilePosition, WorldObject,
+    CurrentVitals, DialogChoice, DialogInteraction, DialogKind, DialogNavigation, DialogSpeaker,
+    DialogSpriteType, DialogState, DialogTarget, DialogUpdate, Direction, Effect, EffectDuration,
+    EffectUpdate, Element, EntityUpdate, EquipmentItem, EquipmentSlot, Gender, InventoryItem,
+    LocationUpdate, MapChange, MapLocation, MessageKind, MovementUpdate, ObjectUpdate,
+    ProgressionStatus, Skill, SlotUpdate, Spell, SpellCancellationSource, SpellCastArguments,
+    SpellTargetType, StateEvent, StateUpdate, StatusUpdate, TilePosition, WorldObject,
 };
 use darpc_protocol::{
     Architecture, CommandFailure, CommandKind, CommandOperation, CommandRequest, CommandResponse,
-    CommandResult, CommandState, CommandStatus, ComponentVersion, DecodeError, EchoRequest,
-    EchoResponse, EncodeError, EventPollRequest, EventPollResponse, EventPollResult,
-    FRAME_HEADER_LEN, FRAME_MAGIC, FRAME_VERSION, Frame, FrameHeader, GoldTransfer, Hello,
-    HelloAck, ItemSlot, ItemTransfer, MAX_COMMAND_TIMEOUT_MS, MAX_COMMAND_WAIT_MS,
-    MAX_ECHO_TEXT_LEN, MAX_PAYLOAD_LEN, Message, MessageType, PROTOCOL_VERSION_1_0, Ping, Pong,
-    SkillSlot, SnapshotRequest, SnapshotResponse, SnapshotResult, SnapshotUnavailableReason,
-    SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget, TickHealthRequest,
-    TickHealthResponse, TilePosition as CommandTilePosition, TransferTarget, VersionRange,
-    WalkTarget, decode_frame, decode_header, encode_frame, protocol_version,
-    protocol_version_major, protocol_version_minor,
+    CommandResult, CommandState, CommandStatus, ComponentVersion, DecodeError, DialogAction,
+    DialogCommand, DialogText, EchoRequest, EchoResponse, EncodeError, EventPollRequest,
+    EventPollResponse, EventPollResult, FRAME_HEADER_LEN, FRAME_MAGIC, FRAME_VERSION, Frame,
+    FrameHeader, GoldTransfer, Hello, HelloAck, ItemSlot, ItemTransfer, MAX_COMMAND_TIMEOUT_MS,
+    MAX_COMMAND_WAIT_MS, MAX_ECHO_TEXT_LEN, MAX_PAYLOAD_LEN, Message, MessageType,
+    PROTOCOL_VERSION_1_0, Ping, Pong, SkillSlot, SlotSwap, SnapshotRequest, SnapshotResponse,
+    SnapshotResult, SnapshotUnavailableReason, SpellArguments, SpellCast, SpellInput, SpellSlot,
+    SpellTarget, TickHealthRequest, TickHealthResponse, TilePosition as CommandTilePosition,
+    TransferTarget, VersionRange, WalkTarget, decode_frame, decode_header, encode_frame,
+    protocol_version, protocol_version_major, protocol_version_minor,
 };
 
 fn hello() -> Hello {
@@ -178,6 +179,33 @@ fn snapshot() -> ClientSnapshot {
                 z_index: 0,
             },
         ]),
+        dialog: Some(dialog_state()),
+    }
+}
+
+fn dialog_state() -> DialogState {
+    DialogState {
+        revision: 7,
+        kind: DialogKind::Pursuit,
+        target: DialogTarget { id: 0x1122_3344 },
+        speaker: DialogSpeaker {
+            name: Some("Beggar".into()),
+            sprite: 42,
+            sprite_type: DialogSpriteType::Creature,
+            color: 3,
+            show_graphic: true,
+        },
+        content: Some("What do you seek?".into()),
+        response_pending: false,
+        navigation: DialogNavigation {
+            previous: false,
+            next: true,
+            close: true,
+        },
+        interaction: DialogInteraction::Choices(vec![DialogChoice {
+            index: 0,
+            text: "A small task".into(),
+        }]),
     }
 }
 
@@ -556,6 +584,12 @@ fn every_message_round_trips() {
                         health_percent: 73,
                     }),
                 },
+                StateEvent {
+                    sequence: 60,
+                    revision: 26,
+                    tick_ms: 141,
+                    update: StateUpdate::Dialog(DialogUpdate::Changed(dialog_state())),
+                },
             ]),
         }),
         Message::EventPollResponse(EventPollResponse {
@@ -729,6 +763,73 @@ fn every_message_round_trips() {
                 wait_ms: 50,
             },
         }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 33,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::GiveItem(ItemTransfer {
+                    slot: ItemSlot::new(12).unwrap(),
+                    quantity: 2,
+                    target: TransferTarget::Object(std::num::NonZeroU32::new(0x1122_3344).unwrap()),
+                }),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 34,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::GiveGold(GoldTransfer {
+                    amount: 500,
+                    target: TransferTarget::Object(std::num::NonZeroU32::new(0x1122_3344).unwrap()),
+                }),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 35,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::SwapSlots(SlotSwap::Inventory {
+                    source: ItemSlot::new(1).unwrap(),
+                    destination: ItemSlot::new(59).unwrap(),
+                }),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 36,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::Interact(std::num::NonZeroU32::new(0x1122_3344).unwrap()),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 37,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::Dialog(DialogCommand {
+                    revision: 7,
+                    action: DialogAction::Select {
+                        index: 0,
+                        quantity: 1,
+                    },
+                }),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 38,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::Dialog(DialogCommand {
+                    revision: 8,
+                    action: DialogAction::Input(DialogText::new("ZiLo").unwrap()),
+                }),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
     ];
 
     for message in messages {
@@ -779,6 +880,33 @@ fn command_limits_are_strictly_validated() {
         encode_frame(&Frame::new(0, 0, invalid_id)),
         Err(EncodeError::InvalidCommandId)
     );
+}
+
+#[test]
+fn snapshot_decoder_accepts_the_pre_dialog_protocol_1_0_tail() {
+    let mut snapshot = snapshot();
+    snapshot.dialog = None;
+    let frame = Frame::new(
+        7,
+        123,
+        Message::SnapshotResponse(SnapshotResponse {
+            request_id: 1,
+            result: SnapshotResult::Ready(Box::new(snapshot)),
+        }),
+    );
+    let mut bytes = encode_frame(&frame).unwrap();
+    assert_eq!(bytes.pop(), Some(0));
+    let payload_len = u32::from_le_bytes(bytes[16..20].try_into().unwrap()) - 1;
+    bytes[16..20].copy_from_slice(&payload_len.to_le_bytes());
+
+    let decoded = decode_frame(&bytes).unwrap();
+    let Message::SnapshotResponse(response) = decoded.message else {
+        panic!("expected snapshot response");
+    };
+    let SnapshotResult::Ready(snapshot) = response.result else {
+        panic!("expected ready snapshot");
+    };
+    assert_eq!(snapshot.dialog, None);
 }
 
 #[test]

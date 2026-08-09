@@ -72,6 +72,7 @@ they need:
 | `GET /clients/{client}/effects` | [Effects](effects.md) |
 | `GET /clients/{client}/objects` | [World and movement](world.md) |
 | `GET /clients/{client}/messages` | [Messages](messages.md) |
+| `GET /clients/{client}/dialog` | [NPC dialogs](dialogs.md) |
 
 These routes read the daemon's retained state. They do not ask the DLL to scan
 the game client for every HTTP request. See [Game data](state.md) for baseline
@@ -100,6 +101,12 @@ the game and how they change.
 | `POST /clients/{client}/gold/give` | Give gold to a visible human, monster, or NPC. |
 | `POST /clients/{client}/equipment/unequip` | Unequip one readable equipment slot. |
 | `POST /clients/{client}/emote` | Perform an emote by confirmed name or client code. |
+| `POST /clients/{client}/interact` | Start a conversation with a visible Mundane. |
+| `POST /clients/{client}/dialog/select` | Select a row in the current NPC dialog. |
+| `POST /clients/{client}/dialog/input` | Answer the current text prompt. |
+| `POST /clients/{client}/dialog/previous` | Move to the previous pursuit page. |
+| `POST /clients/{client}/dialog/next` | Move to the next pursuit page. |
+| `POST /clients/{client}/dialog/close` | Close the current NPC dialog. |
 | `POST /clients/{client}/commands/diagnostic` | Run a no-op main-thread command for testing. |
 | `GET /clients/{client}/commands/{command_id}` | Read retained command status. |
 | `DELETE /clients/{client}/commands/{command_id}` | Cancel a command that has not started. |
@@ -107,7 +114,8 @@ the game and how they change.
 Movement request bodies are documented in [World and movement](world.md).
 Item, gold, and pickup bodies are documented in [Inventory](inventory.md).
 Equipment, skill, and spell arguments are documented in their respective
-chapters.
+chapters. NPC interaction, revision checks, and dialog responses are documented
+in [NPC dialogs](dialogs.md).
 
 ### Native command results
 

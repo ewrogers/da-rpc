@@ -546,6 +546,7 @@ mod tests {
                 effects: Some(Vec::new()),
             }),
             objects: Some(Vec::new()),
+            dialog: None,
         }
     }
 

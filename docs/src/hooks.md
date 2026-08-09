@@ -60,6 +60,7 @@ updates drive:
 - Body animations, attached visual effects, and temporary health meters for
   visible living entities
 - Chat and system messages
+- Merchant and pursuit dialog pages
 
 Unknown, malformed, oversized, or unreadable events are ignored. The client's
 original result is preserved.
@@ -76,6 +77,11 @@ The outbound hook watches the common plaintext submission path for:
 - Item use, tile drop, and player or monster exchange requests
 - Gold tile drops and exchange requests
 - Ground-item pickup, equipment removal, emotes, and turning
+
+NPC dialog responses use native main-thread methods and are observed through
+their retained dialog state. This preserves the visible page and the client's
+normal response-pending transition without constructing dialog packets in
+daRPC.
 
 This is how daRPC reports ability and action events for requests started
 through either daRPC or the normal game interface. It also helps keep spell

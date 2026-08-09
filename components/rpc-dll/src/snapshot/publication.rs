@@ -1,5 +1,6 @@
 use super::convert;
 
+use crate::dialog::RawDialog;
 use darpc_game_client::{RawObjects, RawStateSnapshot, StateReadError};
 use darpc_model::ClientSnapshot;
 use darpc_win32::pipe::sender_tick_ms;
@@ -39,7 +40,7 @@ pub(super) fn read() -> Option<Publication> {
         request_generation: stored.request_generation,
         result: stored
             .result
-            .map(|ready| convert::snapshot(ready, reader.raw(), reader.objects())),
+            .map(|ready| convert::snapshot(ready, reader.raw(), reader.objects(), reader.dialog())),
     })
 }
 
@@ -48,6 +49,7 @@ struct PublicationSlot {
     value: UnsafeCell<MaybeUninit<StoredPublication>>,
     snapshot: UnsafeCell<SnapshotBuffer>,
     objects: UnsafeCell<RawObjects>,
+    dialog: UnsafeCell<RawDialog>,
 }
 
 // SAFETY: access to `value` is exclusively transferred between the main-thread
@@ -61,6 +63,7 @@ impl PublicationSlot {
             value: UnsafeCell::new(MaybeUninit::uninit()),
             snapshot: UnsafeCell::new(SnapshotBuffer::new()),
             objects: UnsafeCell::new(RawObjects::empty()),
+            dialog: UnsafeCell::new(RawDialog::empty()),
         }
     }
 
@@ -136,6 +139,9 @@ impl PublicationWriter<'_> {
         };
         let captured_tick_ms = sender_tick_ms();
         let boundary = crate::state::snapshot_boundary(raw, objects, captured_tick_ms);
+        // SAFETY: publication runs on the main thread while this writer owns
+        // the destination slot, so both dialog copies are stable.
+        unsafe { crate::dialog::copy_current(&mut *self.slot.dialog.get()) };
         self.finish(StoredPublication {
             request_generation,
             result: Ok(ReadyPublication {
@@ -192,6 +198,11 @@ impl PublicationReader<'_> {
     fn objects(&self) -> &RawObjects {
         // SAFETY: READING excludes the only writer for the guard's lifetime.
         unsafe { &*self.slot.objects.get() }
+    }
+
+    fn dialog(&self) -> RawDialog {
+        // SAFETY: READING excludes the writer and RawDialog is Copy.
+        unsafe { *self.slot.dialog.get() }
     }
 }
 

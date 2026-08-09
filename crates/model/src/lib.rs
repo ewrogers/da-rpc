@@ -1,5 +1,6 @@
 //! Shared domain model for daRPC.
 
+mod dialog;
 mod emote;
 mod entity;
 mod event;
@@ -13,6 +14,12 @@ pub use event::{
     MapChange, MovementUpdate, ProgressionStatus, SkillbookUpdate, SlotUpdate,
     SpellCancellationSource, SpellCastArguments, SpellbookUpdate, StateEvent, StateUpdate,
     StatusUpdate, TilePosition,
+};
+
+pub use dialog::{
+    DialogChoice, DialogCloseReason, DialogInput, DialogInteraction, DialogItem, DialogKind,
+    DialogNavigation, DialogSlot, DialogSpeaker, DialogSpriteType, DialogState, DialogSubmission,
+    DialogTarget, DialogUpdate,
 };
 
 pub use emote::{NAMED_EMOTES, NamedEmote, emote_code, is_client_emote_code};

@@ -84,12 +84,19 @@ pub(crate) enum ServerUpdate<'a> {
     Collection(CollectionDirty),
     SpellCancelled,
     Visual(VisualUpdate),
+    Dialog(&'a [u8]),
 }
 
 pub(crate) fn update<'a>(
     body: &'a [u8],
     objects: &mut RawObjects,
 ) -> Result<Option<ServerUpdate<'a>>, ParseError> {
+    if matches!(body.first(), Some(0x2F | 0x30)) {
+        if body.len() < 2 {
+            return Err(ParseError::truncated(1, 1, body.len().saturating_sub(1)));
+        }
+        return Ok(Some(ServerUpdate::Dialog(body)));
+    }
     if let Some(update) = message::update(body)? {
         return Ok(Some(ServerUpdate::Message(update)));
     }

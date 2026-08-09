@@ -112,6 +112,8 @@ fn kind(kind: CommandKind) -> &'static str {
         CommandKind::GiveItem(_) => "give_item",
         CommandKind::GiveGold(_) => "give_gold",
         CommandKind::SwapSlots(_) => "swap_slots",
+        CommandKind::Interact(_) => "interact",
+        CommandKind::Dialog(_) => "dialog",
     }
 }
 

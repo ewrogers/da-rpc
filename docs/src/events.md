@@ -604,6 +604,19 @@ messages also produce `spell.succeeded`, `spell.failed`, or `spell.received`.
 Both frames are intentional: one preserves the text shown by the game and the
 other supplies semantic spell data.
 
+## NPC dialog events
+
+Read the current page from `GET /clients/{client}/dialog`. The
+[NPC dialogs](dialogs.md) chapter documents the dialog model, revision checks,
+response actions, and complete event payloads.
+
+| SSE event | JSON type | Meaning |
+| --- | --- | --- |
+| `dialog.opened` | `dialog_opened` | A merchant or pursuit dialog became active. |
+| `dialog.changed` | `dialog_changed` | The server replaced the current page or response choices. |
+| `dialog.submitted` | `dialog_submitted` | A daRPC action answered or navigated the current page. |
+| `dialog.closed` | `dialog_closed` | The dialog ended locally, remotely, during a map change, or during recovery. |
+
 ## Complete event index
 
 | Domain | Events | REST recovery route |
@@ -618,6 +631,7 @@ other supplies semantic spell data.
 | Effects | `effect.added`, `effect.removed`, `effect.changed` | `/effects` |
 | World | Player, monster, Mundane, ground-item, visual, damage, and `objects.cleared` events | `/objects` |
 | Messages | `message.say`, `message.shout`, `message.whisper`, `message.guild`, `message.group`, `message.system`, `message.world` | `/messages` |
+| NPC dialogs | `dialog.opened`, `dialog.changed`, `dialog.submitted`, `dialog.closed` | `/dialog` |
 
 The OpenAPI document at `/openapi.json` remains the exact machine-readable
 schema for these payloads. This chapter is the human-readable reference.

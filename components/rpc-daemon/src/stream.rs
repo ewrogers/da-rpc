@@ -1,4 +1,5 @@
 use crate::{
+    dialog::{DialogChanged, DialogClosed, DialogOpened, DialogSubmitted},
     messages::Message,
     registry::{ClientIdentity, hex},
     state::{EffectDuration, Element, InventoryItem, Skill, Spell, WorldObject},
@@ -292,6 +293,10 @@ pub(crate) enum ClientEvent {
     ItemMoved(ObjectChanged),
     ObjectsCleared(ObjectsCleared),
     Message(Message),
+    DialogOpened(DialogOpened),
+    DialogChanged(DialogChanged),
+    DialogSubmitted(DialogSubmitted),
+    DialogClosed(DialogClosed),
     StreamResyncRequired(StreamResyncRequired),
     StreamClosed(StreamClosed),
 }
@@ -366,6 +371,10 @@ impl ClientEvent {
             Self::ItemMoved(_) => "item.moved",
             Self::ObjectsCleared(_) => "objects.cleared",
             Self::Message(message) => message.event_name(),
+            Self::DialogOpened(_) => "dialog.opened",
+            Self::DialogChanged(_) => "dialog.changed",
+            Self::DialogSubmitted(_) => "dialog.submitted",
+            Self::DialogClosed(_) => "dialog.closed",
             Self::StreamResyncRequired(_) => "stream.resync_required",
             Self::StreamClosed(_) => "stream.closed",
         }
@@ -440,6 +449,10 @@ impl ClientEvent {
             | Self::MundaneDamaged(value) => value.observation.event_sequence,
             Self::ObjectsCleared(value) => value.observation.event_sequence,
             Self::Message(message) => message.sequence(),
+            Self::DialogOpened(value) => value.observation.event_sequence,
+            Self::DialogChanged(value) => value.observation.event_sequence,
+            Self::DialogSubmitted(value) => value.observation.event_sequence,
+            Self::DialogClosed(value) => value.observation.event_sequence,
             Self::StreamResyncRequired(value) => value.last_event_sequence,
             Self::StreamClosed(value) => value.last_event_sequence,
         }
@@ -945,6 +958,30 @@ fn expand(
                 observed_at_utc,
                 message,
             )));
+            return events;
+        }
+        StateUpdate::Dialog(update) => {
+            events.push(match update {
+                darpc_model::DialogUpdate::Opened(dialog) => {
+                    ClientEvent::DialogOpened(DialogOpened::new(observation, dialog))
+                }
+                darpc_model::DialogUpdate::Changed(dialog) => {
+                    ClientEvent::DialogChanged(DialogChanged::new(observation, dialog))
+                }
+                darpc_model::DialogUpdate::Submitted {
+                    state,
+                    previous_revision,
+                    submission,
+                } => ClientEvent::DialogSubmitted(DialogSubmitted::new(
+                    observation,
+                    previous_revision,
+                    state,
+                    submission,
+                )),
+                darpc_model::DialogUpdate::Closed { previous, reason } => {
+                    ClientEvent::DialogClosed(DialogClosed::new(observation, previous, reason))
+                }
+            });
             return events;
         }
     };

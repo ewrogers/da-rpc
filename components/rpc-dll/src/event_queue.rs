@@ -38,7 +38,7 @@ impl<const N: usize> EventQueue<N> {
         self.latest_dropped_sequence.store(0, Ordering::Release);
     }
 
-    pub(crate) fn push(&self, event: QueuedStateEvent) {
+    pub(crate) fn push(&self, event: QueuedStateEvent) -> bool {
         self.latest_sequence
             .store(event.sequence(), Ordering::Release);
         let write = self.write_position.load(Ordering::Relaxed);
@@ -46,7 +46,7 @@ impl<const N: usize> EventQueue<N> {
         if write.wrapping_sub(read) >= u32::try_from(N).expect("event queue capacity fits u32") {
             self.latest_dropped_sequence
                 .store(event.sequence(), Ordering::Release);
-            return;
+            return false;
         }
         let slot = &self.slots[write as usize % N];
         // SAFETY: this producer owns the slot until the release store advances
@@ -54,6 +54,7 @@ impl<const N: usize> EventQueue<N> {
         unsafe { (*slot.get()).write(event) };
         self.write_position
             .store(write.wrapping_add(1), Ordering::Release);
+        true
     }
 
     pub(crate) fn mark_resync_required(&self, missing_sequence: u32) {
@@ -80,7 +81,9 @@ impl<const N: usize> EventQueue<N> {
                 break;
             };
             if !sequence_after(next.sequence(), after_sequence) {
-                let _ = self.pop();
+                if let Some(event) = self.pop() {
+                    event.discard();
+                }
                 continue;
             }
             if next.sequence() != expected {
@@ -121,12 +124,23 @@ impl<const N: usize> EventQueue<N> {
                         };
                     }
                     expected = next_sequence(event.sequence());
-                    events.push(event.into_model());
+                    events.push(
+                        event
+                            .into_model()
+                            .expect("collection events always have inline payloads"),
+                    );
                 }
             } else {
                 let event = self.pop().expect("peeked event is available");
                 expected = next_sequence(event.sequence());
-                events.push(event.into_model());
+                let sequence = event.sequence();
+                let Some(event) = event.into_model() else {
+                    return EventPollResult::ResyncRequired {
+                        missing_sequence: sequence,
+                        latest_sequence: latest,
+                    };
+                };
+                events.push(event);
             }
         }
         EventPollResult::Events(events)
@@ -137,7 +151,9 @@ impl<const N: usize> EventQueue<N> {
             .peek()
             .is_some_and(|event| !sequence_after(event.sequence(), snapshot_sequence))
         {
-            let _ = self.pop();
+            if let Some(event) = self.pop() {
+                event.discard();
+            }
         }
     }
 

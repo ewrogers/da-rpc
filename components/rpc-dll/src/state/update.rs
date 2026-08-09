@@ -17,7 +17,7 @@ impl QueuedStateEvent {
         self.update.collection_batch()
     }
 
-    pub(crate) fn into_model(self) -> StateEvent {
+    pub(crate) fn into_model(self) -> Option<StateEvent> {
         let update = match self.update {
             QueuedStateUpdate::Status(update) => StateUpdate::Status(update),
             #[cfg(not(test))]
@@ -30,12 +30,19 @@ impl QueuedStateEvent {
             QueuedStateUpdate::Ability(update) => StateUpdate::Ability(update.into_model()),
             QueuedStateUpdate::Action(update) => StateUpdate::Action(update),
             QueuedStateUpdate::Entity(update) => StateUpdate::Entity(update.into_model()),
+            QueuedStateUpdate::Dialog(update) => StateUpdate::Dialog(crate::dialog::take(update)?),
         };
-        StateEvent {
+        Some(StateEvent {
             sequence: self.sequence,
             revision: self.revision,
             tick_ms: self.tick_ms,
             update,
+        })
+    }
+
+    pub(crate) fn discard(self) {
+        if let QueuedStateUpdate::Dialog(update) = self.update {
+            crate::dialog::release(update);
         }
     }
 }
@@ -56,6 +63,7 @@ pub(super) enum QueuedStateUpdate {
     Ability(QueuedAbilityUpdate),
     Action(ActionUpdate),
     Entity(QueuedEntityUpdate),
+    Dialog(crate::dialog::QueuedDialog),
 }
 
 impl QueuedStateUpdate {

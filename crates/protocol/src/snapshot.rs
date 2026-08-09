@@ -67,6 +67,7 @@ pub(crate) fn encode(output: &mut Vec<u8>, snapshot: &ClientSnapshot) -> Result<
         encode_character(output, character)?;
     }
     objects::encode(output, snapshot.objects.as_deref())?;
+    crate::dialog::encode_optional_state(output, snapshot.dialog.as_ref())?;
     Ok(())
 }
 
@@ -84,6 +85,11 @@ pub(crate) fn decode(reader: &mut PayloadReader<'_>) -> Result<ClientSnapshot, D
         None
     };
     let objects = objects::decode(reader)?;
+    let dialog = if reader.is_empty() {
+        None
+    } else {
+        crate::dialog::decode_optional_state(reader)?
+    };
     Ok(ClientSnapshot {
         revision,
         event_sequence,
@@ -94,6 +100,7 @@ pub(crate) fn decode(reader: &mut PayloadReader<'_>) -> Result<ClientSnapshot, D
         lifecycle,
         character,
         objects,
+        dialog,
     })
 }
 

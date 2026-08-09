@@ -31,6 +31,7 @@ pub(crate) fn reset() {
     PROCESSED_GENERATION.store(0, Ordering::Release);
     publication::reset();
     crate::state::reset();
+    crate::dialog::reset();
     map_name::reset();
 }
 

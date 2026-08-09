@@ -135,6 +135,7 @@ pub struct ClientSnapshot {
     pub lifecycle: ClientLifecycle,
     pub character: Option<CharacterSnapshot>,
     pub objects: Option<Vec<crate::WorldObject>>,
+    pub dialog: Option<crate::DialogState>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

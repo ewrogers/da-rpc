@@ -9,6 +9,8 @@ mod collections;
 #[cfg(any(windows, test))]
 mod commands;
 #[cfg(any(windows, test))]
+mod dialog;
+#[cfg(any(windows, test))]
 mod event_queue;
 #[cfg(windows)]
 mod hooks;

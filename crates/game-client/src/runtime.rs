@@ -49,6 +49,15 @@ pub const ADVANCE_PATH_RVA: usize = 0x001F_4990;
 /// Module-relative address of the native exact-tile route builder.
 pub const BUILD_PATH_RVA: usize = 0x001F_4DE0;
 
+/// Module-relative address of the normal living-object interaction producer.
+pub const WORLD_ENTITY_INTERACTION_RVA: usize = 0x001F_4730;
+
+/// Module-relative address of the live event dispatcher pointer.
+pub const EVENT_DISPATCHER_POINTER_RVA: usize = 0x002D_9220;
+
+/// Complete Object Locator RVAs accepted for exact RTTI `NPCSession`.
+pub const NPC_SESSION_COL_RVAS: [usize; 2] = [0x002A_0EF8, 0x002A_0F50];
+
 /// Module-relative address of the null-safe live lower-tray pane accessor.
 pub const GUI_BACK_PANE_GET_RVA: usize = 0x001A_9C40;
 

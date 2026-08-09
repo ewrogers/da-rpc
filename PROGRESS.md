@@ -10,8 +10,8 @@ remain concise.
 ## Current focus
 
 M15, the first typed client actions, is complete. M16 is in progress with
-bounded outbound ability observation and native spell casting. Immutable local
-rules remain.
+bounded packet observation, native actions, and NPC dialog interaction.
+Immutable local rules remain.
 
 ## Milestone snapshot
 
@@ -35,7 +35,7 @@ rules remain.
 | M13, event-driven updates | Complete | Bounded status, location, spell-effect, collection, world-object, and typed message updates, daemon reduction and message lookback, resynchronization, per-client SSE, and live-client acceptance pass. |
 | M14, main-thread command queue | Complete | Fixed DLL and daemon queues, one command per tick, direct CLI and REST routing, explicit states, and live-client verification pass. |
 | M15, first typed action | Complete | Native turn, directional step, exact-tile pathfinding, non-disruptive skill use, validation, walking state and events, and live direct and REST verification pass. |
-| M16, packet observation and local rules | In progress | Bounded action observation plus typed movement, ability, item, gold, equipment, pickup, and emote actions are implemented; local rules remain. |
+| M16, packet observation and local rules | In progress | Bounded action observation plus typed movement, ability, item, gold, equipment, pickup, emote, and NPC dialog actions are implemented; local rules remain. |
 
 ## Completed recently
 
@@ -104,6 +104,14 @@ rules remain.
   REST with strict live-state validation.
 - [x] Added bounded outgoing action events for items, gold, equipment, pickup,
   emotes, and turning with documented SSE payloads.
+- [x] Added retained merchant and pursuit dialog state, revision-checked native
+  interaction, REST actions, and ordered open, change, submit, and close events.
+- [x] Live-verified merchant opening, native interaction, choice submission,
+  pending and changed state, close behavior, REST state, SSE ordering, and stale
+  revision rejection.
+- [x] Live-verified pursuit choice and navigation submissions, text-prompt
+  parsing and input, server-driven replacement and closure, REST state, and SSE
+  ordering.
 - [x] Live-tested default item quantity, tile drop, pickup, empty-slot failure,
   excessive stack quantity failure, and the normal player exchange flow.
 

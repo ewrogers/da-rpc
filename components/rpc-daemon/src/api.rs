@@ -1,5 +1,11 @@
 use crate::{
     commands::{CommandCall, ROUTER_CAPACITY},
+    dialog::{
+        DialogChanged, DialogChoice, DialogCloseReason, DialogClosed, DialogInput,
+        DialogInteraction, DialogItem, DialogKind, DialogNavigation, DialogOpened, DialogSlot,
+        DialogSnapshot, DialogSpeaker, DialogSpriteType, DialogState, DialogSubmission,
+        DialogSubmitted,
+    },
     event::DaemonEvent,
     lifecycle::{
         LaunchOptions as ManagedLaunchOptions, LifecycleControl, LifecycleOperation,
@@ -334,6 +340,31 @@ fn router(state: ApiState) -> Router {
         .route("/health", get(health))
         .route("/clients", get(clients))
         .route("/clients/{client}/status", get(client_status))
+        .route("/clients/{client}/dialog", get(client_dialog))
+        .route(
+            "/clients/{client}/interact",
+            post(crate::commands::interact),
+        )
+        .route(
+            "/clients/{client}/dialog/select",
+            post(crate::commands::dialog_select),
+        )
+        .route(
+            "/clients/{client}/dialog/input",
+            post(crate::commands::dialog_input),
+        )
+        .route(
+            "/clients/{client}/dialog/previous",
+            post(crate::commands::dialog_previous),
+        )
+        .route(
+            "/clients/{client}/dialog/next",
+            post(crate::commands::dialog_next),
+        )
+        .route(
+            "/clients/{client}/dialog/close",
+            post(crate::commands::close_dialog),
+        )
         .route("/clients/{client}/items", get(client_items))
         .route(
             "/clients/{client}/items/use",
@@ -449,7 +480,13 @@ async fn reject_request_body(request: Request<Body>, next: Next) -> Response {
             || request.uri().path().ends_with("/equipment/unequip")
             || request.uri().path().ends_with("/gold/drop")
             || request.uri().path().ends_with("/gold/give")
-            || request.uri().path().ends_with("/emote"))
+            || request.uri().path().ends_with("/emote")
+            || request.uri().path().ends_with("/interact")
+            || request.uri().path().ends_with("/dialog/select")
+            || request.uri().path().ends_with("/dialog/input")
+            || request.uri().path().ends_with("/dialog/previous")
+            || request.uri().path().ends_with("/dialog/next")
+            || request.uri().path().ends_with("/dialog/close"))
     {
         return next.run(request).await;
     }
@@ -517,6 +554,26 @@ async fn client_status(
     let registry = state.snapshot();
     let (pid, snapshot) = resolve_game_snapshot(&registry, &identifier)?;
     Ok(Json(GameStatus::from_model(pid, snapshot)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/clients/{client}/dialog",
+    params(("client" = String, Path, description = "Process ID or current in-game character name")),
+    responses(
+        (status = 200, description = "The current NPC dialog, or null when none is open", body = DialogSnapshot),
+        (status = 400, body = ErrorState),
+        (status = 404, body = ErrorState),
+        (status = 503, body = ErrorState)
+    )
+)]
+async fn client_dialog(
+    Path(identifier): Path<String>,
+    State(state): State<ApiState>,
+) -> Result<Json<DialogSnapshot>, ApiError> {
+    let registry = state.snapshot();
+    let (pid, snapshot) = resolve_game_snapshot(&registry, &identifier)?;
+    Ok(Json(DialogSnapshot::from_model(pid, snapshot)))
 }
 
 #[utoipa::path(
@@ -1093,6 +1150,7 @@ fn operation_in_progress(pid: u32) -> ApiError {
         health,
         clients,
         client_status,
+        client_dialog,
         client_items,
         client_equipment,
         client_spells,
@@ -1120,6 +1178,12 @@ fn operation_in_progress(pid: u32) -> ApiError {
         crate::commands::interaction::pickup_item,
         crate::commands::interaction::unequip,
         crate::commands::interaction::emote,
+        crate::commands::dialog::interact,
+        crate::commands::dialog::select,
+        crate::commands::dialog::input,
+        crate::commands::dialog::previous,
+        crate::commands::dialog::next,
+        crate::commands::dialog::close,
         crate::commands::status,
         crate::commands::cancel
     ),
@@ -1163,6 +1227,23 @@ fn operation_in_progress(pid: u32) -> ApiError {
         Messages,
         Message,
         MessageChannel,
+        DialogSnapshot,
+        DialogState,
+        DialogKind,
+        DialogSpeaker,
+        DialogSpriteType,
+        DialogNavigation,
+        DialogInteraction,
+        DialogChoice,
+        DialogInput,
+        DialogItem,
+        DialogSlot,
+        DialogOpened,
+        DialogChanged,
+        DialogSubmitted,
+        DialogClosed,
+        DialogSubmission,
+        DialogCloseReason,
         LaunchOptions,
         LoadResult,
         UnloadResult,
@@ -1195,6 +1276,10 @@ fn operation_in_progress(pid: u32) -> ApiError {
         crate::commands::PickupItemOptions,
         crate::commands::UnequipOptions,
         crate::commands::EmoteOptions,
+        crate::commands::InteractOptions,
+        crate::commands::DialogSelectOptions,
+        crate::commands::DialogInputOptions,
+        crate::commands::DialogRevisionOptions,
         crate::commands::CommandStatus,
         crate::commands::CommandKind,
         crate::commands::CommandState,
@@ -1618,6 +1703,10 @@ mod tests {
         CharacterSnapshot as ModelCharacterSnapshot, CharacterStats, CharacterVitals,
         ClientLifecycle, ClientMessage as ModelClientMessage,
         ClientSnapshot as ModelClientSnapshot, CooldownStatus as ModelCooldownStatus, CreatureKind,
+        DialogChoice as ModelDialogChoice, DialogInteraction as ModelDialogInteraction,
+        DialogKind as ModelDialogKind, DialogNavigation as ModelDialogNavigation,
+        DialogSpeaker as ModelDialogSpeaker, DialogSpriteType as ModelDialogSpriteType,
+        DialogState as ModelDialogState, DialogTarget as ModelDialogTarget,
         Direction as ModelDirection, Effect as ModelEffect, EffectDuration as ModelEffectDuration,
         EquipmentItem as ModelEquipmentItem, EquipmentSlot as ModelEquipmentSlot, Gender,
         InventoryItem as ModelInventoryItem, MapLocation, MessageKind as ModelMessageKind,
@@ -1627,9 +1716,9 @@ mod tests {
     };
     use darpc_protocol::{
         Architecture, CommandKind, CommandOperation, CommandResult, CommandState, CommandStatus,
-        ComponentVersion, GoldTransfer, Hello, ItemSlot, ItemTransfer, SUPPORTED_VERSIONS,
-        SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget,
-        TilePosition, TransferTarget, WalkTarget,
+        ComponentVersion, DialogAction, DialogCommand, GoldTransfer, Hello, ItemSlot, ItemTransfer,
+        SUPPORTED_VERSIONS, SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot,
+        SpellTarget, TilePosition, TransferTarget, WalkTarget,
     };
     use serde_json::Value;
     use std::{
@@ -1823,6 +1912,29 @@ mod tests {
                     z_index: 0,
                 },
             ]),
+            dialog: Some(ModelDialogState {
+                revision: 7,
+                kind: ModelDialogKind::Pursuit,
+                target: ModelDialogTarget { id: 3 },
+                speaker: ModelDialogSpeaker {
+                    name: Some("Innkeeper".into()),
+                    sprite: 200,
+                    sprite_type: ModelDialogSpriteType::Creature,
+                    color: 0,
+                    show_graphic: true,
+                },
+                content: Some("How can I help?".into()),
+                response_pending: false,
+                navigation: ModelDialogNavigation {
+                    previous: false,
+                    next: true,
+                    close: true,
+                },
+                interaction: ModelDialogInteraction::Choices(vec![ModelDialogChoice {
+                    index: 0,
+                    text: "Tell me more".into(),
+                }]),
+            }),
         }
     }
 
@@ -2225,6 +2337,54 @@ mod tests {
             r#"{"name":"WaVe"}"#,
             CommandKind::Emote(13),
         );
+        assert_routes_action(
+            "/clients/42/interact",
+            r#"{"target":"iNnKeEpEr"}"#,
+            CommandKind::Interact(std::num::NonZeroU32::new(3).unwrap()),
+        );
+        assert_routes_action(
+            "/clients/42/dialog/select",
+            r#"{"revision":7,"index":0}"#,
+            CommandKind::Dialog(DialogCommand {
+                revision: 7,
+                action: DialogAction::Select {
+                    index: 0,
+                    quantity: 1,
+                },
+            }),
+        );
+        assert_routes_action(
+            "/clients/42/dialog/next",
+            r#"{"revision":7}"#,
+            CommandKind::Dialog(DialogCommand {
+                revision: 7,
+                action: DialogAction::Next,
+            }),
+        );
+        assert_routes_action(
+            "/clients/42/dialog/close",
+            r#"{"revision":7}"#,
+            CommandKind::Dialog(DialogCommand {
+                revision: 7,
+                action: DialogAction::Close,
+            }),
+        );
+    }
+
+    #[test]
+    fn serves_dialog_state_and_rejects_stale_actions() {
+        let body = json("/clients/42/dialog");
+        assert_eq!(body["dialog"]["revision"], 7);
+        assert_eq!(body["dialog"]["speaker"]["name"], "Innkeeper");
+        assert_eq!(body["dialog"]["interaction"]["type"], "choices");
+
+        let response = post_json(
+            state(),
+            "/clients/42/dialog/select",
+            r#"{"revision":6,"index":0}"#,
+        );
+        assert_eq!(response.status(), StatusCode::CONFLICT);
+        assert_eq!(response_json(response)["error"]["code"], "stale_dialog");
     }
 
     #[test]

@@ -25,7 +25,7 @@ pub(crate) struct ObservationMetadata {
 }
 
 impl ObservationMetadata {
-    pub(super) fn from_model(pid: u32, snapshot: &ModelClientSnapshot) -> Self {
+    pub(crate) fn from_model(pid: u32, snapshot: &ModelClientSnapshot) -> Self {
         Self {
             pid,
             revision: snapshot.revision,

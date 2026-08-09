@@ -730,6 +730,9 @@ Current implementation:
 - The daemon correlates up to 256 recent per-client spell submissions with
   bounded system feedback and exposes confirmed success, failure, and incoming
   spell events without changing protocol 1.0.
+- Merchant and pursuit dialogs are retained in snapshots, published through
+  ordered events, and controlled with revision-checked native main-thread
+  actions. Large dialog bodies use a separate fixed-capacity handoff.
 - Local immutable rules remain to be implemented before this milestone is
   complete.
 

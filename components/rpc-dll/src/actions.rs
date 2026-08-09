@@ -1,4 +1,5 @@
 mod ability;
+pub(crate) mod dialog;
 mod interaction;
 pub(crate) mod movement;
 mod network;
@@ -29,6 +30,8 @@ pub(crate) fn execute(command: CommandKind) -> Result<(), CommandFailure> {
         CommandKind::PickupItem(position) => interaction::pickup_item(position),
         CommandKind::Unequip(slot) => interaction::unequip(slot),
         CommandKind::Emote(code) => interaction::emote(code),
+        CommandKind::Interact(id) => movement::interact(id),
+        CommandKind::Dialog(command) => dialog::submit(command),
     }
 }
 

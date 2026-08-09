@@ -25,12 +25,18 @@ use tokio::{sync::oneshot, time::timeout};
 use utoipa::ToSchema;
 
 pub(crate) mod ability;
+pub(crate) mod dialog;
 pub(crate) mod interaction;
 pub(crate) mod movement;
 
 pub(crate) use ability::{
     CastSpellByName, CastSpellBySlot, CastSpellOptions, SkillNameOptions, SkillSlotOptions,
     SpellTargetOptions, UseSkillOptions, cast_spell, swap_skills, swap_spells, use_skill,
+};
+pub(crate) use dialog::{
+    DialogInputOptions, DialogRevisionOptions, DialogSelectOptions, InteractOptions,
+    close as close_dialog, input as dialog_input, interact, next as dialog_next,
+    previous as dialog_previous, select as dialog_select,
 };
 pub(crate) use interaction::{
     DropGoldOptions, DropItemOptions, EmoteOptions, GiveGoldOptions, GiveItemOptions,
@@ -209,6 +215,8 @@ pub(crate) struct CommandCall {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[cfg_attr(not(windows), allow(dead_code))]
+// Successful replies retain the complete protocol result until the HTTP task receives it.
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum CommandReply {
     Result(ProtocolResult),
     Busy,
@@ -254,6 +262,8 @@ pub(crate) enum CommandKind {
     PickupItem,
     Unequip,
     Emote,
+    Interact,
+    Dialog,
     GiveItem,
     GiveGold,
     SwapItems,
@@ -584,6 +594,8 @@ impl From<ProtocolKind> for CommandKind {
             ProtocolKind::PickupItem(_) => Self::PickupItem,
             ProtocolKind::Unequip(_) => Self::Unequip,
             ProtocolKind::Emote(_) => Self::Emote,
+            ProtocolKind::Interact(_) => Self::Interact,
+            ProtocolKind::Dialog(_) => Self::Dialog,
             ProtocolKind::GiveItem(_) => Self::GiveItem,
             ProtocolKind::GiveGold(_) => Self::GiveGold,
             ProtocolKind::SwapSlots(SlotSwap::Inventory { .. }) => Self::SwapItems,

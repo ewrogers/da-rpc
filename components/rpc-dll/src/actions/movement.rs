@@ -1,7 +1,8 @@
 use super::{module_base, read};
 use darpc_game_client::{
     ADVANCE_PATH_RVA, BUILD_PATH_RVA, RESET_MOVEMENT_RVA, SELF_OBJECT_RVA, TURN_RVA, WALK_RVA,
-    WORLD_PANE_ADJUSTMENT, WORLD_PANE_POINTER_RVA, WORLD_PANE_ROUTE_ACTIVE_OFFSET,
+    WORLD_ENTITY_INTERACTION_RVA, WORLD_PANE_ADJUSTMENT, WORLD_PANE_POINTER_RVA,
+    WORLD_PANE_ROUTE_ACTIVE_OFFSET,
 };
 use darpc_model::{Direction, TilePosition};
 use darpc_protocol::CommandFailure;
@@ -23,6 +24,7 @@ type WalkFn = unsafe extern "thiscall" fn(*mut c_void, u8) -> usize;
 type ResetFn = unsafe extern "thiscall" fn(*mut c_void, u8) -> usize;
 type AdvanceFn = unsafe extern "thiscall" fn(*mut c_void) -> usize;
 type BuildPathFn = unsafe extern "thiscall" fn(*mut c_void, i32, i32, i32, i32, u8) -> usize;
+type InteractFn = unsafe extern "thiscall" fn(*mut c_void, u32) -> usize;
 
 static HAS_ROUTE_DESTINATION: AtomicBool = AtomicBool::new(false);
 static ROUTE_DESTINATION_X: AtomicI32 = AtomicI32::new(0);
@@ -38,6 +40,26 @@ pub(super) fn walk(direction: Direction) -> Result<(), CommandFailure> {
 
 pub(super) fn walk_to(x: i32, y: i32) -> Result<(), CommandFailure> {
     Movement::resolve()?.walk_to(x, y)
+}
+
+pub(super) fn interact(id: std::num::NonZeroU32) -> Result<(), CommandFailure> {
+    let movement = Movement::resolve()?;
+    let self_id = local_object_id()?;
+    if self_id == id.get() || crate::state::target_position(id.get()).is_none() {
+        return Err(CommandFailure::InvalidTarget);
+    }
+    // SAFETY: exact client validation fixes this RVA and ABI. The target was
+    // resolved from the current main-thread object cache.
+    let accepted = unsafe {
+        let interact: InteractFn =
+            mem::transmute(movement.module_base + WORLD_ENTITY_INTERACTION_RVA);
+        interact(movement.world.as_ptr(), id.get())
+    } != 0;
+    if accepted {
+        Ok(())
+    } else {
+        Err(CommandFailure::Rejected)
+    }
 }
 
 pub(super) fn validate_tile(x: i32, y: i32) -> Result<(u16, u16), CommandFailure> {

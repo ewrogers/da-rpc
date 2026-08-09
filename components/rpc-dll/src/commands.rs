@@ -1,8 +1,9 @@
 use darpc_model::{Direction, EquipmentSlot};
 use darpc_protocol::{
     CommandFailure, CommandKind, CommandOperation, CommandResult, CommandState, CommandStatus,
-    GoldTransfer, ItemSlot, ItemTransfer, MAX_SPELL_INPUT_LEN, SkillSlot, SlotSwap, SpellArguments,
-    SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkTarget,
+    DialogAction, DialogCommand, DialogText, GoldTransfer, ItemSlot, ItemTransfer,
+    MAX_DIALOG_INPUT_LEN, SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot,
+    SpellTarget, TilePosition, TransferTarget, WalkTarget,
 };
 use std::{
     panic,
@@ -44,7 +45,7 @@ struct CommandSlot {
     argument_y: AtomicU32,
     argument_z: AtomicU32,
     argument_length: AtomicU8,
-    argument_bytes: [AtomicU8; MAX_SPELL_INPUT_LEN],
+    argument_bytes: [AtomicU8; MAX_DIALOG_INPUT_LEN],
     enqueued_tick_ms: AtomicU32,
     deadline_tick_ms: AtomicU32,
     started_tick_ms: AtomicU32,
@@ -69,7 +70,7 @@ impl CommandSlot {
             argument_y: AtomicU32::new(0),
             argument_z: AtomicU32::new(0),
             argument_length: AtomicU8::new(0),
-            argument_bytes: [const { AtomicU8::new(0) }; MAX_SPELL_INPUT_LEN],
+            argument_bytes: [const { AtomicU8::new(0) }; MAX_DIALOG_INPUT_LEN],
             enqueued_tick_ms: AtomicU32::new(0),
             deadline_tick_ms: AtomicU32::new(0),
             started_tick_ms: AtomicU32::new(0),
@@ -91,9 +92,9 @@ impl CommandSlot {
         self.argument_x.store(argument_x, Ordering::Relaxed);
         self.argument_y.store(argument_y, Ordering::Relaxed);
         self.argument_z.store(argument_z, Ordering::Relaxed);
-        let input = input.as_ref().map_or(&[][..], SpellInput::as_bytes);
+        let input = input.as_ref().map_or(&[][..], StoredInput::as_bytes);
         self.argument_length.store(
-            u8::try_from(input.len()).expect("spell input limit fits u8"),
+            u8::try_from(input.len()).expect("command input limit fits u8"),
             Ordering::Relaxed,
         );
         for (index, byte) in self.argument_bytes.iter().enumerate() {
@@ -166,7 +167,7 @@ impl CommandSlot {
 
     fn kind(&self) -> CommandKind {
         let length = usize::from(self.argument_length.load(Ordering::Relaxed));
-        let mut input = [0; MAX_SPELL_INPUT_LEN];
+        let mut input = [0; MAX_DIALOG_INPUT_LEN];
         for (destination, source) in input.iter_mut().zip(&self.argument_bytes).take(length) {
             *destination = source.load(Ordering::Relaxed);
         }
@@ -175,7 +176,7 @@ impl CommandSlot {
             self.argument_x.load(Ordering::Relaxed),
             self.argument_y.load(Ordering::Relaxed),
             self.argument_z.load(Ordering::Relaxed),
-            &input[..length.min(MAX_SPELL_INPUT_LEN)],
+            &input[..length.min(MAX_DIALOG_INPUT_LEN)],
         )
     }
 }
@@ -458,7 +459,22 @@ fn next_command_id() -> u32 {
     }
 }
 
-fn stored_kind(kind: CommandKind) -> (u8, u32, u32, u32, Option<SpellInput>) {
+#[derive(Clone, Copy)]
+enum StoredInput {
+    Spell(SpellInput),
+    Dialog(DialogText),
+}
+
+impl StoredInput {
+    fn as_bytes(&self) -> &[u8] {
+        match self {
+            Self::Spell(value) => value.as_bytes(),
+            Self::Dialog(value) => value.as_bytes(),
+        }
+    }
+}
+
+fn stored_kind(kind: CommandKind) -> (u8, u32, u32, u32, Option<StoredInput>) {
     match kind {
         CommandKind::Diagnostic => (0, 0, 0, 0, None),
         CommandKind::Turn(direction) => (1, direction.raw() as u32, 0, 0, None),
@@ -482,7 +498,7 @@ fn stored_kind(kind: CommandKind) -> (u8, u32, u32, u32, Option<SpellInput>) {
         CommandKind::CastSpell(SpellCast {
             slot,
             arguments: SpellArguments::Input(input),
-        }) => (8, slot.get() as u32, 0, 0, Some(input)),
+        }) => (8, slot.get() as u32, 0, 0, Some(StoredInput::Spell(input))),
         CommandKind::UseItem(slot) => (9, slot.get() as u32, 0, 0, None),
         CommandKind::DropItem(ItemTransfer {
             slot,
@@ -535,6 +551,27 @@ fn stored_kind(kind: CommandKind) -> (u8, u32, u32, u32, Option<SpellInput>) {
             source,
             destination,
         }) => (23, source.get() as u32, destination.get() as u32, 0, None),
+        CommandKind::Interact(id) => (24, id.get(), 0, 0, None),
+        CommandKind::Dialog(DialogCommand {
+            revision,
+            action: DialogAction::Select { index, quantity },
+        }) => (25, revision, u32::from(index), u32::from(quantity), None),
+        CommandKind::Dialog(DialogCommand {
+            revision,
+            action: DialogAction::Input(input),
+        }) => (26, revision, 0, 0, Some(StoredInput::Dialog(input))),
+        CommandKind::Dialog(DialogCommand {
+            revision,
+            action: DialogAction::Previous,
+        }) => (27, revision, 0, 0, None),
+        CommandKind::Dialog(DialogCommand {
+            revision,
+            action: DialogAction::Next,
+        }) => (28, revision, 0, 0, None),
+        CommandKind::Dialog(DialogCommand {
+            revision,
+            action: DialogAction::Close,
+        }) => (29, revision, 0, 0, None),
     }
 }
 
@@ -677,6 +714,40 @@ fn kind_from_value(
             swap.map(CommandKind::SwapSlots)
                 .unwrap_or(CommandKind::Diagnostic)
         }
+        24 => std::num::NonZeroU32::new(argument_x)
+            .map(CommandKind::Interact)
+            .unwrap_or(CommandKind::Diagnostic),
+        25 => CommandKind::Dialog(DialogCommand {
+            revision: argument_x,
+            action: DialogAction::Select {
+                index: argument_y as u16,
+                quantity: argument_z as u8,
+            },
+        }),
+        26 => {
+            let Ok(text) = std::str::from_utf8(input) else {
+                return CommandKind::Diagnostic;
+            };
+            let Some(text) = DialogText::new(text) else {
+                return CommandKind::Diagnostic;
+            };
+            CommandKind::Dialog(DialogCommand {
+                revision: argument_x,
+                action: DialogAction::Input(text),
+            })
+        }
+        27 => CommandKind::Dialog(DialogCommand {
+            revision: argument_x,
+            action: DialogAction::Previous,
+        }),
+        28 => CommandKind::Dialog(DialogCommand {
+            revision: argument_x,
+            action: DialogAction::Next,
+        }),
+        29 => CommandKind::Dialog(DialogCommand {
+            revision: argument_x,
+            action: DialogAction::Close,
+        }),
         _ => CommandKind::Diagnostic,
     }
 }

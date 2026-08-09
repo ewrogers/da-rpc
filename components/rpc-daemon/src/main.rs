@@ -8,6 +8,8 @@ mod auto_load;
 mod commands;
 #[cfg(windows)]
 mod connection;
+#[cfg(any(windows, test))]
+mod dialog;
 #[cfg(windows)]
 mod discovery;
 #[cfg(any(windows, test))]

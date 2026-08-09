@@ -52,6 +52,30 @@ pub(crate) fn observe_spell_cancelled(tick_ms: u32) {
     ability::observe_spell_cancelled(tick_ms);
 }
 
+pub(crate) fn observe_dialog(body: &[u8], tick_ms: u32) {
+    if let Some(dialog) = crate::dialog::observe_server(body)
+        && !push_event(QueuedStateUpdate::Dialog(dialog), tick_ms)
+    {
+        crate::dialog::release(dialog);
+    }
+}
+
+pub(crate) fn observe_dialog_submission(submission: darpc_model::DialogSubmission, tick_ms: u32) {
+    if let Some(dialog) = crate::dialog::submit(submission)
+        && !push_event(QueuedStateUpdate::Dialog(dialog), tick_ms)
+    {
+        crate::dialog::release(dialog);
+    }
+}
+
+pub(crate) fn observe_dialog_closed(reason: darpc_model::DialogCloseReason, tick_ms: u32) {
+    if let Some(dialog) = crate::dialog::close(reason)
+        && !push_event(QueuedStateUpdate::Dialog(dialog), tick_ms)
+    {
+        crate::dialog::release(dialog);
+    }
+}
+
 pub(crate) fn observe_visual(update: VisualUpdate, tick_ms: u32) {
     match update {
         VisualUpdate::Motion {
@@ -205,6 +229,13 @@ pub(crate) fn map_transition_pending() -> bool {
 pub(crate) fn stage_map_transition(map_id: u32, width: i32, height: i32, name: &[u8]) {
     #[cfg(all(windows, not(test)))]
     crate::actions::movement::clear_route_destination();
+    #[cfg(windows)]
+    if crate::dialog::is_active() {
+        observe_dialog_closed(
+            darpc_model::DialogCloseReason::WorldChanged,
+            sender_tick_ms(),
+        );
+    }
     // SAFETY: the map-size hook runs on the client main thread, which is the
     // sole cache producer.
     unsafe { CACHE.stage_map_transition(map_id, width, height, name) };
@@ -281,6 +312,10 @@ pub(crate) fn observe_tick() {
     let tick_ms = sender_tick_ms();
     #[cfg(not(windows))]
     let tick_ms = 0;
+    #[cfg(all(windows, not(test)))]
+    if crate::dialog::is_active() && !crate::actions::dialog::is_open() {
+        observe_dialog_closed(darpc_model::DialogCloseReason::Client, tick_ms);
+    }
     // SAFETY: the tick hook runs on the client main thread, which is the sole
     // collection producer.
     unsafe {
@@ -423,14 +458,14 @@ fn observe_self_position(x: i32, y: i32, tick_ms: u32) {
     }
 }
 
-fn push_event(update: QueuedStateUpdate, tick_ms: u32) {
+fn push_event(update: QueuedStateUpdate, tick_ms: u32) -> bool {
     let event = QueuedStateEvent {
         sequence: next_nonzero(&EVENT_SEQUENCE),
         revision: next_nonzero(&REVISION),
         tick_ms,
         update,
     };
-    QUEUE.push(event);
+    QUEUE.push(event)
 }
 
 pub(crate) fn poll(after_sequence: u32, max_events: u16, wait: Duration) -> EventPollResult {
@@ -553,7 +588,7 @@ mod tests {
         queue.push(event(2));
         assert_eq!(
             queue.take_after(1, 4),
-            EventPollResult::Events(vec![event(2).into_model()])
+            EventPollResult::Events(vec![event(2).into_model().unwrap()])
         );
     }
 
@@ -597,7 +632,7 @@ mod tests {
         queue.discard_through(2);
         assert_eq!(
             queue.take_after(2, 4),
-            EventPollResult::Events(vec![event(3).into_model()])
+            EventPollResult::Events(vec![event(3).into_model().unwrap()])
         );
     }
 
@@ -624,13 +659,13 @@ mod tests {
 
         assert_eq!(
             queue.take_after(0, 2),
-            EventPollResult::Events(vec![event(1).into_model()])
+            EventPollResult::Events(vec![event(1).into_model().unwrap()])
         );
         assert_eq!(
             queue.take_after(1, 4),
             EventPollResult::Events(vec![
-                collection_event(2, 0, 2).into_model(),
-                collection_event(3, 1, 2).into_model(),
+                collection_event(2, 0, 2).into_model().unwrap(),
+                collection_event(3, 1, 2).into_model().unwrap(),
             ])
         );
     }
@@ -645,8 +680,8 @@ mod tests {
         assert_eq!(
             queue.take_after(0, 4),
             EventPollResult::Events(vec![
-                collection_event(1, 0, 2).into_model(),
-                collection_event(2, 1, 2).into_model(),
+                collection_event(1, 0, 2).into_model().unwrap(),
+                collection_event(2, 1, 2).into_model().unwrap(),
             ])
         );
     }

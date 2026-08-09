@@ -49,6 +49,8 @@ like a second client trying to imitate it from the outside.
 - Follow changes as they happen through an ordered event stream.
 - Turn, walk, use items and skills, cast spells, move items and gold, unequip
   gear, pick up ground items, and emote through normal client behavior.
+- Observe and answer merchant and pursuit dialogs through native client UI
+  methods.
 - Manage several clients from one daemon.
 - Query state and submit actions through REST.
 - Subscribe to live events through Server-Sent Events (SSE).

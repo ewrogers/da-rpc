@@ -510,6 +510,10 @@ impl<'a> PayloadReader<'a> {
         Ok(bytes)
     }
 
+    pub(crate) fn is_empty(&self) -> bool {
+        self.offset == self.bytes.len()
+    }
+
     fn finish(self) -> Result<(), DecodeError> {
         let remaining = self.bytes.len().saturating_sub(self.offset);
         if remaining != 0 {

@@ -12,6 +12,7 @@ pub const MAX_SKILL_SLOT: u8 = 90;
 pub const MAX_SPELL_SLOT: u8 = 90;
 pub const MAX_ITEM_SLOT: u8 = 59;
 pub const MAX_SPELL_INPUT_LEN: usize = 100;
+pub const MAX_DIALOG_INPUT_LEN: usize = u8::MAX as usize;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CommandKind {
@@ -29,6 +30,52 @@ pub enum CommandKind {
     GiveItem(ItemTransfer),
     GiveGold(GoldTransfer),
     SwapSlots(SlotSwap),
+    Interact(NonZeroU32),
+    Dialog(DialogCommand),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DialogCommand {
+    pub revision: u32,
+    pub action: DialogAction,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+// Dialog text remains inline so decoded commands are bounded and pointer-free.
+#[allow(clippy::large_enum_variant)]
+pub enum DialogAction {
+    Select { index: u16, quantity: u8 },
+    Input(DialogText),
+    Previous,
+    Next,
+    Close,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DialogText {
+    length: u8,
+    bytes: [u8; MAX_DIALOG_INPUT_LEN],
+}
+
+impl DialogText {
+    #[must_use]
+    pub fn new(value: &str) -> Option<Self> {
+        let value = value.as_bytes();
+        if value.is_empty() || value.len() > MAX_DIALOG_INPUT_LEN || !value.is_ascii() {
+            return None;
+        }
+        let mut bytes = [0; MAX_DIALOG_INPUT_LEN];
+        bytes[..value.len()].copy_from_slice(value);
+        Some(Self {
+            length: value.len() as u8,
+            bytes,
+        })
+    }
+
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes[..usize::from(self.length)]
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -295,6 +342,29 @@ fn encode_kind(output: &mut Vec<u8>, kind: CommandKind) {
                 }
             }
         }
+        CommandKind::Interact(id) => {
+            output.push(14);
+            push_u32(output, id.get());
+        }
+        CommandKind::Dialog(command) => {
+            output.push(15);
+            push_u32(output, command.revision);
+            match command.action {
+                DialogAction::Select { index, quantity } => {
+                    output.push(1);
+                    push_u16(output, index);
+                    output.push(quantity);
+                }
+                DialogAction::Input(input) => {
+                    output.push(2);
+                    output.push(input.length);
+                    output.extend_from_slice(input.as_bytes());
+                }
+                DialogAction::Previous => output.push(3),
+                DialogAction::Next => output.push(4),
+                DialogAction::Close => output.push(5),
+            }
+        }
     }
 }
 
@@ -390,6 +460,31 @@ fn decode_kind(reader: &mut PayloadReader<'_>) -> Result<CommandKind, DecodeErro
             target: decode_transfer_target(reader)?,
         })),
         13 => decode_slot_swap(reader).map(CommandKind::SwapSlots),
+        14 => NonZeroU32::new(reader.read_u32()?)
+            .map(CommandKind::Interact)
+            .ok_or(DecodeError::InvalidTransferTarget { actual: 1 }),
+        15 => {
+            let revision = reader.read_u32()?;
+            let action = match reader.read_u8()? {
+                1 => DialogAction::Select {
+                    index: reader.read_u16()?,
+                    quantity: reader.read_u8()?,
+                },
+                2 => {
+                    let length = usize::from(reader.read_u8()?);
+                    let text = std::str::from_utf8(reader.take(length)?)
+                        .map_err(|_| DecodeError::InvalidDialogText)?;
+                    DialogAction::Input(
+                        DialogText::new(text).ok_or(DecodeError::InvalidDialogText)?,
+                    )
+                }
+                3 => DialogAction::Previous,
+                4 => DialogAction::Next,
+                5 => DialogAction::Close,
+                actual => return Err(DecodeError::InvalidDialogField { actual }),
+            };
+            Ok(CommandKind::Dialog(DialogCommand { revision, action }))
+        }
         actual => Err(DecodeError::InvalidCommandKind { actual }),
     }
 }
@@ -492,6 +587,8 @@ mod tests {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+// Submit carries the same bounded pointer-free command representation.
+#[allow(clippy::large_enum_variant)]
 pub enum CommandOperation {
     Submit {
         kind: CommandKind,
@@ -609,6 +706,8 @@ pub struct CommandStatus {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+// Retained statuses include the original bounded command without allocation.
+#[allow(clippy::large_enum_variant)]
 pub enum CommandResult {
     Status(CommandStatus),
     Busy,

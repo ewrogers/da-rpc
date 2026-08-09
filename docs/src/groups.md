@@ -53,6 +53,11 @@ client option when daRPC can infer it from an incoming invitation. A pending
 invitation found during late attach may not have `received_tick_ms` because its
 original packet arrived before daRPC was loaded.
 
+The invitation prompt is local client state rather than a complete server
+snapshot. daRPC checks for it at most once every 100 milliseconds. Each check
+walks the open prompt list once, which keeps invitation handling responsive
+without doing repeated client-memory work on every rendered tick.
+
 The `/status` response also includes `character.is_group_open` and
 `character.group_members`. `group_members` is always an array and stays empty
 when the character is not grouped.

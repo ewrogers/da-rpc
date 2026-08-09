@@ -19,6 +19,7 @@ const ORIGIN_DARPC: u8 = 2;
 static SUBMITTING: AtomicBool = AtomicBool::new(false);
 static SUBMIT_COMMAND_ID: AtomicU32 = AtomicU32::new(0);
 static SUBMIT_OBSERVED: AtomicBool = AtomicBool::new(false);
+pub(crate) static INTERCEPT_COMMAND_ID: AtomicU32 = AtomicU32::new(0);
 static ORIGIN_HEAD: AtomicUsize = AtomicUsize::new(0);
 static ORIGIN_TAIL: AtomicUsize = AtomicUsize::new(0);
 static ORIGIN_KINDS: [AtomicU8; ORIGIN_CAPACITY] = [const { AtomicU8::new(0) }; ORIGIN_CAPACITY];
@@ -40,6 +41,7 @@ pub(crate) fn reset() {
     SUBMITTING.store(false, Ordering::Release);
     SUBMIT_COMMAND_ID.store(0, Ordering::Release);
     SUBMIT_OBSERVED.store(false, Ordering::Release);
+    INTERCEPT_COMMAND_ID.store(0, Ordering::Release);
     ORIGIN_HEAD.store(0, Ordering::Release);
     ORIGIN_TAIL.store(0, Ordering::Release);
     RESPONSE_COMMAND_ID.store(0, Ordering::Release);
@@ -58,8 +60,12 @@ pub(crate) fn request(command_id: u32) -> Result<(), CommandFailure> {
     let result = crate::actions::network::submit(&[WHO_REQUEST_OPCODE]);
     SUBMITTING.store(false, Ordering::Release);
     SUBMIT_COMMAND_ID.store(0, Ordering::Release);
-    result?;
+    if let Err(failure) = result {
+        cancel(command_id);
+        return Err(failure);
+    }
     if !SUBMIT_OBSERVED.load(Ordering::Acquire) {
+        cancel(command_id);
         return Err(CommandFailure::Internal);
     }
     Ok(())
@@ -78,8 +84,14 @@ pub(crate) fn observe_request(tick_ms: u32) {
         tick_ms,
     );
     if is_darpc {
+        INTERCEPT_COMMAND_ID.store(command_id, Ordering::Release);
         SUBMIT_OBSERVED.store(true, Ordering::Release);
     }
+}
+
+pub(crate) fn cancel(command_id: u32) {
+    let _ =
+        INTERCEPT_COMMAND_ID.compare_exchange(command_id, 0, Ordering::AcqRel, Ordering::Relaxed);
 }
 
 #[must_use]
@@ -93,6 +105,7 @@ pub(crate) fn intercept_response(body: &[u8], tick_ms: u32) -> bool {
     if kind != ORIGIN_DARPC {
         return false;
     }
+    cancel(command_id);
     if validate_body(body).is_err() {
         crate::commands::fail_who(command_id);
         return true;

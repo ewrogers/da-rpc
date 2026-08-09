@@ -68,6 +68,12 @@ response matched to a daRPC request. That response is copied for the waiting
 controller and is not passed to the stock panel-opening handler. Player-started
 Who responses still run normally.
 
+The pre-dispatch Who check is dormant unless daRPC has an outstanding Who
+request. The x86 detour checks both that pending marker and opcode `0x36` before
+entering Rust, and restores the registers it uses before continuing into the
+client. Ordinary server events therefore take the original dispatcher path
+without client-memory reads or Rust work before dispatch.
+
 ## Outbound action observation
 
 Some useful events describe what the client sends rather than what it receives.

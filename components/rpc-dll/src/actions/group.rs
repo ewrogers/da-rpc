@@ -1,5 +1,7 @@
 use super::{module_base, network, read};
-use darpc_game_client::EVENT_DISPATCHER_POINTER_RVA;
+use darpc_game_client::{
+    EVENT_DISPATCHER_POINTER_RVA, GROUP_INVITATION_CAPACITY, GROUP_NAME_BYTES,
+};
 use darpc_model::GroupInvitationCloseReason;
 use darpc_protocol::{CommandFailure, GroupCommand, GroupInvitationAction};
 use std::{
@@ -20,11 +22,46 @@ const REGISTERED: u8 = 0x02;
 const REQUESTER_OFFSET: usize = 0x634;
 const REQUESTER_LENGTH_OFFSET: usize = 0x638;
 const MAX_PANES: i32 = 1_024;
+const ALERT_SCAN_INTERVAL_MS: u32 = 100;
 const ROSTER_REFRESH_INTERVAL_MS: u32 = 2_000;
 const INVITATION_REFRESH_WINDOW_MS: u32 = 30_000;
 
 static NEXT_ROSTER_REFRESH: AtomicU32 = AtomicU32::new(0);
 static REFRESH_UNTIL: AtomicU32 = AtomicU32::new(0);
+static LAST_ALERT_SCAN: AtomicU32 = AtomicU32::new(0);
+
+struct OpenAlerts {
+    names: [[u8; GROUP_NAME_BYTES]; GROUP_INVITATION_CAPACITY],
+    lengths: [u8; GROUP_INVITATION_CAPACITY],
+    count: usize,
+}
+
+impl OpenAlerts {
+    const fn new() -> Self {
+        Self {
+            names: [[0; GROUP_NAME_BYTES]; GROUP_INVITATION_CAPACITY],
+            lengths: [0; GROUP_INVITATION_CAPACITY],
+            count: 0,
+        }
+    }
+
+    fn push(&mut self, name: &[u8]) {
+        if self.count == GROUP_INVITATION_CAPACITY || name.len() > GROUP_NAME_BYTES {
+            return;
+        }
+        self.names[self.count][..name.len()].copy_from_slice(name);
+        self.lengths[self.count] = u8::try_from(name.len()).expect("group name length fits u8");
+        self.count += 1;
+    }
+
+    fn contains(&self, name: &[u8]) -> bool {
+        self.names
+            .iter()
+            .zip(self.lengths)
+            .take(self.count)
+            .any(|(candidate, length)| candidate[..usize::from(length)].eq_ignore_ascii_case(name))
+    }
+}
 
 type AlertActionFn = unsafe extern "thiscall" fn(*mut c_void, i32, u8) -> u32;
 
@@ -45,9 +82,29 @@ fn toggle() -> Result<(), CommandFailure> {
 }
 
 pub(crate) fn observe_tick(tick_ms: u32) {
-    for_each_open(|_, name| crate::group::observe_pending(name, None, tick_ms));
-    crate::group::reconcile_invitations(is_open, tick_ms);
     refresh_roster(tick_ms);
+    let last = LAST_ALERT_SCAN.load(Ordering::Relaxed);
+    if !alert_scan_due(last, tick_ms) {
+        return;
+    }
+    LAST_ALERT_SCAN.store(tick_ms, Ordering::Relaxed);
+
+    let mut open = OpenAlerts::new();
+    for_each_open(|_, name| {
+        open.push(name);
+        crate::group::observe_pending(name, None, tick_ms);
+    });
+    crate::group::reconcile_invitations(|name| open.contains(name), tick_ms);
+}
+
+const fn alert_scan_due(last: u32, now: u32) -> bool {
+    last == 0 || now.wrapping_sub(last) >= ALERT_SCAN_INTERVAL_MS
+}
+
+pub(crate) fn reset() {
+    NEXT_ROSTER_REFRESH.store(0, Ordering::Relaxed);
+    REFRESH_UNTIL.store(0, Ordering::Relaxed);
+    LAST_ALERT_SCAN.store(0, Ordering::Relaxed);
 }
 
 pub(crate) fn is_open(name: &[u8]) -> bool {
@@ -225,11 +282,27 @@ fn now() -> u32 {
 
 #[cfg(test)]
 mod tests {
-    use super::{ALERT_ACTION_RVA, GROUP_ALERT_COL_RVA};
+    use super::{ALERT_ACTION_RVA, GROUP_ALERT_COL_RVA, OpenAlerts, alert_scan_due};
 
     #[test]
     fn group_alert_contract_is_stable() {
         assert_eq!(GROUP_ALERT_COL_RVA, 0x002A_81C4);
         assert_eq!(ALERT_ACTION_RVA, 0x0004_8770);
+    }
+
+    #[test]
+    fn open_alert_names_are_bounded_and_case_insensitive() {
+        let mut open = OpenAlerts::new();
+        open.push(b"ZiLo");
+        assert!(open.contains(b"zilo"));
+        assert!(!open.contains(b"Eidolon"));
+    }
+
+    #[test]
+    fn alert_scan_interval_handles_tick_wrapping() {
+        assert!(alert_scan_due(0, 1));
+        assert!(!alert_scan_due(1_000, 1_099));
+        assert!(alert_scan_due(1_000, 1_100));
+        assert!(alert_scan_due(u32::MAX - 50, 49));
     }
 }

@@ -111,6 +111,9 @@ Immutable local rules remain.
 - [x] Added a non-disruptive online-player query through direct IPC and REST,
   with ordered results, class and guild filters, one-second request coalescing,
   a three-second timeout, and correlation-safe client panel suppression.
+- [x] Removed injected-client movement stutter by gating Who interception by
+  pending request and opcode, preserving volatile registers, and consolidating
+  group prompt discovery into one bounded 100-millisecond scan.
 - [x] Live-verified merchant opening, native interaction, choice submission,
   pending and changed state, close behavior, REST state, SSE ordering, and stale
   revision rejection.

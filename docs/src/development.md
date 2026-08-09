@@ -1,5 +1,8 @@
 # Development
 
+This chapter is for contributors building, testing, documenting, or reviewing
+daRPC. Player-facing API usage is documented under [Using daRPC](web-api.md).
+
 The Rust workspace separates runtime components from shared domain and platform
 boundaries:
 

@@ -1,5 +1,9 @@
 # `loader.exe`
 
+Use the loader when you want direct control over launching a game client,
+attaching daRPC to an existing client, or unloading it cleanly. If the daemon
+should manage clients for you, start with [`darpcd.exe`](rpcd.md) instead.
+
 `loader.exe` is the 32-bit x86 entry point for starting or attaching daRPC. It
 owns two implemented workflows:
 

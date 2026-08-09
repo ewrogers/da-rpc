@@ -1,5 +1,9 @@
 # Runtime hooks
 
+This chapter explains which parts of the client daRPC observes and why some
+actions must run on the game thread. It intentionally stays above instruction
+addresses and assembly details. API consumers do not need to manage these hooks.
+
 A hook gives daRPC a short callback at a useful point in the normal client
 flow. The original client function still runs. daRPC uses the callback to copy
 small pieces of state, observe an action, or execute one queued native command.

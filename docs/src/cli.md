@@ -1,5 +1,10 @@
 # `darpc.exe` command-line interface
 
+The direct CLI talks to one injected DLL without going through the daemon. Use
+it for diagnostics, simple one-client scripts, or protocol inspection. Use
+[`darpcd.exe`](rpcd.md) when you need discovery, several clients, REST, or live
+event streams.
+
 > **Status:** The direct commands documented below are implemented.
 
 `darpc.exe` is a direct, single-client command-line interface to an injected

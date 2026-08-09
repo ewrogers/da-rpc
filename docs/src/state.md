@@ -1,4 +1,9 @@
-# Client data
+# Game data
+
+The game-data chapters are organized around the questions a player-facing tool
+usually asks: who is logged in, what the character carries, what is nearby,
+and what just happened. They document the stable public view exposed by the
+daemon rather than internal client memory.
 
 daRPC presents each game client as a set of familiar resources. Character
 status, items, equipment, skills, spells, effects, nearby objects, and messages
@@ -41,9 +46,9 @@ prevents a gap between the current REST state and the live stream. SSE does not
 replay events from before the subscription. If a stream reports that it fell
 behind, read the REST resources again and reconnect.
 
-The [Web API](web-api.md#server-sent-events) chapter documents the common event
-envelope, ordering, reconnect, and lag behavior. Each domain chapter lists only
-the events relevant to that data.
+The [Live events](events.md) chapter documents the common event envelope,
+payloads, ordering, reconnect, and lag behavior. Each domain chapter explains
+the events relevant to that data in game terms.
 
 ## How a client gets its first state
 
@@ -68,12 +73,28 @@ source process and helps consumers understand how fresh related resources are.
 
 Important fields include:
 
-- `pid` and `instance_id` identify one loaded DLL lifetime.
+- `pid` identifies the source game process.
 - `revision` advances when retained state changes.
 - `event_sequence` orders incremental changes.
 - `captured_tick_ms` is the client tick of the last full baseline.
 - `updated_tick_ms` advances when a later event changes the state.
+- `capture_duration_us` records how long the baseline memory walk took.
 - `world_generation` changes when the active game world is replaced.
+
+```text
+ObservationMetadata {
+    pid: u32,
+    revision: u32,
+    event_sequence: u32,
+    captured_tick_ms: u32,
+    updated_tick_ms: u32,
+    capture_duration_us: u32,
+    world_generation: u32,
+}
+```
+
+SSE event observations also carry `instance_id`, which identifies one loaded
+DLL lifetime. See [Common observation metadata](events.md#common-observation-metadata).
 
 Two separate REST requests can have different revisions if the client changes
 between them. Read the revision when several resources must be compared as one
@@ -91,6 +112,13 @@ daRPC does not invent values when the client cannot provide them.
 A state route returns `404 Not Found` for an unknown client and `503 Service
 Unavailable` when the client has not produced a usable observation. The latter
 may include a capture failure reason.
+
+The structures in this book use a small notation:
+
+- `string`, `bool`, and integer names such as `u32` describe JSON value types.
+- A trailing `?` means the value can be absent or `null`.
+- `T[]` means an array of values shaped like `T`.
+- Structures show JSON fields, not Rust or game-client memory layouts.
 
 ## Each client has its own view
 

@@ -1,5 +1,9 @@
 # Roadmap
 
+The roadmap records delivery order and completed project phases. It is not the
+API reference. Use the [Web API](web-api.md), [Live events](events.md), and
+[Game data](state.md) chapters for current supported behavior.
+
 This roadmap starts with the smallest visible Windows result and grows one
 working vertical slice at a time. Protocol and API work should support the next
 demonstration instead of delaying all runtime integration until the end.

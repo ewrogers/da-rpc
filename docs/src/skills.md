@@ -4,6 +4,12 @@ The skillbook resource lists the learned skills in the character's skill pane.
 daRPC can also use one of those skills through the same native client path as a
 normal activation.
 
+| Use | Route or events |
+| --- | --- |
+| Read learned skills | `GET /clients/{client}/skills` |
+| Use a skill | `POST /clients/{client}/skills/use` |
+| Watch skillbook and use activity | [Skill events](events.md#skill-events) |
+
 ## Reading the skillbook
 
 ```text
@@ -20,6 +26,22 @@ Each occupied slot includes:
 
 A cooldown can be known to be active even when the exact remaining time is not
 available.
+
+```text
+Skillbook {
+    observation: ObservationMetadata,
+    skills: Skill[]?,
+}
+
+Skill {
+    slot: u8,
+    icon: u16,
+    name: string?,
+    level: u8,
+    max_level: u8,
+    cooldown: Cooldown,
+}
+```
 
 ## Using a skill
 
@@ -57,6 +79,9 @@ later observation that the client submitted the skill. Neither result alone is
 a promise that the game server accepted the action.
 
 ## Skillbook events
+
+The complete payload structures and batch rules are in
+[Skill events](events.md#skill-events).
 
 | Event | Meaning |
 | --- | --- |

@@ -1,5 +1,10 @@
 # Architecture
 
+This chapter is a light tour of the system. It is for readers who want to know
+how daRPC works without reading protocol fields, memory layouts, or x86 code.
+Application authors can use the [Web API](web-api.md) and
+[Live events](events.md) without depending on these internal boundaries.
+
 daRPC is split into four programs so the game-specific work stays close to the
 client while tools can use ordinary command-line and web interfaces.
 
@@ -61,7 +66,7 @@ client main thread -> bounded copy -> DLL state -> named pipe -> daemon -> REST 
 ```
 
 REST resources are views of the daemon's retained state. Reading inventory or
-status does not trigger a new memory walk. See [Client data](state.md) for the
+status does not trigger a new memory walk. See [Game data](state.md) for the
 baseline, revisions, missing values, and reconnect behavior.
 
 ## Running native actions

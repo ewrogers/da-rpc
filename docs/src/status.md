@@ -4,6 +4,11 @@ Character status is the best starting point for a dashboard, overlay, or
 automation rule. It describes who is logged in, the current map, important
 character values, and a few pieces of client-only action state.
 
+| Use | Route or events |
+| --- | --- |
+| Read current status | `GET /clients/{client}/status` |
+| Watch changes | [Status and walking events](events.md#character-status-events) |
+
 ## Reading status
 
 ```text
@@ -13,6 +18,15 @@ GET /clients/{client}/status
 The response groups the data into a lifecycle, optional character, optional
 map, and common observation metadata. The generated Swagger schema shows every
 field and exact JSON type.
+
+```text
+Status {
+    observation: ObservationMetadata,
+    lifecycle: ClientLifecycle,
+    character: Character?,
+    map: MapLocation?,
+}
+```
 
 The character data includes:
 
@@ -28,6 +42,38 @@ The character data includes:
 
 The map data includes its ID, available name, zero-based x/y position, width,
 and height.
+
+```text
+Character {
+    id: u32?,
+    name: string?,
+    gender: CharacterGender?,
+    hair_style: u16?,
+    hair_color: u8?,
+    body_sprite: u16?,
+    class: CharacterClass,
+    is_action_restricted: bool,
+    is_blinded: bool,
+    is_casting: bool,
+    is_walking: bool,
+    gold: u32,
+    weight: u32,
+    max_weight: u32,
+    progression: CharacterProgression,
+    stats: CharacterStats,
+    vitals: CharacterVitals,
+    modifiers: CharacterModifiers?,
+}
+
+MapLocation {
+    id: u32,
+    name: string?,
+    x: i32?,
+    y: i32?,
+    width: i32,
+    height: i32,
+}
+```
 
 ## Client lifecycle
 
@@ -73,6 +119,9 @@ Readable names are used for gender, class, and elements. Raw client identifiers
 and memory addresses are not exposed.
 
 ## Live status events
+
+The complete payload structures and recovery route are in
+[Character status events](events.md#character-status-events).
 
 Listen on `GET /clients/{client}/events`. These events update status:
 

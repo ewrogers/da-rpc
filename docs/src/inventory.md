@@ -4,6 +4,13 @@ The inventory resource contains the items carried by one character. Empty
 slots are omitted, which makes it easy to scan the items that are actually
 present.
 
+| Use | Route or events |
+| --- | --- |
+| Read carried items | `GET /clients/{client}/items` |
+| Use, drop, give, or pick up an item | `POST /clients/{client}/items/...` |
+| Drop or give gold | `POST /clients/{client}/gold/drop` |
+| Watch changes and submitted actions | [Inventory events](events.md#inventory-and-equipment-events) |
+
 ## Reading inventory
 
 ```text
@@ -17,6 +24,24 @@ Each occupied item includes:
 - An available canonical `name`
 - `quantity` and `can_stack`
 - `durability` and `max_durability`
+
+```text
+Inventory {
+    observation: ObservationMetadata,
+    items: InventoryItem[]?,
+}
+
+InventoryItem {
+    slot: u8,
+    sprite: u16,
+    dye_color: u8,
+    name: string?,
+    quantity: u32,
+    can_stack: bool,
+    durability: u32,
+    max_durability: u32,
+}
+```
 
 The sprite value has the client's internal item classification flag removed.
 Stackable names do not include the rendered `[ quantity ]` suffix because
@@ -89,6 +114,9 @@ This avoids reporting a simple move as an item leaving and immediately coming
 back. Repeating an identical same-slot update produces no event.
 
 ## Inventory events
+
+The complete payload structures and batch rules are in
+[Inventory and equipment events](events.md#inventory-and-equipment-events).
 
 | Event | Meaning |
 | --- | --- |

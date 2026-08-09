@@ -3,6 +3,12 @@
 The equipment resource describes every occupied wearable slot for the current
 character.
 
+| Use | Route or events |
+| --- | --- |
+| Read equipped items | `GET /clients/{client}/equipment` |
+| Unequip an item | `POST /clients/{client}/equipment/unequip` |
+| Watch submitted unequip actions | [Equipment events](events.md#inventory-and-equipment-events) |
+
 ## Reading equipment
 
 ```text
@@ -15,6 +21,22 @@ Each entry includes:
 - `sprite` and `dye_color`
 - An available item `name`
 - `durability` and `max_durability`
+
+```text
+Equipment {
+    observation: ObservationMetadata,
+    items: EquipmentItem[]?,
+}
+
+EquipmentItem {
+    slot: EquipmentSlot,
+    sprite: u16,
+    dye_color: u8,
+    name: string?,
+    durability: u32,
+    max_durability: u32,
+}
+```
 
 The sprite value has the client's internal item classification flag removed.
 Empty slots are omitted.
@@ -43,6 +65,9 @@ payload contains the slot name. The event records the request, while a later
 equipment snapshot or incremental equipment support confirms server state.
 
 ## Updates and events
+
+The action payload is documented under
+[Inventory and equipment events](events.md#inventory-and-equipment-events).
 
 Equipment is included in the complete client baseline and exposed through
 REST. The current implementation does not yet track later gear changes or

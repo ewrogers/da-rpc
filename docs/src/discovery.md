@@ -1,5 +1,9 @@
 # Discovery and recovery
 
+This chapter explains how the daemon finds clients and recovers connections.
+It is most useful when a client appears as `not_loaded`, remains disconnected,
+or is being managed with `--auto-load`.
+
 Discovery is owned by `darpcd.exe`. The daemon periodically reconciles candidate
 game clients with available daRPC endpoints. `darpc.dll` does not need to locate
 or notify the daemon.

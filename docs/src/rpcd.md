@@ -1,5 +1,10 @@
 # `darpcd.exe`
 
+The daemon is the normal starting point for dashboards, scripts, and tools that
+work with one or more game clients. This chapter covers running and configuring
+it. Use [Web API](web-api.md) for HTTP routes and [Live events](events.md) for
+the streaming interface.
+
 > **Status:** Automatic client discovery, the identity registry, daemon-managed
 > load, unload, and launch, current client state, routed movement commands,
 > REST, and Server-Sent Events are implemented. WebSocket APIs remain planned.

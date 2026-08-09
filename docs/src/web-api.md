@@ -6,6 +6,10 @@ without implementing DLL injection, named pipes, or Dark Ages client layouts.
 
 REST and SSE are implemented. WebSocket support is planned.
 
+If you are building a consumer, start here for routes and actions, then use
+[Live events](events.md) for the complete streaming reference. The chapters
+under [Game data](state.md) explain the meaning of character and world fields.
+
 ## Starting the server
 
 The daemon listens on `127.0.0.1:2626` by default. Use `--port <port>` to choose
@@ -70,7 +74,7 @@ they need:
 | `GET /clients/{client}/messages` | [Messages](messages.md) |
 
 These routes read the daemon's retained state. They do not ask the DLL to scan
-the game client for every HTTP request. See [Client data](state.md) for baseline
+the game client for every HTTP request. See [Game data](state.md) for baseline
 capture, revisions, and unavailable values.
 
 The complete field list and JSON schema are generated from the Rust API models
@@ -136,8 +140,7 @@ GET /clients/{client}/events
 ```
 
 SSE is a one-way live stream. Use it for changing vitals, inventory updates,
-walking, spell activity, nearby objects, messages, and the other events listed
-in the domain chapters.
+walking, spell activity, nearby objects, messages, and action observations.
 
 The endpoint requires a connected client with current state. The first event
 is a `stream.ready` boundary:
@@ -152,103 +155,23 @@ After `stream.ready`, read the REST resources needed by the consumer, then
 apply later events in their delivered order. The daemon begins listening before
 it reads the ready boundary, so a change cannot slip between those two steps.
 
-### Event names and JSON types
-
-Each frame has an SSE `event` name and a JSON body:
-
-```text
-id: <event sequence>
-event: <domain.action>
-data: {"type":"<snake_case_type>","data":{...}}
-```
-
-The SSE name uses `domain.action`, such as `vitals.changed` or
-`effect.added`. The JSON `type` uses snake case, such as `vitals_changed` or
-`effect_added`. Browser `EventSource` listeners select the SSE name, while
-generated clients can select the JSON type.
-
-The domain event indexes are:
-
-- [Character status events](status.md#live-status-events)
-- [Inventory events](inventory.md#inventory-events)
-- [Skillbook and use events](skills.md#skillbook-events)
-- [Spellbook and casting events](spells.md#casting-events)
-- [Effect events](effects.md#effect-events)
-- [World object, entity visual, and walking events](world.md#object-events)
-- [Message events](messages.md#live-message-events)
-
-Equipment currently has no dedicated change event. See
-[Equipment](equipment.md#updates-and-events).
-
-### Common observation
-
-Most state events contain:
-
-```text
-EventObservation {
-    pid,
-    instance_id,
-    revision,
-    event_sequence,
-    tick_ms,
-}
-```
-
-`tick_ms` is the client's wrapping Windows millisecond tick. Event values are
-absolute replacements, not arithmetic deltas. Several events can share one
-revision and sequence when one client update changed several groups.
-
-Message events use their normalized message record instead of this observation
-object. Their SSE `id` still supplies stream ordering, and the subscription
-path identifies the client.
-
-One observed client update can produce more than one SSE frame with the same
-`id`. For example, spell feedback remains a `message.system` and can also
-produce a semantic `spell.succeeded`, `spell.failed`, or `spell.received`
-frame. Process frames in delivery order rather than treating the ID as a
-unique event key.
-
-### Collection batches
-
-Inventory, skillbook, and spellbook updates can change several slots together.
-Their events include a zero-based `batch_index`, shared `batch_count`, and the
-slot's `before` and `after` values. The daemon applies the whole batch to REST
-state before broadcasting the first frame.
-
-A consumer that handles slot details can wait for all frames in the batch. A
-simpler consumer can reread the matching REST resource after any event in that
-domain.
-
 ### Listening in a browser
 
 ```javascript
 const events = new EventSource("/clients/ZiLo/events");
 
 events.addEventListener("vitals.changed", (event) => {
-  const message = JSON.parse(event.data);
-  console.log(message.data);
+    const message = JSON.parse(event.data);
+    console.log(message.data);
 });
 ```
 
 Swagger UI shows the SSE response schemas but is not a live stream viewer. Use
 a browser `EventSource` or another client with streaming response support.
 
-### Ordering, lag, and reconnects
-
-Events are ordered within one client stream. There is no replay of state events
-created before the subscription.
-
-The daemon retains a bounded 4,096-entry broadcast queue. If a subscriber falls
-behind, it receives `stream.resync_required` with the last delivered sequence
-and dropped count, then the connection closes. Read the needed REST resources
-and open a new stream.
-
-When the DLL disconnects, the stream sends `stream.closed` and closes.
-Fifteen-second SSE comments keep an idle connection observable without changing
-state ordering.
-
-The message history route has its own bounded lookback and can recover recent
-conversation context after reconnecting. See [Messages](messages.md#retention).
+The [Live events](events.md) chapter contains the complete event catalog,
+payload structures, ordering rules, collection batching, browser examples, and
+recovery procedure. Read it before relying on a long-running stream.
 
 ## Managed client lifecycle
 

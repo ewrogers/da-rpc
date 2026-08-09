@@ -1,5 +1,9 @@
 # `darpc.dll`
 
+This chapter describes the injected component's responsibilities and lifecycle.
+Most tool authors can treat it as the client-side engine behind the
+[Web API](web-api.md).
+
 `darpc.dll` is a 32-bit x86 dynamic-link library injected into one compatible
 game client. It provides the bridge between the client's internal event system
 and the daRPC named-pipe protocol.
@@ -46,7 +50,7 @@ When attached to a running client, `darpc.dll` reconstructs a snapshot from
 validated pointers, relative virtual addresses, and version-specific client
 layouts. Capture is scheduled through the client tick hook and runs on the
 client main thread. Bounded raw values are published to the pipe worker, which
-owns text decoding, allocation, and serialization. See [Client data](state.md)
+owns text decoding, allocation, and serialization. See [Game data](state.md)
 for the snapshot surface and concurrency model.
 
 The DLL also observes the central decoded-event dispatcher after original

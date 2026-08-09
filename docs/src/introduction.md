@@ -50,10 +50,17 @@ WebSocket support is planned.
 
 ## Where to begin
 
-- [Client data](state.md) explains how snapshots and live changes fit together.
-- The chapters under Client data document each game domain, including status,
-  inventory, abilities, effects, world objects, and messages.
-- [Web API](web-api.md) covers shared REST and SSE behavior.
-- [Architecture](architecture.md) gives a light overview of the components.
-- [Runtime hooks](hooks.md) explains how daRPC observes the client and safely
-  runs native actions on its main thread.
+Choose the path that matches what you are building:
+
+| Goal | Start here |
+| --- | --- |
+| Read client state or submit actions | [Web API](web-api.md) |
+| React to changes as they happen | [Live events](events.md) |
+| Understand character and world fields | [Game data](state.md) |
+| Work directly with one DLL without the daemon | [`darpc.exe`](cli.md) |
+| Launch, attach, or automatically load clients | [`darpcd.exe`](rpcd.md) and [`loader.exe`](loader.md) |
+| Learn how the pieces fit together | [How it works](architecture.md) |
+| Understand hooks and main-thread safety | [Runtime hooks](hooks.md) |
+
+The Swagger UI at `http://127.0.0.1:2626/docs` is also a useful place to
+explore REST routes and try requests against a running daemon.

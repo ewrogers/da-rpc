@@ -1,5 +1,8 @@
 # Safety and security
 
+Read this chapter before exposing the daemon beyond the local machine,
+automating client actions, or changing injection, hook, and memory code.
+
 daRPC crosses several sensitive boundaries: injected code, client memory,
 Windows application binary interfaces, local IPC, and potentially remote web
 access. Those boundaries must remain explicit and small.

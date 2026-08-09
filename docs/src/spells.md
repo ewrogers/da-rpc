@@ -4,6 +4,12 @@ The spellbook resource describes learned spells, their targeting behavior, and
 their visible cooldown state. daRPC can cast a spell through native client
 methods and report each stage of delayed casting.
 
+| Use | Route or events |
+| --- | --- |
+| Read learned spells | `GET /clients/{client}/spells` |
+| Cast a spell | `POST /clients/{client}/spells/cast` |
+| Watch casting, feedback, and spellbook changes | [Spell events](events.md#spell-events) |
+
 ## Reading the spellbook
 
 ```text
@@ -22,6 +28,25 @@ Each occupied slot includes:
 
 The prompt is only present for text-input spells. A cooldown can be known to be
 active without an exact `remaining_ms` value.
+
+```text
+Spellbook {
+    observation: ObservationMetadata,
+    spells: Spell[]?,
+}
+
+Spell {
+    slot: u8,
+    icon: u16,
+    name: string?,
+    level: u8,
+    max_level: u8,
+    lines: u8,
+    target_type: SpellTargetType,
+    prompt: string?,
+    cooldown: Cooldown,
+}
+```
 
 ## Casting a spell
 
@@ -76,6 +101,9 @@ matching native client routine. It does not switch the visible spell panel or
 synthesize user input.
 
 ## Casting events
+
+The complete payload structures and stream names are in
+[Spell events](events.md#spell-events).
 
 daRPC observes the same outbound spell path for casts started through the game
 interface and casts requested through REST.

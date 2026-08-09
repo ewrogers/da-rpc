@@ -3,6 +3,12 @@
 daRPC normalizes recent chat and system messages so a tool does not need to
 parse the punctuation the client uses for each channel.
 
+| Use | Route or events |
+| --- | --- |
+| Read recent messages | `GET /clients/{client}/messages` |
+| Filter retained history | `channels`, `since`, `skip`, and `count` |
+| Watch new messages | [Message events](events.md#message-events) |
+
 ## Reading recent messages
 
 ```text
@@ -16,6 +22,21 @@ Each message contains:
 - `channel`
 - Optional `sender` and `recipient`
 - Cleaned message `text`
+
+```text
+Messages {
+    messages: Message[],
+}
+
+Message {
+    timestamp: string,
+    tick_ms: u32,
+    channel: MessageChannel,
+    sender: string?,
+    recipient: string?,
+    text: string,
+}
+```
 
 The channel is one of:
 
@@ -48,6 +69,9 @@ GET /clients/ZiLo/messages?channels=say,shout&since=2026-08-02T15:00:00-04:00&sk
 history without a time boundary.
 
 ## Live message events
+
+The complete message payload and stream behavior are in
+[Message events](events.md#message-events).
 
 Each channel has its own SSE routing name:
 

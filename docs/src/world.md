@@ -4,6 +4,13 @@ World data describes the current map, the objects this client can see, and the
 character's native walking state. It is a client-sized view of the world, not a
 permanent list of everything on the map.
 
+| Use | Route or events |
+| --- | --- |
+| Read map and self position | `GET /clients/{client}/status` |
+| Read visible objects | `GET /clients/{client}/objects` |
+| Turn, step, walk, or emote | `POST /clients/{client}/...` |
+| Watch movement, objects, and visuals | [World events](events.md#world-object-events) |
+
 ## Map and position
 
 The current map is part of:
@@ -36,7 +43,7 @@ The response can contain four object kinds:
 | Kind | Available data |
 | --- | --- |
 | `player` | ID, optional name, x/y, and direction |
-| `monster` | ID, optional name and sprite, x/y, and direction |
+| `monster` | ID, optional sprite, x/y, and direction |
 | `mundane` | ID, optional name and sprite, x/y, and direction |
 | `item` | ID, sprite, x/y, and per-tile `z_index` |
 
@@ -46,6 +53,19 @@ internal item classification flag removed.
 
 Ground-item `z_index` is local to one tile. Zero is the bottom item, and higher
 values are drawn above it.
+
+```text
+WorldObjects {
+    observation: ObservationMetadata,
+    objects: WorldObject[]?,
+}
+
+WorldObject =
+    Player { id, name?, x, y, direction }
+  | Monster { id, sprite?, x, y, direction }
+  | Mundane { id, sprite?, name?, x, y, direction }
+  | Item { id, sprite, x, y, z_index }
+```
 
 Filter the result with a comma-separated `types` query:
 
@@ -62,6 +82,9 @@ no longer retains the original draw details. Pressing the normal client refresh
 key causes the server to redraw nearby objects and fills those details again.
 
 ## Object events
+
+The complete object and visual payload structures are in
+[World object events](events.md#world-object-events).
 
 Players, monsters, and Mundanes each use these actions:
 

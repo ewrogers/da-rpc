@@ -231,8 +231,9 @@ POST /clients/{client}/load
 POST /clients/{client}/unload
 ```
 
-The [web API guide](https://ewrogers.github.io/da-rpc/web-api.html) explains the
-request models, event format, ordering, filtering, and reconnect behavior.
+The [web API guide](https://ewrogers.github.io/da-rpc/web-api.html) explains
+routes, requests, and errors. The [live event reference](https://ewrogers.github.io/da-rpc/events.html)
+documents every SSE event, payload, ordering rule, and reconnect procedure.
 
 ## Project status
 

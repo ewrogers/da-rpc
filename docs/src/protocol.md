@@ -1,5 +1,10 @@
 # Binary protocol
 
+This is the wire-level reference between `darpc.dll`, `darpc.exe`, and
+`darpcd.exe`. Web API consumers normally do not need it. Read this chapter when
+implementing a direct pipe client, changing protocol messages, or debugging
+compatibility.
+
 `darpc.dll` communicates with a controller using a purpose-built binary
 protocol. The codec is platform-independent; the Windows transport carries one
 frame at a time over a process-specific named pipe.

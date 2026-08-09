@@ -106,6 +106,8 @@ Immutable local rules remain.
   emotes, and turning with documented SSE payloads.
 - [x] Added retained merchant and pursuit dialog state, revision-checked native
   interaction, REST actions, and ordered open, change, submit, and close events.
+- [x] Added retained group rosters, leader and invitation state, native invite,
+  answer, and toggle actions, REST resources, and ordered group events.
 - [x] Live-verified merchant opening, native interaction, choice submission,
   pending and changed state, close behavior, REST state, SSE ordering, and stale
   revision rejection.

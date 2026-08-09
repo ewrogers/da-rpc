@@ -9,7 +9,7 @@ use crate::{WORLD_PANE_ADJUSTMENT, WORLD_PANE_POINTER_RVA};
 #[test]
 fn raw_snapshot_size_stays_bounded() {
     let size = std::mem::size_of::<RawStateSnapshot>();
-    assert!(size <= 52 * 1024, "raw snapshot is {size} bytes");
+    assert!(size <= 60 * 1024, "raw snapshot is {size} bytes");
 }
 
 const BASE: u32 = 0x0040_0000;
@@ -40,6 +40,7 @@ const EVENT_DISPATCHER: u32 = 0x009E_0000;
 const EVENT_ENTRIES: u32 = 0x009E_1000;
 const RECONNECT_DIALOG: u32 = 0x009E_2000;
 const EFFECT_PANE: u32 = 0x009E_3000;
+const BOTTOM_BUTTONS: u32 = 0x009E_4000;
 
 struct FakeMemory {
     bytes: Vec<u8>,
@@ -265,6 +266,34 @@ fn captures_the_scalar_gameplay_snapshot() {
     assert_eq!(&map_name.bytes[..usize::from(map_name.length)], b"Mileth");
     assert_eq!((location.x, location.y), (Some(11), Some(22)));
     assert_eq!((location.width, location.height), (100, 80));
+}
+
+#[test]
+fn captures_group_members_and_leader() {
+    let mut memory = FakeMemory::gameplay();
+    memory.u32(WORLD_USER + 0x1044, 2);
+    memory.bytes(WORLD_USER + 0x04, b"Eidolon\0");
+    memory.u8(WORLD_USER + 0x44, 1);
+    memory.bytes(WORLD_USER + 0x45, b"ZiLo\0");
+    memory.u32(BASE + 0x002D_9230, BOTTOM_BUTTONS);
+    memory.u8(BOTTOM_BUTTONS + 0x1C6, 1);
+
+    let snapshot = StateWalker::new(&memory, BASE).capture(THREAD_ID).unwrap();
+    assert!(snapshot.group_available);
+    let group = &snapshot.group;
+
+    assert_eq!(group.member_count, 2);
+    assert_eq!(
+        &group.members[0].name[..usize::from(group.members[0].name_len)],
+        b"Eidolon"
+    );
+    assert!(group.members[0].is_leader);
+    assert_eq!(
+        &group.members[1].name[..usize::from(group.members[1].name_len)],
+        b"ZiLo"
+    );
+    assert!(!group.members[1].is_leader);
+    assert_eq!(group.is_group_open, Some(true));
 }
 
 #[test]

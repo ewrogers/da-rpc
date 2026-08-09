@@ -4,23 +4,24 @@ use darpc_model::{
     ClientMessage, ClientSnapshot, CollectionChange, CooldownStatus, CoreStatus, CreatureKind,
     CurrentVitals, DialogChoice, DialogInteraction, DialogKind, DialogNavigation, DialogSpeaker,
     DialogSpriteType, DialogState, DialogTarget, DialogUpdate, Direction, Effect, EffectDuration,
-    EffectUpdate, Element, EntityUpdate, EquipmentItem, EquipmentSlot, Gender, InventoryItem,
-    LocationUpdate, MapChange, MapLocation, MessageKind, MovementUpdate, ObjectUpdate,
-    ProgressionStatus, Skill, SlotUpdate, Spell, SpellCancellationSource, SpellCastArguments,
-    SpellTargetType, StateEvent, StateUpdate, StatusUpdate, TilePosition, WorldObject,
+    EffectUpdate, Element, EntityUpdate, EquipmentItem, EquipmentSlot, Gender, GroupInvitation,
+    GroupMember, GroupState, GroupUpdate, InventoryItem, LocationUpdate, MapChange, MapLocation,
+    MessageKind, MovementUpdate, ObjectUpdate, ProgressionStatus, Skill, SlotUpdate, Spell,
+    SpellCancellationSource, SpellCastArguments, SpellTargetType, StateEvent, StateUpdate,
+    StatusUpdate, TilePosition, WorldObject,
 };
 use darpc_protocol::{
     Architecture, CommandFailure, CommandKind, CommandOperation, CommandRequest, CommandResponse,
     CommandResult, CommandState, CommandStatus, ComponentVersion, DecodeError, DialogAction,
     DialogCommand, DialogText, EchoRequest, EchoResponse, EncodeError, EventPollRequest,
     EventPollResponse, EventPollResult, FRAME_HEADER_LEN, FRAME_MAGIC, FRAME_VERSION, Frame,
-    FrameHeader, GoldTransfer, Hello, HelloAck, ItemSlot, ItemTransfer, MAX_COMMAND_TIMEOUT_MS,
-    MAX_COMMAND_WAIT_MS, MAX_ECHO_TEXT_LEN, MAX_PAYLOAD_LEN, Message, MessageType,
-    PROTOCOL_VERSION_1_0, Ping, Pong, SkillSlot, SlotSwap, SnapshotRequest, SnapshotResponse,
-    SnapshotResult, SnapshotUnavailableReason, SpellArguments, SpellCast, SpellInput, SpellSlot,
-    SpellTarget, TickHealthRequest, TickHealthResponse, TilePosition as CommandTilePosition,
-    TransferTarget, VersionRange, WalkTarget, decode_frame, decode_header, encode_frame,
-    protocol_version, protocol_version_major, protocol_version_minor,
+    FrameHeader, GoldTransfer, GroupCommand, GroupInvitationAction, GroupText, Hello, HelloAck,
+    ItemSlot, ItemTransfer, MAX_COMMAND_TIMEOUT_MS, MAX_COMMAND_WAIT_MS, MAX_ECHO_TEXT_LEN,
+    MAX_PAYLOAD_LEN, Message, MessageType, PROTOCOL_VERSION_1_0, Ping, Pong, SkillSlot, SlotSwap,
+    SnapshotRequest, SnapshotResponse, SnapshotResult, SnapshotUnavailableReason, SpellArguments,
+    SpellCast, SpellInput, SpellSlot, SpellTarget, TickHealthRequest, TickHealthResponse,
+    TilePosition as CommandTilePosition, TransferTarget, VersionRange, WalkTarget, decode_frame,
+    decode_header, encode_frame, protocol_version, protocol_version_major, protocol_version_minor,
 };
 
 fn hello() -> Hello {
@@ -180,6 +181,29 @@ fn snapshot() -> ClientSnapshot {
             },
         ]),
         dialog: Some(dialog_state()),
+        group: Some(group_state()),
+    }
+}
+
+fn group_state() -> GroupState {
+    GroupState {
+        members: vec![
+            GroupMember {
+                name: "Eidolon".into(),
+                is_leader: true,
+            },
+            GroupMember {
+                name: "ZiLo".into(),
+                is_leader: false,
+            },
+        ],
+        invitations: vec![GroupInvitation {
+            id: 3,
+            inviter: "Intern".into(),
+            received_tick_ms: Some(456),
+        }],
+        is_group_open: Some(true),
+        auto_accept: Some(false),
     }
 }
 
@@ -590,6 +614,22 @@ fn every_message_round_trips() {
                     tick_ms: 141,
                     update: StateUpdate::Dialog(DialogUpdate::Changed(dialog_state())),
                 },
+                StateEvent {
+                    sequence: 61,
+                    revision: 27,
+                    tick_ms: 142,
+                    update: StateUpdate::Group(GroupUpdate::Joined {
+                        state: group_state(),
+                    }),
+                },
+                StateEvent {
+                    sequence: 62,
+                    revision: 28,
+                    tick_ms: 143,
+                    update: StateUpdate::Group(GroupUpdate::SettingsChanged {
+                        state: group_state(),
+                    }),
+                },
             ]),
         }),
         Message::EventPollResponse(EventPollResponse {
@@ -830,6 +870,33 @@ fn every_message_round_trips() {
                 wait_ms: 50,
             },
         }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 39,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::Group(GroupCommand::Toggle),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 40,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::Group(GroupCommand::Invite(GroupText::new("ZiLo").unwrap())),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 41,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::Group(GroupCommand::Respond {
+                    invitation_id: 7,
+                    action: GroupInvitationAction::Accept,
+                }),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
     ];
 
     for message in messages {
@@ -886,6 +953,7 @@ fn command_limits_are_strictly_validated() {
 fn snapshot_decoder_accepts_the_pre_dialog_protocol_1_0_tail() {
     let mut snapshot = snapshot();
     snapshot.dialog = None;
+    snapshot.group = None;
     let frame = Frame::new(
         7,
         123,
@@ -896,7 +964,8 @@ fn snapshot_decoder_accepts_the_pre_dialog_protocol_1_0_tail() {
     );
     let mut bytes = encode_frame(&frame).unwrap();
     assert_eq!(bytes.pop(), Some(0));
-    let payload_len = u32::from_le_bytes(bytes[16..20].try_into().unwrap()) - 1;
+    assert_eq!(bytes.pop(), Some(0));
+    let payload_len = u32::from_le_bytes(bytes[16..20].try_into().unwrap()) - 2;
     bytes[16..20].copy_from_slice(&payload_len.to_le_bytes());
 
     let decoded = decode_frame(&bytes).unwrap();

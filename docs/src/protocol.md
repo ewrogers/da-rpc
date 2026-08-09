@@ -215,6 +215,25 @@ struct ClientSnapshot {
     character: Option<CharacterSnapshot>;
     objects: Option<Vec<WorldObject>>;
     dialog: Option<DialogState>;
+    group: Option<GroupState>;
+}
+
+struct GroupState {
+    members: Vec<GroupMember>;             // u8 count, maximum 64
+    invitations: Vec<GroupInvitation>;     // u8 count, maximum 8
+    is_group_open: Option<bool>;
+    auto_accept: Option<bool>;
+}
+
+struct GroupMember {
+    name: string8;                         // 1 through 64 UTF-8 bytes
+    is_leader: bool;
+}
+
+struct GroupInvitation {
+    id: u32;                               // nonzero DLL-lifetime identifier
+    inviter: string8;                      // 1 through 64 UTF-8 bytes
+    received_tick_ms: Option<u32>;
 }
 
 struct CharacterSnapshot {
@@ -354,9 +373,10 @@ enum EffectDuration: u8 {
 }
 ```
 
-The dialog field was appended during protocol 1.0 development. A 1.0 decoder
-accepts an older snapshot that ends after `objects` and treats its dialog as
-`None`. New encoders always include the optional-field marker.
+The dialog and group fields were appended during protocol 1.0 development. A
+1.0 decoder accepts an older snapshot that ends after `objects`, or after the
+dialog field, and treats the missing tail fields as `None`. New encoders always
+include both optional-field markers.
 
 Optional values begin with a strict boolean byte. Strings use a `u16` UTF-8
 byte length. Character collections use a `u8` count followed by occupied
@@ -434,6 +454,22 @@ enum StateUpdate: u8 {
     Action(ActionUpdate) = 11,
     Entity(EntityUpdate) = 12,
     Dialog(DialogUpdate) = 13,
+    Group(GroupUpdate) = 14,
+}
+
+enum GroupUpdate: u8 {
+    InvitationSent { target: string } = 1,
+    InvitationReceived { invitation: GroupInvitation, state: GroupState } = 2,
+    InvitationClosed {
+        invitation: GroupInvitation,
+        reason: GroupInvitationCloseReason,
+        state: GroupState,
+    } = 3,
+    Joined { state: GroupState } = 4,
+    MemberJoined { member: GroupMember, state: GroupState } = 5,
+    MemberLeft { member: GroupMember, state: GroupState } = 6,
+    Disbanded { state: GroupState } = 7,
+    SettingsChanged { state: GroupState } = 8,
 }
 
 enum DialogUpdate: u8 {
@@ -708,6 +744,14 @@ enum CommandKind: u8 {
     SwapSlots(SlotSwap) = 13,
     Interact { id: u32 } = 14,       // nonzero visible Mundane object ID
     Dialog(DialogCommand) = 15,
+    Group(GroupCommand) = 16,
+}
+
+enum GroupCommand: u8 {
+    Invite { target: string8 } = 1,
+    Accept { invitation_id: u32 } = 2,
+    Decline { invitation_id: u32 } = 3,
+    Toggle = 4,
 }
 
 struct DialogCommand {

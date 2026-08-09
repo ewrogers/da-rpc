@@ -39,6 +39,7 @@ The character data includes:
 - Armor class, damage, hit, magic resistance, attack element, and defense
   element
 - `is_blinded`, `is_casting`, `is_walking`, and `is_action_restricted`
+- The last server-confirmed `is_group_open` setting and current `group_members`
 
 The map data includes its ID, available name, zero-based x/y position, width,
 and height.
@@ -56,6 +57,8 @@ Character {
     is_blinded: bool,
     is_casting: bool,
     is_walking: bool,
+    is_group_open: bool?,
+    group_members: Vec<GroupMember>,
     gold: u32,
     weight: u32,
     max_weight: u32,

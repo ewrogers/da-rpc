@@ -1,6 +1,7 @@
 mod abilities;
 mod collections;
 mod effects;
+mod groups;
 mod objects;
 mod panes;
 mod types;
@@ -11,6 +12,10 @@ pub use collections::{
     RawInventoryItem,
 };
 pub use effects::{EFFECT_SLOT_COUNT, RawEffect, RawEffects};
+pub use groups::{
+    GROUP_INVITATION_CAPACITY, GROUP_MEMBER_CAPACITY, GROUP_NAME_BYTES, RawGroupInvitation,
+    RawGroupMember, RawGroupState,
+};
 pub use objects::{MAX_OBJECT_NAME_BYTES, MAX_WORLD_OBJECTS, RawObjects, RawWorldObject};
 pub use types::{
     MemoryReader, RawAppearance, RawCharacter, RawClientText, RawLifecycle, RawLocation,
@@ -29,8 +34,10 @@ const MAIN_MENU_PANE_RVA: u32 = 0x0033_D968;
 const MAIN_THREAD_ID_RVA: u32 = 0x0034_0400;
 const GUI_BACK_PANE_RVA: u32 = 0x0042_B768;
 const MAP_LOADING_PANE_RVA: u32 = 0x0045_1598;
+const BOTTOM_BUTTONS_PANE_RVA: u32 = 0x002D_9230;
 
 const GUI_BACK_PANE_ADJUSTMENT: u32 = 0x190;
+const GROUP_OPEN_OFFSET: u32 = 0x1C6;
 const MAX_MAP_DIMENSION: i32 = 255;
 const MAX_TREE_DEPTH: usize = 64;
 
@@ -87,6 +94,10 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
                 && world_user != 0;
         if character_available {
             self.capture_character(&roots, world_user, &mut output.character)?;
+            self.capture_group(world_user, &mut output.group)?;
+            output.group_available = true;
+        } else {
+            output.group_available = false;
         }
 
         let current_roots = self.capture_roots()?;
@@ -176,6 +187,33 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
             return Err(StateReadError::PointersChanged);
         }
         Ok(available)
+    }
+
+    pub fn capture_group_state(
+        &self,
+        current_thread_id: u32,
+        output: &mut RawGroupState,
+    ) -> Result<(), StateReadError> {
+        let expected_thread_id = self.read_module_u32(MAIN_THREAD_ID_RVA)?;
+        if expected_thread_id == 0 || expected_thread_id != current_thread_id {
+            return Err(StateReadError::WrongThread {
+                expected: expected_thread_id,
+                actual: current_thread_id,
+            });
+        }
+        let roots = self.capture_roots()?;
+        if roots.world == 0 {
+            return Err(StateReadError::InvalidGroupState);
+        }
+        let world_user = self.read_u32(add(roots.world, 0x2CC)?)?;
+        if world_user == 0 {
+            return Err(StateReadError::InvalidGroupState);
+        }
+        self.capture_group(world_user, output)?;
+        if self.capture_roots()?.world_interface != roots.world_interface {
+            return Err(StateReadError::PointersChanged);
+        }
+        Ok(())
     }
 
     fn capture_objects_from_world(
@@ -424,6 +462,49 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
         output.skillbook_available = skillbook_available;
         output.spellbook_available = spellbook_available;
         output.effects = effects;
+        Ok(())
+    }
+
+    fn capture_group(
+        &self,
+        world_user: u32,
+        group: &mut RawGroupState,
+    ) -> Result<(), StateReadError> {
+        const RECORDS_OFFSET: u32 = 0x04;
+        const RECORD_SIZE: u32 = 0x41;
+        const LEADER_OFFSET: u32 = 0x40;
+        const COUNT_OFFSET: u32 = 0x1044;
+
+        let count = self.read_u32(add(world_user, COUNT_OFFSET)?)?;
+        let count = usize::try_from(count).map_err(|_| StateReadError::InvalidGroupState)?;
+        if count > GROUP_MEMBER_CAPACITY {
+            return Err(StateReadError::InvalidGroupState);
+        }
+        group.member_count = u8::try_from(count).expect("group capacity fits u8");
+        group.invitation_count = 0;
+        group.is_group_open = None;
+        group.auto_accept = None;
+        for (index, member) in group.members.iter_mut().take(count).enumerate() {
+            let record = indexed(world_user, RECORDS_OFFSET, RECORD_SIZE, index)?;
+            self.read_bytes(record, &mut member.name)?;
+            member.name_len = u8::try_from(
+                member
+                    .name
+                    .iter()
+                    .position(|byte| *byte == 0)
+                    .unwrap_or(member.name.len()),
+            )
+            .expect("group name buffer fits u8");
+            member.is_leader = self.read_u8(add(record, LEADER_OFFSET)?)? != 0;
+        }
+        let bottom_buttons = self.read_module_u32(BOTTOM_BUTTONS_PANE_RVA)?;
+        if bottom_buttons != 0 {
+            let is_group_open = self.read_u8(add(bottom_buttons, GROUP_OPEN_OFFSET)?)?;
+            if is_group_open > 1 {
+                return Err(StateReadError::InvalidGroupState);
+            }
+            group.is_group_open = Some(is_group_open != 0);
+        }
         Ok(())
     }
 

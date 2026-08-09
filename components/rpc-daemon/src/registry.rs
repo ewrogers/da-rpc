@@ -547,6 +547,7 @@ mod tests {
             }),
             objects: Some(Vec::new()),
             dialog: None,
+            group: None,
         }
     }
 

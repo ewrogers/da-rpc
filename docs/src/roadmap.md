@@ -733,6 +733,10 @@ Current implementation:
 - Merchant and pursuit dialogs are retained in snapshots, published through
   ordered events, and controlled with revision-checked native main-thread
   actions. Large dialog bodies use a separate fixed-capacity handoff.
+- Group rosters, leader state, invitation prompts, and the server-confirmed
+  group-open setting are retained and exposed through REST and ordered events.
+  Native main-thread commands invite visible players, answer prompts, and use
+  the client's group toggle to open grouping or leave an active group.
 - Local immutable rules remain to be implemented before this milestone is
   complete.
 

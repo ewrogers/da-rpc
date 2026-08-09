@@ -31,6 +31,7 @@ impl QueuedStateEvent {
             QueuedStateUpdate::Action(update) => StateUpdate::Action(update),
             QueuedStateUpdate::Entity(update) => StateUpdate::Entity(update.into_model()),
             QueuedStateUpdate::Dialog(update) => StateUpdate::Dialog(crate::dialog::take(update)?),
+            QueuedStateUpdate::Group(update) => StateUpdate::Group(crate::group::take(update)?),
         };
         Some(StateEvent {
             sequence: self.sequence,
@@ -43,6 +44,9 @@ impl QueuedStateEvent {
     pub(crate) fn discard(self) {
         if let QueuedStateUpdate::Dialog(update) = self.update {
             crate::dialog::release(update);
+        }
+        if let QueuedStateUpdate::Group(update) = self.update {
+            crate::group::release(update);
         }
     }
 }
@@ -64,6 +68,7 @@ pub(super) enum QueuedStateUpdate {
     Action(ActionUpdate),
     Entity(QueuedEntityUpdate),
     Dialog(crate::dialog::QueuedDialog),
+    Group(crate::group::QueuedGroup),
 }
 
 impl QueuedStateUpdate {

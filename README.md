@@ -51,6 +51,7 @@ like a second client trying to imitate it from the outside.
   gear, pick up ground items, and emote through normal client behavior.
 - Observe and answer merchant and pursuit dialogs through native client UI
   methods.
+- Read group rosters, invite visible players, and answer group invitations.
 - Manage several clients from one daemon.
 - Query state and submit actions through REST.
 - Subscribe to live events through Server-Sent Events (SSE).

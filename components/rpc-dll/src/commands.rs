@@ -1,9 +1,9 @@
 use darpc_model::{Direction, EquipmentSlot};
 use darpc_protocol::{
     CommandFailure, CommandKind, CommandOperation, CommandResult, CommandState, CommandStatus,
-    DialogAction, DialogCommand, DialogText, GoldTransfer, ItemSlot, ItemTransfer,
-    MAX_DIALOG_INPUT_LEN, SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot,
-    SpellTarget, TilePosition, TransferTarget, WalkTarget,
+    DialogAction, DialogCommand, DialogText, GoldTransfer, GroupCommand, GroupInvitationAction,
+    GroupText, ItemSlot, ItemTransfer, MAX_DIALOG_INPUT_LEN, SkillSlot, SlotSwap, SpellArguments,
+    SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkTarget,
 };
 use std::{
     panic,
@@ -463,6 +463,7 @@ fn next_command_id() -> u32 {
 enum StoredInput {
     Spell(SpellInput),
     Dialog(DialogText),
+    Group(GroupText),
 }
 
 impl StoredInput {
@@ -470,6 +471,7 @@ impl StoredInput {
         match self {
             Self::Spell(value) => value.as_bytes(),
             Self::Dialog(value) => value.as_bytes(),
+            Self::Group(value) => value.as_bytes(),
         }
     }
 }
@@ -572,6 +574,18 @@ fn stored_kind(kind: CommandKind) -> (u8, u32, u32, u32, Option<StoredInput>) {
             revision,
             action: DialogAction::Close,
         }) => (29, revision, 0, 0, None),
+        CommandKind::Group(GroupCommand::Toggle) => (33, 0, 0, 0, None),
+        CommandKind::Group(GroupCommand::Invite(target)) => {
+            (30, 0, 0, 0, Some(StoredInput::Group(target)))
+        }
+        CommandKind::Group(GroupCommand::Respond {
+            invitation_id,
+            action: GroupInvitationAction::Accept,
+        }) => (31, invitation_id, 0, 0, None),
+        CommandKind::Group(GroupCommand::Respond {
+            invitation_id,
+            action: GroupInvitationAction::Decline,
+        }) => (32, invitation_id, 0, 0, None),
     }
 }
 
@@ -748,6 +762,23 @@ fn kind_from_value(
             revision: argument_x,
             action: DialogAction::Close,
         }),
+        30 => {
+            let Ok(target) = std::str::from_utf8(input) else {
+                return CommandKind::Diagnostic;
+            };
+            GroupText::new(target)
+                .map(|target| CommandKind::Group(GroupCommand::Invite(target)))
+                .unwrap_or(CommandKind::Diagnostic)
+        }
+        31 | 32 => CommandKind::Group(GroupCommand::Respond {
+            invitation_id: argument_x,
+            action: if value == 31 {
+                GroupInvitationAction::Accept
+            } else {
+                GroupInvitationAction::Decline
+            },
+        }),
+        33 => CommandKind::Group(GroupCommand::Toggle),
         _ => CommandKind::Diagnostic,
     }
 }

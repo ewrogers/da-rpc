@@ -51,7 +51,10 @@ impl GameStatus {
         Self {
             observation: ObservationMetadata::from_model(pid, snapshot),
             lifecycle: ClientLifecycle::from(snapshot.lifecycle),
-            character: snapshot.character.as_ref().map(CharacterStatus::from),
+            character: snapshot
+                .character
+                .as_ref()
+                .map(|character| CharacterStatus::from_model(character, snapshot.group.as_ref())),
             map: snapshot.character.as_ref().and_then(|character| {
                 character.location.as_ref().map(|location| MapLocation {
                     id: location.id,
@@ -181,6 +184,8 @@ pub(crate) struct CharacterStatus {
     is_blinded: bool,
     is_casting: bool,
     is_walking: bool,
+    is_group_open: Option<bool>,
+    group_members: Vec<crate::group::GroupMember>,
     gold: u32,
     weight: u32,
     max_weight: u32,
@@ -190,8 +195,8 @@ pub(crate) struct CharacterStatus {
     modifiers: Option<CharacterModifiers>,
 }
 
-impl From<&ModelCharacterSnapshot> for CharacterStatus {
-    fn from(value: &ModelCharacterSnapshot) -> Self {
+impl CharacterStatus {
+    fn from_model(value: &ModelCharacterSnapshot, group: Option<&darpc_model::GroupState>) -> Self {
         Self {
             id: value.id,
             name: value.name.clone(),
@@ -206,6 +211,16 @@ impl From<&ModelCharacterSnapshot> for CharacterStatus {
             is_blinded: value.is_blinded,
             is_casting: value.is_casting,
             is_walking: value.is_walking,
+            is_group_open: group.and_then(|group| group.is_group_open),
+            group_members: group
+                .map(|group| {
+                    group
+                        .members
+                        .iter()
+                        .map(crate::group::GroupMember::from)
+                        .collect()
+                })
+                .unwrap_or_default(),
             gold: value.gold,
             weight: value.weight,
             max_weight: value.max_weight,

@@ -36,6 +36,9 @@ pub(super) fn snapshot(
         )
         .then(|| objects(raw_objects)),
         dialog: crate::dialog::decode_current(raw_dialog),
+        group: raw
+            .group_available
+            .then(|| crate::group::model_state(&raw.group)),
     }
 }
 

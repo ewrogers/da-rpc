@@ -4,6 +4,7 @@ mod dialog;
 mod emote;
 mod entity;
 mod event;
+mod group;
 mod message;
 mod object;
 mod snapshot;
@@ -14,6 +15,10 @@ pub use event::{
     MapChange, MovementUpdate, ProgressionStatus, SkillbookUpdate, SlotUpdate,
     SpellCancellationSource, SpellCastArguments, SpellbookUpdate, StateEvent, StateUpdate,
     StatusUpdate, TilePosition,
+};
+
+pub use group::{
+    GroupInvitation, GroupInvitationCloseReason, GroupMember, GroupState, GroupUpdate,
 };
 
 pub use dialog::{

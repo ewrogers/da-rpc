@@ -367,6 +367,9 @@ extern "C" fn observe_event(event: *const core::ffi::c_void) {
             packet::ServerUpdate::Dialog(body) => {
                 state::observe_dialog(body, tick_ms);
             }
+            packet::ServerUpdate::Group(body) => {
+                crate::group::observe_packet(body, tick_ms);
+            }
         }
     });
 }

@@ -19,6 +19,8 @@ pub struct RawStateSnapshot {
     pub lifecycle: RawLifecycle,
     pub character_available: bool,
     pub character: RawCharacter,
+    pub group_available: bool,
+    pub group: super::RawGroupState,
 }
 
 impl RawStateSnapshot {
@@ -29,6 +31,8 @@ impl RawStateSnapshot {
             lifecycle: RawLifecycle::Unknown,
             character_available: false,
             character: RawCharacter::empty(),
+            group_available: false,
+            group: super::RawGroupState::empty(),
         }
     }
 }
@@ -180,6 +184,7 @@ pub enum StateReadError {
     InvalidObjectTree,
     InvalidCollection,
     InvalidPaneList,
+    InvalidGroupState,
 }
 
 impl fmt::Display for StateReadError {
@@ -200,6 +205,7 @@ impl fmt::Display for StateReadError {
             Self::InvalidObjectTree => formatter.write_str("client object tree is invalid"),
             Self::InvalidCollection => formatter.write_str("client collection state is invalid"),
             Self::InvalidPaneList => formatter.write_str("client event pane list is invalid"),
+            Self::InvalidGroupState => formatter.write_str("client group state is invalid"),
         }
     }
 }

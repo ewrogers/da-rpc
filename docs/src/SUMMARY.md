@@ -15,6 +15,7 @@
   - [World and movement](world.md)
   - [Messages](messages.md)
   - [NPC dialogs](dialogs.md)
+  - [Groups](groups.md)
 - [Running daRPC](rpcd.md)
   - [`loader.exe`](loader.md)
   - [Discovery and recovery](discovery.md)

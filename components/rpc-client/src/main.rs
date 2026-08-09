@@ -10,9 +10,10 @@ mod snapshot_output;
 
 use darpc_model::{Direction, EquipmentSlot, emote_code, is_client_emote_code};
 use darpc_protocol::{
-    GoldTransfer, ItemSlot, ItemTransfer, MAX_ECHO_TEXT_LEN, MAX_ITEM_SLOT, MAX_SKILL_SLOT,
-    MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT, SkillSlot, SpellArguments, SpellCast, SpellInput,
-    SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkTarget,
+    GoldTransfer, GroupCommand, GroupInvitationAction, GroupText, ItemSlot, ItemTransfer,
+    MAX_ECHO_TEXT_LEN, MAX_ITEM_SLOT, MAX_SKILL_SLOT, MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT,
+    SkillSlot, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition,
+    TransferTarget, WalkTarget,
 };
 use error::{ClientError, ErrorKind, Result};
 use output::{CommandResult, OutputFormat, render_error};
@@ -42,6 +43,10 @@ usage:
     darpc [--output <table|json>] item-pickup --pid <pid> <x> <y>
     darpc [--output <table|json>] unequip --pid <pid> <slot>
     darpc [--output <table|json>] emote --pid <pid> <name|code>
+    darpc [--output <table|json>] group-toggle --pid <pid>
+    darpc [--output <table|json>] group-invite --pid <pid> <player>
+    darpc [--output <table|json>] group-accept --pid <pid> <invitation-id>
+    darpc [--output <table|json>] group-decline --pid <pid> <invitation-id>
     darpc [--output <table|json>] command-status --pid <pid> <command-id>
     darpc [--output <table|json>] command-cancel --pid <pid> <command-id>";
 
@@ -71,6 +76,7 @@ enum Operation {
     PickupItem(TilePosition),
     Unequip(EquipmentSlot),
     Emote(u8),
+    Group(GroupCommand),
     CommandStatus(u32),
     CommandCancel(u32),
 }
@@ -96,6 +102,16 @@ impl Command {
             Operation::PickupItem(_) => "item-pickup",
             Operation::Unequip(_) => "unequip",
             Operation::Emote(_) => "emote",
+            Operation::Group(GroupCommand::Toggle) => "group-toggle",
+            Operation::Group(GroupCommand::Invite(_)) => "group-invite",
+            Operation::Group(GroupCommand::Respond {
+                action: GroupInvitationAction::Accept,
+                ..
+            }) => "group-accept",
+            Operation::Group(GroupCommand::Respond {
+                action: GroupInvitationAction::Decline,
+                ..
+            }) => "group-decline",
             Operation::CommandStatus(_) => "command-status",
             Operation::CommandCancel(_) => "command-cancel",
         }
@@ -200,6 +216,18 @@ fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
         }),
         "unequip" => Operation::Unequip(parse_equipment_slot(arguments.next())?),
         "emote" => Operation::Emote(parse_emote(arguments.next())?),
+        "group-toggle" => Operation::Group(GroupCommand::Toggle),
+        "group-invite" => {
+            Operation::Group(GroupCommand::Invite(parse_group_name(arguments.next())?))
+        }
+        "group-accept" => Operation::Group(GroupCommand::Respond {
+            invitation_id: parse_group_invitation_id(arguments.next())?,
+            action: GroupInvitationAction::Accept,
+        }),
+        "group-decline" => Operation::Group(GroupCommand::Respond {
+            invitation_id: parse_group_invitation_id(arguments.next())?,
+            action: GroupInvitationAction::Decline,
+        }),
         "command-status" => Operation::CommandStatus(parse_command_id(arguments.next())?),
         "command-cancel" => Operation::CommandCancel(parse_command_id(arguments.next())?),
         "echo" => {
@@ -349,6 +377,16 @@ fn parse_command_id(argument: Option<OsString>) -> Result<u32> {
     Ok(command_id)
 }
 
+fn parse_group_invitation_id(argument: Option<OsString>) -> Result<u32> {
+    let invitation_id = parse_u32(argument, "group invitation ID")?;
+    if invitation_id == 0 {
+        return Err(invalid_arguments(
+            "group invitation ID must be greater than zero",
+        ));
+    }
+    Ok(invitation_id)
+}
+
 fn parse_skill_slot(argument: Option<OsString>) -> Result<SkillSlot> {
     let argument = argument.ok_or_else(|| invalid_arguments("skill slot is required"))?;
     let argument = argument
@@ -458,6 +496,13 @@ fn parse_emote(argument: Option<OsString>) -> Result<u8> {
     }
 }
 
+fn parse_group_name(argument: Option<OsString>) -> Result<GroupText> {
+    let name = argument
+        .and_then(|value| value.into_string().ok())
+        .ok_or_else(|| invalid_arguments("group invite requires an ASCII player name"))?;
+    GroupText::new(&name).ok_or_else(|| invalid_arguments("group player name is invalid"))
+}
+
 fn invalid_arguments(message: impl Into<String>) -> ClientError {
     ClientError::new(
         ErrorKind::InvalidArguments,
@@ -483,7 +528,8 @@ mod tests {
     use super::{Command, Operation, OutputFormat, parse};
     use darpc_model::Direction;
     use darpc_protocol::{
-        SkillSlot, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget, WalkTarget,
+        GroupCommand, GroupInvitationAction, GroupText, SkillSlot, SpellArguments, SpellCast,
+        SpellInput, SpellSlot, SpellTarget, WalkTarget,
     };
     use std::ffi::OsString;
 
@@ -660,6 +706,41 @@ mod tests {
                 }
             )
         );
+        assert_eq!(
+            parse(arguments(&["group-toggle", "--pid", "10"])).unwrap(),
+            (
+                OutputFormat::Table,
+                Command {
+                    pid: 10,
+                    operation: Operation::Group(GroupCommand::Toggle),
+                }
+            )
+        );
+        assert_eq!(
+            parse(arguments(&["group-invite", "--pid", "10", "ZiLo"])).unwrap(),
+            (
+                OutputFormat::Table,
+                Command {
+                    pid: 10,
+                    operation: Operation::Group(GroupCommand::Invite(
+                        GroupText::new("ZiLo").unwrap()
+                    )),
+                }
+            )
+        );
+        assert_eq!(
+            parse(arguments(&["group-accept", "--pid", "10", "7"])).unwrap(),
+            (
+                OutputFormat::Table,
+                Command {
+                    pid: 10,
+                    operation: Operation::Group(GroupCommand::Respond {
+                        invitation_id: 7,
+                        action: GroupInvitationAction::Accept,
+                    }),
+                }
+            )
+        );
     }
 
     #[test]
@@ -675,6 +756,8 @@ mod tests {
         assert!(parse(arguments(&["skill-use", "--pid", "1", "91"])).is_err());
         assert!(parse(arguments(&["spell-cast", "--pid", "1", "0"])).is_err());
         assert!(parse(arguments(&["spell-cast", "--pid", "1", "1", "--input"])).is_err());
+        assert!(parse(arguments(&["group-invite", "--pid", "1", ""])).is_err());
+        assert!(parse(arguments(&["group-accept", "--pid", "1", "0"])).is_err());
     }
 
     #[test]

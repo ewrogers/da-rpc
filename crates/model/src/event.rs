@@ -1,6 +1,7 @@
 use crate::{
     CharacterModifiers, CharacterStats, ClientMessage, ClientSnapshot, DialogUpdate, Direction,
-    Effect, EntityUpdate, EquipmentSlot, InventoryItem, MapLocation, ObjectUpdate, Skill, Spell,
+    Effect, EntityUpdate, EquipmentSlot, GroupUpdate, InventoryItem, MapLocation, ObjectUpdate,
+    Skill, Spell,
 };
 use std::{error::Error, fmt};
 
@@ -27,6 +28,7 @@ pub enum StateUpdate {
     Action(ActionUpdate),
     Entity(EntityUpdate),
     Dialog(DialogUpdate),
+    Group(GroupUpdate),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -496,6 +498,11 @@ impl ClientSnapshot {
                 | DialogUpdate::Submitted { state, .. } => self.dialog = Some(state),
                 DialogUpdate::Closed { .. } => self.dialog = None,
             },
+            StateUpdate::Group(update) => {
+                if let Some(state) = update.state() {
+                    self.group = Some(state.clone());
+                }
+            }
         }
         self.revision = event.revision;
         self.event_sequence = event.sequence;

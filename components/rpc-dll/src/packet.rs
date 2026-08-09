@@ -85,6 +85,7 @@ pub(crate) enum ServerUpdate<'a> {
     SpellCancelled,
     Visual(VisualUpdate),
     Dialog(&'a [u8]),
+    Group(&'a [u8]),
 }
 
 pub(crate) fn update<'a>(
@@ -96,6 +97,9 @@ pub(crate) fn update<'a>(
             return Err(ParseError::truncated(1, 1, body.len().saturating_sub(1)));
         }
         return Ok(Some(ServerUpdate::Dialog(body)));
+    }
+    if matches!(body.first(), Some(0x39 | 0x63)) {
+        return Ok(Some(ServerUpdate::Group(body)));
     }
     if let Some(update) = message::update(body)? {
         return Ok(Some(ServerUpdate::Message(update)));

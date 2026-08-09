@@ -15,12 +15,13 @@ pub use runtime::{
     WORLD_PANE_POINTER_RVA, WORLD_PANE_ROUTE_ACTIVE_OFFSET,
 };
 pub use state::{
-    ABILITY_SLOT_COUNT, EFFECT_SLOT_COUNT, EQUIPMENT_SLOT_COUNT, INVENTORY_SLOT_COUNT,
-    MAX_OBJECT_NAME_BYTES, MAX_WORLD_OBJECTS, MemoryReader, RawAppearance, RawCharacter,
-    RawClientText, RawEffect, RawEffects, RawEquipment, RawEquipmentItem, RawInventory,
-    RawInventoryItem, RawLifecycle, RawLocation, RawMapName, RawModifiers, RawObjects,
-    RawPaneProgression, RawSkill, RawSkillbook, RawSpell, RawSpellbook, RawStateSnapshot,
-    RawWorldObject, StateReadError, StateWalker,
+    ABILITY_SLOT_COUNT, EFFECT_SLOT_COUNT, EQUIPMENT_SLOT_COUNT, GROUP_INVITATION_CAPACITY,
+    GROUP_MEMBER_CAPACITY, GROUP_NAME_BYTES, INVENTORY_SLOT_COUNT, MAX_OBJECT_NAME_BYTES,
+    MAX_WORLD_OBJECTS, MemoryReader, RawAppearance, RawCharacter, RawClientText, RawEffect,
+    RawEffects, RawEquipment, RawEquipmentItem, RawGroupInvitation, RawGroupMember, RawGroupState,
+    RawInventory, RawInventoryItem, RawLifecycle, RawLocation, RawMapName, RawModifiers,
+    RawObjects, RawPaneProgression, RawSkill, RawSkillbook, RawSpell, RawSpellbook,
+    RawStateSnapshot, RawWorldObject, StateReadError, StateWalker,
 };
 
 use sha2::{Digest, Sha256};

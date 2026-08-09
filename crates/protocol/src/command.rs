@@ -13,6 +13,7 @@ pub const MAX_SPELL_SLOT: u8 = 90;
 pub const MAX_ITEM_SLOT: u8 = 59;
 pub const MAX_SPELL_INPUT_LEN: usize = 100;
 pub const MAX_DIALOG_INPUT_LEN: usize = u8::MAX as usize;
+pub const MAX_GROUP_NAME_LEN: usize = 28;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CommandKind {
@@ -32,6 +33,50 @@ pub enum CommandKind {
     SwapSlots(SlotSwap),
     Interact(NonZeroU32),
     Dialog(DialogCommand),
+    Group(GroupCommand),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GroupCommand {
+    Toggle,
+    Invite(GroupText),
+    Respond {
+        invitation_id: u32,
+        action: GroupInvitationAction,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GroupInvitationAction {
+    Accept,
+    Decline,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct GroupText {
+    length: u8,
+    bytes: [u8; MAX_GROUP_NAME_LEN],
+}
+
+impl GroupText {
+    #[must_use]
+    pub fn new(value: &str) -> Option<Self> {
+        let value = value.as_bytes();
+        if value.is_empty() || value.len() > MAX_GROUP_NAME_LEN || !value.is_ascii() {
+            return None;
+        }
+        let mut bytes = [0; MAX_GROUP_NAME_LEN];
+        bytes[..value.len()].copy_from_slice(value);
+        Some(Self {
+            length: value.len() as u8,
+            bytes,
+        })
+    }
+
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes[..usize::from(self.length)]
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -365,6 +410,27 @@ fn encode_kind(output: &mut Vec<u8>, kind: CommandKind) {
                 DialogAction::Close => output.push(5),
             }
         }
+        CommandKind::Group(command) => {
+            output.push(16);
+            match command {
+                GroupCommand::Toggle => output.push(4),
+                GroupCommand::Invite(target) => {
+                    output.push(1);
+                    output.push(target.length);
+                    output.extend_from_slice(target.as_bytes());
+                }
+                GroupCommand::Respond {
+                    invitation_id,
+                    action,
+                } => {
+                    output.push(match action {
+                        GroupInvitationAction::Accept => 2,
+                        GroupInvitationAction::Decline => 3,
+                    });
+                    push_u32(output, invitation_id);
+                }
+            }
+        }
     }
 }
 
@@ -485,6 +551,26 @@ fn decode_kind(reader: &mut PayloadReader<'_>) -> Result<CommandKind, DecodeErro
             };
             Ok(CommandKind::Dialog(DialogCommand { revision, action }))
         }
+        16 => match reader.read_u8()? {
+            1 => {
+                let length = usize::from(reader.read_u8()?);
+                let target = std::str::from_utf8(reader.take(length)?)
+                    .ok()
+                    .and_then(GroupText::new)
+                    .ok_or(DecodeError::InvalidGroupField { actual: 1 })?;
+                Ok(CommandKind::Group(GroupCommand::Invite(target)))
+            }
+            action @ (2 | 3) => Ok(CommandKind::Group(GroupCommand::Respond {
+                invitation_id: reader.read_u32()?,
+                action: if action == 2 {
+                    GroupInvitationAction::Accept
+                } else {
+                    GroupInvitationAction::Decline
+                },
+            })),
+            4 => Ok(CommandKind::Group(GroupCommand::Toggle)),
+            actual => Err(DecodeError::InvalidGroupField { actual }),
+        },
         actual => Err(DecodeError::InvalidCommandKind { actual }),
     }
 }

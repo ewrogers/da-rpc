@@ -52,6 +52,10 @@ darpc gold-give --pid <pid> <amount> <object-id>
 darpc item-pickup --pid <pid> <x> <y>
 darpc unequip --pid <pid> <slot-number>
 darpc emote --pid <pid> <name|code>
+darpc group-toggle --pid <pid>
+darpc group-invite --pid <pid> <player>
+darpc group-accept --pid <pid> <invitation-id>
+darpc group-decline --pid <pid> <invitation-id>
 darpc command-status --pid <pid> <command-id>
 darpc command-cancel --pid <pid> <command-id>
 ```
@@ -69,7 +73,8 @@ behavior is:
   difference, and whether the counter advanced.
 - `snapshot` schedules a bounded capture on the client main thread and reports
   lifecycle, character, map, inventory, equipment, spellbook, skillbook, and
-  active spell-effect state plus capture timing and request round-trip time.
+  active spell-effect, group roster, and invitation state plus capture timing
+  and request round-trip time.
 - `diagnostic` submits a no-op command to the bounded main-thread queue, waits
   up to one second, and reports its state, queue delay, execution duration, and
   client main-thread ID.
@@ -98,6 +103,11 @@ behavior is:
   18. `emote` accepts a confirmed case-insensitive name such as `wave`, or a
   normal client UI emote code. See [World and movement](world.md#emotes) for
   the named list.
+- `group-toggle` uses the native client toggle. It opens or closes invitations
+  while solo and leaves or disbands an active group. `group-invite` sends a
+  validated ASCII player name. `group-accept` and `group-decline` answer one
+  retained invitation ID. Direct `snapshot` exposes retained group state, but
+  the daemon API adds visible-name resolution, REST resources, and live events.
 - `command-status` reads a retained command result by its nonzero ID.
 - `command-cancel` atomically cancels a command that is still accepted. A
   command that already started retains its completed state.
@@ -121,6 +131,7 @@ darpc --output json turn --pid <pid> north
 darpc --output json walk --pid <pid> 120 85
 darpc --output json skill-use --pid <pid> 5
 darpc --output json spell-cast --pid <pid> 7 --input "nothing"
+darpc --output json group-invite --pid <pid> ZiLo
 darpc --output json command-status --pid <pid> <command-id>
 ```
 

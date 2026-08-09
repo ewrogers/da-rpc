@@ -268,6 +268,21 @@ pub(crate) fn execute(pid: u32, operation: Operation) -> Result<CommandResult> {
         Operation::Emote(code) => {
             request_action(&mut session, pid, "emote", CommandKind::Emote(code))
         }
+        Operation::Group(command) => {
+            let action = match command {
+                darpc_protocol::GroupCommand::Toggle => "group-toggle",
+                darpc_protocol::GroupCommand::Invite(_) => "group-invite",
+                darpc_protocol::GroupCommand::Respond {
+                    action: darpc_protocol::GroupInvitationAction::Accept,
+                    ..
+                } => "group-accept",
+                darpc_protocol::GroupCommand::Respond {
+                    action: darpc_protocol::GroupInvitationAction::Decline,
+                    ..
+                } => "group-decline",
+            };
+            request_action(&mut session, pid, action, CommandKind::Group(command))
+        }
         Operation::CommandStatus(command_id) => request_command(
             &mut session,
             pid,

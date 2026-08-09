@@ -7,6 +7,11 @@ use crate::{
         DialogSubmitted,
     },
     event::DaemonEvent,
+    group::{
+        GroupDisbanded, GroupInvitation, GroupInvitationCloseReason, GroupInvitationClosed,
+        GroupInvitationReceived, GroupInvitationSent, GroupJoined, GroupMember, GroupMemberChanged,
+        GroupSettingsChanged, GroupSnapshot, GroupState,
+    },
     lifecycle::{
         LaunchOptions as ManagedLaunchOptions, LifecycleControl, LifecycleOperation,
         LifecycleOutcome, ManagementError, ServerEndpoint as ManagedServerEndpoint,
@@ -341,6 +346,23 @@ fn router(state: ApiState) -> Router {
         .route("/clients", get(clients))
         .route("/clients/{client}/status", get(client_status))
         .route("/clients/{client}/dialog", get(client_dialog))
+        .route("/clients/{client}/group", get(client_group))
+        .route(
+            "/clients/{client}/group/invite",
+            post(crate::commands::invite_group),
+        )
+        .route(
+            "/clients/{client}/group/toggle",
+            post(crate::commands::toggle_group),
+        )
+        .route(
+            "/clients/{client}/group/invitations/{invitation_id}/accept",
+            post(crate::commands::accept_group_invitation),
+        )
+        .route(
+            "/clients/{client}/group/invitations/{invitation_id}/decline",
+            post(crate::commands::decline_group_invitation),
+        )
         .route(
             "/clients/{client}/interact",
             post(crate::commands::interact),
@@ -574,6 +596,26 @@ async fn client_dialog(
     let registry = state.snapshot();
     let (pid, snapshot) = resolve_game_snapshot(&registry, &identifier)?;
     Ok(Json(DialogSnapshot::from_model(pid, snapshot)))
+}
+
+#[utoipa::path(
+    get,
+    path = "/clients/{client}/group",
+    params(("client" = String, Path, description = "Process ID or current in-game character name")),
+    responses(
+        (status = 200, description = "The current group roster and open invitations", body = GroupSnapshot),
+        (status = 400, body = ErrorState),
+        (status = 404, body = ErrorState),
+        (status = 503, body = ErrorState)
+    )
+)]
+async fn client_group(
+    Path(identifier): Path<String>,
+    State(state): State<ApiState>,
+) -> Result<Json<GroupSnapshot>, ApiError> {
+    let registry = state.snapshot();
+    let (pid, snapshot) = resolve_game_snapshot(&registry, &identifier)?;
+    Ok(Json(GroupSnapshot::from_model(pid, snapshot)))
 }
 
 #[utoipa::path(
@@ -1151,6 +1193,7 @@ fn operation_in_progress(pid: u32) -> ApiError {
         clients,
         client_status,
         client_dialog,
+        client_group,
         client_items,
         client_equipment,
         client_spells,
@@ -1184,6 +1227,10 @@ fn operation_in_progress(pid: u32) -> ApiError {
         crate::commands::dialog::previous,
         crate::commands::dialog::next,
         crate::commands::dialog::close,
+        crate::commands::group::invite,
+        crate::commands::group::toggle,
+        crate::commands::group::accept,
+        crate::commands::group::decline,
         crate::commands::status,
         crate::commands::cancel
     ),
@@ -1244,6 +1291,18 @@ fn operation_in_progress(pid: u32) -> ApiError {
         DialogClosed,
         DialogSubmission,
         DialogCloseReason,
+        GroupSnapshot,
+        GroupState,
+        GroupMember,
+        GroupInvitation,
+        GroupInvitationSent,
+        GroupInvitationReceived,
+        GroupInvitationClosed,
+        GroupInvitationCloseReason,
+        GroupSettingsChanged,
+        GroupJoined,
+        GroupMemberChanged,
+        GroupDisbanded,
         LaunchOptions,
         LoadResult,
         UnloadResult,
@@ -1253,6 +1312,7 @@ fn operation_in_progress(pid: u32) -> ApiError {
         ErrorDetail,
         ClientEvent,
         crate::commands::DiagnosticOptions,
+        crate::commands::GroupInviteOptions,
         crate::commands::ActionDirection,
         crate::commands::TurnOptions,
         crate::commands::WalkDirectionOptions,
@@ -1935,6 +1995,7 @@ mod tests {
                     text: "Tell me more".into(),
                 }]),
             }),
+            group: None,
         }
     }
 

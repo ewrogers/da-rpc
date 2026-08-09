@@ -2,8 +2,8 @@ mod convert;
 mod publication;
 
 use darpc_game_client::{
-    MemoryReader, RawInventory, RawObjects, RawSkillbook, RawSpellbook, RawStateSnapshot,
-    StateReadError, StateWalker,
+    MemoryReader, RawGroupState, RawInventory, RawObjects, RawSkillbook, RawSpellbook,
+    RawStateSnapshot, StateReadError, StateWalker,
 };
 use darpc_model::ClientSnapshot;
 use std::{
@@ -32,6 +32,7 @@ pub(crate) fn reset() {
     publication::reset();
     crate::state::reset();
     crate::dialog::reset();
+    crate::group::reset();
     map_name::reset();
 }
 
@@ -95,6 +96,7 @@ pub(crate) fn observe_tick() {
 fn capture(raw: &mut RawStateSnapshot, objects: &mut RawObjects) -> Result<(), StateReadError> {
     let (walker, thread_id) = process_walker()?;
     walker.capture_into(thread_id, raw)?;
+    crate::group::merge_snapshot(&mut raw.group, raw.group_available);
     let center = raw
         .character_available
         .then_some(&raw.character)
@@ -110,6 +112,11 @@ fn capture(raw: &mut RawStateSnapshot, objects: &mut RawObjects) -> Result<(), S
         );
     }
     Ok(())
+}
+
+pub(crate) fn capture_group(output: &mut RawGroupState) -> Result<(), StateReadError> {
+    let (walker, thread_id) = process_walker()?;
+    walker.capture_group_state(thread_id, output)
 }
 
 pub(crate) fn capture_inventory(output: &mut RawInventory) -> Result<bool, StateReadError> {

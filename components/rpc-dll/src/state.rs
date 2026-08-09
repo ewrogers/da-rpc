@@ -76,6 +76,10 @@ pub(crate) fn observe_dialog_closed(reason: darpc_model::DialogCloseReason, tick
     }
 }
 
+pub(crate) fn observe_group(update: crate::group::QueuedGroup, tick_ms: u32) -> bool {
+    push_event(QueuedStateUpdate::Group(update), tick_ms)
+}
+
 pub(crate) fn observe_visual(update: VisualUpdate, tick_ms: u32) {
     match update {
         VisualUpdate::Motion {
@@ -316,6 +320,8 @@ pub(crate) fn observe_tick() {
     if crate::dialog::is_active() && !crate::actions::dialog::is_open() {
         observe_dialog_closed(darpc_model::DialogCloseReason::Client, tick_ms);
     }
+    #[cfg(all(windows, not(test)))]
+    crate::actions::group::observe_tick(tick_ms);
     // SAFETY: the tick hook runs on the client main thread, which is the sole
     // collection producer.
     unsafe {

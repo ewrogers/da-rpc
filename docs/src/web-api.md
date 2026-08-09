@@ -73,6 +73,7 @@ they need:
 | `GET /clients/{client}/objects` | [World and movement](world.md) |
 | `GET /clients/{client}/messages` | [Messages](messages.md) |
 | `GET /clients/{client}/dialog` | [NPC dialogs](dialogs.md) |
+| `GET /clients/{client}/group` | [Groups](groups.md) |
 
 These routes read the daemon's retained state. They do not ask the DLL to scan
 the game client for every HTTP request. See [Game data](state.md) for baseline
@@ -107,6 +108,10 @@ the game and how they change.
 | `POST /clients/{client}/dialog/previous` | Move to the previous pursuit page. |
 | `POST /clients/{client}/dialog/next` | Move to the next pursuit page. |
 | `POST /clients/{client}/dialog/close` | Close the current NPC dialog. |
+| `POST /clients/{client}/group/toggle` | Toggle invitations, or leave the current group. |
+| `POST /clients/{client}/group/invite` | Invite a visible player. |
+| `POST /clients/{client}/group/invitations/{id}/accept` | Accept a pending invitation. |
+| `POST /clients/{client}/group/invitations/{id}/decline` | Decline a pending invitation. |
 | `POST /clients/{client}/commands/diagnostic` | Run a no-op main-thread command for testing. |
 | `GET /clients/{client}/commands/{command_id}` | Read retained command status. |
 | `DELETE /clients/{client}/commands/{command_id}` | Cancel a command that has not started. |
@@ -115,7 +120,8 @@ Movement request bodies are documented in [World and movement](world.md).
 Item, gold, and pickup bodies are documented in [Inventory](inventory.md).
 Equipment, skill, and spell arguments are documented in their respective
 chapters. NPC interaction, revision checks, and dialog responses are documented
-in [NPC dialogs](dialogs.md).
+in [NPC dialogs](dialogs.md). Group state, invitations, and roster confirmation
+are documented in [Groups](groups.md).
 
 ### Native command results
 

@@ -1,6 +1,6 @@
 use darpc_model::{
     CharacterClass, CharacterSnapshot, ClientLifecycle, ClientSnapshot, Effect, EffectDuration,
-    Element, EquipmentItem, Gender, InventoryItem, Skill, Spell, SpellTargetType,
+    Element, EquipmentItem, Gender, GroupState, InventoryItem, Skill, Spell, SpellTargetType,
 };
 use serde_json::json;
 use std::fmt::Write as _;
@@ -117,6 +117,7 @@ pub(crate) fn render_human(
         output.push_str("\nlocation: unavailable");
     }
     render_collections(&mut output, character);
+    render_group(&mut output, snapshot.group.as_ref());
     crate::object_output::render_human(&mut output, snapshot.objects.as_deref());
     output
 }
@@ -149,7 +150,63 @@ fn snapshot_value(snapshot: &ClientSnapshot) -> serde_json::Value {
         "objects": snapshot.objects.as_ref().map(|objects| {
             objects.iter().map(crate::object_output::json_value).collect::<Vec<_>>()
         }),
+        "group": snapshot.group.as_ref().map(group_value),
     })
+}
+
+fn group_value(group: &GroupState) -> serde_json::Value {
+    json!({
+        "members": group.members.iter().map(|member| json!({
+            "name": member.name,
+            "is_leader": member.is_leader,
+        })).collect::<Vec<_>>(),
+        "invitations": group.invitations.iter().map(|invitation| json!({
+            "id": invitation.id,
+            "inviter": invitation.inviter,
+            "received_tick_ms": invitation.received_tick_ms,
+        })).collect::<Vec<_>>(),
+        "is_group_open": group.is_group_open,
+        "auto_accept": group.auto_accept,
+    })
+}
+
+fn render_group(output: &mut String, group: Option<&GroupState>) {
+    let Some(group) = group else {
+        output.push_str("\ngroup: unavailable");
+        return;
+    };
+    let _ = write!(
+        output,
+        "\ngroup: members={} invitations={} is_group_open={} auto_accept={}",
+        group.members.len(),
+        group.invitations.len(),
+        optional_value(group.is_group_open),
+        optional_value(group.auto_accept),
+    );
+    for member in &group.members {
+        let _ = write!(
+            output,
+            "\ngroup_member: name={} is_leader={}",
+            member.name, member.is_leader
+        );
+    }
+    for invitation in &group.invitations {
+        let _ = write!(
+            output,
+            "\ngroup_invitation: id={} inviter={} received_tick_ms={}",
+            invitation.id,
+            invitation.inviter,
+            optional_number(invitation.received_tick_ms),
+        );
+    }
+}
+
+fn optional_value(value: Option<bool>) -> &'static str {
+    match value {
+        Some(true) => "true",
+        Some(false) => "false",
+        None => "unavailable",
+    }
 }
 
 fn character_value(character: &CharacterSnapshot) -> serde_json::Value {

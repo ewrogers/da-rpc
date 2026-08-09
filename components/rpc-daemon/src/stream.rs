@@ -1,5 +1,9 @@
 use crate::{
     dialog::{DialogChanged, DialogClosed, DialogOpened, DialogSubmitted},
+    group::{
+        GroupDisbanded, GroupInvitationClosed, GroupInvitationReceived, GroupInvitationSent,
+        GroupJoined, GroupMemberChanged, GroupSettingsChanged,
+    },
     messages::Message,
     registry::{ClientIdentity, hex},
     state::{EffectDuration, Element, InventoryItem, Skill, Spell, WorldObject},
@@ -297,6 +301,14 @@ pub(crate) enum ClientEvent {
     DialogChanged(DialogChanged),
     DialogSubmitted(DialogSubmitted),
     DialogClosed(DialogClosed),
+    GroupInvitationSent(GroupInvitationSent),
+    GroupInvitationReceived(GroupInvitationReceived),
+    GroupInvitationClosed(GroupInvitationClosed),
+    GroupSettingsChanged(GroupSettingsChanged),
+    GroupJoined(GroupJoined),
+    GroupMemberJoined(GroupMemberChanged),
+    GroupMemberLeft(GroupMemberChanged),
+    GroupDisbanded(GroupDisbanded),
     StreamResyncRequired(StreamResyncRequired),
     StreamClosed(StreamClosed),
 }
@@ -375,6 +387,14 @@ impl ClientEvent {
             Self::DialogChanged(_) => "dialog.changed",
             Self::DialogSubmitted(_) => "dialog.submitted",
             Self::DialogClosed(_) => "dialog.closed",
+            Self::GroupInvitationSent(_) => "group.invitation_sent",
+            Self::GroupInvitationReceived(_) => "group.invitation_received",
+            Self::GroupInvitationClosed(_) => "group.invitation_closed",
+            Self::GroupSettingsChanged(_) => "group.settings_changed",
+            Self::GroupJoined(_) => "group.joined",
+            Self::GroupMemberJoined(_) => "group.member_joined",
+            Self::GroupMemberLeft(_) => "group.member_left",
+            Self::GroupDisbanded(_) => "group.disbanded",
             Self::StreamResyncRequired(_) => "stream.resync_required",
             Self::StreamClosed(_) => "stream.closed",
         }
@@ -453,6 +473,15 @@ impl ClientEvent {
             Self::DialogChanged(value) => value.observation.event_sequence,
             Self::DialogSubmitted(value) => value.observation.event_sequence,
             Self::DialogClosed(value) => value.observation.event_sequence,
+            Self::GroupInvitationSent(value) => value.observation.event_sequence,
+            Self::GroupInvitationReceived(value) => value.observation.event_sequence,
+            Self::GroupInvitationClosed(value) => value.observation.event_sequence,
+            Self::GroupSettingsChanged(value) => value.observation.event_sequence,
+            Self::GroupJoined(value) => value.observation.event_sequence,
+            Self::GroupMemberJoined(value) | Self::GroupMemberLeft(value) => {
+                value.observation.event_sequence
+            }
+            Self::GroupDisbanded(value) => value.observation.event_sequence,
             Self::StreamResyncRequired(value) => value.last_event_sequence,
             Self::StreamClosed(value) => value.last_event_sequence,
         }
@@ -980,6 +1009,54 @@ fn expand(
                 )),
                 darpc_model::DialogUpdate::Closed { previous, reason } => {
                     ClientEvent::DialogClosed(DialogClosed::new(observation, previous, reason))
+                }
+            });
+            return events;
+        }
+        StateUpdate::Group(update) => {
+            events.push(match update {
+                darpc_model::GroupUpdate::SettingsChanged { state } => {
+                    ClientEvent::GroupSettingsChanged(GroupSettingsChanged::new(observation, state))
+                }
+                darpc_model::GroupUpdate::InvitationSent { target } => {
+                    ClientEvent::GroupInvitationSent(GroupInvitationSent::new(observation, target))
+                }
+                darpc_model::GroupUpdate::InvitationReceived { invitation, state } => {
+                    ClientEvent::GroupInvitationReceived(GroupInvitationReceived::new(
+                        observation,
+                        invitation,
+                        state,
+                    ))
+                }
+                darpc_model::GroupUpdate::InvitationClosed {
+                    invitation,
+                    reason,
+                    state,
+                } => ClientEvent::GroupInvitationClosed(GroupInvitationClosed::new(
+                    observation,
+                    invitation,
+                    reason,
+                    state,
+                )),
+                darpc_model::GroupUpdate::Joined { state } => {
+                    ClientEvent::GroupJoined(GroupJoined::new(observation, state))
+                }
+                darpc_model::GroupUpdate::MemberJoined { member, state } => {
+                    ClientEvent::GroupMemberJoined(GroupMemberChanged::new(
+                        observation,
+                        member,
+                        state,
+                    ))
+                }
+                darpc_model::GroupUpdate::MemberLeft { member, state } => {
+                    ClientEvent::GroupMemberLeft(GroupMemberChanged::new(
+                        observation,
+                        member,
+                        state,
+                    ))
+                }
+                darpc_model::GroupUpdate::Disbanded { state } => {
+                    ClientEvent::GroupDisbanded(GroupDisbanded::new(observation, state))
                 }
             });
             return events;

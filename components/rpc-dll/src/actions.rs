@@ -1,5 +1,6 @@
 mod ability;
 pub(crate) mod dialog;
+pub(crate) mod group;
 mod interaction;
 pub(crate) mod movement;
 mod network;
@@ -32,6 +33,7 @@ pub(crate) fn execute(command: CommandKind) -> Result<(), CommandFailure> {
         CommandKind::Emote(code) => interaction::emote(code),
         CommandKind::Interact(id) => movement::interact(id),
         CommandKind::Dialog(command) => dialog::submit(command),
+        CommandKind::Group(command) => group::submit(command),
     }
 }
 

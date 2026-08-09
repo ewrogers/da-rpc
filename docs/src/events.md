@@ -617,6 +617,65 @@ response actions, and complete event payloads.
 | `dialog.submitted` | `dialog_submitted` | A daRPC action answered or navigated the current page. |
 | `dialog.closed` | `dialog_closed` | The dialog ended locally, remotely, during a map change, or during recovery. |
 
+## Group events
+
+Read current membership and invitations from `GET /clients/{client}/group`.
+The [Groups](groups.md) chapter explains invitation actions, the group-open
+toggle, and server confirmation.
+
+```text
+group.settings_changed
+GroupSettingsChanged {
+    observation: EventObservation,
+    group: GroupState,
+}
+
+group.invitation_sent
+GroupInvitationSent {
+    observation: EventObservation,
+    target: string,
+}
+
+group.invitation_received
+GroupInvitationReceived {
+    observation: EventObservation,
+    invitation: GroupInvitation,
+    group: GroupState,
+}
+
+group.invitation_closed
+GroupInvitationClosed {
+    observation: EventObservation,
+    invitation: GroupInvitation,
+    reason: GroupInvitationCloseReason,
+    group: GroupState,
+}
+
+group.joined
+GroupJoined {
+    observation: EventObservation,
+    group: GroupState,
+}
+
+group.member_joined | group.member_left
+GroupMemberChanged {
+    observation: EventObservation,
+    member: GroupMember,
+    group: GroupState,
+}
+
+group.disbanded
+GroupDisbanded {
+    observation: EventObservation,
+    group: GroupState,
+}
+```
+
+State-bearing events include the complete resulting group. Replace the
+consumer's retained value with that `group` instead of applying an inferred
+partial change. `group.invitation_sent` only confirms local submission because
+the game does not send a direct response when the other player declines.
+
 ## Complete event index
 
 | Domain | Events | REST recovery route |
@@ -632,6 +691,7 @@ response actions, and complete event payloads.
 | World | Player, monster, Mundane, ground-item, visual, damage, and `objects.cleared` events | `/objects` |
 | Messages | `message.say`, `message.shout`, `message.whisper`, `message.guild`, `message.group`, `message.system`, `message.world` | `/messages` |
 | NPC dialogs | `dialog.opened`, `dialog.changed`, `dialog.submitted`, `dialog.closed` | `/dialog` |
+| Groups | `group.settings_changed`, `group.invitation_sent`, `group.invitation_received`, `group.invitation_closed`, `group.joined`, `group.member_joined`, `group.member_left`, `group.disbanded` | `/group`, then `/status` for convenience fields |
 
 The OpenAPI document at `/openapi.json` remains the exact machine-readable
 schema for these payloads. This chapter is the human-readable reference.

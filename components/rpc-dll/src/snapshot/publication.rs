@@ -268,6 +268,7 @@ pub(crate) enum CaptureFailure {
     InvalidObjectTree,
     InvalidCollection,
     InvalidPaneList,
+    InvalidGroupState,
     UnreadableMemory,
     AddressOverflow,
 }
@@ -280,6 +281,7 @@ impl From<StateReadError> for CaptureFailure {
             StateReadError::InvalidObjectTree => Self::InvalidObjectTree,
             StateReadError::InvalidCollection => Self::InvalidCollection,
             StateReadError::InvalidPaneList => Self::InvalidPaneList,
+            StateReadError::InvalidGroupState => Self::InvalidGroupState,
             StateReadError::UnreadableMemory { .. } => Self::UnreadableMemory,
             StateReadError::AddressOverflow => Self::AddressOverflow,
         }
@@ -296,6 +298,7 @@ impl fmt::Display for CaptureFailure {
             Self::InvalidObjectTree => formatter.write_str("client object tree validation failed"),
             Self::InvalidCollection => formatter.write_str("client collection validation failed"),
             Self::InvalidPaneList => formatter.write_str("client event pane validation failed"),
+            Self::InvalidGroupState => formatter.write_str("client group state validation failed"),
             Self::UnreadableMemory => formatter.write_str("client memory validation failed"),
             Self::AddressOverflow => formatter.write_str("client address arithmetic overflowed"),
         }

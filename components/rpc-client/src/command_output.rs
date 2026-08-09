@@ -114,6 +114,7 @@ fn kind(kind: CommandKind) -> &'static str {
         CommandKind::SwapSlots(_) => "swap_slots",
         CommandKind::Interact(_) => "interact",
         CommandKind::Dialog(_) => "dialog",
+        CommandKind::Group(_) => "group",
     }
 }
 

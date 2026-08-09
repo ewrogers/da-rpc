@@ -1,6 +1,7 @@
 use darpc_model::{
-    CharacterClass, CharacterSnapshot, ClientLifecycle, ClientSnapshot, Effect, EffectDuration,
-    Element, EquipmentItem, Gender, GroupState, InventoryItem, Skill, Spell, SpellTargetType,
+    CharacterClass, CharacterSnapshot, ClientLifecycle, ClientSnapshot, DialogInteraction,
+    DialogKind, DialogSlot, DialogSpriteType, DialogState, Effect, EffectDuration, Element,
+    EquipmentItem, Gender, GroupState, InventoryItem, Skill, Spell, SpellTargetType,
 };
 use serde_json::json;
 use std::fmt::Write as _;
@@ -16,20 +17,25 @@ pub(crate) fn render_human(
     let mut output = format!(
         concat!(
             "snapshot succeeded: pid={} request_id={} ",
-            "round_trip_ms={} revision={} captured_tick_ms={} ",
-            "capture_duration_us={} world_generation={} lifecycle={}"
+            "round_trip_ms={} revision={} event_sequence={} captured_tick_ms={} ",
+            "updated_tick_ms={} capture_duration_us={} world_generation={} lifecycle={}"
         ),
         pid,
         request_id,
         round_trip_ms,
         snapshot.revision,
+        snapshot.event_sequence,
         snapshot.captured_tick_ms,
+        snapshot.updated_tick_ms,
         snapshot.capture_duration_us,
         snapshot.world_generation,
         lifecycle(snapshot.lifecycle),
     );
     let Some(character) = &snapshot.character else {
         output.push_str("\ncharacter: unavailable");
+        render_group(&mut output, snapshot.group.as_ref());
+        render_dialog(&mut output, snapshot.dialog.as_ref());
+        crate::object_output::render_human(&mut output, snapshot.objects.as_deref());
         return output;
     };
     let id = character
@@ -118,6 +124,7 @@ pub(crate) fn render_human(
     }
     render_collections(&mut output, character);
     render_group(&mut output, snapshot.group.as_ref());
+    render_dialog(&mut output, snapshot.dialog.as_ref());
     crate::object_output::render_human(&mut output, snapshot.objects.as_deref());
     output
 }
@@ -142,7 +149,9 @@ pub(crate) fn render_json(
 fn snapshot_value(snapshot: &ClientSnapshot) -> serde_json::Value {
     json!({
         "revision": snapshot.revision,
+        "event_sequence": snapshot.event_sequence,
         "captured_tick_ms": snapshot.captured_tick_ms,
+        "updated_tick_ms": snapshot.updated_tick_ms,
         "capture_duration_us": snapshot.capture_duration_us,
         "world_generation": snapshot.world_generation,
         "lifecycle": lifecycle(snapshot.lifecycle),
@@ -150,6 +159,7 @@ fn snapshot_value(snapshot: &ClientSnapshot) -> serde_json::Value {
         "objects": snapshot.objects.as_ref().map(|objects| {
             objects.iter().map(crate::object_output::json_value).collect::<Vec<_>>()
         }),
+        "dialog": snapshot.dialog.as_ref().map(dialog_value),
         "group": snapshot.group.as_ref().map(group_value),
     })
 }
@@ -168,6 +178,178 @@ fn group_value(group: &GroupState) -> serde_json::Value {
         "is_group_open": group.is_group_open,
         "auto_accept": group.auto_accept,
     })
+}
+
+fn dialog_value(dialog: &DialogState) -> serde_json::Value {
+    json!({
+        "revision": dialog.revision,
+        "kind": dialog_kind(dialog.kind),
+        "target": { "id": dialog.target.id },
+        "speaker": {
+            "name": dialog.speaker.name,
+            "sprite": dialog.speaker.sprite,
+            "sprite_type": dialog_sprite_type(dialog.speaker.sprite_type),
+            "color": dialog.speaker.color,
+            "show_graphic": dialog.speaker.show_graphic,
+        },
+        "content": dialog.content,
+        "response_pending": dialog.response_pending,
+        "navigation": {
+            "previous": dialog.navigation.previous,
+            "next": dialog.navigation.next,
+            "close": dialog.navigation.close,
+        },
+        "interaction": dialog_interaction_value(&dialog.interaction),
+    })
+}
+
+fn dialog_interaction_value(interaction: &DialogInteraction) -> serde_json::Value {
+    match interaction {
+        DialogInteraction::Message => json!({ "type": "message" }),
+        DialogInteraction::Choices(choices) => json!({
+            "type": "choices",
+            "data": choices.iter().map(|choice| json!({
+                "index": choice.index,
+                "text": choice.text,
+            })).collect::<Vec<_>>(),
+        }),
+        DialogInteraction::Input(input) => json!({
+            "type": "input",
+            "data": {
+                "prolog": input.prolog,
+                "maximum_bytes": input.maximum_bytes,
+                "epilog": input.epilog,
+            },
+        }),
+        DialogInteraction::Items(items) => json!({
+            "type": "items",
+            "data": items.iter().map(|item| json!({
+                "index": item.index,
+                "sprite": item.sprite,
+                "color": item.color,
+                "name": item.name,
+                "description": item.description,
+                "value": item.value,
+                "available_quantity": item.available_quantity,
+            })).collect::<Vec<_>>(),
+        }),
+        DialogInteraction::Inventory(slots) => dialog_slots_value("inventory", slots),
+        DialogInteraction::Spells(slots) => dialog_slots_value("spells", slots),
+        DialogInteraction::Skills(slots) => dialog_slots_value("skills", slots),
+        DialogInteraction::Protected => json!({ "type": "protected" }),
+        DialogInteraction::Unsupported => json!({ "type": "unsupported" }),
+    }
+}
+
+fn dialog_slots_value(kind: &str, slots: &[DialogSlot]) -> serde_json::Value {
+    json!({
+        "type": kind,
+        "data": slots.iter().map(|slot| json!({
+            "index": slot.index,
+            "slot": slot.slot,
+            "value": slot.value,
+            "name": slot.name,
+            "sprite": slot.sprite,
+            "color": slot.color,
+        })).collect::<Vec<_>>(),
+    })
+}
+
+fn render_dialog(output: &mut String, dialog: Option<&DialogState>) {
+    let Some(dialog) = dialog else {
+        output.push_str("\ndialog: none");
+        return;
+    };
+    let _ = write!(
+        output,
+        concat!(
+            "\ndialog: revision={} kind={} target_id={} speaker={} response_pending={} ",
+            "previous={} next={} close={} content={}"
+        ),
+        dialog.revision,
+        dialog_kind(dialog.kind),
+        dialog.target.id,
+        json_string(dialog.speaker.name.as_deref().unwrap_or("unavailable")),
+        dialog.response_pending,
+        dialog.navigation.previous,
+        dialog.navigation.next,
+        dialog.navigation.close,
+        dialog
+            .content
+            .as_deref()
+            .map_or_else(|| "none".into(), json_string),
+    );
+    match &dialog.interaction {
+        DialogInteraction::Message => output.push_str("\ndialog interaction: message"),
+        DialogInteraction::Choices(choices) => {
+            output.push_str("\ndialog choices:\nINDEX\tTEXT");
+            for choice in choices {
+                let _ = write!(output, "\n{}\t{}", choice.index, json_string(&choice.text));
+            }
+        }
+        DialogInteraction::Input(input) => {
+            let _ = write!(
+                output,
+                "\ndialog input: maximum_bytes={} prolog={} epilog={}",
+                input.maximum_bytes,
+                input
+                    .prolog
+                    .as_deref()
+                    .map_or_else(|| "none".into(), json_string),
+                input
+                    .epilog
+                    .as_deref()
+                    .map_or_else(|| "none".into(), json_string),
+            );
+        }
+        DialogInteraction::Items(items) => {
+            output.push_str("\ndialog items:\nINDEX\tNAME\tVALUE\tAVAILABLE");
+            for item in items {
+                let _ = write!(
+                    output,
+                    "\n{}\t{}\t{}\t{}",
+                    item.index,
+                    item.name.as_deref().unwrap_or("unavailable"),
+                    optional_number(item.value),
+                    optional_number(item.available_quantity),
+                );
+            }
+        }
+        DialogInteraction::Inventory(slots) => render_dialog_slots(output, "inventory", slots),
+        DialogInteraction::Spells(slots) => render_dialog_slots(output, "spells", slots),
+        DialogInteraction::Skills(slots) => render_dialog_slots(output, "skills", slots),
+        DialogInteraction::Protected => output.push_str("\ndialog interaction: protected"),
+        DialogInteraction::Unsupported => output.push_str("\ndialog interaction: unsupported"),
+    }
+}
+
+fn render_dialog_slots(output: &mut String, kind: &str, slots: &[DialogSlot]) {
+    let _ = write!(output, "\ndialog {kind}:\nINDEX\tSLOT\tNAME\tVALUE");
+    for slot in slots {
+        let _ = write!(
+            output,
+            "\n{}\t{}\t{}\t{}",
+            slot.index,
+            slot.slot,
+            slot.name.as_deref().unwrap_or("unavailable"),
+            optional_number(slot.value),
+        );
+    }
+}
+
+const fn dialog_kind(kind: DialogKind) -> &'static str {
+    match kind {
+        DialogKind::Merchant => "merchant",
+        DialogKind::Pursuit => "pursuit",
+    }
+}
+
+const fn dialog_sprite_type(sprite_type: DialogSpriteType) -> &'static str {
+    match sprite_type {
+        DialogSpriteType::Creature => "creature",
+        DialogSpriteType::Item => "item",
+        DialogSpriteType::Unknown => "unknown",
+    }
 }
 
 fn render_group(output: &mut String, group: Option<&GroupState>) {
@@ -542,4 +724,74 @@ fn target_type(value: SpellTargetType) -> &'static str {
 
 fn optional_ms(value: Option<u32>) -> String {
     value.map_or_else(|| "unavailable".into(), |value| value.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{render_human, render_json};
+    use darpc_model::{
+        ClientLifecycle, ClientSnapshot, DialogChoice, DialogInteraction, DialogKind,
+        DialogNavigation, DialogSpeaker, DialogSpriteType, DialogState, DialogTarget,
+    };
+
+    fn snapshot() -> ClientSnapshot {
+        ClientSnapshot {
+            revision: 3,
+            event_sequence: 12,
+            captured_tick_ms: 100,
+            updated_tick_ms: 125,
+            capture_duration_us: 40,
+            world_generation: 2,
+            lifecycle: ClientLifecycle::InGame,
+            character: None,
+            objects: None,
+            dialog: Some(DialogState {
+                revision: 7,
+                kind: DialogKind::Pursuit,
+                target: DialogTarget { id: 77 },
+                speaker: DialogSpeaker {
+                    name: Some("Innkeeper".into()),
+                    sprite: 12,
+                    sprite_type: DialogSpriteType::Creature,
+                    color: 3,
+                    show_graphic: true,
+                },
+                content: Some("Welcome".into()),
+                response_pending: false,
+                navigation: DialogNavigation {
+                    previous: false,
+                    next: true,
+                    close: true,
+                },
+                interaction: DialogInteraction::Choices(vec![DialogChoice {
+                    index: 0,
+                    text: "Ask".into(),
+                }]),
+            }),
+            group: None,
+        }
+    }
+
+    #[test]
+    fn snapshot_output_keeps_dialog_without_character_state() {
+        let snapshot = snapshot();
+        let human = render_human(42, 1, 2, &snapshot);
+        assert!(human.contains("event_sequence=12"));
+        assert!(human.contains("character: unavailable"));
+        assert!(human.contains("dialog: revision=7"));
+        assert!(human.contains("0\t\"Ask\""));
+
+        let json: serde_json::Value =
+            serde_json::from_str(&render_json(42, 1, 2, &snapshot)).unwrap();
+        assert_eq!(json["snapshot"]["event_sequence"], 12);
+        assert_eq!(json["snapshot"]["updated_tick_ms"], 125);
+        assert_eq!(json["snapshot"]["dialog"]["revision"], 7);
+        assert_eq!(
+            json["snapshot"]["dialog"]["interaction"],
+            serde_json::json!({
+                "type": "choices",
+                "data": [{ "index": 0, "text": "Ask" }],
+            })
+        );
+    }
 }

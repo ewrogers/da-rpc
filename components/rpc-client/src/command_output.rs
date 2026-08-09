@@ -269,7 +269,23 @@ fn optional_json(value: Option<u32>) -> String {
 #[cfg(test)]
 mod tests {
     use super::render_json;
+    use darpc_model::{CharacterClass, UserState, WhoList, WhoPlayer};
     use darpc_protocol::{CommandKind, CommandResult, CommandState, CommandStatus};
+
+    fn status(kind: CommandKind) -> CommandStatus {
+        CommandStatus {
+            command_id: 9,
+            kind,
+            state: CommandState::Executed,
+            enqueued_tick_ms: 100,
+            deadline_tick_ms: 1_100,
+            started_tick_ms: Some(101),
+            completed_tick_ms: Some(101),
+            execution_us: Some(0),
+            main_thread_id: Some(77),
+            failure: None,
+        }
+    }
 
     #[test]
     fn zero_duration_is_present_in_command_json() {
@@ -278,20 +294,59 @@ mod tests {
             42,
             1,
             3,
-            CommandResult::Status(CommandStatus {
-                command_id: 9,
-                kind: CommandKind::Diagnostic,
-                state: CommandState::Executed,
-                enqueued_tick_ms: 100,
-                deadline_tick_ms: 1_100,
-                started_tick_ms: Some(101),
-                completed_tick_ms: Some(101),
-                execution_us: Some(0),
-                main_thread_id: Some(77),
-                failure: None,
-            }),
+            CommandResult::Status(status(CommandKind::Diagnostic)),
         );
         assert!(output.contains("\"execution_us\":0"));
         assert!(output.contains("\"state\":\"executed\""));
+    }
+
+    #[test]
+    fn who_json_has_a_stable_shape_and_escaping() {
+        let output = render_json(
+            "who",
+            42,
+            1,
+            3,
+            CommandResult::Who {
+                status: status(CommandKind::Who),
+                list: WhoList {
+                    world_count: 2,
+                    country_count: 1,
+                    players: vec![WhoPlayer {
+                        name: "Zi\"Lo".into(),
+                        title: "Guide".into(),
+                        class: CharacterClass::Wizard,
+                        state: UserState::NeedGroup,
+                        color: 4,
+                        is_master: true,
+                        is_guildmate: false,
+                    }],
+                },
+            },
+        );
+        let value: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "ok": true,
+                "command": "who",
+                "pid": 42,
+                "request_id": 1,
+                "round_trip_ms": 3,
+                "result": "who",
+                "command_id": 9,
+                "world_count": 2,
+                "country_count": 1,
+                "players": [{
+                    "name": "Zi\"Lo",
+                    "title": "Guide",
+                    "class": "wizard",
+                    "state": "need_group",
+                    "color": 4,
+                    "is_master": true,
+                    "is_guildmate": false,
+                }],
+            })
+        );
     }
 }

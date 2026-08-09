@@ -222,6 +222,14 @@ pub(crate) fn execute(pid: u32, operation: Operation) -> Result<CommandResult> {
                 wait_ms: MAX_COMMAND_WAIT_MS,
             },
         ),
+        Operation::SwapSlots(swap) => {
+            let action = match swap {
+                darpc_protocol::SlotSwap::Inventory { .. } => "item-swap",
+                darpc_protocol::SlotSwap::Spellbook { .. } => "spell-swap",
+                darpc_protocol::SlotSwap::Skillbook { .. } => "skill-swap",
+            };
+            request_action(&mut session, pid, action, CommandKind::SwapSlots(swap))
+        }
         Operation::CastSpell(cast) => request_command(
             &mut session,
             pid,
@@ -271,6 +279,19 @@ pub(crate) fn execute(pid: u32, operation: Operation) -> Result<CommandResult> {
         Operation::Emote(code) => {
             request_action(&mut session, pid, "emote", CommandKind::Emote(code))
         }
+        Operation::Interact(id) => {
+            request_action(&mut session, pid, "interact", CommandKind::Interact(id))
+        }
+        Operation::Dialog(command) => {
+            let action = match command.action {
+                darpc_protocol::DialogAction::Select { .. } => "dialog-select",
+                darpc_protocol::DialogAction::Input(_) => "dialog-input",
+                darpc_protocol::DialogAction::Previous => "dialog-previous",
+                darpc_protocol::DialogAction::Next => "dialog-next",
+                darpc_protocol::DialogAction::Close => "dialog-close",
+            };
+            request_action(&mut session, pid, action, CommandKind::Dialog(command))
+        }
         Operation::Group(command) => {
             let action = match command {
                 darpc_protocol::GroupCommand::Toggle => "group-toggle",
@@ -319,19 +340,11 @@ fn request_who(session: &mut ControllerSession, pid: u32) -> Result<CommandResul
         },
     )?;
     loop {
-        let command_id = match &response {
-            CommandResult::Command {
-                result: darpc_protocol::CommandResult::Who { .. },
-                ..
-            } => return Ok(response),
-            CommandResult::Command {
-                result: darpc_protocol::CommandResult::Status(status),
-                ..
-            } if status.state == darpc_protocol::CommandState::Accepted => status.command_id,
-            _ => return Ok(response),
+        let Some(command_id) = pending_who_command(&response, pid)? else {
+            return Ok(response);
         };
         if Instant::now() >= deadline {
-            return Ok(response);
+            return Err(who_timeout(pid));
         }
         response = request_command(
             session,
@@ -343,6 +356,48 @@ fn request_who(session: &mut ControllerSession, pid: u32) -> Result<CommandResul
             },
         )?;
     }
+}
+
+fn pending_who_command(response: &CommandResult, pid: u32) -> Result<Option<u32>> {
+    let CommandResult::Command { result, .. } = response else {
+        return Err(protocol_error(pid, "Who returned an unexpected response"));
+    };
+    match result {
+        darpc_protocol::CommandResult::Who { .. } => Ok(None),
+        darpc_protocol::CommandResult::Status(status)
+            if status.state == darpc_protocol::CommandState::Accepted =>
+        {
+            Ok(Some(status.command_id))
+        }
+        darpc_protocol::CommandResult::Status(status)
+            if status.state == darpc_protocol::CommandState::TimedOut =>
+        {
+            Err(who_timeout(pid))
+        }
+        darpc_protocol::CommandResult::Status(status) => Err(protocol_error(
+            pid,
+            format!("Who request ended in state {:?}", status.state),
+        )),
+        darpc_protocol::CommandResult::Busy => Err(ClientError::new(
+            ErrorKind::Io,
+            "the bounded Who command queue is full",
+        )
+        .with_pid(pid)),
+        darpc_protocol::CommandResult::NotFound => Err(who_timeout(pid)),
+        darpc_protocol::CommandResult::Unavailable => Err(ClientError::new(
+            ErrorKind::Io,
+            "the Who command path is unavailable",
+        )
+        .with_pid(pid)),
+    }
+}
+
+fn who_timeout(pid: u32) -> ClientError {
+    ClientError::new(
+        ErrorKind::Timeout,
+        "the game server did not return the Who list within three seconds",
+    )
+    .with_pid(pid)
 }
 
 fn request_action(
@@ -468,4 +523,83 @@ fn controller_error(pid: u32, error: ControllerError) -> ClientError {
 
 fn protocol_error(pid: u32, message: impl Into<String>) -> ClientError {
     ClientError::new(ErrorKind::Protocol, message).with_pid(pid)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::pending_who_command;
+    use crate::output::CommandResult;
+    use darpc_model::WhoList;
+    use darpc_protocol::{
+        CommandKind, CommandResult as ProtocolResult, CommandState, CommandStatus,
+    };
+
+    fn response(result: ProtocolResult) -> CommandResult {
+        CommandResult::Command {
+            pid: 42,
+            action: "who",
+            request_id: 1,
+            result,
+            round_trip_ms: 1,
+        }
+    }
+
+    fn status(state: CommandState) -> CommandStatus {
+        CommandStatus {
+            command_id: 7,
+            kind: CommandKind::Who,
+            state,
+            enqueued_tick_ms: 1,
+            deadline_tick_ms: 3_001,
+            started_tick_ms: None,
+            completed_tick_ms: None,
+            execution_us: None,
+            main_thread_id: None,
+            failure: None,
+        }
+    }
+
+    #[test]
+    fn who_polling_continues_only_while_accepted() {
+        assert_eq!(
+            pending_who_command(
+                &response(ProtocolResult::Status(status(CommandState::Accepted))),
+                42,
+            )
+            .unwrap(),
+            Some(7)
+        );
+        assert_eq!(
+            pending_who_command(
+                &response(ProtocolResult::Who {
+                    status: status(CommandState::Executed),
+                    list: WhoList {
+                        world_count: 0,
+                        country_count: 0,
+                        players: Vec::new(),
+                    },
+                }),
+                42,
+            )
+            .unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn who_polling_rejects_timeout_and_unavailable_results() {
+        for result in [
+            ProtocolResult::Status(status(CommandState::TimedOut)),
+            ProtocolResult::NotFound,
+        ] {
+            assert_eq!(
+                pending_who_command(&response(result), 42)
+                    .unwrap_err()
+                    .kind(),
+                crate::error::ErrorKind::Timeout
+            );
+        }
+        assert!(pending_who_command(&response(ProtocolResult::Busy), 42).is_err());
+        assert!(pending_who_command(&response(ProtocolResult::Unavailable), 42).is_err());
+    }
 }

@@ -40,18 +40,27 @@ darpc turn --pid <pid> <north|east|south|west>
 darpc walk --pid <pid> <north|east|south|west>
 darpc walk --pid <pid> <x> <y>
 darpc skill-use --pid <pid> <slot>
+darpc skill-swap --pid <pid> <source> <destination>
 darpc spell-cast --pid <pid> <slot>
 darpc spell-cast --pid <pid> <slot> --target-id <object-id>
 darpc spell-cast --pid <pid> <slot> --target <x> <y>
 darpc spell-cast --pid <pid> <slot> --input <text>
+darpc spell-swap --pid <pid> <source> <destination>
 darpc item-use --pid <pid> <slot>
 darpc item-drop --pid <pid> <slot> <x> <y> [quantity]
 darpc item-give --pid <pid> <slot> <object-id> [quantity]
+darpc item-swap --pid <pid> <source> <destination>
 darpc gold-drop --pid <pid> <amount> <x> <y>
 darpc gold-give --pid <pid> <amount> <object-id>
 darpc item-pickup --pid <pid> <x> <y>
 darpc unequip --pid <pid> <slot-number>
 darpc emote --pid <pid> <name|code>
+darpc interact --pid <pid> <object-id>
+darpc dialog-select --pid <pid> <revision> <index> [quantity]
+darpc dialog-input --pid <pid> <revision> <text>
+darpc dialog-previous --pid <pid> <revision>
+darpc dialog-next --pid <pid> <revision>
+darpc dialog-close --pid <pid> <revision>
 darpc group-toggle --pid <pid>
 darpc group-invite --pid <pid> <player>
 darpc group-accept --pid <pid> <invitation-id>
@@ -74,8 +83,8 @@ behavior is:
   difference, and whether the counter advanced.
 - `snapshot` schedules a bounded capture on the client main thread and reports
   lifecycle, character, map, inventory, equipment, spellbook, skillbook, and
-  active spell-effect, group roster, and invitation state plus capture timing
-  and request round-trip time.
+  active spell-effect, dialog, group roster, and invitation state plus event,
+  capture timing, and request round-trip metadata.
 - `diagnostic` submits a no-op command to the bounded main-thread queue, waits
   up to one second, and reports its state, queue delay, execution duration, and
   client main-thread ID.
@@ -86,17 +95,20 @@ behavior is:
   follow a route to that zero-based map tile.
 - `skill-use` invokes a learned one-based skill slot through the client's native
   activation routine. It does not select the skill panel, change focus, or
-  synthesize keyboard or mouse input.
+  synthesize keyboard or mouse input. `skill-swap` exchanges two one-based
+  skillbook slots.
 - `spell-cast` invokes a learned one-based spell slot through the matching
   native client routine. Its optional argument is one visible object ID, one
   zero-based map tile, or 1 through 100 ASCII bytes. The DLL checks that the
   selected spell expects that argument shape. A targeted spell defaults to the
   casting character when no target is supplied. A new cast may replace a
-  delayed cast already in progress.
+  delayed cast already in progress. `spell-swap` exchanges two one-based
+  spellbook slots.
 - `item-use` activates a live one-based inventory slot through the client's
   ordinary item path.
 - `item-drop` and `item-give` submit a validated quantity from a live slot.
   Quantity defaults to 1. Giving begins the game's ordinary exchange flow.
+- `item-swap` exchanges two one-based inventory slots.
 - `gold-drop` and `gold-give` submit a nonzero amount to a tile or object ID.
 - `item-pickup` asks the server for the top ground item at a zero-based tile
   and uses the first empty inventory slot available at execution time.
@@ -104,6 +116,11 @@ behavior is:
   18. `emote` accepts a confirmed case-insensitive name such as `wave`, or a
   normal client UI emote code. See [World and movement](world.md#emotes) for
   the named list.
+- `interact` starts a conversation with one visible Mundane object ID.
+  `dialog-select` submits a zero-based displayed row and optional nonzero
+  quantity. `dialog-input` submits nonempty ASCII text. Dialog selection,
+  input, navigation, and close commands require the current dialog revision so
+  stale actions fail closed in the DLL.
 - `group-toggle` uses the native client toggle. It opens or closes invitations
   while solo and leaves or disbands an active group. `group-invite` sends a
   validated ASCII player name. `group-accept` and `group-decline` answer one
@@ -134,7 +151,10 @@ darpc --output json diagnostic --pid <pid>
 darpc --output json turn --pid <pid> north
 darpc --output json walk --pid <pid> 120 85
 darpc --output json skill-use --pid <pid> 5
+darpc --output json skill-swap --pid <pid> 5 6
 darpc --output json spell-cast --pid <pid> 7 --input "nothing"
+darpc --output json item-swap --pid <pid> 1 2
+darpc --output json dialog-select --pid <pid> 7 0
 darpc --output json group-invite --pid <pid> ZiLo
 darpc --output json who --pid <pid>
 darpc --output json command-status --pid <pid> <command-id>

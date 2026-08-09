@@ -10,10 +10,10 @@ mod snapshot_output;
 
 use darpc_model::{Direction, EquipmentSlot, emote_code, is_client_emote_code};
 use darpc_protocol::{
-    GoldTransfer, GroupCommand, GroupInvitationAction, GroupText, ItemSlot, ItemTransfer,
-    MAX_ECHO_TEXT_LEN, MAX_ITEM_SLOT, MAX_SKILL_SLOT, MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT,
-    SkillSlot, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition,
-    TransferTarget, WalkTarget,
+    DialogAction, DialogCommand, DialogText, GoldTransfer, GroupCommand, GroupInvitationAction,
+    GroupText, ItemSlot, ItemTransfer, MAX_DIALOG_INPUT_LEN, MAX_ECHO_TEXT_LEN, MAX_ITEM_SLOT,
+    MAX_SKILL_SLOT, MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT, SkillSlot, SlotSwap, SpellArguments,
+    SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkTarget,
 };
 use error::{ClientError, ErrorKind, Result};
 use output::{CommandResult, OutputFormat, render_error};
@@ -31,18 +31,27 @@ usage:
     darpc [--output <table|json>] walk --pid <pid> <north|east|south|west>
     darpc [--output <table|json>] walk --pid <pid> <x> <y>
     darpc [--output <table|json>] skill-use --pid <pid> <slot>
+    darpc [--output <table|json>] skill-swap --pid <pid> <source> <destination>
     darpc [--output <table|json>] spell-cast --pid <pid> <slot>
     darpc [--output <table|json>] spell-cast --pid <pid> <slot> --target-id <id>
     darpc [--output <table|json>] spell-cast --pid <pid> <slot> --target <x> <y>
     darpc [--output <table|json>] spell-cast --pid <pid> <slot> --input <text>
+    darpc [--output <table|json>] spell-swap --pid <pid> <source> <destination>
     darpc [--output <table|json>] item-use --pid <pid> <slot>
     darpc [--output <table|json>] item-drop --pid <pid> <slot> <x> <y> [quantity]
     darpc [--output <table|json>] item-give --pid <pid> <slot> <object-id> [quantity]
+    darpc [--output <table|json>] item-swap --pid <pid> <source> <destination>
     darpc [--output <table|json>] gold-drop --pid <pid> <amount> <x> <y>
     darpc [--output <table|json>] gold-give --pid <pid> <amount> <object-id>
     darpc [--output <table|json>] item-pickup --pid <pid> <x> <y>
     darpc [--output <table|json>] unequip --pid <pid> <slot>
     darpc [--output <table|json>] emote --pid <pid> <name|code>
+    darpc [--output <table|json>] interact --pid <pid> <object-id>
+    darpc [--output <table|json>] dialog-select --pid <pid> <revision> <index> [quantity]
+    darpc [--output <table|json>] dialog-input --pid <pid> <revision> <text>
+    darpc [--output <table|json>] dialog-previous --pid <pid> <revision>
+    darpc [--output <table|json>] dialog-next --pid <pid> <revision>
+    darpc [--output <table|json>] dialog-close --pid <pid> <revision>
     darpc [--output <table|json>] group-toggle --pid <pid>
     darpc [--output <table|json>] group-invite --pid <pid> <player>
     darpc [--output <table|json>] group-accept --pid <pid> <invitation-id>
@@ -68,6 +77,7 @@ enum Operation {
     Turn(Direction),
     Walk(WalkTarget),
     UseSkill(SkillSlot),
+    SwapSlots(SlotSwap),
     CastSpell(SpellCast),
     UseItem(ItemSlot),
     DropItem(ItemTransfer),
@@ -77,6 +87,8 @@ enum Operation {
     PickupItem(TilePosition),
     Unequip(EquipmentSlot),
     Emote(u8),
+    Interact(std::num::NonZeroU32),
+    Dialog(DialogCommand),
     Group(GroupCommand),
     Who,
     CommandStatus(u32),
@@ -95,6 +107,9 @@ impl Command {
             Operation::Turn(_) => "turn",
             Operation::Walk(_) => "walk",
             Operation::UseSkill(_) => "skill-use",
+            Operation::SwapSlots(SlotSwap::Skillbook { .. }) => "skill-swap",
+            Operation::SwapSlots(SlotSwap::Spellbook { .. }) => "spell-swap",
+            Operation::SwapSlots(SlotSwap::Inventory { .. }) => "item-swap",
             Operation::CastSpell(_) => "spell-cast",
             Operation::UseItem(_) => "item-use",
             Operation::DropItem(_) => "item-drop",
@@ -104,6 +119,27 @@ impl Command {
             Operation::PickupItem(_) => "item-pickup",
             Operation::Unequip(_) => "unequip",
             Operation::Emote(_) => "emote",
+            Operation::Interact(_) => "interact",
+            Operation::Dialog(DialogCommand {
+                action: DialogAction::Select { .. },
+                ..
+            }) => "dialog-select",
+            Operation::Dialog(DialogCommand {
+                action: DialogAction::Input(_),
+                ..
+            }) => "dialog-input",
+            Operation::Dialog(DialogCommand {
+                action: DialogAction::Previous,
+                ..
+            }) => "dialog-previous",
+            Operation::Dialog(DialogCommand {
+                action: DialogAction::Next,
+                ..
+            }) => "dialog-next",
+            Operation::Dialog(DialogCommand {
+                action: DialogAction::Close,
+                ..
+            }) => "dialog-close",
             Operation::Group(GroupCommand::Toggle) => "group-toggle",
             Operation::Group(GroupCommand::Invite(_)) => "group-invite",
             Operation::Group(GroupCommand::Respond {
@@ -207,10 +243,22 @@ fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
         "turn" => Operation::Turn(parse_direction(arguments.next())?),
         "walk" => Operation::Walk(parse_walk_target(&mut arguments)?),
         "skill-use" => Operation::UseSkill(parse_skill_slot(arguments.next())?),
+        "skill-swap" => Operation::SwapSlots(SlotSwap::Skillbook {
+            source: parse_skill_slot(arguments.next())?,
+            destination: parse_skill_slot(arguments.next())?,
+        }),
         "spell-cast" => Operation::CastSpell(parse_spell_cast(&mut arguments)?),
+        "spell-swap" => Operation::SwapSlots(SlotSwap::Spellbook {
+            source: parse_spell_slot(arguments.next())?,
+            destination: parse_spell_slot(arguments.next())?,
+        }),
         "item-use" => Operation::UseItem(parse_item_slot(arguments.next())?),
         "item-drop" => Operation::DropItem(parse_item_transfer(&mut arguments, false)?),
         "item-give" => Operation::GiveItem(parse_item_transfer(&mut arguments, true)?),
+        "item-swap" => Operation::SwapSlots(SlotSwap::Inventory {
+            source: parse_item_slot(arguments.next())?,
+            destination: parse_item_slot(arguments.next())?,
+        }),
         "gold-drop" => Operation::DropGold(parse_gold_transfer(&mut arguments, false)?),
         "gold-give" => Operation::GiveGold(parse_gold_transfer(&mut arguments, true)?),
         "item-pickup" => Operation::PickupItem(TilePosition {
@@ -219,6 +267,20 @@ fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
         }),
         "unequip" => Operation::Unequip(parse_equipment_slot(arguments.next())?),
         "emote" => Operation::Emote(parse_emote(arguments.next())?),
+        "interact" => Operation::Interact(parse_nonzero_u32(arguments.next(), "object ID")?),
+        "dialog-select" => Operation::Dialog(parse_dialog_select(&mut arguments)?),
+        "dialog-input" => Operation::Dialog(parse_dialog_input(&mut arguments)?),
+        "dialog-previous" => Operation::Dialog(parse_dialog_revision(
+            arguments.next(),
+            DialogAction::Previous,
+        )?),
+        "dialog-next" => {
+            Operation::Dialog(parse_dialog_revision(arguments.next(), DialogAction::Next)?)
+        }
+        "dialog-close" => Operation::Dialog(parse_dialog_revision(
+            arguments.next(),
+            DialogAction::Close,
+        )?),
         "group-toggle" => Operation::Group(GroupCommand::Toggle),
         "group-invite" => {
             Operation::Group(GroupCommand::Invite(parse_group_name(arguments.next())?))
@@ -353,9 +415,60 @@ fn parse_equipment_slot(argument: Option<OsString>) -> Result<EquipmentSlot> {
         .ok_or_else(|| invalid_arguments("equipment slot must be between 1 and 18"))
 }
 
+fn parse_dialog_select(arguments: &mut impl Iterator<Item = OsString>) -> Result<DialogCommand> {
+    let revision = parse_u32(arguments.next(), "dialog revision")?;
+    let index = parse_u16(arguments.next(), "dialog index")?;
+    let quantity = arguments
+        .next()
+        .map(|value| parse_u8(Some(value), "dialog quantity"))
+        .transpose()?
+        .unwrap_or(1);
+    if quantity == 0 {
+        return Err(invalid_arguments(
+            "dialog quantity must be greater than zero",
+        ));
+    }
+    Ok(DialogCommand {
+        revision,
+        action: DialogAction::Select { index, quantity },
+    })
+}
+
+fn parse_dialog_input(arguments: &mut impl Iterator<Item = OsString>) -> Result<DialogCommand> {
+    let revision = parse_u32(arguments.next(), "dialog revision")?;
+    let input = arguments
+        .next()
+        .and_then(|value| value.into_string().ok())
+        .ok_or_else(|| invalid_arguments("dialog input must be valid Unicode"))?;
+    let input = DialogText::new(&input).ok_or_else(|| {
+        invalid_arguments(format!(
+            "dialog input must contain between 1 and {MAX_DIALOG_INPUT_LEN} ASCII bytes"
+        ))
+    })?;
+    Ok(DialogCommand {
+        revision,
+        action: DialogAction::Input(input),
+    })
+}
+
+fn parse_dialog_revision(
+    argument: Option<OsString>,
+    action: DialogAction,
+) -> Result<DialogCommand> {
+    Ok(DialogCommand {
+        revision: parse_u32(argument, "dialog revision")?,
+        action,
+    })
+}
+
 fn parse_u8(argument: Option<OsString>, name: &str) -> Result<u8> {
     u8::try_from(parse_u32(argument, name)?)
         .map_err(|_| invalid_arguments(format!("{name} must be an unsigned 8-bit integer")))
+}
+
+fn parse_u16(argument: Option<OsString>, name: &str) -> Result<u16> {
+    u16::try_from(parse_u32(argument, name)?)
+        .map_err(|_| invalid_arguments(format!("{name} must be an unsigned 16-bit integer")))
 }
 
 fn parse_u32(argument: Option<OsString>, name: &str) -> Result<u32> {
@@ -532,8 +645,9 @@ mod tests {
     use super::{Command, Operation, OutputFormat, parse};
     use darpc_model::Direction;
     use darpc_protocol::{
-        GroupCommand, GroupInvitationAction, GroupText, SkillSlot, SpellArguments, SpellCast,
-        SpellInput, SpellSlot, SpellTarget, WalkTarget,
+        DialogAction, DialogCommand, DialogText, GroupCommand, GroupInvitationAction, GroupText,
+        ItemSlot, SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot,
+        SpellTarget, WalkTarget,
     };
     use std::ffi::OsString;
 
@@ -748,6 +862,109 @@ mod tests {
     }
 
     #[test]
+    fn parses_swaps_interaction_dialog_and_every_group_response() {
+        assert_eq!(
+            parse(arguments(&["item-swap", "--pid", "10", "2", "59"]))
+                .unwrap()
+                .1
+                .operation,
+            Operation::SwapSlots(SlotSwap::Inventory {
+                source: ItemSlot::new(2).unwrap(),
+                destination: ItemSlot::new(59).unwrap(),
+            })
+        );
+        assert_eq!(
+            parse(arguments(&["skill-swap", "--pid", "10", "3", "90"]))
+                .unwrap()
+                .1
+                .operation,
+            Operation::SwapSlots(SlotSwap::Skillbook {
+                source: SkillSlot::new(3).unwrap(),
+                destination: SkillSlot::new(90).unwrap(),
+            })
+        );
+        assert_eq!(
+            parse(arguments(&["spell-swap", "--pid", "10", "4", "90"]))
+                .unwrap()
+                .1
+                .operation,
+            Operation::SwapSlots(SlotSwap::Spellbook {
+                source: SpellSlot::new(4).unwrap(),
+                destination: SpellSlot::new(90).unwrap(),
+            })
+        );
+        assert_eq!(
+            parse(arguments(&["interact", "--pid", "10", "77"]))
+                .unwrap()
+                .1
+                .operation,
+            Operation::Interact(std::num::NonZeroU32::new(77).unwrap())
+        );
+        assert_eq!(
+            parse(arguments(&["dialog-select", "--pid", "10", "7", "0",]))
+                .unwrap()
+                .1
+                .operation,
+            Operation::Dialog(DialogCommand {
+                revision: 7,
+                action: DialogAction::Select {
+                    index: 0,
+                    quantity: 1,
+                },
+            })
+        );
+        assert_eq!(
+            parse(arguments(&["dialog-select", "--pid", "10", "7", "2", "4",]))
+                .unwrap()
+                .1
+                .operation,
+            Operation::Dialog(DialogCommand {
+                revision: 7,
+                action: DialogAction::Select {
+                    index: 2,
+                    quantity: 4,
+                },
+            })
+        );
+        assert_eq!(
+            parse(arguments(&["dialog-input", "--pid", "10", "8", "ZiLo",]))
+                .unwrap()
+                .1
+                .operation,
+            Operation::Dialog(DialogCommand {
+                revision: 8,
+                action: DialogAction::Input(DialogText::new("ZiLo").unwrap()),
+            })
+        );
+        for (name, action) in [
+            ("dialog-previous", DialogAction::Previous),
+            ("dialog-next", DialogAction::Next),
+            ("dialog-close", DialogAction::Close),
+        ] {
+            assert_eq!(
+                parse(arguments(&[name, "--pid", "10", "9"]))
+                    .unwrap()
+                    .1
+                    .operation,
+                Operation::Dialog(DialogCommand {
+                    revision: 9,
+                    action,
+                })
+            );
+        }
+        assert_eq!(
+            parse(arguments(&["group-decline", "--pid", "10", "11"]))
+                .unwrap()
+                .1
+                .operation,
+            Operation::Group(GroupCommand::Respond {
+                invitation_id: 11,
+                action: GroupInvitationAction::Decline,
+            })
+        );
+    }
+
+    #[test]
     fn rejects_invalid_pid_and_extra_arguments() {
         assert!(parse(arguments(&["ping", "--pid", "0"])).is_err());
         assert!(parse(arguments(&["hello", "--pid", "1", "extra"])).is_err());
@@ -762,6 +979,14 @@ mod tests {
         assert!(parse(arguments(&["spell-cast", "--pid", "1", "1", "--input"])).is_err());
         assert!(parse(arguments(&["group-invite", "--pid", "1", ""])).is_err());
         assert!(parse(arguments(&["group-accept", "--pid", "1", "0"])).is_err());
+        assert!(parse(arguments(&["item-swap", "--pid", "1", "0", "2"])).is_err());
+        assert!(parse(arguments(&["skill-swap", "--pid", "1", "1", "91"])).is_err());
+        assert!(parse(arguments(&["spell-swap", "--pid", "1", "91", "1"])).is_err());
+        assert!(parse(arguments(&["interact", "--pid", "1", "0"])).is_err());
+        assert!(parse(arguments(&["dialog-select", "--pid", "1", "7", "65536",])).is_err());
+        assert!(parse(arguments(&["dialog-select", "--pid", "1", "7", "0", "0",])).is_err());
+        assert!(parse(arguments(&["dialog-input", "--pid", "1", "7", ""])).is_err());
+        assert!(parse(arguments(&["dialog-input", "--pid", "1", "7", "é"])).is_err());
     }
 
     #[test]

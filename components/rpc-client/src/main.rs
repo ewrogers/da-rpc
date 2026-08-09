@@ -8,7 +8,7 @@ mod object_output;
 mod output;
 mod snapshot_output;
 
-use darpc_model::{Direction, EquipmentSlot};
+use darpc_model::{Direction, EquipmentSlot, emote_code, is_client_emote_code};
 use darpc_protocol::{
     GoldTransfer, ItemSlot, ItemTransfer, MAX_ECHO_TEXT_LEN, MAX_ITEM_SLOT, MAX_SKILL_SLOT,
     MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT, SkillSlot, SpellArguments, SpellCast, SpellInput,
@@ -41,7 +41,7 @@ usage:
     darpc [--output <table|json>] gold-give --pid <pid> <amount> <object-id>
     darpc [--output <table|json>] item-pickup --pid <pid> <x> <y>
     darpc [--output <table|json>] unequip --pid <pid> <slot>
-    darpc [--output <table|json>] emote --pid <pid> <code>
+    darpc [--output <table|json>] emote --pid <pid> <name|code>
     darpc [--output <table|json>] command-status --pid <pid> <command-id>
     darpc [--output <table|json>] command-cancel --pid <pid> <command-id>";
 
@@ -199,7 +199,7 @@ fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
             y: parse_coordinate(arguments.next(), "y")?,
         }),
         "unequip" => Operation::Unequip(parse_equipment_slot(arguments.next())?),
-        "emote" => Operation::Emote(parse_u8(arguments.next(), "emote code")?),
+        "emote" => Operation::Emote(parse_emote(arguments.next())?),
         "command-status" => Operation::CommandStatus(parse_command_id(arguments.next())?),
         "command-cancel" => Operation::CommandCancel(parse_command_id(arguments.next())?),
         "echo" => {
@@ -446,6 +446,18 @@ fn parse_pid(argument: Option<OsString>) -> Result<u32> {
     Ok(pid)
 }
 
+fn parse_emote(argument: Option<OsString>) -> Result<u8> {
+    let value = argument
+        .ok_or_else(|| invalid_arguments("emote requires a name or code"))?
+        .into_string()
+        .map_err(|_| invalid_arguments("emote name must be valid Unicode"))?;
+    let code = value.parse::<u8>().ok().or_else(|| emote_code(&value));
+    match code {
+        Some(code) if is_client_emote_code(code) => Ok(code),
+        _ => Err(invalid_arguments("emote name or code is not recognized")),
+    }
+}
+
 fn invalid_arguments(message: impl Into<String>) -> ClientError {
     ClientError::new(
         ErrorKind::InvalidArguments,
@@ -628,6 +640,26 @@ mod tests {
                 }
             )
         );
+        assert_eq!(
+            parse(arguments(&["emote", "--pid", "10", "WaVe"])).unwrap(),
+            (
+                OutputFormat::Table,
+                Command {
+                    pid: 10,
+                    operation: Operation::Emote(13),
+                }
+            )
+        );
+        assert_eq!(
+            parse(arguments(&["emote", "--pid", "10", "24"])).unwrap(),
+            (
+                OutputFormat::Table,
+                Command {
+                    pid: 10,
+                    operation: Operation::Emote(24),
+                }
+            )
+        );
     }
 
     #[test]
@@ -637,6 +669,8 @@ mod tests {
         assert!(parse(arguments(&["turn", "--pid", "1", "up"])).is_err());
         assert!(parse(arguments(&["walk", "--pid", "1", "10"])).is_err());
         assert!(parse(arguments(&["walk", "--pid", "1", "north", "extra"])).is_err());
+        assert!(parse(arguments(&["emote", "--pid", "1", "unknown"])).is_err());
+        assert!(parse(arguments(&["emote", "--pid", "1", "9"])).is_err());
         assert!(parse(arguments(&["skill-use", "--pid", "1", "0"])).is_err());
         assert!(parse(arguments(&["skill-use", "--pid", "1", "91"])).is_err());
         assert!(parse(arguments(&["spell-cast", "--pid", "1", "0"])).is_err());

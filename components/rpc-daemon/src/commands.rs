@@ -9,7 +9,7 @@ use axum::{
 };
 use darpc_model::{
     ClientLifecycle, ClientSnapshot as GameSnapshot, CreatureKind, Direction as ModelDirection,
-    SpellTargetType as ModelSpellTargetType, WorldObject,
+    SpellTargetType as ModelSpellTargetType, WorldObject, emote_code, is_client_emote_code,
 };
 use darpc_protocol::{
     CommandFailure as ProtocolFailure, CommandKind as ProtocolKind, CommandOperation,

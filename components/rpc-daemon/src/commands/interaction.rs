@@ -45,7 +45,11 @@ pub(crate) struct UnequipOptions {
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct EmoteOptions {
-    code: u8,
+    /// Select any emote exposed by the client UI by its numeric request code.
+    code: Option<u8>,
+    /// Select a confirmed emote by its case-insensitive player-facing name.
+    #[schema(example = "wave")]
+    name: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -199,13 +203,22 @@ pub(crate) async fn emote(
 ) -> Result<(StatusCode, Json<CommandStatus>), ApiError> {
     let Json(request) = action_request(request)?;
     let (pid, identity, _) = action_client(&state, &identifier)?;
-    if !((0..=8).contains(&request.code) || (12..=35).contains(&request.code)) {
+    if request.code.is_some() == request.name.is_some() {
+        return Err(bad_request(pid, "provide exactly one of code or name"));
+    }
+    let code = if let Some(code) = request.code {
+        code
+    } else {
+        emote_code(request.name.as_deref().unwrap_or_default())
+            .ok_or_else(|| bad_request(pid, "the emote name is not recognized"))?
+    };
+    if !is_client_emote_code(code) {
         return Err(bad_request(
             pid,
             "code is not an emote exposed by the client UI",
         ));
     }
-    submit_action(&state, pid, identity, ProtocolKind::Emote(request.code)).await
+    submit_action(&state, pid, identity, ProtocolKind::Emote(code)).await
 }
 
 fn resolve_item<'a>(

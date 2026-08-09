@@ -46,7 +46,7 @@ darpc gold-drop --pid <pid> <amount> <x> <y>
 darpc gold-give --pid <pid> <amount> <object-id>
 darpc item-pickup --pid <pid> <x> <y>
 darpc unequip --pid <pid> <slot-number>
-darpc emote --pid <pid> <code>
+darpc emote --pid <pid> <name|code>
 darpc command-status --pid <pid> <command-id>
 darpc command-cancel --pid <pid> <command-id>
 ```
@@ -90,7 +90,9 @@ behavior is:
 - `item-pickup` asks the server for the top ground item at a zero-based tile
   and uses the first empty inventory slot available at execution time.
 - `unequip` accepts the client's one-based equipment slot number from 1 through
-  18. `emote` accepts a normal client UI emote code.
+  18. `emote` accepts a confirmed case-insensitive name such as `wave`, or a
+  normal client UI emote code. See [World and movement](world.md#emotes) for
+  the named list.
 - `command-status` reads a retained command result by its nonzero ID.
 - `command-cancel` atomically cancels a command that is still accepted. A
   command that already started retains its completed state.

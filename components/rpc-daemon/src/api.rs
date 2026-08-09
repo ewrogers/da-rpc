@@ -2134,6 +2134,11 @@ mod tests {
             r#"{"code":12}"#,
             CommandKind::Emote(12),
         );
+        assert_routes_action(
+            "/clients/42/emote",
+            r#"{"name":"WaVe"}"#,
+            CommandKind::Emote(13),
+        );
     }
 
     #[test]

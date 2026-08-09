@@ -90,7 +90,7 @@ the game and how they change.
 | `POST /clients/{client}/items/pickup` | Pick up the top ground item at a tile. |
 | `POST /clients/{client}/gold/drop` | Drop gold at a tile or offer it to a visible human, monster, or NPC. |
 | `POST /clients/{client}/equipment/unequip` | Unequip one readable equipment slot. |
-| `POST /clients/{client}/emote` | Perform one client emote code. |
+| `POST /clients/{client}/emote` | Perform an emote by confirmed name or client code. |
 | `POST /clients/{client}/commands/diagnostic` | Run a no-op main-thread command for testing. |
 | `GET /clients/{client}/commands/{command_id}` | Read retained command status. |
 | `DELETE /clients/{client}/commands/{command_id}` | Cancel a command that has not started. |

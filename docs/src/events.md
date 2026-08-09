@@ -341,11 +341,11 @@ Read inventory from `GET /clients/{client}/items` and equipment from
 | `item.removed` | `item_removed` | A slot lost an item or stack quantity. |
 | `item.changed` | `item_changed` | An item moved, swapped, split, merged, or changed details. |
 | `item.used` | `item_used` | The client submitted item use. |
-| `item.dropped` | `item_dropped` | The client submitted an item drop to a tile. |
-| `item.given` | `item_given` | The client submitted an item exchange request. |
+| `item.dropped` | `item_dropped` | The client submitted an item to a ground tile, including `/items/drop`. |
+| `item.given` | `item_given` | The client submitted an item to an entity, including `/items/give`. |
 | `item.picked_up` | `item_picked_up` | The client submitted a ground-item pickup. |
-| `gold.dropped` | `gold_dropped` | The client submitted a gold drop to a tile. |
-| `gold.given` | `gold_given` | The client submitted a gold transfer request. |
+| `gold.dropped` | `gold_dropped` | The client submitted gold to a ground tile, including `/gold/drop`. |
+| `gold.given` | `gold_given` | The client submitted gold to an entity, including `/gold/give`. |
 | `equipment.unequipped` | `equipment_unequipped` | The client submitted an unequip request. |
 
 `item.added`, `item.removed`, and `item.changed` use

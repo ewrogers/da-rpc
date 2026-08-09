@@ -242,7 +242,7 @@ pub(crate) fn execute(pid: u32, operation: Operation) -> Result<CommandResult> {
             &mut session,
             pid,
             "item-give",
-            CommandKind::DropItem(transfer),
+            CommandKind::GiveItem(transfer),
         ),
         Operation::DropGold(transfer) => request_action(
             &mut session,
@@ -254,7 +254,7 @@ pub(crate) fn execute(pid: u32, operation: Operation) -> Result<CommandResult> {
             &mut session,
             pid,
             "gold-give",
-            CommandKind::DropGold(transfer),
+            CommandKind::GiveGold(transfer),
         ),
         Operation::PickupItem(position) => request_action(
             &mut session,

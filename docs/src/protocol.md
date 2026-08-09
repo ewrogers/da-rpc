@@ -683,6 +683,9 @@ enum CommandKind: u8 {
     PickupItem(TilePosition) = 8,
     Unequip { slot: u8 } = 9,    // one-based, 1 through 18
     Emote { code: u8 } = 10,
+    GiveItem(ItemTransfer) = 11,
+    GiveGold(GoldTransfer) = 12,
+    SwapSlots(SlotSwap) = 13,
 }
 
 struct ItemTransfer {
@@ -699,6 +702,12 @@ struct GoldTransfer {
 enum TransferTarget: u8 {
     Tile(TilePosition) = 0,
     Object { id: u32 } = 1,      // nonzero
+}
+
+enum SlotSwap: u8 {
+    Inventory { source: u8, destination: u8 } = 0, // 1 through 59
+    Spellbook { source: u8, destination: u8 } = 1, // 1 through 90
+    Skillbook { source: u8, destination: u8 } = 2, // 1 through 90
 }
 
 struct SpellCast {
@@ -775,6 +784,9 @@ Spell slots use the same range. The DLL checks the live spell's expected
 argument type, current map or object target, action delay, and denial state
 before calling the native spell routine. A new spell may replace a delayed cast
 already in progress.
+Drop commands accept only tile transfers and give commands accept only object
+transfers. Slot swaps submit the client's normal `0x30` rearrangement packet
+with the collection discriminator followed by source and destination slots.
 `Busy` is an
 immediate response when all fixed queue entries are pending, and `Unavailable`
 means the tick execution path is not installed. Terminal results are retained

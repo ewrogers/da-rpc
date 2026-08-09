@@ -109,6 +109,9 @@ fn kind(kind: CommandKind) -> &'static str {
         CommandKind::PickupItem(_) => "pickup_item",
         CommandKind::Unequip(_) => "unequip",
         CommandKind::Emote(_) => "emote",
+        CommandKind::GiveItem(_) => "give_item",
+        CommandKind::GiveGold(_) => "give_gold",
+        CommandKind::SwapSlots(_) => "swap_slots",
     }
 }
 

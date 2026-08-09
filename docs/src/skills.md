@@ -8,6 +8,7 @@ normal activation.
 | --- | --- |
 | Read learned skills | `GET /clients/{client}/skills` |
 | Use a skill | `POST /clients/{client}/skills/use` |
+| Swap skills | `POST /clients/{client}/skills/swap` |
 | Watch skillbook and use activity | [Skill events](events.md#skill-events) |
 
 ## Reading the skillbook
@@ -77,6 +78,17 @@ mouse, or synthesize a click.
 An executed command means local client activation ran. `skill.used` is the
 later observation that the client submitted the skill. Neither result alone is
 a promise that the game server accepted the action.
+
+## Swapping skills
+
+```text
+POST /clients/{client}/skills/swap
+{"source":{"slot":5},"destination":{"name":"Assail"}}
+```
+
+Both selectors accept exactly one of `slot` or case-insensitive `name`, using
+the same payload as inventory and spell swaps. A destination slot may be empty.
+The source must be occupied, and the resolved slots must be different.
 
 ## Skillbook events
 

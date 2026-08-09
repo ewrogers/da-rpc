@@ -2,7 +2,7 @@ use super::{module_base, movement, network, read};
 use darpc_game_client::{GUI_BACK_PANE_GET_RVA, ITEM_ACTIVATE_RVA};
 use darpc_model::EquipmentSlot;
 use darpc_protocol::{
-    CommandFailure, GoldTransfer, ItemSlot, ItemTransfer, TilePosition, TransferTarget,
+    CommandFailure, GoldTransfer, ItemSlot, ItemTransfer, SlotSwap, TilePosition, TransferTarget,
 };
 use std::{ffi::c_void, mem, ptr::NonNull};
 
@@ -38,16 +38,23 @@ pub(super) fn drop_item(transfer: ItemTransfer) -> Result<(), CommandFailure> {
             body[6..10].copy_from_slice(&transfer.quantity.to_be_bytes());
             network::submit(&body)
         }
-        TransferTarget::Object(id) => {
-            validate_object_target(id.get())?;
-            let mut body = [0; 10];
-            body[0] = 0x29;
-            body[1] = transfer.slot.get();
-            body[2..6].copy_from_slice(&id.get().to_be_bytes());
-            body[6..10].copy_from_slice(&transfer.quantity.to_be_bytes());
-            network::submit(&body)
-        }
+        TransferTarget::Object(_) => Err(CommandFailure::InvalidArguments),
     }
+}
+
+pub(super) fn give_item(transfer: ItemTransfer) -> Result<(), CommandFailure> {
+    let item = Inventory::resolve()?.item(transfer.slot)?;
+    item.validate_quantity(transfer.quantity)?;
+    let TransferTarget::Object(id) = transfer.target else {
+        return Err(CommandFailure::InvalidArguments);
+    };
+    validate_object_target(id.get())?;
+    let mut body = [0; 10];
+    body[0] = 0x29;
+    body[1] = transfer.slot.get();
+    body[2..6].copy_from_slice(&id.get().to_be_bytes());
+    body[6..10].copy_from_slice(&transfer.quantity.to_be_bytes());
+    network::submit(&body)
 }
 
 pub(super) fn drop_gold(transfer: GoldTransfer) -> Result<(), CommandFailure> {
@@ -64,15 +71,44 @@ pub(super) fn drop_gold(transfer: GoldTransfer) -> Result<(), CommandFailure> {
             body[7..9].copy_from_slice(&y.to_be_bytes());
             network::submit(&body)
         }
-        TransferTarget::Object(id) => {
-            validate_object_target(id.get())?;
-            let mut body = [0; 9];
-            body[0] = 0x2A;
-            body[1..5].copy_from_slice(&transfer.amount.to_be_bytes());
-            body[5..9].copy_from_slice(&id.get().to_be_bytes());
-            network::submit(&body)
-        }
+        TransferTarget::Object(_) => Err(CommandFailure::InvalidArguments),
     }
+}
+
+pub(super) fn give_gold(transfer: GoldTransfer) -> Result<(), CommandFailure> {
+    if transfer.amount == 0 {
+        return Err(CommandFailure::InvalidArguments);
+    }
+    let TransferTarget::Object(id) = transfer.target else {
+        return Err(CommandFailure::InvalidArguments);
+    };
+    validate_object_target(id.get())?;
+    let mut body = [0; 9];
+    body[0] = 0x2A;
+    body[1..5].copy_from_slice(&transfer.amount.to_be_bytes());
+    body[5..9].copy_from_slice(&id.get().to_be_bytes());
+    network::submit(&body)
+}
+
+pub(super) fn swap_slots(swap: SlotSwap) -> Result<(), CommandFailure> {
+    let (panel, source, destination) = match swap {
+        SlotSwap::Inventory {
+            source,
+            destination,
+        } => (0, source.get(), destination.get()),
+        SlotSwap::Spellbook {
+            source,
+            destination,
+        } => (1, source.get(), destination.get()),
+        SlotSwap::Skillbook {
+            source,
+            destination,
+        } => (2, source.get(), destination.get()),
+    };
+    if source == destination {
+        return Err(CommandFailure::InvalidArguments);
+    }
+    network::submit(&[0x30, panel, source, destination])
 }
 
 fn validate_object_target(object_id: u32) -> Result<(), CommandFailure> {

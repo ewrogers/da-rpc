@@ -84,6 +84,39 @@ pub(crate) async fn use_skill(
     submit_action(&state, pid, identity, ProtocolKind::UseSkill(slot)).await
 }
 
+#[utoipa::path(post, path = "/clients/{client}/skills/swap", params(("client" = String, Path)), request_body = SwapSlotsOptions, responses((status = 200, body = CommandStatus), (status = 202, body = CommandStatus), (status = 400, body = crate::api::ErrorState), (status = 404, body = crate::api::ErrorState), (status = 409, body = crate::api::ErrorState)))]
+pub(crate) async fn swap_skills(
+    State(state): State<ApiState>,
+    Path(identifier): Path<String>,
+    request: Result<Json<SwapSlotsOptions>, JsonRejection>,
+) -> Result<(StatusCode, Json<CommandStatus>), ApiError> {
+    let Json(request) = action_request(request)?;
+    let (pid, identity, snapshot) = action_client(&state, &identifier)?;
+    let skills = snapshot
+        .character
+        .as_ref()
+        .and_then(|character| character.skillbook.as_deref())
+        .ok_or_else(|| {
+            ApiError::new(
+                StatusCode::CONFLICT,
+                "skillbook_unavailable",
+                "skillbook is unavailable",
+                Some(pid),
+            )
+        })?;
+    let (source, destination) = resolve_slot_swap(pid, skills, &request, "skill", MAX_SKILL_SLOT)?;
+    submit_action(
+        &state,
+        pid,
+        identity,
+        ProtocolKind::SwapSlots(SlotSwap::Skillbook {
+            source: SkillSlot::new(source).expect("validated skill slot"),
+            destination: SkillSlot::new(destination).expect("validated skill slot"),
+        }),
+    )
+    .await
+}
+
 #[utoipa::path(
     post,
     path = "/clients/{client}/spells/cast",
@@ -112,6 +145,39 @@ pub(crate) async fn cast_spell(
     let (pid, identity, snapshot) = action_client(&state, &identifier)?;
     let cast = resolve_spell(pid, &snapshot, request)?;
     submit_action(&state, pid, identity, ProtocolKind::CastSpell(cast)).await
+}
+
+#[utoipa::path(post, path = "/clients/{client}/spells/swap", params(("client" = String, Path)), request_body = SwapSlotsOptions, responses((status = 200, body = CommandStatus), (status = 202, body = CommandStatus), (status = 400, body = crate::api::ErrorState), (status = 404, body = crate::api::ErrorState), (status = 409, body = crate::api::ErrorState)))]
+pub(crate) async fn swap_spells(
+    State(state): State<ApiState>,
+    Path(identifier): Path<String>,
+    request: Result<Json<SwapSlotsOptions>, JsonRejection>,
+) -> Result<(StatusCode, Json<CommandStatus>), ApiError> {
+    let Json(request) = action_request(request)?;
+    let (pid, identity, snapshot) = action_client(&state, &identifier)?;
+    let spells = snapshot
+        .character
+        .as_ref()
+        .and_then(|character| character.spellbook.as_deref())
+        .ok_or_else(|| {
+            ApiError::new(
+                StatusCode::CONFLICT,
+                "spellbook_unavailable",
+                "spellbook is unavailable",
+                Some(pid),
+            )
+        })?;
+    let (source, destination) = resolve_slot_swap(pid, spells, &request, "spell", MAX_SPELL_SLOT)?;
+    submit_action(
+        &state,
+        pid,
+        identity,
+        ProtocolKind::SwapSlots(SlotSwap::Spellbook {
+            source: SpellSlot::new(source).expect("validated spell slot"),
+            destination: SpellSlot::new(destination).expect("validated spell slot"),
+        }),
+    )
+    .await
 }
 fn resolve_skill(
     pid: u32,

@@ -19,8 +19,8 @@ on what a Dark Ages player or tool author can do with each kind of data.
 | [Character status](status.md) | `/status` | Stats, vitals, progression, gold, weight, modifiers, and flags | None |
 | [Inventory](inventory.md) | `/items` | Items added, removed, or changed | None |
 | [Equipment](equipment.md) | `/equipment` | No dedicated equipment event yet | None |
-| [Skills](skills.md) | `/skills` | Skillbook changes and skill use | `/skills/use` |
-| [Spells](spells.md) | `/spells` | Spellbook changes and casting stages | `/spells/cast` |
+| [Skills](skills.md) | `/skills` | Skillbook changes and skill use | `/skills/use`, `/skills/swap` |
+| [Spells](spells.md) | `/spells` | Spellbook changes and casting stages | `/spells/cast`, `/spells/swap` |
 | [Effects](effects.md) | `/effects` | Effects added, changed, or removed | None |
 | [World and movement](world.md) | `/objects` and `/status` | Location, walking, and visible objects | `/turn` and `/walk` |
 | [Messages](messages.md) | `/messages` | Chat and system messages by channel | None |

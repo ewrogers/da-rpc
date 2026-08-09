@@ -26,6 +26,25 @@ pub enum CommandKind {
     PickupItem(TilePosition),
     Unequip(EquipmentSlot),
     Emote(u8),
+    GiveItem(ItemTransfer),
+    GiveGold(GoldTransfer),
+    SwapSlots(SlotSwap),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SlotSwap {
+    Inventory {
+        source: ItemSlot,
+        destination: ItemSlot,
+    },
+    Spellbook {
+        source: SpellSlot,
+        destination: SpellSlot,
+    },
+    Skillbook {
+        source: SkillSlot,
+        destination: SkillSlot,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -236,6 +255,46 @@ fn encode_kind(output: &mut Vec<u8>, kind: CommandKind) {
             output.push(10);
             output.push(code);
         }
+        CommandKind::GiveItem(transfer) => {
+            output.push(11);
+            output.push(transfer.slot.get());
+            push_u32(output, transfer.quantity);
+            encode_transfer_target(output, transfer.target);
+        }
+        CommandKind::GiveGold(transfer) => {
+            output.push(12);
+            push_u32(output, transfer.amount);
+            encode_transfer_target(output, transfer.target);
+        }
+        CommandKind::SwapSlots(swap) => {
+            output.push(13);
+            match swap {
+                SlotSwap::Inventory {
+                    source,
+                    destination,
+                } => {
+                    output.push(0);
+                    output.push(source.get());
+                    output.push(destination.get());
+                }
+                SlotSwap::Spellbook {
+                    source,
+                    destination,
+                } => {
+                    output.push(1);
+                    output.push(source.get());
+                    output.push(destination.get());
+                }
+                SlotSwap::Skillbook {
+                    source,
+                    destination,
+                } => {
+                    output.push(2);
+                    output.push(source.get());
+                    output.push(destination.get());
+                }
+            }
+        }
     }
 }
 
@@ -321,8 +380,52 @@ fn decode_kind(reader: &mut PayloadReader<'_>) -> Result<CommandKind, DecodeErro
                 .ok_or(DecodeError::InvalidEquipmentSlot { actual })
         }
         10 => Ok(CommandKind::Emote(reader.read_u8()?)),
+        11 => Ok(CommandKind::GiveItem(ItemTransfer {
+            slot: decode_item_slot(reader)?,
+            quantity: reader.read_u32()?,
+            target: decode_transfer_target(reader)?,
+        })),
+        12 => Ok(CommandKind::GiveGold(GoldTransfer {
+            amount: reader.read_u32()?,
+            target: decode_transfer_target(reader)?,
+        })),
+        13 => decode_slot_swap(reader).map(CommandKind::SwapSlots),
         actual => Err(DecodeError::InvalidCommandKind { actual }),
     }
+}
+
+fn decode_slot_swap(reader: &mut PayloadReader<'_>) -> Result<SlotSwap, DecodeError> {
+    match reader.read_u8()? {
+        0 => Ok(SlotSwap::Inventory {
+            source: decode_item_slot(reader)?,
+            destination: decode_item_slot(reader)?,
+        }),
+        1 => Ok(SlotSwap::Spellbook {
+            source: decode_spell_slot(reader)?,
+            destination: decode_spell_slot(reader)?,
+        }),
+        2 => Ok(SlotSwap::Skillbook {
+            source: decode_skill_slot(reader)?,
+            destination: decode_skill_slot(reader)?,
+        }),
+        actual => Err(DecodeError::InvalidCommandKind { actual }),
+    }
+}
+
+fn decode_skill_slot(reader: &mut PayloadReader<'_>) -> Result<SkillSlot, DecodeError> {
+    let actual = reader.read_u8()?;
+    SkillSlot::new(actual).ok_or(DecodeError::InvalidSkillSlot {
+        actual,
+        max: MAX_SKILL_SLOT,
+    })
+}
+
+fn decode_spell_slot(reader: &mut PayloadReader<'_>) -> Result<SpellSlot, DecodeError> {
+    let actual = reader.read_u8()?;
+    SpellSlot::new(actual).ok_or(DecodeError::InvalidSpellSlot {
+        actual,
+        max: MAX_SPELL_SLOT,
+    })
 }
 
 fn decode_item_slot(reader: &mut PayloadReader<'_>) -> Result<ItemSlot, DecodeError> {
@@ -349,6 +452,43 @@ fn decode_transfer_target(reader: &mut PayloadReader<'_>) -> Result<TransferTarg
 fn decode_direction(reader: &mut PayloadReader<'_>) -> Result<Direction, DecodeError> {
     let actual = reader.read_u8()?;
     Direction::from_raw(actual).ok_or(DecodeError::InvalidDirection { actual })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CommandKind, ItemSlot, SkillSlot, SlotSwap, SpellSlot, encode_kind};
+
+    #[test]
+    fn slot_swap_command_encoding_preserves_native_panel_order() {
+        let cases = [
+            (
+                SlotSwap::Inventory {
+                    source: ItemSlot::new(1).unwrap(),
+                    destination: ItemSlot::new(59).unwrap(),
+                },
+                [13, 0, 1, 59],
+            ),
+            (
+                SlotSwap::Spellbook {
+                    source: SpellSlot::new(2).unwrap(),
+                    destination: SpellSlot::new(90).unwrap(),
+                },
+                [13, 1, 2, 90],
+            ),
+            (
+                SlotSwap::Skillbook {
+                    source: SkillSlot::new(3).unwrap(),
+                    destination: SkillSlot::new(89).unwrap(),
+                },
+                [13, 2, 3, 89],
+            ),
+        ];
+        for (swap, expected) in cases {
+            let mut encoded = Vec::new();
+            encode_kind(&mut encoded, CommandKind::SwapSlots(swap));
+            assert_eq!(encoded, expected);
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -169,10 +169,10 @@ darpc.exe hello --pid <pid>
 darpc.exe snapshot --pid <pid>
 darpc.exe turn --pid <pid> north
 darpc.exe walk --pid <pid> 120 85
-darpc.exe item-drop --pid <pid> 1 120 85
-darpc.exe item-give --pid <pid> 1 <object-id>
-darpc.exe skill-use --pid <pid> 5
-darpc.exe spell-cast --pid <pid> 2 --target-id <object-id>
+darpc.exe item drop --pid <pid> 1 120 85
+darpc.exe item give --pid <pid> 1 <object-id>
+darpc.exe skill use --pid <pid> 5
+darpc.exe spell cast --pid <pid> 2 --target-id <object-id>
 darpc.exe --output json snapshot --pid <pid>
 ```
 

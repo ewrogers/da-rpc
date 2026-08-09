@@ -692,7 +692,7 @@ Done:
 - Non-idempotent actions are not automatically retried.
 
 Implemented with typed turn, directional step, exact-tile walk, and native
-skill-use commands through IPC and REST. Exact-tile walking uses the client's
+skill use commands through IPC and REST. Exact-tile walking uses the client's
 native route builder without pursuit or attacks, validates zero-based map bounds, and
 reports unreachable tiles separately from invalid requests. Current state and
 Server-Sent Events expose the queued-route lifecycle, requested destination,

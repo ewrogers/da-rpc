@@ -16,7 +16,7 @@ then waits for one local controller without touching the game thread. `DllMain`
 does not start IPC or wait for the worker.
 
 Each connection begins with the DLL's `Hello` and must answer with a compatible
-`HelloAck`. The worker serves bounded `Ping`, `Echo`, tick-health, snapshot,
+`HelloAck`. The worker serves bounded `Ping`, `Echo`, tick health, snapshot,
 event-poll, and main-thread command operations.
 It uses overlapped reads, writes, and accepts so `darpc_shutdown` can signal the
 worker, cancel pending input/output, and join it before unloading. If bounded

@@ -158,8 +158,8 @@ try {
     Assert-True ($Ping.request_sequence -eq 1) "ping request sequence was not one"
     Assert-True ($Ping.response_sequence -eq 1) "ping response sequence was not one"
 
-    $TickHealth = Invoke-Darpc -CommandArgs @("tick-health", "--pid", "$($Process.Id)")
-    Assert-True ($TickHealth.command -eq "tick-health") "tick health command identity was incorrect"
+    $TickHealth = Invoke-Darpc -CommandArgs @("tick", "health", "--pid", "$($Process.Id)")
+    Assert-True ($TickHealth.command -eq "tick health") "tick health command identity was incorrect"
     Assert-True (-not $TickHealth.installed) "controlled target unexpectedly installed the game tick hook"
     Assert-True (-not $TickHealth.advancing) "controlled target unexpectedly reported advancing ticks"
     Assert-True ($TickHealth.relocated_bytes -eq 0) "controlled target reported relocated tick bytes"

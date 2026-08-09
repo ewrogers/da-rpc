@@ -702,7 +702,7 @@ state from a fresh snapshot.
 ## Main-thread commands
 
 Commands use one bounded envelope. The diagnostic records execution metadata
-without changing client state. Movement, skill-use, and spell-cast commands
+without changing client state. Movement, `skill use`, and `spell cast` commands
 carry bounded pointer-free arguments and execute through confirmed native
 client functions.
 

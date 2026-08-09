@@ -33,52 +33,53 @@ current client snapshot, and submit movement through the client:
 darpc hello --pid <pid>
 darpc ping --pid <pid>
 darpc echo --pid <pid> "hello"
-darpc tick-health --pid <pid>
+darpc tick health --pid <pid>
 darpc snapshot --pid <pid>
 darpc diagnostic --pid <pid>
 darpc turn --pid <pid> <north|east|south|west>
 darpc walk --pid <pid> <north|east|south|west>
 darpc walk --pid <pid> <x> <y>
-darpc skill-use --pid <pid> <slot>
-darpc skill-swap --pid <pid> <source> <destination>
-darpc spell-cast --pid <pid> <slot>
-darpc spell-cast --pid <pid> <slot> --target-id <object-id>
-darpc spell-cast --pid <pid> <slot> --target <x> <y>
-darpc spell-cast --pid <pid> <slot> --input <text>
-darpc spell-swap --pid <pid> <source> <destination>
-darpc item-use --pid <pid> <slot>
-darpc item-drop --pid <pid> <slot> <x> <y> [quantity]
-darpc item-give --pid <pid> <slot> <object-id> [quantity]
-darpc item-swap --pid <pid> <source> <destination>
-darpc gold-drop --pid <pid> <amount> <x> <y>
-darpc gold-give --pid <pid> <amount> <object-id>
-darpc item-pickup --pid <pid> <x> <y>
+darpc skill use --pid <pid> <slot>
+darpc skill swap --pid <pid> <source> <destination>
+darpc spell cast --pid <pid> <slot>
+darpc spell cast --pid <pid> <slot> --target-id <object-id>
+darpc spell cast --pid <pid> <slot> --target <x> <y>
+darpc spell cast --pid <pid> <slot> --input <text>
+darpc spell swap --pid <pid> <source> <destination>
+darpc item use --pid <pid> <slot>
+darpc item drop --pid <pid> <slot> <x> <y> [quantity]
+darpc item give --pid <pid> <slot> <object-id> [quantity]
+darpc item swap --pid <pid> <source> <destination>
+darpc gold drop --pid <pid> <amount> <x> <y>
+darpc gold give --pid <pid> <amount> <object-id>
+darpc item pickup --pid <pid> <x> <y>
 darpc unequip --pid <pid> <slot-number>
 darpc emote --pid <pid> <name|code>
 darpc interact --pid <pid> <object-id>
-darpc dialog-select --pid <pid> <revision> <index> [quantity]
-darpc dialog-input --pid <pid> <revision> <text>
-darpc dialog-previous --pid <pid> <revision>
-darpc dialog-next --pid <pid> <revision>
-darpc dialog-close --pid <pid> <revision>
-darpc group-toggle --pid <pid>
-darpc group-invite --pid <pid> <player>
-darpc group-accept --pid <pid> <invitation-id>
-darpc group-decline --pid <pid> <invitation-id>
+darpc dialog select --pid <pid> <revision> <index> [quantity]
+darpc dialog input --pid <pid> <revision> <text>
+darpc dialog previous --pid <pid> <revision>
+darpc dialog next --pid <pid> <revision>
+darpc dialog close --pid <pid> <revision>
+darpc group toggle --pid <pid>
+darpc group invite --pid <pid> <player>
+darpc group accept --pid <pid> <invitation-id>
+darpc group decline --pid <pid> <invitation-id>
 darpc who --pid <pid>
-darpc command-status --pid <pid> <command-id>
-darpc command-cancel --pid <pid> <command-id>
+darpc command status --pid <pid> <command-id>
+darpc command cancel --pid <pid> <command-id>
 ```
 
-These commands use the real PID-based named pipe, binary framing, protocol
-negotiation, request correlation, sequencing, and connection lifecycle. Their
-behavior is:
+Related operations use a domain and subcommand. Examples include `skill use`,
+`item swap`, and `dialog select`. These commands use the real PID-based named
+pipe, binary framing, protocol negotiation, request correlation, sequencing,
+and connection lifecycle. Their behavior is:
 
 - `hello` reports compatible DLL and process metadata.
 - `ping` verifies a complete request and response round trip and reports its
   elapsed time.
 - `echo` returns its UTF-8 payload byte-for-byte, with a 4 KiB input limit.
-- `tick-health` samples the client tick counter twice, 250 milliseconds apart,
+- `tick health` samples the client tick counter twice, 250 milliseconds apart,
   and reports installation metadata, both counter values, their wrapping
   difference, and whether the counter advanced.
 - `snapshot` schedules a bounded capture on the client main thread and reports
@@ -93,44 +94,44 @@ behavior is:
 - `walk` with a direction cancels any queued route and attempts one native,
   collision-checked step. `walk` with x/y asks the client's native pathfinder to
   follow a route to that zero-based map tile.
-- `skill-use` invokes a learned one-based skill slot through the client's native
+- `skill use` invokes a learned one-based skill slot through the client's native
   activation routine. It does not select the skill panel, change focus, or
-  synthesize keyboard or mouse input. `skill-swap` exchanges two one-based
+  synthesize keyboard or mouse input. `skill swap` exchanges two one-based
   skillbook slots.
-- `spell-cast` invokes a learned one-based spell slot through the matching
+- `spell cast` invokes a learned one-based spell slot through the matching
   native client routine. Its optional argument is one visible object ID, one
   zero-based map tile, or 1 through 100 ASCII bytes. The DLL checks that the
   selected spell expects that argument shape. A targeted spell defaults to the
   casting character when no target is supplied. A new cast may replace a
-  delayed cast already in progress. `spell-swap` exchanges two one-based
+  delayed cast already in progress. `spell swap` exchanges two one-based
   spellbook slots.
-- `item-use` activates a live one-based inventory slot through the client's
+- `item use` activates a live one-based inventory slot through the client's
   ordinary item path.
-- `item-drop` and `item-give` submit a validated quantity from a live slot.
+- `item drop` and `item give` submit a validated quantity from a live slot.
   Quantity defaults to 1. Giving begins the game's ordinary exchange flow.
-- `item-swap` exchanges two one-based inventory slots.
-- `gold-drop` and `gold-give` submit a nonzero amount to a tile or object ID.
-- `item-pickup` asks the server for the top ground item at a zero-based tile
+- `item swap` exchanges two one-based inventory slots.
+- `gold drop` and `gold give` submit a nonzero amount to a tile or object ID.
+- `item pickup` asks the server for the top ground item at a zero-based tile
   and uses the first empty inventory slot available at execution time.
 - `unequip` accepts the client's one-based equipment slot number from 1 through
   18. `emote` accepts a confirmed case-insensitive name such as `wave`, or a
   normal client UI emote code. See [World and movement](world.md#emotes) for
   the named list.
 - `interact` starts a conversation with one visible Mundane object ID.
-  `dialog-select` submits a zero-based displayed row and optional nonzero
-  quantity. `dialog-input` submits nonempty ASCII text. Dialog selection,
+  `dialog select` submits a zero-based displayed row and optional nonzero
+  quantity. `dialog input` submits nonempty ASCII text. Dialog selection,
   input, navigation, and close commands require the current dialog revision so
   stale actions fail closed in the DLL.
-- `group-toggle` uses the native client toggle. It opens or closes invitations
-  while solo and leaves or disbands an active group. `group-invite` sends a
-  validated ASCII player name. `group-accept` and `group-decline` answer one
+- `group toggle` uses the native client toggle. It opens or closes invitations
+  while solo and leaves or disbands an active group. `group invite` sends a
+  validated ASCII player name. `group accept` and `group decline` answer one
   retained invitation ID. Direct `snapshot` exposes retained group state, but
   the daemon API adds visible-name resolution, REST resources, and live events.
 - `who` requests the server-ordered online-player list, waits up to three
   seconds, and suppresses only its own client panel. Requests within one second
   share an in-flight or recently completed result.
-- `command-status` reads a retained command result by its nonzero ID.
-- `command-cancel` atomically cancels a command that is still accepted. A
+- `command status` reads a retained command result by its nonzero ID.
+- `command cancel` atomically cancels a command that is still accepted. A
   command that already started retains its completed state.
 
 The commands share `darpc-protocol` with the DLL and daemon. Each requires an
@@ -145,19 +146,19 @@ emit one stable JSON value on standard output:
 darpc --output json hello --pid <pid>
 darpc --output json ping --pid <pid>
 darpc --output json echo --pid <pid> "hello"
-darpc --output json tick-health --pid <pid>
+darpc --output json tick health --pid <pid>
 darpc --output json snapshot --pid <pid>
 darpc --output json diagnostic --pid <pid>
 darpc --output json turn --pid <pid> north
 darpc --output json walk --pid <pid> 120 85
-darpc --output json skill-use --pid <pid> 5
-darpc --output json skill-swap --pid <pid> 5 6
-darpc --output json spell-cast --pid <pid> 7 --input "nothing"
-darpc --output json item-swap --pid <pid> 1 2
-darpc --output json dialog-select --pid <pid> 7 0
-darpc --output json group-invite --pid <pid> ZiLo
+darpc --output json skill use --pid <pid> 5
+darpc --output json skill swap --pid <pid> 5 6
+darpc --output json spell cast --pid <pid> 7 --input "nothing"
+darpc --output json item swap --pid <pid> 1 2
+darpc --output json dialog select --pid <pid> 7 0
+darpc --output json group invite --pid <pid> ZiLo
 darpc --output json who --pid <pid>
-darpc --output json command-status --pid <pid> <command-id>
+darpc --output json command status --pid <pid> <command-id>
 ```
 
 Diagnostics belong on standard error so scripts can parse JSON from standard

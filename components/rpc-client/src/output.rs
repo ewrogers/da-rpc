@@ -131,7 +131,7 @@ impl CommandResult {
                 sample_ms,
             } => format!(
                 concat!(
-                    "tick-health succeeded: pid={} installed={} advancing={} ",
+                    "tick health succeeded: pid={} installed={} advancing={} ",
                     "relocated_bytes={} first_ticks={} ticks={} delta_ticks={} sample_ms={}"
                 ),
                 pid,
@@ -238,7 +238,7 @@ impl CommandResult {
                 sample_ms,
             } => format!(
                 concat!(
-                    "{{\"ok\":true,\"command\":\"tick-health\",\"pid\":{},",
+                    "{{\"ok\":true,\"command\":\"tick health\",\"pid\":{},",
                     "\"installed\":{},\"advancing\":{},\"relocated_bytes\":{},",
                     "\"first_tick_count\":{},\"tick_count\":{},\"tick_delta\":{},",
                     "\"sample_ms\":{}}}"
@@ -399,7 +399,7 @@ mod tests {
         assert_eq!(
             result.render(OutputFormat::Json),
             concat!(
-                "{\"ok\":true,\"command\":\"tick-health\",\"pid\":42,",
+                "{\"ok\":true,\"command\":\"tick health\",\"pid\":42,",
                 "\"installed\":true,\"advancing\":true,\"relocated_bytes\":5,",
                 "\"first_tick_count\":4294967294,\"tick_count\":3,",
                 "\"tick_delta\":5,\"sample_ms\":250}"

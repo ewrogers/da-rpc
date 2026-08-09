@@ -215,7 +215,7 @@ pub(crate) fn execute(pid: u32, operation: Operation) -> Result<CommandResult> {
         Operation::UseSkill(slot) => request_command(
             &mut session,
             pid,
-            "skill-use",
+            "skill use",
             CommandOperation::Submit {
                 kind: CommandKind::UseSkill(slot),
                 timeout_ms: DEFAULT_COMMAND_TIMEOUT_MS,
@@ -224,16 +224,16 @@ pub(crate) fn execute(pid: u32, operation: Operation) -> Result<CommandResult> {
         ),
         Operation::SwapSlots(swap) => {
             let action = match swap {
-                darpc_protocol::SlotSwap::Inventory { .. } => "item-swap",
-                darpc_protocol::SlotSwap::Spellbook { .. } => "spell-swap",
-                darpc_protocol::SlotSwap::Skillbook { .. } => "skill-swap",
+                darpc_protocol::SlotSwap::Inventory { .. } => "item swap",
+                darpc_protocol::SlotSwap::Spellbook { .. } => "spell swap",
+                darpc_protocol::SlotSwap::Skillbook { .. } => "skill swap",
             };
             request_action(&mut session, pid, action, CommandKind::SwapSlots(swap))
         }
         Operation::CastSpell(cast) => request_command(
             &mut session,
             pid,
-            "spell-cast",
+            "spell cast",
             CommandOperation::Submit {
                 kind: CommandKind::CastSpell(cast),
                 timeout_ms: DEFAULT_COMMAND_TIMEOUT_MS,
@@ -241,36 +241,36 @@ pub(crate) fn execute(pid: u32, operation: Operation) -> Result<CommandResult> {
             },
         ),
         Operation::UseItem(slot) => {
-            request_action(&mut session, pid, "item-use", CommandKind::UseItem(slot))
+            request_action(&mut session, pid, "item use", CommandKind::UseItem(slot))
         }
         Operation::DropItem(transfer) => request_action(
             &mut session,
             pid,
-            "item-drop",
+            "item drop",
             CommandKind::DropItem(transfer),
         ),
         Operation::GiveItem(transfer) => request_action(
             &mut session,
             pid,
-            "item-give",
+            "item give",
             CommandKind::GiveItem(transfer),
         ),
         Operation::DropGold(transfer) => request_action(
             &mut session,
             pid,
-            "gold-drop",
+            "gold drop",
             CommandKind::DropGold(transfer),
         ),
         Operation::GiveGold(transfer) => request_action(
             &mut session,
             pid,
-            "gold-give",
+            "gold give",
             CommandKind::GiveGold(transfer),
         ),
         Operation::PickupItem(position) => request_action(
             &mut session,
             pid,
-            "item-pickup",
+            "item pickup",
             CommandKind::PickupItem(position),
         ),
         Operation::Unequip(slot) => {
@@ -284,26 +284,26 @@ pub(crate) fn execute(pid: u32, operation: Operation) -> Result<CommandResult> {
         }
         Operation::Dialog(command) => {
             let action = match command.action {
-                darpc_protocol::DialogAction::Select { .. } => "dialog-select",
-                darpc_protocol::DialogAction::Input(_) => "dialog-input",
-                darpc_protocol::DialogAction::Previous => "dialog-previous",
-                darpc_protocol::DialogAction::Next => "dialog-next",
-                darpc_protocol::DialogAction::Close => "dialog-close",
+                darpc_protocol::DialogAction::Select { .. } => "dialog select",
+                darpc_protocol::DialogAction::Input(_) => "dialog input",
+                darpc_protocol::DialogAction::Previous => "dialog previous",
+                darpc_protocol::DialogAction::Next => "dialog next",
+                darpc_protocol::DialogAction::Close => "dialog close",
             };
             request_action(&mut session, pid, action, CommandKind::Dialog(command))
         }
         Operation::Group(command) => {
             let action = match command {
-                darpc_protocol::GroupCommand::Toggle => "group-toggle",
-                darpc_protocol::GroupCommand::Invite(_) => "group-invite",
+                darpc_protocol::GroupCommand::Toggle => "group toggle",
+                darpc_protocol::GroupCommand::Invite(_) => "group invite",
                 darpc_protocol::GroupCommand::Respond {
                     action: darpc_protocol::GroupInvitationAction::Accept,
                     ..
-                } => "group-accept",
+                } => "group accept",
                 darpc_protocol::GroupCommand::Respond {
                     action: darpc_protocol::GroupInvitationAction::Decline,
                     ..
-                } => "group-decline",
+                } => "group decline",
             };
             request_action(&mut session, pid, action, CommandKind::Group(command))
         }
@@ -311,7 +311,7 @@ pub(crate) fn execute(pid: u32, operation: Operation) -> Result<CommandResult> {
         Operation::CommandStatus(command_id) => request_command(
             &mut session,
             pid,
-            "command-status",
+            "command status",
             CommandOperation::Query {
                 command_id,
                 wait_ms: 0,
@@ -320,7 +320,7 @@ pub(crate) fn execute(pid: u32, operation: Operation) -> Result<CommandResult> {
         Operation::CommandCancel(command_id) => request_command(
             &mut session,
             pid,
-            "command-cancel",
+            "command cancel",
             CommandOperation::Cancel { command_id },
         ),
     }

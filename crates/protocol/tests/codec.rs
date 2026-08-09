@@ -1,23 +1,25 @@
 use darpc_model::{
-    AbilityUpdate, CharacterAppearance, CharacterClass, CharacterModifiers, CharacterProgression,
-    CharacterSnapshot, CharacterStats, CharacterVitals, ClientLifecycle, ClientMessage,
-    ClientSnapshot, CollectionChange, CooldownStatus, CoreStatus, CreatureKind, CurrentVitals,
-    Direction, Effect, EffectDuration, EffectUpdate, Element, EquipmentItem, EquipmentSlot, Gender,
-    InventoryItem, LocationUpdate, MapChange, MapLocation, MessageKind, MovementUpdate,
-    ObjectUpdate, ProgressionStatus, Skill, SlotUpdate, Spell, SpellCancellationSource,
-    SpellCastArguments, SpellTargetType, StateEvent, StateUpdate, StatusUpdate, TilePosition,
-    WorldObject,
+    AbilityUpdate, ActionUpdate, CharacterAppearance, CharacterClass, CharacterModifiers,
+    CharacterProgression, CharacterSnapshot, CharacterStats, CharacterVitals, ClientLifecycle,
+    ClientMessage, ClientSnapshot, CollectionChange, CooldownStatus, CoreStatus, CreatureKind,
+    CurrentVitals, Direction, Effect, EffectDuration, EffectUpdate, Element, EquipmentItem,
+    EquipmentSlot, Gender, InventoryItem, LocationUpdate, MapChange, MapLocation, MessageKind,
+    MovementUpdate, ObjectUpdate, ProgressionStatus, Skill, SlotUpdate, Spell,
+    SpellCancellationSource, SpellCastArguments, SpellTargetType, StateEvent, StateUpdate,
+    StatusUpdate, TilePosition, WorldObject,
 };
 use darpc_protocol::{
     Architecture, CommandFailure, CommandKind, CommandOperation, CommandRequest, CommandResponse,
     CommandResult, CommandState, CommandStatus, ComponentVersion, DecodeError, EchoRequest,
     EchoResponse, EncodeError, EventPollRequest, EventPollResponse, EventPollResult,
-    FRAME_HEADER_LEN, FRAME_MAGIC, FRAME_VERSION, Frame, FrameHeader, Hello, HelloAck,
-    MAX_COMMAND_TIMEOUT_MS, MAX_COMMAND_WAIT_MS, MAX_ECHO_TEXT_LEN, MAX_PAYLOAD_LEN, Message,
-    MessageType, PROTOCOL_VERSION_1_0, Ping, Pong, SkillSlot, SnapshotRequest, SnapshotResponse,
-    SnapshotResult, SnapshotUnavailableReason, SpellArguments, SpellCast, SpellInput, SpellSlot,
-    SpellTarget, TickHealthRequest, TickHealthResponse, VersionRange, WalkTarget, decode_frame,
-    decode_header, encode_frame, protocol_version, protocol_version_major, protocol_version_minor,
+    FRAME_HEADER_LEN, FRAME_MAGIC, FRAME_VERSION, Frame, FrameHeader, GoldTransfer, Hello,
+    HelloAck, ItemSlot, ItemTransfer, MAX_COMMAND_TIMEOUT_MS, MAX_COMMAND_WAIT_MS,
+    MAX_ECHO_TEXT_LEN, MAX_PAYLOAD_LEN, Message, MessageType, PROTOCOL_VERSION_1_0, Ping, Pong,
+    SkillSlot, SnapshotRequest, SnapshotResponse, SnapshotResult, SnapshotUnavailableReason,
+    SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget, TickHealthRequest,
+    TickHealthResponse, TilePosition as CommandTilePosition, TransferTarget, VersionRange,
+    WalkTarget, decode_frame, decode_header, encode_frame, protocol_version,
+    protocol_version_major, protocol_version_minor,
 };
 
 fn hello() -> Hello {
@@ -487,6 +489,15 @@ fn every_message_round_trips() {
                         source: SpellCancellationSource::Replaced,
                     }),
                 },
+                StateEvent {
+                    sequence: 56,
+                    revision: 25,
+                    tick_ms: 137,
+                    update: StateUpdate::Action(ActionUpdate::GoldDropped {
+                        amount: 500,
+                        position: TilePosition { x: 30, y: 40 },
+                    }),
+                },
             ]),
         }),
         Message::EventPollResponse(EventPollResponse {
@@ -601,6 +612,61 @@ fn every_message_round_trips() {
                     slot: SpellSlot::new(6).unwrap(),
                     arguments: SpellArguments::Input(SpellInput::new("Eidolon").unwrap()),
                 }),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 27,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::UseItem(ItemSlot::new(12).unwrap()),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 28,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::DropItem(ItemTransfer {
+                    slot: ItemSlot::new(12).unwrap(),
+                    quantity: 2,
+                    target: TransferTarget::Tile(CommandTilePosition { x: 30, y: 40 }),
+                }),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 29,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::DropGold(GoldTransfer {
+                    amount: 500,
+                    target: TransferTarget::Object(std::num::NonZeroU32::new(0x1122_3344).unwrap()),
+                }),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 30,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::PickupItem(CommandTilePosition { x: 30, y: 40 }),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 31,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::Unequip(EquipmentSlot::Armor),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 32,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::Emote(12),
                 timeout_ms: 1_000,
                 wait_ms: 50,
             },

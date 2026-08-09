@@ -28,6 +28,7 @@ impl QueuedStateEvent {
             QueuedStateUpdate::Message(update) => StateUpdate::Message(update.into_model()),
             QueuedStateUpdate::Collection(update) => update.into_model(self.tick_ms),
             QueuedStateUpdate::Ability(update) => StateUpdate::Ability(update.into_model()),
+            QueuedStateUpdate::Action(update) => StateUpdate::Action(update),
         };
         StateEvent {
             sequence: self.sequence,
@@ -52,6 +53,7 @@ pub(super) enum QueuedStateUpdate {
     Message(QueuedMessage),
     Collection(QueuedCollectionUpdate),
     Ability(QueuedAbilityUpdate),
+    Action(ActionUpdate),
 }
 
 impl QueuedStateUpdate {

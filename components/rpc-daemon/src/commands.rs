@@ -24,11 +24,16 @@ use tokio::{sync::oneshot, time::timeout};
 use utoipa::ToSchema;
 
 pub(crate) mod ability;
+pub(crate) mod interaction;
 pub(crate) mod movement;
 
 pub(crate) use ability::{
     CastSpellByName, CastSpellBySlot, CastSpellOptions, SkillNameOptions, SkillSlotOptions,
     SpellTargetOptions, UseSkillOptions, cast_spell, use_skill,
+};
+pub(crate) use interaction::{
+    DropGoldOptions, DropItemOptions, EmoteOptions, PickupItemOptions, UnequipOptions,
+    UseItemOptions, drop_gold, drop_item, emote, pickup_item, unequip, use_item,
 };
 use movement::validate_destination;
 pub(crate) use movement::{
@@ -93,6 +98,12 @@ pub(crate) enum CommandKind {
     Walk,
     UseSkill,
     CastSpell,
+    UseItem,
+    DropItem,
+    DropGold,
+    PickupItem,
+    Unequip,
+    Emote,
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
@@ -280,7 +291,7 @@ async fn route(
     }
 }
 
-async fn submit_action(
+pub(super) async fn submit_action(
     state: &ApiState,
     pid: u32,
     identity: ClientIdentity,
@@ -305,7 +316,9 @@ async fn submit_action(
     Ok((response_status, Json(status)))
 }
 
-fn action_request<T>(request: Result<Json<T>, JsonRejection>) -> Result<Json<T>, ApiError> {
+pub(super) fn action_request<T>(
+    request: Result<Json<T>, JsonRejection>,
+) -> Result<Json<T>, ApiError> {
     request.map_err(|rejection| {
         ApiError::new(
             StatusCode::BAD_REQUEST,
@@ -316,7 +329,7 @@ fn action_request<T>(request: Result<Json<T>, JsonRejection>) -> Result<Json<T>,
     })
 }
 
-fn action_client(
+pub(super) fn action_client(
     state: &ApiState,
     identifier: &str,
 ) -> Result<(u32, ClientIdentity, GameSnapshot), ApiError> {
@@ -410,6 +423,12 @@ impl From<ProtocolKind> for CommandKind {
             ProtocolKind::Walk(_) => Self::Walk,
             ProtocolKind::UseSkill(_) => Self::UseSkill,
             ProtocolKind::CastSpell(_) => Self::CastSpell,
+            ProtocolKind::UseItem(_) => Self::UseItem,
+            ProtocolKind::DropItem(_) => Self::DropItem,
+            ProtocolKind::DropGold(_) => Self::DropGold,
+            ProtocolKind::PickupItem(_) => Self::PickupItem,
+            ProtocolKind::Unequip(_) => Self::Unequip,
+            ProtocolKind::Emote(_) => Self::Emote,
         }
     }
 }

@@ -4,11 +4,11 @@ use crate::{
     snapshot::{MAX_MAP_NAME_LEN, decode_optional_string, encode_optional_string},
 };
 use darpc_model::{
-    AbilityUpdate, CharacterModifiers, CharacterStats, ClientMessage, CollectionChange, CoreStatus,
-    CurrentVitals, Effect, EffectDuration, EffectUpdate, Element, InventoryItem, LocationUpdate,
-    MapChange, MessageKind, MovementUpdate, ObjectUpdate, ProgressionStatus, Skill, SlotUpdate,
-    Spell, SpellCancellationSource, SpellCastArguments, StateEvent, StateUpdate, StatusUpdate,
-    TilePosition,
+    AbilityUpdate, ActionUpdate, CharacterModifiers, CharacterStats, ClientMessage,
+    CollectionChange, CoreStatus, CurrentVitals, Direction, Effect, EffectDuration, EffectUpdate,
+    Element, EquipmentSlot, InventoryItem, LocationUpdate, MapChange, MessageKind, MovementUpdate,
+    ObjectUpdate, ProgressionStatus, Skill, SlotUpdate, Spell, SpellCancellationSource,
+    SpellCastArguments, StateEvent, StateUpdate, StatusUpdate, TilePosition,
 };
 
 pub const MAX_EVENTS_PER_POLL: u16 = 192;
@@ -166,6 +166,10 @@ fn encode_event(output: &mut Vec<u8>, event: &StateEvent) -> Result<(), EncodeEr
             output.push(10);
             encode_ability(output, update)?;
         }
+        StateUpdate::Action(update) => {
+            output.push(11);
+            encode_action(output, *update);
+        }
     }
     Ok(())
 }
@@ -194,6 +198,7 @@ fn decode_event(reader: &mut PayloadReader<'_>) -> Result<StateEvent, DecodeErro
         )?),
         9 => StateUpdate::Movement(decode_movement(reader)?),
         10 => StateUpdate::Ability(decode_ability(reader)?),
+        11 => StateUpdate::Action(decode_action(reader)?),
         actual => return Err(DecodeError::InvalidStateUpdateType { actual }),
     };
     Ok(StateEvent {
@@ -202,6 +207,110 @@ fn decode_event(reader: &mut PayloadReader<'_>) -> Result<StateEvent, DecodeErro
         tick_ms,
         update,
     })
+}
+
+fn encode_action(output: &mut Vec<u8>, update: ActionUpdate) {
+    match update {
+        ActionUpdate::ItemUsed { slot } => output.extend_from_slice(&[1, slot]),
+        ActionUpdate::ItemDropped {
+            slot,
+            quantity,
+            position,
+        } => {
+            output.extend_from_slice(&[2, slot]);
+            push_u32(output, quantity);
+            push_i32(output, position.x);
+            push_i32(output, position.y);
+        }
+        ActionUpdate::ItemGiven {
+            slot,
+            quantity,
+            object_id,
+        } => {
+            output.extend_from_slice(&[3, slot]);
+            push_u32(output, quantity);
+            push_u32(output, object_id);
+        }
+        ActionUpdate::GoldDropped { amount, position } => {
+            output.push(4);
+            push_u32(output, amount);
+            push_i32(output, position.x);
+            push_i32(output, position.y);
+        }
+        ActionUpdate::GoldGiven { amount, object_id } => {
+            output.push(5);
+            push_u32(output, amount);
+            push_u32(output, object_id);
+        }
+        ActionUpdate::ItemPickedUp {
+            destination_slot,
+            position,
+        } => {
+            output.extend_from_slice(&[6, destination_slot]);
+            push_i32(output, position.x);
+            push_i32(output, position.y);
+        }
+        ActionUpdate::EquipmentUnequipped { slot } => {
+            output.extend_from_slice(&[7, slot.raw()]);
+        }
+        ActionUpdate::Emoted { code } => output.extend_from_slice(&[8, code]),
+        ActionUpdate::Turned { direction } => output.extend_from_slice(&[9, direction.raw()]),
+    }
+}
+
+fn decode_action(reader: &mut PayloadReader<'_>) -> Result<ActionUpdate, DecodeError> {
+    match reader.read_u8()? {
+        1 => Ok(ActionUpdate::ItemUsed {
+            slot: reader.read_u8()?,
+        }),
+        2 => Ok(ActionUpdate::ItemDropped {
+            slot: reader.read_u8()?,
+            quantity: reader.read_u32()?,
+            position: TilePosition {
+                x: reader.read_i32()?,
+                y: reader.read_i32()?,
+            },
+        }),
+        3 => Ok(ActionUpdate::ItemGiven {
+            slot: reader.read_u8()?,
+            quantity: reader.read_u32()?,
+            object_id: reader.read_u32()?,
+        }),
+        4 => Ok(ActionUpdate::GoldDropped {
+            amount: reader.read_u32()?,
+            position: TilePosition {
+                x: reader.read_i32()?,
+                y: reader.read_i32()?,
+            },
+        }),
+        5 => Ok(ActionUpdate::GoldGiven {
+            amount: reader.read_u32()?,
+            object_id: reader.read_u32()?,
+        }),
+        6 => Ok(ActionUpdate::ItemPickedUp {
+            destination_slot: reader.read_u8()?,
+            position: TilePosition {
+                x: reader.read_i32()?,
+                y: reader.read_i32()?,
+            },
+        }),
+        7 => {
+            let actual = reader.read_u8()?;
+            EquipmentSlot::from_raw(actual)
+                .map(|slot| ActionUpdate::EquipmentUnequipped { slot })
+                .ok_or(DecodeError::InvalidEquipmentSlot { actual })
+        }
+        8 => Ok(ActionUpdate::Emoted {
+            code: reader.read_u8()?,
+        }),
+        9 => {
+            let actual = reader.read_u8()?;
+            Direction::from_raw(actual)
+                .map(|direction| ActionUpdate::Turned { direction })
+                .ok_or(DecodeError::InvalidDirection { actual })
+        }
+        actual => Err(DecodeError::InvalidStateUpdateType { actual }),
+    }
 }
 
 fn encode_ability(output: &mut Vec<u8>, update: &AbilityUpdate) -> Result<(), EncodeError> {

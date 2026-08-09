@@ -24,8 +24,8 @@ pub(crate) struct WalkDirectionOptions {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct Destination {
-    pub(super) x: i32,
-    pub(super) y: i32,
+    pub(crate) x: i32,
+    pub(crate) y: i32,
 }
 
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]

@@ -18,6 +18,9 @@ use std::{convert::Infallible, time::Duration};
 use tokio::sync::broadcast;
 use utoipa::ToSchema;
 
+mod action;
+use action::*;
+
 pub(crate) const EVENT_CHANNEL_CAPACITY: usize = 4_096;
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
@@ -245,6 +248,15 @@ pub(crate) enum ClientEvent {
     SpellChant(SpellChant),
     SpellCast(SpellCast),
     SpellCancelled(SpellCancelled),
+    ItemUsed(ItemUsed),
+    ItemDropped(ItemDropped),
+    ItemGiven(ItemGiven),
+    GoldDropped(GoldDropped),
+    GoldGiven(GoldGiven),
+    ItemPickedUp(ItemPickedUp),
+    EquipmentUnequipped(EquipmentUnequipped),
+    Emoted(Emoted),
+    Turned(Turned),
     PlayerAppeared(ObjectChanged),
     PlayerDisappeared(ObjectChanged),
     PlayerMoved(ObjectChanged),
@@ -298,6 +310,15 @@ impl ClientEvent {
             Self::SpellChant(_) => "spell.chant",
             Self::SpellCast(_) => "spell.cast",
             Self::SpellCancelled(_) => "spell.cancelled",
+            Self::ItemUsed(_) => "item.used",
+            Self::ItemDropped(_) => "item.dropped",
+            Self::ItemGiven(_) => "item.given",
+            Self::GoldDropped(_) => "gold.dropped",
+            Self::GoldGiven(_) => "gold.given",
+            Self::ItemPickedUp(_) => "item.picked_up",
+            Self::EquipmentUnequipped(_) => "equipment.unequipped",
+            Self::Emoted(_) => "character.emoted",
+            Self::Turned(_) => "character.turned",
             Self::PlayerAppeared(_) => "player.appeared",
             Self::PlayerDisappeared(_) => "player.disappeared",
             Self::PlayerMoved(_) => "player.moved",
@@ -351,6 +372,15 @@ impl ClientEvent {
             Self::SpellChant(value) => value.observation.event_sequence,
             Self::SpellCast(value) => value.observation.event_sequence,
             Self::SpellCancelled(value) => value.observation.event_sequence,
+            Self::ItemUsed(value) => value.observation.event_sequence,
+            Self::ItemDropped(value) => value.observation.event_sequence,
+            Self::ItemGiven(value) => value.observation.event_sequence,
+            Self::GoldDropped(value) => value.observation.event_sequence,
+            Self::GoldGiven(value) => value.observation.event_sequence,
+            Self::ItemPickedUp(value) => value.observation.event_sequence,
+            Self::EquipmentUnequipped(value) => value.observation.event_sequence,
+            Self::Emoted(value) => value.observation.event_sequence,
+            Self::Turned(value) => value.observation.event_sequence,
             Self::PlayerAppeared(value)
             | Self::PlayerDisappeared(value)
             | Self::PlayerMoved(value)
@@ -841,6 +871,10 @@ fn expand(
             });
             return events;
         }
+        StateUpdate::Action(update) => {
+            events.push(action::expand(observation, update));
+            return events;
+        }
         StateUpdate::Object(update) => {
             if let Some(event) = object_event(observation, update) {
                 events.push(event);
@@ -1045,10 +1079,11 @@ fn sequence_after(candidate: u32, baseline: u32) -> bool {
 mod tests {
     use super::*;
     use darpc_model::{
-        AbilityUpdate, CharacterStats, ClientMessage, CollectionChange, CooldownStatus, CoreStatus,
-        CurrentVitals, Effect, EffectDuration, EffectUpdate, InventoryItem as ModelInventoryItem,
-        LocationUpdate, MapChange, MessageKind, MovementUpdate, Skill as ModelSkill, SlotUpdate,
-        Spell as ModelSpell, SpellCancellationSource as ModelSpellCancellationSource,
+        AbilityUpdate, ActionUpdate, CharacterStats, ClientMessage, CollectionChange,
+        CooldownStatus, CoreStatus, CurrentVitals, Effect, EffectDuration, EffectUpdate,
+        InventoryItem as ModelInventoryItem, LocationUpdate, MapChange, MessageKind,
+        MovementUpdate, Skill as ModelSkill, SlotUpdate, Spell as ModelSpell,
+        SpellCancellationSource as ModelSpellCancellationSource,
         SpellCastArguments as ModelSpellCastArguments, SpellTargetType, StateUpdate, StatusUpdate,
         TilePosition as ModelTilePosition,
     };
@@ -1176,6 +1211,58 @@ mod tests {
         assert_eq!(next_nonzero(u32::MAX), 1);
         assert!(sequence_after(1, u32::MAX));
         assert!(!sequence_after(u32::MAX, 1));
+    }
+
+    #[test]
+    fn action_updates_expose_drop_payloads() {
+        let identity = ClientIdentity {
+            pid: 42,
+            process_creation_time: 1,
+            dll_instance_id: [1; 16],
+        };
+        let item = expand(
+            42,
+            identity,
+            StateEvent {
+                sequence: 1,
+                revision: 2,
+                tick_ms: 3,
+                update: StateUpdate::Action(ActionUpdate::ItemDropped {
+                    slot: 4,
+                    quantity: 2,
+                    position: ModelTilePosition { x: 11, y: 22 },
+                }),
+            },
+            None,
+            None,
+            observed_at(),
+        );
+        assert_eq!(item[0].name(), "item.dropped");
+        let json = serde_json::to_value(&item[0]).unwrap();
+        assert_eq!(json["data"]["slot"], 4);
+        assert_eq!(json["data"]["quantity"], 2);
+        assert_eq!(json["data"]["destination"]["x"], 11);
+
+        let gold = expand(
+            42,
+            identity,
+            StateEvent {
+                sequence: 2,
+                revision: 3,
+                tick_ms: 4,
+                update: StateUpdate::Action(ActionUpdate::GoldDropped {
+                    amount: 500,
+                    position: ModelTilePosition { x: 12, y: 23 },
+                }),
+            },
+            None,
+            None,
+            observed_at(),
+        );
+        assert_eq!(gold[0].name(), "gold.dropped");
+        let json = serde_json::to_value(&gold[0]).unwrap();
+        assert_eq!(json["data"]["amount"], 500);
+        assert_eq!(json["data"]["destination"]["y"], 23);
     }
 
     #[test]

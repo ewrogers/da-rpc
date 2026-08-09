@@ -102,7 +102,18 @@ POST /clients/{client}/turn
 ```
 
 The direction must be `north`, `east`, `south`, or `west`. daRPC calls the
-client's native direction path on its main thread.
+client's native direction path on its main thread. An observed direction
+request produces `character.turned` with the requested direction.
+
+## Emotes
+
+```text
+POST /clients/{client}/emote
+{"code":12}
+```
+
+The code must be one exposed by the client UI: 0 through 8 or 12 through 35.
+An observed request produces `character.emoted` with the numeric code.
 
 ## Walking one step
 

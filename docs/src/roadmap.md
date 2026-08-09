@@ -714,11 +714,15 @@ See:
 
 Current implementation:
 
-- The bounded outbound observer recognizes skill use and spell begin, chant,
-  cast, cancellation, and replacement without retaining packet pointers.
+- The bounded outbound observer recognizes ability, item, gold, equipment,
+  pickup, emote, and turn requests without retaining packet pointers.
 - Native spell casting supports no argument, object or tile target, and text
   input through direct IPC and REST. An omitted target defaults to the casting
   character for targeted spells.
+- Typed item use, item and gold tile or object transfer, ground pickup,
+  equipment removal, and emote actions are available through direct IPC and
+  REST. Item slots and quantities are validated again on the client main
+  thread immediately before submission.
 - Local immutable rules remain to be implemented before this milestone is
   complete.
 

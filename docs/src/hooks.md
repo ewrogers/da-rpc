@@ -13,7 +13,7 @@ supported client build.
 | --- | --- |
 | Client tick | Captures requested baselines, settles collection changes, watches walking state, and executes at most one queued native command. |
 | Decoded server event | Observes supported updates after the client has handled them, including status, inventory, abilities, effects, objects, movement, and messages. |
-| Outbound packet submission | Observes skill use and spell casting stages before the client encrypts and sends them. |
+| Outbound packet submission | Observes supported ability, item, gold, equipment, emote, pickup, and turn requests before encryption. |
 | Map size | Captures map identity, name, and dimensions so a map change can be committed atomically with the following position. |
 
 These four hooks have different jobs because no single client boundary provides
@@ -32,7 +32,7 @@ The tick also:
 - Reconciles inventory, spellbook, and skillbook slots after their short
   settling window
 - Detects when native pathfinding starts and stops
-- Executes at most one queued turn, walk, skill, spell, or diagnostic command
+- Executes at most one queued action or diagnostic command
 - Publishes small health counters used by hook diagnostics
 
 This work is bounded. The callback does not allocate, serialize, log, wait for
@@ -58,7 +58,7 @@ updates drive:
 Unknown, malformed, oversized, or unreadable events are ignored. The client's
 original result is preserved.
 
-## Outbound skill and spell observation
+## Outbound action observation
 
 Some useful events describe what the client sends rather than what it receives.
 The outbound hook watches the common plaintext submission path for:
@@ -67,10 +67,13 @@ The outbound hook watches the common plaintext submission path for:
 - The start of a delayed spell
 - Each submitted chant line
 - Final spell use
+- Item use, tile drop, and player or monster exchange requests
+- Gold tile drops and exchange requests
+- Ground-item pickup, equipment removal, emotes, and turning
 
-This is how daRPC reports `skill.used`, `spell.begin`, `spell.chant`, and
-`spell.cast` for actions started through either daRPC or the normal game
-interface. It also helps keep replacement and cancellation ordering sensible.
+This is how daRPC reports ability and action events for requests started
+through either daRPC or the normal game interface. It also helps keep spell
+replacement and cancellation ordering sensible.
 
 Only the recognized, bounded fields needed by the state model are copied. Full
 packet bodies are not retained or written to the diagnostic log. The original

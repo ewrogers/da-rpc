@@ -28,6 +28,20 @@ belt, greaves, boots, accessory1, overcoat, over_helm,
 accessory2, accessory3
 ```
 
+## Unequipping an item
+
+Use the same readable slot name to move equipped gear back to inventory:
+
+```text
+POST /clients/{client}/equipment/unequip
+{"slot":"armor"}
+```
+
+The action is submitted on the client main thread and produces an
+`equipment.unequipped` event when the outgoing request is observed. Its
+payload contains the slot name. The event records the request, while a later
+equipment snapshot or incremental equipment support confirms server state.
+
 ## Updates and events
 
 Equipment is included in the complete client baseline and exposed through

@@ -55,6 +55,9 @@ pub const GUI_BACK_PANE_GET_RVA: usize = 0x001A_9C40;
 /// Module-relative address of the normal skill-entry activation routine.
 pub const SKILL_ACTIVATE_RVA: usize = 0x0009_92F0;
 
+/// Module-relative address of the normal inventory-slot activation routine.
+pub const ITEM_ACTIVATE_RVA: usize = 0x0009_0960;
+
 /// Module-relative address of the complete spell-delay controller pointer.
 pub const SPELL_DELAY_CONTROL_PANE_POINTER_RVA: usize = 0x0033_FD78;
 
@@ -78,6 +81,9 @@ pub const SPELL_START_RVA: usize = 0x0009_B900;
 
 /// Module-relative address of the shared outbound client-packet submission path.
 pub const CLIENT_PACKET_SUBMIT_RVA: usize = 0x0016_3E00;
+
+/// Module-relative address of the active network connection pointer.
+pub const CLIENT_SOCKET_POINTER_RVA: usize = 0x0033_D958;
 
 /// Complete entry instructions required before observing outbound packets.
 pub const CLIENT_PACKET_SUBMIT_ENTRY: [u8; 9] =

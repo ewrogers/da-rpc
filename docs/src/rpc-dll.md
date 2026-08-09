@@ -58,10 +58,11 @@ bounded long polls. It requests no allocation, logging, serialization, or IPC
 work from the hook path.
 
 A separate observer watches the common outbound submission boundary after the
-client has processed an action. It copies only bounded skill and spell fields,
-preserves the original result, and records ordered ability-use and casting
-events. The DLL tracks an active delayed spell so completion, server or client
-cancellation, and replacement by another spell remain distinct.
+client has processed an action. It copies only recognized bounded fields,
+preserves the original result, and records ordered ability, item, gold,
+equipment, pickup, emote, and turn events. The DLL tracks an active delayed
+spell so completion, server or client cancellation, and replacement by another
+spell remain distinct.
 
 A complete snapshot records the latest event sequence already represented in
 its values. The queue rebases to that boundary, and overflow or an ordering gap
@@ -106,6 +107,13 @@ object-target, tile-target, and text-input spells without selecting the spell
 page or synthesizing input. A new cast is allowed to replace a delayed cast in
 progress; ordered outbound observations identify the interrupted and new
 spells separately.
+
+Item use resolves the live inventory pane and calls its ordinary activation
+routine. Item and gold transfers, pickup, equipment removal, and emotes build
+their small confirmed opcode-first request bodies and submit them through the
+client's normal plaintext network boundary on the main thread. Tile actions
+check the current map bounds. Item actions revalidate the live slot, retained
+slot number, stackability, and quantity immediately before submission.
 
 ## Operational boundaries
 

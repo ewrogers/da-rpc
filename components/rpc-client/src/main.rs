@@ -8,10 +8,11 @@ mod object_output;
 mod output;
 mod snapshot_output;
 
-use darpc_model::Direction;
+use darpc_model::{Direction, EquipmentSlot};
 use darpc_protocol::{
-    MAX_ECHO_TEXT_LEN, MAX_SKILL_SLOT, MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT, SkillSlot,
-    SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget, WalkTarget,
+    GoldTransfer, ItemSlot, ItemTransfer, MAX_ECHO_TEXT_LEN, MAX_ITEM_SLOT, MAX_SKILL_SLOT,
+    MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT, SkillSlot, SpellArguments, SpellCast, SpellInput,
+    SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkTarget,
 };
 use error::{ClientError, ErrorKind, Result};
 use output::{CommandResult, OutputFormat, render_error};
@@ -33,6 +34,14 @@ usage:
     darpc [--output <table|json>] spell-cast --pid <pid> <slot> --target-id <id>
     darpc [--output <table|json>] spell-cast --pid <pid> <slot> --target <x> <y>
     darpc [--output <table|json>] spell-cast --pid <pid> <slot> --input <text>
+    darpc [--output <table|json>] item-use --pid <pid> <slot>
+    darpc [--output <table|json>] item-drop --pid <pid> <slot> <x> <y> [quantity]
+    darpc [--output <table|json>] item-give --pid <pid> <slot> <object-id> [quantity]
+    darpc [--output <table|json>] gold-drop --pid <pid> <amount> <x> <y>
+    darpc [--output <table|json>] gold-give --pid <pid> <amount> <object-id>
+    darpc [--output <table|json>] item-pickup --pid <pid> <x> <y>
+    darpc [--output <table|json>] unequip --pid <pid> <slot>
+    darpc [--output <table|json>] emote --pid <pid> <code>
     darpc [--output <table|json>] command-status --pid <pid> <command-id>
     darpc [--output <table|json>] command-cancel --pid <pid> <command-id>";
 
@@ -54,6 +63,14 @@ enum Operation {
     Walk(WalkTarget),
     UseSkill(SkillSlot),
     CastSpell(SpellCast),
+    UseItem(ItemSlot),
+    DropItem(ItemTransfer),
+    GiveItem(ItemTransfer),
+    DropGold(GoldTransfer),
+    GiveGold(GoldTransfer),
+    PickupItem(TilePosition),
+    Unequip(EquipmentSlot),
+    Emote(u8),
     CommandStatus(u32),
     CommandCancel(u32),
 }
@@ -71,6 +88,14 @@ impl Command {
             Operation::Walk(_) => "walk",
             Operation::UseSkill(_) => "skill-use",
             Operation::CastSpell(_) => "spell-cast",
+            Operation::UseItem(_) => "item-use",
+            Operation::DropItem(_) => "item-drop",
+            Operation::GiveItem(_) => "item-give",
+            Operation::DropGold(_) => "gold-drop",
+            Operation::GiveGold(_) => "gold-give",
+            Operation::PickupItem(_) => "item-pickup",
+            Operation::Unequip(_) => "unequip",
+            Operation::Emote(_) => "emote",
             Operation::CommandStatus(_) => "command-status",
             Operation::CommandCancel(_) => "command-cancel",
         }
@@ -164,6 +189,17 @@ fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
         "walk" => Operation::Walk(parse_walk_target(&mut arguments)?),
         "skill-use" => Operation::UseSkill(parse_skill_slot(arguments.next())?),
         "spell-cast" => Operation::CastSpell(parse_spell_cast(&mut arguments)?),
+        "item-use" => Operation::UseItem(parse_item_slot(arguments.next())?),
+        "item-drop" => Operation::DropItem(parse_item_transfer(&mut arguments, false)?),
+        "item-give" => Operation::GiveItem(parse_item_transfer(&mut arguments, true)?),
+        "gold-drop" => Operation::DropGold(parse_gold_transfer(&mut arguments, false)?),
+        "gold-give" => Operation::GiveGold(parse_gold_transfer(&mut arguments, true)?),
+        "item-pickup" => Operation::PickupItem(TilePosition {
+            x: parse_coordinate(arguments.next(), "x")?,
+            y: parse_coordinate(arguments.next(), "y")?,
+        }),
+        "unequip" => Operation::Unequip(parse_equipment_slot(arguments.next())?),
+        "emote" => Operation::Emote(parse_u8(arguments.next(), "emote code")?),
         "command-status" => Operation::CommandStatus(parse_command_id(arguments.next())?),
         "command-cancel" => Operation::CommandCancel(parse_command_id(arguments.next())?),
         "echo" => {
@@ -223,6 +259,80 @@ fn parse_coordinate(argument: Option<OsString>, name: &str) -> Result<i32> {
     argument.parse().map_err(|_| {
         invalid_arguments(format!("{name} coordinate must be a signed 32-bit integer"))
     })
+}
+
+fn parse_item_slot(argument: Option<OsString>) -> Result<ItemSlot> {
+    let slot = parse_u8(argument, "item slot")?;
+    ItemSlot::new(slot).ok_or_else(|| {
+        invalid_arguments(format!("item slot must be between 1 and {MAX_ITEM_SLOT}"))
+    })
+}
+
+fn parse_item_transfer(
+    arguments: &mut impl Iterator<Item = OsString>,
+    object: bool,
+) -> Result<ItemTransfer> {
+    let slot = parse_item_slot(arguments.next())?;
+    let target = if object {
+        TransferTarget::Object(
+            std::num::NonZeroU32::new(parse_u32(arguments.next(), "object ID")?)
+                .ok_or_else(|| invalid_arguments("object ID must be greater than zero"))?,
+        )
+    } else {
+        TransferTarget::Tile(TilePosition {
+            x: parse_coordinate(arguments.next(), "x")?,
+            y: parse_coordinate(arguments.next(), "y")?,
+        })
+    };
+    let quantity = arguments
+        .next()
+        .map(|value| parse_u32(Some(value), "quantity"))
+        .transpose()?
+        .unwrap_or(1);
+    Ok(ItemTransfer {
+        slot,
+        quantity,
+        target,
+    })
+}
+
+fn parse_gold_transfer(
+    arguments: &mut impl Iterator<Item = OsString>,
+    object: bool,
+) -> Result<GoldTransfer> {
+    let amount = parse_u32(arguments.next(), "gold amount")?;
+    let target = if object {
+        TransferTarget::Object(
+            std::num::NonZeroU32::new(parse_u32(arguments.next(), "object ID")?)
+                .ok_or_else(|| invalid_arguments("object ID must be greater than zero"))?,
+        )
+    } else {
+        TransferTarget::Tile(TilePosition {
+            x: parse_coordinate(arguments.next(), "x")?,
+            y: parse_coordinate(arguments.next(), "y")?,
+        })
+    };
+    Ok(GoldTransfer { amount, target })
+}
+
+fn parse_equipment_slot(argument: Option<OsString>) -> Result<EquipmentSlot> {
+    let slot = parse_u8(argument, "equipment slot")?;
+    EquipmentSlot::from_raw(slot)
+        .ok_or_else(|| invalid_arguments("equipment slot must be between 1 and 18"))
+}
+
+fn parse_u8(argument: Option<OsString>, name: &str) -> Result<u8> {
+    u8::try_from(parse_u32(argument, name)?)
+        .map_err(|_| invalid_arguments(format!("{name} must be an unsigned 8-bit integer")))
+}
+
+fn parse_u32(argument: Option<OsString>, name: &str) -> Result<u32> {
+    let argument = argument.ok_or_else(|| invalid_arguments(format!("{name} is required")))?;
+    argument
+        .to_str()
+        .ok_or_else(|| invalid_arguments(format!("{name} must be valid Unicode")))?
+        .parse()
+        .map_err(|_| invalid_arguments(format!("{name} must be an unsigned 32-bit integer")))
 }
 
 fn parse_command_id(argument: Option<OsString>) -> Result<u32> {

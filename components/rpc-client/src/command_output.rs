@@ -103,6 +103,12 @@ fn kind(kind: CommandKind) -> &'static str {
         CommandKind::Walk(_) => "walk",
         CommandKind::UseSkill(_) => "use_skill",
         CommandKind::CastSpell(_) => "cast_spell",
+        CommandKind::UseItem(_) => "use_item",
+        CommandKind::DropItem(_) => "drop_item",
+        CommandKind::DropGold(_) => "drop_gold",
+        CommandKind::PickupItem(_) => "pickup_item",
+        CommandKind::Unequip(_) => "unequip",
+        CommandKind::Emote(_) => "emote",
     }
 }
 

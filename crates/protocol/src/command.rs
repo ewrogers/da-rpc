@@ -2,7 +2,7 @@ use crate::{
     DecodeError, EncodeError,
     message::{PayloadReader, push_i32, push_u16, push_u32},
 };
-use darpc_model::Direction;
+use darpc_model::{Direction, EquipmentSlot};
 use std::num::NonZeroU32;
 
 pub const DEFAULT_COMMAND_TIMEOUT_MS: u16 = 1_000;
@@ -10,6 +10,7 @@ pub const MAX_COMMAND_TIMEOUT_MS: u16 = 5_000;
 pub const MAX_COMMAND_WAIT_MS: u16 = 1_000;
 pub const MAX_SKILL_SLOT: u8 = 90;
 pub const MAX_SPELL_SLOT: u8 = 90;
+pub const MAX_ITEM_SLOT: u8 = 59;
 pub const MAX_SPELL_INPUT_LEN: usize = 100;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -19,6 +20,37 @@ pub enum CommandKind {
     Walk(WalkTarget),
     UseSkill(SkillSlot),
     CastSpell(SpellCast),
+    UseItem(ItemSlot),
+    DropItem(ItemTransfer),
+    DropGold(GoldTransfer),
+    PickupItem(TilePosition),
+    Unequip(EquipmentSlot),
+    Emote(u8),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ItemTransfer {
+    pub slot: ItemSlot,
+    pub quantity: u32,
+    pub target: TransferTarget,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct GoldTransfer {
+    pub amount: u32,
+    pub target: TransferTarget,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TransferTarget {
+    Tile(TilePosition),
+    Object(NonZeroU32),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TilePosition {
+    pub x: i32,
+    pub y: i32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -72,6 +104,25 @@ impl SpellInput {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SkillSlot(u8);
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ItemSlot(u8);
+
+impl ItemSlot {
+    #[must_use]
+    pub const fn new(slot: u8) -> Option<Self> {
+        if slot > 0 && slot <= MAX_ITEM_SLOT {
+            Some(Self(slot))
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
+    pub const fn get(self) -> u8 {
+        self.0
+    }
+}
 
 impl SkillSlot {
     #[must_use]
@@ -157,6 +208,48 @@ fn encode_kind(output: &mut Vec<u8>, kind: CommandKind) {
                 }
             }
         }
+        CommandKind::UseItem(slot) => {
+            output.push(5);
+            output.push(slot.get());
+        }
+        CommandKind::DropItem(transfer) => {
+            output.push(6);
+            output.push(transfer.slot.get());
+            push_u32(output, transfer.quantity);
+            encode_transfer_target(output, transfer.target);
+        }
+        CommandKind::DropGold(transfer) => {
+            output.push(7);
+            push_u32(output, transfer.amount);
+            encode_transfer_target(output, transfer.target);
+        }
+        CommandKind::PickupItem(position) => {
+            output.push(8);
+            push_i32(output, position.x);
+            push_i32(output, position.y);
+        }
+        CommandKind::Unequip(slot) => {
+            output.push(9);
+            output.push(slot.raw());
+        }
+        CommandKind::Emote(code) => {
+            output.push(10);
+            output.push(code);
+        }
+    }
+}
+
+fn encode_transfer_target(output: &mut Vec<u8>, target: TransferTarget) {
+    match target {
+        TransferTarget::Tile(position) => {
+            output.push(0);
+            push_i32(output, position.x);
+            push_i32(output, position.y);
+        }
+        TransferTarget::Object(id) => {
+            output.push(1);
+            push_u32(output, id.get());
+        }
     }
 }
 
@@ -207,7 +300,49 @@ fn decode_kind(reader: &mut PayloadReader<'_>) -> Result<CommandKind, DecodeErro
             };
             Ok(CommandKind::CastSpell(SpellCast { slot, arguments }))
         }
+        5 => decode_item_slot(reader).map(CommandKind::UseItem),
+        6 => Ok(CommandKind::DropItem(ItemTransfer {
+            slot: decode_item_slot(reader)?,
+            quantity: reader.read_u32()?,
+            target: decode_transfer_target(reader)?,
+        })),
+        7 => Ok(CommandKind::DropGold(GoldTransfer {
+            amount: reader.read_u32()?,
+            target: decode_transfer_target(reader)?,
+        })),
+        8 => Ok(CommandKind::PickupItem(TilePosition {
+            x: reader.read_i32()?,
+            y: reader.read_i32()?,
+        })),
+        9 => {
+            let actual = reader.read_u8()?;
+            EquipmentSlot::from_raw(actual)
+                .map(CommandKind::Unequip)
+                .ok_or(DecodeError::InvalidEquipmentSlot { actual })
+        }
+        10 => Ok(CommandKind::Emote(reader.read_u8()?)),
         actual => Err(DecodeError::InvalidCommandKind { actual }),
+    }
+}
+
+fn decode_item_slot(reader: &mut PayloadReader<'_>) -> Result<ItemSlot, DecodeError> {
+    let actual = reader.read_u8()?;
+    ItemSlot::new(actual).ok_or(DecodeError::InvalidItemSlot {
+        actual,
+        max: MAX_ITEM_SLOT,
+    })
+}
+
+fn decode_transfer_target(reader: &mut PayloadReader<'_>) -> Result<TransferTarget, DecodeError> {
+    match reader.read_u8()? {
+        0 => Ok(TransferTarget::Tile(TilePosition {
+            x: reader.read_i32()?,
+            y: reader.read_i32()?,
+        })),
+        1 => NonZeroU32::new(reader.read_u32()?)
+            .map(TransferTarget::Object)
+            .ok_or(DecodeError::InvalidTransferTarget { actual: 1 }),
+        actual => Err(DecodeError::InvalidTransferTarget { actual }),
     }
 }
 

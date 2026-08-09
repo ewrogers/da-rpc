@@ -1,6 +1,6 @@
 use crate::{
-    CharacterModifiers, CharacterStats, ClientMessage, ClientSnapshot, Effect, InventoryItem,
-    MapLocation, ObjectUpdate, Skill, Spell,
+    CharacterModifiers, CharacterStats, ClientMessage, ClientSnapshot, Direction, Effect,
+    EquipmentSlot, InventoryItem, MapLocation, ObjectUpdate, Skill, Spell,
 };
 use std::{error::Error, fmt};
 
@@ -24,6 +24,45 @@ pub enum StateUpdate {
     Spellbook(SpellbookUpdate),
     Skillbook(SkillbookUpdate),
     Ability(AbilityUpdate),
+    Action(ActionUpdate),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ActionUpdate {
+    ItemUsed {
+        slot: u8,
+    },
+    ItemDropped {
+        slot: u8,
+        quantity: u32,
+        position: TilePosition,
+    },
+    ItemGiven {
+        slot: u8,
+        quantity: u32,
+        object_id: u32,
+    },
+    GoldDropped {
+        amount: u32,
+        position: TilePosition,
+    },
+    GoldGiven {
+        amount: u32,
+        object_id: u32,
+    },
+    ItemPickedUp {
+        destination_slot: u8,
+        position: TilePosition,
+    },
+    EquipmentUnequipped {
+        slot: EquipmentSlot,
+    },
+    Emoted {
+        code: u8,
+    },
+    Turned {
+        direction: Direction,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -447,6 +486,7 @@ impl ClientSnapshot {
                     AbilityUpdate::SkillUsed { .. } | AbilityUpdate::SpellChant { .. } => {}
                 }
             }
+            StateUpdate::Action(_) => {}
         }
         self.revision = event.revision;
         self.event_sequence = event.sequence;

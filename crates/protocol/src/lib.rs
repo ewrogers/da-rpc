@@ -10,9 +10,10 @@ mod snapshot;
 
 pub use command::{
     CommandFailure, CommandKind, CommandOperation, CommandRequest, CommandResponse, CommandResult,
-    CommandState, CommandStatus, DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS,
-    MAX_COMMAND_WAIT_MS, MAX_SKILL_SLOT, MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT, SkillSlot,
-    SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget, WalkTarget,
+    CommandState, CommandStatus, DEFAULT_COMMAND_TIMEOUT_MS, GoldTransfer, ItemSlot, ItemTransfer,
+    MAX_COMMAND_TIMEOUT_MS, MAX_COMMAND_WAIT_MS, MAX_ITEM_SLOT, MAX_SKILL_SLOT,
+    MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT, SkillSlot, SpellArguments, SpellCast, SpellInput,
+    SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkTarget,
 };
 pub use error::{DecodeError, EncodeError};
 pub use event::{

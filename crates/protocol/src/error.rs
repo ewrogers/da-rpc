@@ -301,6 +301,16 @@ pub enum DecodeError {
         actual: u8,
         max: u8,
     },
+    InvalidItemSlot {
+        actual: u8,
+        max: u8,
+    },
+    InvalidEquipmentSlot {
+        actual: u8,
+    },
+    InvalidTransferTarget {
+        actual: u8,
+    },
     InvalidSpellArguments {
         actual: u8,
     },
@@ -527,6 +537,15 @@ impl fmt::Display for DecodeError {
             }
             Self::InvalidSpellSlot { actual, max } => {
                 write!(formatter, "spell slot {actual} is outside 1..={max}")
+            }
+            Self::InvalidItemSlot { actual, max } => {
+                write!(formatter, "item slot {actual} is outside 1..={max}")
+            }
+            Self::InvalidEquipmentSlot { actual } => {
+                write!(formatter, "equipment slot {actual} is outside 1..=18")
+            }
+            Self::InvalidTransferTarget { actual } => {
+                write!(formatter, "invalid transfer target type {actual}")
             }
             Self::InvalidSpellArguments { actual } => {
                 write!(formatter, "invalid spell argument type {actual}")

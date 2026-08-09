@@ -229,6 +229,45 @@ pub(crate) fn execute(pid: u32, operation: Operation) -> Result<CommandResult> {
                 wait_ms: MAX_COMMAND_WAIT_MS,
             },
         ),
+        Operation::UseItem(slot) => {
+            request_action(&mut session, pid, "item-use", CommandKind::UseItem(slot))
+        }
+        Operation::DropItem(transfer) => request_action(
+            &mut session,
+            pid,
+            "item-drop",
+            CommandKind::DropItem(transfer),
+        ),
+        Operation::GiveItem(transfer) => request_action(
+            &mut session,
+            pid,
+            "item-give",
+            CommandKind::DropItem(transfer),
+        ),
+        Operation::DropGold(transfer) => request_action(
+            &mut session,
+            pid,
+            "gold-drop",
+            CommandKind::DropGold(transfer),
+        ),
+        Operation::GiveGold(transfer) => request_action(
+            &mut session,
+            pid,
+            "gold-give",
+            CommandKind::DropGold(transfer),
+        ),
+        Operation::PickupItem(position) => request_action(
+            &mut session,
+            pid,
+            "item-pickup",
+            CommandKind::PickupItem(position),
+        ),
+        Operation::Unequip(slot) => {
+            request_action(&mut session, pid, "unequip", CommandKind::Unequip(slot))
+        }
+        Operation::Emote(code) => {
+            request_action(&mut session, pid, "emote", CommandKind::Emote(code))
+        }
         Operation::CommandStatus(command_id) => request_command(
             &mut session,
             pid,
@@ -245,6 +284,24 @@ pub(crate) fn execute(pid: u32, operation: Operation) -> Result<CommandResult> {
             CommandOperation::Cancel { command_id },
         ),
     }
+}
+
+fn request_action(
+    session: &mut ControllerSession,
+    pid: u32,
+    action: &'static str,
+    kind: CommandKind,
+) -> Result<CommandResult> {
+    request_command(
+        session,
+        pid,
+        action,
+        CommandOperation::Submit {
+            kind,
+            timeout_ms: DEFAULT_COMMAND_TIMEOUT_MS,
+            wait_ms: MAX_COMMAND_WAIT_MS,
+        },
+    )
 }
 
 fn request_command(

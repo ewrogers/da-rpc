@@ -47,7 +47,8 @@ like a second client trying to imitate it from the outside.
 - Read character status, inventory, equipment, spellbook, skillbook, effects,
   visible objects, and recent messages.
 - Follow changes as they happen through an ordered event stream.
-- Turn, walk, use skills, and cast spells through native client behavior.
+- Turn, walk, use items and skills, cast spells, move items and gold, unequip
+  gear, pick up ground items, and emote through normal client behavior.
 - Manage several clients from one daemon.
 - Query state and submit actions through REST.
 - Subscribe to live events through Server-Sent Events (SSE).
@@ -162,6 +163,8 @@ darpc.exe hello --pid <pid>
 darpc.exe snapshot --pid <pid>
 darpc.exe turn --pid <pid> north
 darpc.exe walk --pid <pid> 120 85
+darpc.exe item-drop --pid <pid> 1 120 85
+darpc.exe item-give --pid <pid> 1 <object-id>
 darpc.exe skill-use --pid <pid> 5
 darpc.exe spell-cast --pid <pid> 2 --target-id <object-id>
 darpc.exe --output json snapshot --pid <pid>
@@ -217,6 +220,12 @@ POST /clients/{client}/turn
 POST /clients/{client}/walk
 POST /clients/{client}/skills/use
 POST /clients/{client}/spells/cast
+POST /clients/{client}/items/use
+POST /clients/{client}/items/drop
+POST /clients/{client}/items/pickup
+POST /clients/{client}/gold/drop
+POST /clients/{client}/equipment/unequip
+POST /clients/{client}/emote
 POST /clients/launch
 POST /clients/{client}/load
 POST /clients/{client}/unload

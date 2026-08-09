@@ -35,7 +35,7 @@ rules remain.
 | M13, event-driven updates | Complete | Bounded status, location, spell-effect, collection, world-object, and typed message updates, daemon reduction and message lookback, resynchronization, per-client SSE, and live-client acceptance pass. |
 | M14, main-thread command queue | Complete | Fixed DLL and daemon queues, one command per tick, direct CLI and REST routing, explicit states, and live-client verification pass. |
 | M15, first typed action | Complete | Native turn, directional step, exact-tile pathfinding, non-disruptive skill use, validation, walking state and events, and live direct and REST verification pass. |
-| M16, packet observation and local rules | In progress | Bounded skill and spell observation, casting state, typed spell actions, and ordered events are implemented; local rules remain. |
+| M16, packet observation and local rules | In progress | Bounded action observation plus typed movement, ability, item, gold, equipment, pickup, and emote actions are implemented; local rules remain. |
 
 ## Completed recently
 
@@ -94,6 +94,13 @@ rules remain.
   cast arguments.
 - [x] Verified instant, delayed, targeted, text-input, and replacement casts on
   a live client, including self-target resolution and SSE argument enrichment.
+- [x] Added item use, tile drop, player or monster exchange, gold transfer,
+  ground pickup, equipment removal, and emote commands through direct IPC and
+  REST with strict live-state validation.
+- [x] Added bounded outgoing action events for items, gold, equipment, pickup,
+  emotes, and turning with documented SSE payloads.
+- [x] Live-tested default item quantity, tile drop, pickup, empty-slot failure,
+  excessive stack quantity failure, and the normal player exchange flow.
 
 ## M15 completion evidence
 

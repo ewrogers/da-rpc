@@ -1,5 +1,7 @@
 mod ability;
+mod interaction;
 pub(crate) mod movement;
+mod network;
 mod skill;
 pub(crate) mod spell;
 
@@ -18,6 +20,12 @@ pub(crate) fn execute(command: CommandKind) -> Result<(), CommandFailure> {
         CommandKind::Walk(WalkTarget::Destination { x, y }) => movement::walk_to(x, y),
         CommandKind::UseSkill(slot) => skill::use_skill(slot),
         CommandKind::CastSpell(cast) => spell::cast(cast),
+        CommandKind::UseItem(slot) => interaction::use_item(slot),
+        CommandKind::DropItem(transfer) => interaction::drop_item(transfer),
+        CommandKind::DropGold(transfer) => interaction::drop_gold(transfer),
+        CommandKind::PickupItem(position) => interaction::pickup_item(position),
+        CommandKind::Unequip(slot) => interaction::unequip(slot),
+        CommandKind::Emote(code) => interaction::emote(code),
     }
 }
 

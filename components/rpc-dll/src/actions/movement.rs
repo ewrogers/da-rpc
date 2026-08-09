@@ -40,6 +40,23 @@ pub(super) fn walk_to(x: i32, y: i32) -> Result<(), CommandFailure> {
     Movement::resolve()?.walk_to(x, y)
 }
 
+pub(super) fn validate_tile(x: i32, y: i32) -> Result<(u16, u16), CommandFailure> {
+    let movement = Movement::resolve()?;
+    let width = movement.read_world::<i32>(MAP_WIDTH_OFFSET)?;
+    let height = movement.read_world::<i32>(MAP_HEIGHT_OFFSET)?;
+    if x < 0 || y < 0 || x >= width || y >= height {
+        return Err(CommandFailure::InvalidDestination);
+    }
+    let x = u16::try_from(x).map_err(|_| CommandFailure::InvalidDestination)?;
+    let y = u16::try_from(y).map_err(|_| CommandFailure::InvalidDestination)?;
+    Ok((x, y))
+}
+
+pub(super) fn local_object_id() -> Result<u32, CommandFailure> {
+    let local = Movement::resolve()?.self_object()?;
+    read::<u32>(local.as_ptr() as usize + 0x24).ok_or(CommandFailure::InvalidState)
+}
+
 pub(crate) fn is_walking() -> Option<bool> {
     Movement::resolve().ok()?.route_active()
 }

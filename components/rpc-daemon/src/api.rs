@@ -317,7 +317,28 @@ fn router(state: ApiState) -> Router {
         .route("/clients", get(clients))
         .route("/clients/{client}/status", get(client_status))
         .route("/clients/{client}/items", get(client_items))
+        .route(
+            "/clients/{client}/items/use",
+            post(crate::commands::use_item),
+        )
+        .route(
+            "/clients/{client}/items/drop",
+            post(crate::commands::drop_item),
+        )
+        .route(
+            "/clients/{client}/items/pickup",
+            post(crate::commands::pickup_item),
+        )
         .route("/clients/{client}/equipment", get(client_equipment))
+        .route(
+            "/clients/{client}/equipment/unequip",
+            post(crate::commands::unequip),
+        )
+        .route(
+            "/clients/{client}/gold/drop",
+            post(crate::commands::drop_gold),
+        )
+        .route("/clients/{client}/emote", post(crate::commands::emote))
         .route("/clients/{client}/spells", get(client_spells))
         .route("/clients/{client}/skills", get(client_skills))
         .route("/clients/{client}/effects", get(client_effects))
@@ -379,7 +400,13 @@ async fn reject_request_body(request: Request<Body>, next: Next) -> Response {
             || request.uri().path().ends_with("/turn")
             || request.uri().path().ends_with("/walk")
             || request.uri().path().ends_with("/skills/use")
-            || request.uri().path().ends_with("/spells/cast"))
+            || request.uri().path().ends_with("/spells/cast")
+            || request.uri().path().ends_with("/items/use")
+            || request.uri().path().ends_with("/items/drop")
+            || request.uri().path().ends_with("/items/pickup")
+            || request.uri().path().ends_with("/equipment/unequip")
+            || request.uri().path().ends_with("/gold/drop")
+            || request.uri().path().ends_with("/emote"))
     {
         return next.run(request).await;
     }
@@ -1039,6 +1066,12 @@ fn operation_in_progress(pid: u32) -> ApiError {
         crate::commands::movement::walk,
         crate::commands::ability::use_skill,
         crate::commands::ability::cast_spell,
+        crate::commands::interaction::use_item,
+        crate::commands::interaction::drop_item,
+        crate::commands::interaction::drop_gold,
+        crate::commands::interaction::pickup_item,
+        crate::commands::interaction::unequip,
+        crate::commands::interaction::emote,
         crate::commands::status,
         crate::commands::cancel
     ),
@@ -1104,6 +1137,12 @@ fn operation_in_progress(pid: u32) -> ApiError {
         crate::commands::CastSpellBySlot,
         crate::commands::CastSpellByName,
         crate::commands::CastSpellOptions,
+        crate::commands::UseItemOptions,
+        crate::commands::DropItemOptions,
+        crate::commands::DropGoldOptions,
+        crate::commands::PickupItemOptions,
+        crate::commands::UnequipOptions,
+        crate::commands::EmoteOptions,
         crate::commands::CommandStatus,
         crate::commands::CommandKind,
         crate::commands::CommandState,
@@ -1534,8 +1573,9 @@ mod tests {
     };
     use darpc_protocol::{
         Architecture, CommandKind, CommandOperation, CommandResult, CommandState, CommandStatus,
-        ComponentVersion, Hello, SUPPORTED_VERSIONS, SkillSlot, SpellArguments, SpellCast,
-        SpellInput, SpellSlot, SpellTarget, WalkTarget,
+        ComponentVersion, GoldTransfer, Hello, ItemSlot, ItemTransfer, SUPPORTED_VERSIONS,
+        SkillSlot, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition,
+        TransferTarget, WalkTarget,
     };
     use serde_json::Value;
     use std::{
@@ -1806,7 +1846,7 @@ mod tests {
                     .await
                     .unwrap();
                 assert_eq!(response.status(), StatusCode::OK);
-                let bytes = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
+                let bytes = to_bytes(response.into_body(), 256 * 1024).await.unwrap();
                 serde_json::from_slice(&bytes).unwrap()
             })
     }
@@ -1902,7 +1942,7 @@ mod tests {
         });
 
         let response = post_json(state, path, body);
-        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.status(), StatusCode::OK, "route failed: {path}");
         let response = response_json(response);
         assert_eq!(response["command_id"], 9);
         assert_eq!(response["state"], "executed");
@@ -2029,6 +2069,61 @@ mod tests {
                 slot: SpellSlot::new(7).unwrap(),
                 arguments: SpellArguments::Input(SpellInput::new("nothing").unwrap()),
             }),
+        );
+        assert_routes_action(
+            "/clients/42/items/use",
+            r#"{"name":"dark belt"}"#,
+            CommandKind::UseItem(ItemSlot::new(1).unwrap()),
+        );
+        assert_routes_action(
+            "/clients/42/items/drop",
+            r#"{"slot":1,"destination":{"x":11,"y":22}}"#,
+            CommandKind::DropItem(ItemTransfer {
+                slot: ItemSlot::new(1).unwrap(),
+                quantity: 1,
+                target: TransferTarget::Tile(TilePosition { x: 11, y: 22 }),
+            }),
+        );
+        assert_routes_action(
+            "/clients/42/items/drop",
+            r#"{"slot":1,"quantity":2,"target":2}"#,
+            CommandKind::DropItem(ItemTransfer {
+                slot: ItemSlot::new(1).unwrap(),
+                quantity: 2,
+                target: TransferTarget::Object(std::num::NonZeroU32::new(2).unwrap()),
+            }),
+        );
+        assert_routes_action(
+            "/clients/42/items/drop",
+            r#"{"slot":1,"target":"iNnKeEpEr"}"#,
+            CommandKind::DropItem(ItemTransfer {
+                slot: ItemSlot::new(1).unwrap(),
+                quantity: 1,
+                target: TransferTarget::Object(std::num::NonZeroU32::new(3).unwrap()),
+            }),
+        );
+        assert_routes_action(
+            "/clients/42/gold/drop",
+            r#"{"amount":50,"destination":{"x":11,"y":22}}"#,
+            CommandKind::DropGold(GoldTransfer {
+                amount: 50,
+                target: TransferTarget::Tile(TilePosition { x: 11, y: 22 }),
+            }),
+        );
+        assert_routes_action(
+            "/clients/42/items/pickup",
+            r#"{"position":{"x":11,"y":22}}"#,
+            CommandKind::PickupItem(TilePosition { x: 11, y: 22 }),
+        );
+        assert_routes_action(
+            "/clients/42/equipment/unequip",
+            r#"{"slot":"armor"}"#,
+            CommandKind::Unequip(ModelEquipmentSlot::Armor),
+        );
+        assert_routes_action(
+            "/clients/42/emote",
+            r#"{"code":12}"#,
+            CommandKind::Emote(12),
         );
     }
 
@@ -2418,6 +2513,12 @@ mod tests {
             "/clients/{client}/walk",
             "/clients/{client}/skills/use",
             "/clients/{client}/spells/cast",
+            "/clients/{client}/items/use",
+            "/clients/{client}/items/drop",
+            "/clients/{client}/items/pickup",
+            "/clients/{client}/equipment/unequip",
+            "/clients/{client}/gold/drop",
+            "/clients/{client}/emote",
             "/clients/{client}/commands/diagnostic",
             "/clients/{client}/commands/{command_id}",
         ] {

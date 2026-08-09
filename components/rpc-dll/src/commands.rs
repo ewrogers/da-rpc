@@ -1,8 +1,8 @@
-use darpc_model::Direction;
+use darpc_model::{Direction, EquipmentSlot};
 use darpc_protocol::{
     CommandFailure, CommandKind, CommandOperation, CommandResult, CommandState, CommandStatus,
-    MAX_SPELL_INPUT_LEN, SkillSlot, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget,
-    WalkTarget,
+    GoldTransfer, ItemSlot, ItemTransfer, MAX_SPELL_INPUT_LEN, SkillSlot, SpellArguments,
+    SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkTarget,
 };
 use std::{
     panic,
@@ -483,6 +483,28 @@ fn stored_kind(kind: CommandKind) -> (u8, u32, u32, u32, Option<SpellInput>) {
             slot,
             arguments: SpellArguments::Input(input),
         }) => (8, slot.get() as u32, 0, 0, Some(input)),
+        CommandKind::UseItem(slot) => (9, slot.get() as u32, 0, 0, None),
+        CommandKind::DropItem(ItemTransfer {
+            slot,
+            quantity,
+            target: TransferTarget::Tile(position),
+        }) => (10, slot.get() as u32, quantity, pack_tile(position), None),
+        CommandKind::DropItem(ItemTransfer {
+            slot,
+            quantity,
+            target: TransferTarget::Object(id),
+        }) => (11, slot.get() as u32, quantity, id.get(), None),
+        CommandKind::DropGold(GoldTransfer {
+            amount,
+            target: TransferTarget::Tile(position),
+        }) => (12, amount, pack_tile(position), 0, None),
+        CommandKind::DropGold(GoldTransfer {
+            amount,
+            target: TransferTarget::Object(id),
+        }) => (13, amount, id.get(), 0, None),
+        CommandKind::PickupItem(position) => (14, position.x as u32, position.y as u32, 0, None),
+        CommandKind::Unequip(slot) => (15, slot.raw() as u32, 0, 0, None),
+        CommandKind::Emote(code) => (16, code as u32, 0, 0, None),
     }
 }
 
@@ -531,7 +553,64 @@ fn kind_from_value(
             };
             CommandKind::CastSpell(SpellCast { slot, arguments })
         }
+        9 => ItemSlot::new(argument_x as u8)
+            .map(CommandKind::UseItem)
+            .unwrap_or(CommandKind::Diagnostic),
+        10 | 11 => {
+            let Some(slot) = ItemSlot::new(argument_x as u8) else {
+                return CommandKind::Diagnostic;
+            };
+            let target = if value == 10 {
+                TransferTarget::Tile(unpack_tile(argument_z))
+            } else {
+                let Some(id) = std::num::NonZeroU32::new(argument_z) else {
+                    return CommandKind::Diagnostic;
+                };
+                TransferTarget::Object(id)
+            };
+            CommandKind::DropItem(ItemTransfer {
+                slot,
+                quantity: argument_y,
+                target,
+            })
+        }
+        12 => CommandKind::DropGold(GoldTransfer {
+            amount: argument_x,
+            target: TransferTarget::Tile(unpack_tile(argument_y)),
+        }),
+        13 => match std::num::NonZeroU32::new(argument_y) {
+            Some(id) => CommandKind::DropGold(GoldTransfer {
+                amount: argument_x,
+                target: TransferTarget::Object(id),
+            }),
+            None => CommandKind::Diagnostic,
+        },
+        14 => CommandKind::PickupItem(TilePosition {
+            x: argument_x as i32,
+            y: argument_y as i32,
+        }),
+        15 => EquipmentSlot::from_raw(argument_x as u8)
+            .map(CommandKind::Unequip)
+            .unwrap_or(CommandKind::Diagnostic),
+        16 => CommandKind::Emote(argument_x as u8),
         _ => CommandKind::Diagnostic,
+    }
+}
+
+fn pack_tile(position: TilePosition) -> u32 {
+    let Ok(x) = u16::try_from(position.x) else {
+        return u32::MAX;
+    };
+    let Ok(y) = u16::try_from(position.y) else {
+        return u32::MAX;
+    };
+    u32::from(x) | (u32::from(y) << 16)
+}
+
+fn unpack_tile(value: u32) -> TilePosition {
+    TilePosition {
+        x: i32::from(value as u16),
+        y: i32::from((value >> 16) as u16),
     }
 }
 

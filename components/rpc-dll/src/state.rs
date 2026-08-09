@@ -11,11 +11,11 @@ use crate::{
 };
 use darpc_game_client::{RawCharacter, RawModifiers, RawObjects, RawStateSnapshot, RawWorldObject};
 use darpc_model::{
-    AbilityUpdate, CharacterModifiers, CharacterStats, ClientMessage, CollectionBatch,
-    CollectionKind, CoreStatus, CurrentVitals, Effect, EffectDuration, EffectUpdate, Element,
-    LocationUpdate, MapChange, MessageKind, MovementUpdate, ProgressionStatus,
-    SpellCancellationSource, SpellCastArguments, StateEvent, StateUpdate, StatusUpdate,
-    TilePosition,
+    AbilityUpdate, ActionUpdate, CharacterModifiers, CharacterStats, ClientMessage,
+    CollectionBatch, CollectionKind, CoreStatus, CurrentVitals, Effect, EffectDuration,
+    EffectUpdate, Element, LocationUpdate, MapChange, MessageKind, MovementUpdate,
+    ProgressionStatus, SpellCancellationSource, SpellCastArguments, StateEvent, StateUpdate,
+    StatusUpdate, TilePosition,
 };
 use darpc_protocol::EventPollResult;
 #[cfg(windows)]
@@ -29,6 +29,7 @@ use std::{
 };
 
 mod ability;
+mod action;
 mod cache;
 mod update;
 
@@ -41,6 +42,7 @@ use update::*;
 
 pub(crate) fn observe_outgoing(body: &[u8], tick_ms: u32) {
     ability::observe_outgoing(body, tick_ms);
+    action::observe_outgoing(body, tick_ms);
 }
 
 pub(crate) fn observe_spell_cancelled(tick_ms: u32) {

@@ -421,6 +421,7 @@ enum StateUpdate: u8 {
     Skillbook(SlotUpdate<Skill>) = 8,
     Movement(MovementUpdate) = 9,
     Ability(AbilityUpdate) = 10,
+    Action(ActionUpdate) = 11,
 }
 
 enum CollectionChange: u8 {
@@ -486,6 +487,18 @@ enum AbilityUpdate: u8 {
     SpellChant { slot: u8, line: u8, total_lines: u8 } = 3,
     SpellCast { slot: u8, arguments: SpellCastArguments } = 4,
     SpellCancelled { slot: u8, source: SpellCancellationSource } = 5,
+}
+
+enum ActionUpdate: u8 {
+    ItemUsed { slot: u8 } = 1,
+    ItemDropped { slot: u8, quantity: u32, position: TilePosition } = 2,
+    ItemGiven { slot: u8, quantity: u32, object_id: u32 } = 3,
+    GoldDropped { amount: u32, position: TilePosition } = 4,
+    GoldGiven { amount: u32, object_id: u32 } = 5,
+    ItemPickedUp { destination_slot: u8, position: TilePosition } = 6,
+    EquipmentUnequipped { slot: u8 } = 7,
+    Emoted { code: u8 } = 8,
+    Turned(Direction) = 9,
 }
 
 enum SpellCastArguments: u8 {
@@ -640,6 +653,28 @@ enum CommandKind: u8 {
     Walk(WalkTarget) = 2,
     UseSkill { slot: u8 } = 3,  // one-based, 1 through 90
     CastSpell(SpellCast) = 4,
+    UseItem { slot: u8 } = 5,    // one-based, 1 through 59
+    DropItem(ItemTransfer) = 6,
+    DropGold(GoldTransfer) = 7,
+    PickupItem(TilePosition) = 8,
+    Unequip { slot: u8 } = 9,    // one-based, 1 through 18
+    Emote { code: u8 } = 10,
+}
+
+struct ItemTransfer {
+    slot: u8;
+    quantity: u32;
+    target: TransferTarget;
+}
+
+struct GoldTransfer {
+    amount: u32;
+    target: TransferTarget;
+}
+
+enum TransferTarget: u8 {
+    Tile(TilePosition) = 0,
+    Object { id: u32 } = 1,      // nonzero
 }
 
 struct SpellCast {

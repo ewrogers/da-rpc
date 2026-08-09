@@ -39,6 +39,14 @@ darpc spell-cast --pid <pid> <slot>
 darpc spell-cast --pid <pid> <slot> --target-id <object-id>
 darpc spell-cast --pid <pid> <slot> --target <x> <y>
 darpc spell-cast --pid <pid> <slot> --input <text>
+darpc item-use --pid <pid> <slot>
+darpc item-drop --pid <pid> <slot> <x> <y> [quantity]
+darpc item-give --pid <pid> <slot> <object-id> [quantity]
+darpc gold-drop --pid <pid> <amount> <x> <y>
+darpc gold-give --pid <pid> <amount> <object-id>
+darpc item-pickup --pid <pid> <x> <y>
+darpc unequip --pid <pid> <slot-number>
+darpc emote --pid <pid> <code>
 darpc command-status --pid <pid> <command-id>
 darpc command-cancel --pid <pid> <command-id>
 ```
@@ -74,6 +82,15 @@ behavior is:
   selected spell expects that argument shape. A targeted spell defaults to the
   casting character when no target is supplied. A new cast may replace a
   delayed cast already in progress.
+- `item-use` activates a live one-based inventory slot through the client's
+  ordinary item path.
+- `item-drop` and `item-give` submit a validated quantity from a live slot.
+  Quantity defaults to 1. Giving begins the game's ordinary exchange flow.
+- `gold-drop` and `gold-give` submit a nonzero amount to a tile or object ID.
+- `item-pickup` asks the server for the top ground item at a zero-based tile
+  and uses the first empty inventory slot available at execution time.
+- `unequip` accepts the client's one-based equipment slot number from 1 through
+  18. `emote` accepts a normal client UI emote code.
 - `command-status` reads a retained command result by its nonzero ID.
 - `command-cancel` atomically cancels a command that is still accepted. A
   command that already started retains its completed state.

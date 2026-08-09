@@ -12,7 +12,10 @@ use darpc_win32::{
     controller::{ControllerError, ControllerSession},
     pipe::sender_tick_ms,
 };
-use std::{thread, time::Duration};
+use std::{
+    thread,
+    time::{Duration, Instant},
+};
 
 const REQUEST_ID: u32 = 1;
 const SECOND_REQUEST_ID: u32 = 2;
@@ -283,6 +286,7 @@ pub(crate) fn execute(pid: u32, operation: Operation) -> Result<CommandResult> {
             };
             request_action(&mut session, pid, action, CommandKind::Group(command))
         }
+        Operation::Who => request_who(&mut session, pid),
         Operation::CommandStatus(command_id) => request_command(
             &mut session,
             pid,
@@ -298,6 +302,46 @@ pub(crate) fn execute(pid: u32, operation: Operation) -> Result<CommandResult> {
             "command-cancel",
             CommandOperation::Cancel { command_id },
         ),
+    }
+}
+
+fn request_who(session: &mut ControllerSession, pid: u32) -> Result<CommandResult> {
+    const WHO_TIMEOUT_MS: u16 = 3_000;
+    let deadline = Instant::now() + Duration::from_millis(u64::from(WHO_TIMEOUT_MS));
+    let mut response = request_command(
+        session,
+        pid,
+        "who",
+        CommandOperation::Submit {
+            kind: CommandKind::Who,
+            timeout_ms: WHO_TIMEOUT_MS,
+            wait_ms: MAX_COMMAND_WAIT_MS,
+        },
+    )?;
+    loop {
+        let command_id = match &response {
+            CommandResult::Command {
+                result: darpc_protocol::CommandResult::Who { .. },
+                ..
+            } => return Ok(response),
+            CommandResult::Command {
+                result: darpc_protocol::CommandResult::Status(status),
+                ..
+            } if status.state == darpc_protocol::CommandState::Accepted => status.command_id,
+            _ => return Ok(response),
+        };
+        if Instant::now() >= deadline {
+            return Ok(response);
+        }
+        response = request_command(
+            session,
+            pid,
+            "who",
+            CommandOperation::Query {
+                command_id,
+                wait_ms: MAX_COMMAND_WAIT_MS,
+            },
+        )?;
     }
 }
 

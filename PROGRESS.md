@@ -108,6 +108,9 @@ Immutable local rules remain.
   interaction, REST actions, and ordered open, change, submit, and close events.
 - [x] Added retained group rosters, leader and invitation state, native invite,
   answer, and toggle actions, REST resources, and ordered group events.
+- [x] Added a non-disruptive online-player query through direct IPC and REST,
+  with ordered results, class and guild filters, one-second request coalescing,
+  a three-second timeout, and correlation-safe client panel suppression.
 - [x] Live-verified merchant opening, native interaction, choice submission,
   pending and changed state, close behavior, REST state, SSE ordering, and stale
   revision rejection.

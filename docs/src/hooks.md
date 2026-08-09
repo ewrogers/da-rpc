@@ -16,8 +16,8 @@ supported client build.
 | Hook | Purpose |
 | --- | --- |
 | Client tick | Captures requested baselines, settles collection changes, watches walking state, and executes at most one queued native command. |
-| Decoded server event | Observes supported updates after the client has handled them, including status, inventory, abilities, effects, objects, movement, and messages. |
-| Outbound packet submission | Observes supported ability, item, gold, equipment, emote, pickup, and turn requests before encryption. |
+| Decoded server event | Observes supported updates after the client has handled them, including status, inventory, abilities, effects, objects, movement, and messages. It captures a correlated daRPC Who response before the client opens its panel. |
+| Outbound packet submission | Observes supported ability, item, gold, equipment, emote, pickup, turn, and Who requests before encryption. |
 | Map size | Captures map identity, name, and dimensions so a map change can be committed atomically with the following position. |
 
 These four hooks have different jobs because no single client boundary provides
@@ -63,7 +63,10 @@ updates drive:
 - Merchant and pursuit dialog pages
 
 Unknown, malformed, oversized, or unreadable events are ignored. The client's
-original result is preserved.
+original result is preserved. The sole intentional exception is a valid Who
+response matched to a daRPC request. That response is copied for the waiting
+controller and is not passed to the stock panel-opening handler. Player-started
+Who responses still run normally.
 
 ## Outbound action observation
 
@@ -77,6 +80,7 @@ The outbound hook watches the common plaintext submission path for:
 - Item use, tile drop, and player or monster exchange requests
 - Gold tile drops and exchange requests
 - Ground-item pickup, equipment removal, emotes, and turning
+- Who requests, including whether daRPC or the player started each request
 
 NPC dialog responses use native main-thread methods and are observed through
 their retained dialog state. This preserves the visible page and the client's

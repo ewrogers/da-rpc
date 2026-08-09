@@ -2,7 +2,7 @@ use crate::{
     DecodeError, EncodeError,
     message::{PayloadReader, push_i32, push_u16, push_u32},
 };
-use darpc_model::{Direction, EquipmentSlot};
+use darpc_model::{CharacterClass, Direction, EquipmentSlot, UserState, WhoList, WhoPlayer};
 use std::num::NonZeroU32;
 
 pub const DEFAULT_COMMAND_TIMEOUT_MS: u16 = 1_000;
@@ -14,6 +14,9 @@ pub const MAX_ITEM_SLOT: u8 = 59;
 pub const MAX_SPELL_INPUT_LEN: usize = 100;
 pub const MAX_DIALOG_INPUT_LEN: usize = u8::MAX as usize;
 pub const MAX_GROUP_NAME_LEN: usize = 28;
+pub const MAX_WHO_PLAYERS: usize = 768;
+pub const MAX_WHO_NAME_LEN: usize = 24;
+pub const MAX_WHO_TITLE_LEN: usize = 48;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CommandKind {
@@ -34,6 +37,7 @@ pub enum CommandKind {
     Interact(NonZeroU32),
     Dialog(DialogCommand),
     Group(GroupCommand),
+    Who,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -431,6 +435,7 @@ fn encode_kind(output: &mut Vec<u8>, kind: CommandKind) {
                 }
             }
         }
+        CommandKind::Who => output.push(17),
     }
 }
 
@@ -571,6 +576,7 @@ fn decode_kind(reader: &mut PayloadReader<'_>) -> Result<CommandKind, DecodeErro
             4 => Ok(CommandKind::Group(GroupCommand::Toggle)),
             actual => Err(DecodeError::InvalidGroupField { actual }),
         },
+        17 => Ok(CommandKind::Who),
         actual => Err(DecodeError::InvalidCommandKind { actual }),
     }
 }
@@ -791,17 +797,21 @@ pub struct CommandStatus {
     pub failure: Option<CommandFailure>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 // Retained statuses include the original bounded command without allocation.
 #[allow(clippy::large_enum_variant)]
 pub enum CommandResult {
     Status(CommandStatus),
+    Who {
+        status: CommandStatus,
+        list: WhoList,
+    },
     Busy,
     NotFound,
     Unavailable,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CommandResponse {
     pub request_id: u32,
     pub result: CommandResult,
@@ -884,17 +894,26 @@ pub(crate) fn decode_request(
     })
 }
 
-pub(crate) fn encode_response(output: &mut Vec<u8>, response: CommandResponse) {
+pub(crate) fn encode_response(
+    output: &mut Vec<u8>,
+    response: &CommandResponse,
+) -> Result<(), EncodeError> {
     push_u32(output, response.request_id);
-    match response.result {
+    match &response.result {
         CommandResult::Status(status) => {
             output.push(0);
-            encode_status(output, status);
+            encode_status(output, *status);
+        }
+        CommandResult::Who { status, list } => {
+            output.push(4);
+            encode_status(output, *status);
+            encode_who(output, list)?;
         }
         CommandResult::Busy => output.push(1),
         CommandResult::NotFound => output.push(2),
         CommandResult::Unavailable => output.push(3),
     }
+    Ok(())
 }
 
 pub(crate) fn decode_response(
@@ -906,9 +925,87 @@ pub(crate) fn decode_response(
         1 => CommandResult::Busy,
         2 => CommandResult::NotFound,
         3 => CommandResult::Unavailable,
+        4 => CommandResult::Who {
+            status: decode_status(reader)?,
+            list: decode_who(reader)?,
+        },
         actual => return Err(DecodeError::InvalidCommandResult { actual }),
     };
     Ok(CommandResponse { request_id, result })
+}
+
+fn encode_who(output: &mut Vec<u8>, list: &WhoList) -> Result<(), EncodeError> {
+    if list.players.len() > MAX_WHO_PLAYERS {
+        return Err(EncodeError::WhoListTooLong {
+            length: list.players.len(),
+            max: MAX_WHO_PLAYERS,
+        });
+    }
+    push_u16(output, list.world_count);
+    push_u16(output, list.country_count);
+    push_u16(
+        output,
+        u16::try_from(list.players.len()).map_err(|_| EncodeError::LengthOverflow)?,
+    );
+    for player in &list.players {
+        encode_who_string(output, &player.name, MAX_WHO_NAME_LEN)?;
+        encode_who_string(output, &player.title, MAX_WHO_TITLE_LEN)?;
+        output.push(player.class.raw());
+        output.push(player.state.raw());
+        output.push(player.color);
+        output.push(u8::from(player.is_master));
+        output.push(u8::from(player.is_guildmate));
+    }
+    Ok(())
+}
+
+fn decode_who(reader: &mut PayloadReader<'_>) -> Result<WhoList, DecodeError> {
+    let world_count = reader.read_u16()?;
+    let country_count = reader.read_u16()?;
+    let count = usize::from(reader.read_u16()?);
+    if count > MAX_WHO_PLAYERS {
+        return Err(DecodeError::WhoListTooLong {
+            length: count,
+            max: MAX_WHO_PLAYERS,
+        });
+    }
+    let mut players = Vec::with_capacity(count);
+    for _ in 0..count {
+        players.push(WhoPlayer {
+            name: decode_who_string(reader, MAX_WHO_NAME_LEN)?,
+            title: decode_who_string(reader, MAX_WHO_TITLE_LEN)?,
+            class: CharacterClass::from_raw(reader.read_u8()?),
+            state: UserState::from_raw(reader.read_u8()?),
+            color: reader.read_u8()?,
+            is_master: reader.read_bool()?,
+            is_guildmate: reader.read_bool()?,
+        });
+    }
+    Ok(WhoList {
+        world_count,
+        country_count,
+        players,
+    })
+}
+
+fn encode_who_string(output: &mut Vec<u8>, value: &str, max: usize) -> Result<(), EncodeError> {
+    if value.len() > max {
+        return Err(EncodeError::WhoStringTooLong {
+            length: value.len(),
+            max,
+        });
+    }
+    output.push(u8::try_from(value.len()).map_err(|_| EncodeError::LengthOverflow)?);
+    output.extend_from_slice(value.as_bytes());
+    Ok(())
+}
+
+fn decode_who_string(reader: &mut PayloadReader<'_>, max: usize) -> Result<String, DecodeError> {
+    let length = usize::from(reader.read_u8()?);
+    if length > max {
+        return Err(DecodeError::WhoStringTooLong { length, max });
+    }
+    String::from_utf8(reader.take(length)?.to_vec()).map_err(|_| DecodeError::InvalidUtf8)
 }
 
 fn encode_status(output: &mut Vec<u8>, status: CommandStatus) {

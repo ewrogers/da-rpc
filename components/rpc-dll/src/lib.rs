@@ -32,6 +32,8 @@ mod packet;
 mod snapshot;
 #[cfg(any(windows, test))]
 mod state;
+#[cfg(windows)]
+mod who;
 
 #[cfg(windows)]
 use windows_sys::{

@@ -291,7 +291,7 @@ impl Message {
             Self::EventPollRequest(message) => event::encode_request(&mut output, *message),
             Self::EventPollResponse(message) => event::encode_response(&mut output, message)?,
             Self::CommandRequest(message) => command::encode_request(&mut output, *message)?,
-            Self::CommandResponse(message) => command::encode_response(&mut output, *message),
+            Self::CommandResponse(message) => command::encode_response(&mut output, message)?,
         }
         Ok(output)
     }

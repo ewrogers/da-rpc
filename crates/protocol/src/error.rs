@@ -24,6 +24,8 @@ pub enum EncodeError {
     InvalidCommandId,
     InvalidCommandTimeout { actual: u16, max: u16 },
     InvalidCommandWait { actual: u16, max: u16 },
+    WhoListTooLong { length: usize, max: usize },
+    WhoStringTooLong { length: usize, max: usize },
     PayloadTooLarge { length: usize, max: usize },
     LengthOverflow,
 }
@@ -112,6 +114,12 @@ impl fmt::Display for EncodeError {
                 formatter,
                 "command wait is {actual} ms; maximum is {max} ms"
             ),
+            Self::WhoListTooLong { length, max } => {
+                write!(formatter, "Who list has {length} players; maximum is {max}")
+            }
+            Self::WhoStringTooLong { length, max } => {
+                write!(formatter, "Who text is {length} bytes; maximum is {max}")
+            }
             Self::PayloadTooLarge { length, max } => {
                 write!(formatter, "payload is {length} bytes; maximum is {max}")
             }
@@ -349,6 +357,14 @@ pub enum DecodeError {
     InvalidCommandWait {
         actual: u16,
         max: u16,
+    },
+    WhoListTooLong {
+        length: usize,
+        max: usize,
+    },
+    WhoStringTooLong {
+        length: usize,
+        max: usize,
     },
     InvalidUtf8,
 }
@@ -601,6 +617,12 @@ impl fmt::Display for DecodeError {
                 formatter,
                 "command wait is {actual} ms; maximum is {max} ms"
             ),
+            Self::WhoListTooLong { length, max } => {
+                write!(formatter, "Who list has {length} players; maximum is {max}")
+            }
+            Self::WhoStringTooLong { length, max } => {
+                write!(formatter, "Who text is {length} bytes; maximum is {max}")
+            }
             Self::InvalidUtf8 => formatter.write_str("message text is not valid UTF-8"),
         }
     }

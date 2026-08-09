@@ -52,6 +52,7 @@ like a second client trying to imitate it from the outside.
 - Observe and answer merchant and pursuit dialogs through native client UI
   methods.
 - Read group rosters, invite visible players, and answer group invitations.
+- Read the ordered online-player list without opening the client's Who panel.
 - Manage several clients from one daemon.
 - Query state and submit actions through REST.
 - Subscribe to live events through Server-Sent Events (SSE).
@@ -221,6 +222,7 @@ GET  /clients/{client}/items
 GET  /clients/{client}/skills
 GET  /clients/{client}/spells
 GET  /clients/{client}/objects
+GET  /clients/{client}/who
 GET  /clients/{client}/events
 POST /clients/{client}/turn
 POST /clients/{client}/walk

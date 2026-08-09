@@ -165,7 +165,13 @@ impl CommandResult {
                 request_id,
                 result,
                 round_trip_ms,
-            } => command_output::render_human(action, *pid, *request_id, *round_trip_ms, *result),
+            } => command_output::render_human(
+                action,
+                *pid,
+                *request_id,
+                *round_trip_ms,
+                result.clone(),
+            ),
         }
     }
 
@@ -275,7 +281,13 @@ impl CommandResult {
                 request_id,
                 result,
                 round_trip_ms,
-            } => command_output::render_json(action, *pid, *request_id, *round_trip_ms, *result),
+            } => command_output::render_json(
+                action,
+                *pid,
+                *request_id,
+                *round_trip_ms,
+                result.clone(),
+            ),
         }
     }
 }

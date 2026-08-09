@@ -347,6 +347,7 @@ fn router(state: ApiState) -> Router {
         .route("/clients/{client}/status", get(client_status))
         .route("/clients/{client}/dialog", get(client_dialog))
         .route("/clients/{client}/group", get(client_group))
+        .route("/clients/{client}/who", get(crate::commands::who))
         .route(
             "/clients/{client}/group/invite",
             post(crate::commands::invite_group),
@@ -1194,6 +1195,7 @@ fn operation_in_progress(pid: u32) -> ApiError {
         client_status,
         client_dialog,
         client_group,
+        crate::commands::who::who,
         client_items,
         client_equipment,
         client_spells,
@@ -1303,6 +1305,10 @@ fn operation_in_progress(pid: u32) -> ApiError {
         GroupJoined,
         GroupMemberChanged,
         GroupDisbanded,
+        crate::commands::WhoList,
+        crate::commands::WhoPlayer,
+        crate::commands::WhoClass,
+        crate::commands::WhoUserState,
         LaunchOptions,
         LoadResult,
         UnloadResult,

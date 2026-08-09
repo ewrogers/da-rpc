@@ -21,6 +21,7 @@ pub(crate) const COMMAND_CAPACITY: usize = 64;
 pub(crate) const COMMANDS_PER_TICK: usize = 1;
 
 const TERMINAL_RETENTION_MS: u32 = 30_000;
+const WHO_COALESCE_MS: u32 = 1_000;
 const WAIT_POLL_INTERVAL: Duration = Duration::from_millis(1);
 
 const EMPTY: u8 = 0;
@@ -227,6 +228,8 @@ impl CommandQueue {
 }
 
 pub(crate) fn reset() {
+    #[cfg(windows)]
+    crate::who::reset();
     QUEUE.reset();
     NEXT_COMMAND_ID.store(1, Ordering::Relaxed);
     for slot in &SLOTS {
@@ -266,14 +269,18 @@ pub(crate) fn cancel_pending() {
     for slot in &SLOTS {
         slot.completed_tick_ms.store(now, Ordering::Relaxed);
         slot.has_completed_tick_ms.store(true, Ordering::Relaxed);
-        let _ =
-            slot.state
-                .compare_exchange(ACCEPTED, CANCELLED, Ordering::Release, Ordering::Relaxed);
+        cancel_state(slot, ACCEPTED);
+        cancel_state(slot, EXECUTING);
     }
 }
 
 fn submit(kind: CommandKind, timeout_ms: u16) -> Option<CommandStatus> {
     let now = now_tick_ms();
+    if matches!(kind, CommandKind::Who)
+        && let Some(status) = coalesced_who(now)
+    {
+        return Some(status);
+    }
     reclaim_terminal_slots(now);
     let (slot_index, slot) = claim_slot(now)?;
     let command_id = next_command_id();
@@ -337,6 +344,11 @@ fn wait_for(command_id: u32, wait_ms: u16) -> CommandResult {
         let Some(status) = slot.status(command_id) else {
             return CommandResult::NotFound;
         };
+        if status.state == CommandState::Executed && matches!(status.kind, CommandKind::Who) {
+            return who_result(command_id).map_or(CommandResult::Status(status), |list| {
+                CommandResult::Who { status, list }
+            });
+        }
         if status.state.is_terminal() || wait_ms == 0 || Instant::now() >= deadline {
             return CommandResult::Status(status);
         }
@@ -351,9 +363,8 @@ fn cancel(command_id: u32) -> CommandResult {
     let now = now_tick_ms();
     slot.completed_tick_ms.store(now, Ordering::Relaxed);
     slot.has_completed_tick_ms.store(true, Ordering::Relaxed);
-    let _ = slot
-        .state
-        .compare_exchange(ACCEPTED, CANCELLED, Ordering::Release, Ordering::Relaxed);
+    cancel_state(slot, ACCEPTED);
+    cancel_state(slot, EXECUTING);
     slot.status(command_id)
         .map_or(CommandResult::NotFound, CommandResult::Status)
 }
@@ -380,15 +391,26 @@ fn execute(slot_index: usize) {
     slot.has_main_thread_id.store(true, Ordering::Relaxed);
     let started = Instant::now();
     let kind = slot.kind();
-    let result =
-        panic::catch_unwind(|| execute_command(kind)).unwrap_or(Err(CommandFailure::Internal));
+    let is_who = matches!(kind, CommandKind::Who);
+    let result = panic::catch_unwind(|| {
+        if is_who {
+            execute_who(slot.command_id.load(Ordering::Relaxed))
+        } else {
+            execute_command(kind)
+        }
+    })
+    .unwrap_or(Err(CommandFailure::Internal));
     let execution_us = u32::try_from(started.elapsed().as_micros()).unwrap_or(u32::MAX);
     slot.execution_us.store(execution_us, Ordering::Relaxed);
     slot.has_execution_us.store(true, Ordering::Relaxed);
-    slot.completed_tick_ms
-        .store(now_tick_ms(), Ordering::Relaxed);
-    slot.has_completed_tick_ms.store(true, Ordering::Relaxed);
-    complete_execution(slot, result);
+    if is_who && result.is_ok() {
+        // The matching SShowUsers response completes this command.
+    } else {
+        slot.completed_tick_ms
+            .store(now_tick_ms(), Ordering::Relaxed);
+        slot.has_completed_tick_ms.store(true, Ordering::Relaxed);
+        complete_execution(slot, result);
+    }
     slot.queued.store(false, Ordering::Release);
 }
 
@@ -413,15 +435,90 @@ fn complete_execution(slot: &CommandSlot, result: Result<(), CommandFailure>) {
     }
 }
 
+#[cfg(all(windows, not(test)))]
+fn execute_who(command_id: u32) -> Result<(), CommandFailure> {
+    crate::who::request(command_id)
+}
+
+#[cfg(test)]
+const fn execute_who(_command_id: u32) -> Result<(), CommandFailure> {
+    Ok(())
+}
+
+#[cfg(windows)]
+fn who_result(command_id: u32) -> Option<darpc_model::WhoList> {
+    crate::who::result(command_id)
+}
+
+#[cfg(not(windows))]
+const fn who_result(_command_id: u32) -> Option<darpc_model::WhoList> {
+    None
+}
+
 fn expire_if_due(slot: &CommandSlot, now: u32) {
     if !has_reached(now, slot.deadline_tick_ms.load(Ordering::Relaxed)) {
         return;
     }
     slot.completed_tick_ms.store(now, Ordering::Relaxed);
     slot.has_completed_tick_ms.store(true, Ordering::Relaxed);
+    expire_state(slot, ACCEPTED);
+    expire_state(slot, EXECUTING);
+}
+
+#[cfg(windows)]
+pub(crate) fn complete_who(command_id: u32) {
+    complete_who_with(command_id, Ok(()));
+}
+
+#[cfg(windows)]
+pub(crate) fn fail_who(command_id: u32) {
+    complete_who_with(command_id, Err(CommandFailure::Internal));
+}
+
+#[cfg(windows)]
+fn complete_who_with(command_id: u32, result: Result<(), CommandFailure>) {
+    let Some(slot) = find_slot(command_id) else {
+        return;
+    };
+    if slot.state.load(Ordering::Acquire) != EXECUTING {
+        return;
+    }
+    slot.completed_tick_ms
+        .store(now_tick_ms(), Ordering::Relaxed);
+    slot.has_completed_tick_ms.store(true, Ordering::Relaxed);
+    complete_execution(slot, result);
+}
+
+fn coalesced_who(now: u32) -> Option<CommandStatus> {
+    SLOTS.iter().find_map(|slot| {
+        let status = slot.status(slot.command_id.load(Ordering::Acquire))?;
+        if !matches!(status.kind, CommandKind::Who) {
+            return None;
+        }
+        if status.state == CommandState::Accepted {
+            return Some(status);
+        }
+        if status.state == CommandState::Executed
+            && status
+                .completed_tick_ms
+                .is_some_and(|completed| now.wrapping_sub(completed) <= WHO_COALESCE_MS)
+        {
+            return Some(status);
+        }
+        None
+    })
+}
+
+fn cancel_state(slot: &CommandSlot, state: u8) {
     let _ = slot
         .state
-        .compare_exchange(ACCEPTED, TIMED_OUT, Ordering::Release, Ordering::Relaxed);
+        .compare_exchange(state, CANCELLED, Ordering::Release, Ordering::Relaxed);
+}
+
+fn expire_state(slot: &CommandSlot, state: u8) {
+    let _ = slot
+        .state
+        .compare_exchange(state, TIMED_OUT, Ordering::Release, Ordering::Relaxed);
 }
 
 fn reclaim_terminal_slots(now: u32) {
@@ -586,6 +683,7 @@ fn stored_kind(kind: CommandKind) -> (u8, u32, u32, u32, Option<StoredInput>) {
             invitation_id,
             action: GroupInvitationAction::Decline,
         }) => (32, invitation_id, 0, 0, None),
+        CommandKind::Who => (34, 0, 0, 0, None),
     }
 }
 
@@ -779,6 +877,7 @@ fn kind_from_value(
             },
         }),
         33 => CommandKind::Group(GroupCommand::Toggle),
+        34 => CommandKind::Who,
         _ => CommandKind::Diagnostic,
     }
 }
@@ -995,6 +1094,30 @@ mod tests {
         assert_eq!(status(id).state, CommandState::TimedOut);
         observe_tick();
         assert_eq!(status(id).state, CommandState::TimedOut);
+    }
+
+    #[test]
+    fn who_requests_coalesce_and_time_out_while_awaiting_the_server() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset();
+        TEST_TICK_MS.store(10, Ordering::Relaxed);
+        let first = submitted_id(handle(CommandOperation::Submit {
+            kind: CommandKind::Who,
+            timeout_ms: 3_000,
+            wait_ms: 0,
+        }));
+        let second = submitted_id(handle(CommandOperation::Submit {
+            kind: CommandKind::Who,
+            timeout_ms: 3_000,
+            wait_ms: 0,
+        }));
+        assert_eq!(first, second);
+        observe_tick();
+        assert_eq!(status(first).state, CommandState::Accepted);
+        TEST_TICK_MS.store(3_010, Ordering::Relaxed);
+        assert_eq!(status(first).state, CommandState::TimedOut);
     }
 
     #[test]

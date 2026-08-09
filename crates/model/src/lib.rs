@@ -8,6 +8,7 @@ mod group;
 mod message;
 mod object;
 mod snapshot;
+mod who;
 
 pub use event::{
     AbilityUpdate, ActionUpdate, ApplyEventError, CollectionBatch, CollectionChange,
@@ -40,3 +41,5 @@ pub use snapshot::{
     CooldownStatus, Effect, EffectDuration, Element, EquipmentItem, EquipmentSlot, Gender,
     InventoryItem, MapLocation, Skill, Spell, SpellTargetType,
 };
+
+pub use who::{UserState, WhoList, WhoPlayer};

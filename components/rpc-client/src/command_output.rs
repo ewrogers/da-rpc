@@ -9,6 +9,9 @@ pub(crate) fn render_human(
     result: CommandResult,
 ) -> String {
     match result {
+        CommandResult::Who { status: _, list } => {
+            render_who_human(pid, request_id, round_trip_ms, &list)
+        }
         CommandResult::Status(status) => format!(
             concat!(
                 "{} succeeded: pid={} request_id={} round_trip_ms={} ",
@@ -45,6 +48,9 @@ pub(crate) fn render_json(
     result: CommandResult,
 ) -> String {
     match result {
+        CommandResult::Who { status, list } => {
+            render_who_json(pid, request_id, round_trip_ms, status, &list)
+        }
         CommandResult::Status(status) => {
             render_status_json(action, pid, request_id, round_trip_ms, status)
         }
@@ -115,6 +121,7 @@ fn kind(kind: CommandKind) -> &'static str {
         CommandKind::Interact(_) => "interact",
         CommandKind::Dialog(_) => "dialog",
         CommandKind::Group(_) => "group",
+        CommandKind::Who => "who",
     }
 }
 
@@ -149,9 +156,105 @@ fn failure_name(failure: CommandFailure) -> &'static str {
 fn result_name(result: CommandResult) -> &'static str {
     match result {
         CommandResult::Status(_) => "status",
+        CommandResult::Who { .. } => "who",
         CommandResult::Busy => "busy",
         CommandResult::NotFound => "not_found",
         CommandResult::Unavailable => "unavailable",
+    }
+}
+
+fn render_who_human(
+    pid: u32,
+    request_id: u32,
+    round_trip_ms: u32,
+    list: &darpc_model::WhoList,
+) -> String {
+    let mut output = format!(
+        "who succeeded: pid={pid} request_id={request_id} round_trip_ms={round_trip_ms} world={} country={}\nNAME\tCLASS\tSTATE\tTITLE\tGUILDMATE\tMASTER",
+        list.world_count, list.country_count
+    );
+    for player in &list.players {
+        use std::fmt::Write as _;
+        let _ = write!(
+            output,
+            "\n{}\t{:?}\t{:?}\t{}\t{}\t{}",
+            player.name,
+            player.class,
+            player.state,
+            player.title,
+            player.is_guildmate,
+            player.is_master
+        );
+    }
+    output
+}
+
+fn render_who_json(
+    pid: u32,
+    request_id: u32,
+    round_trip_ms: u32,
+    status: CommandStatus,
+    list: &darpc_model::WhoList,
+) -> String {
+    let players = list
+        .players
+        .iter()
+        .map(|player| {
+            format!(
+                concat!(
+                    "{{\"name\":{},\"title\":{},\"class\":{},\"state\":{},",
+                    "\"color\":{},\"is_master\":{},\"is_guildmate\":{}}}"
+                ),
+                json_string(&player.name),
+                json_string(&player.title),
+                json_string(who_class(player.class)),
+                json_string(who_state(player.state)),
+                player.color,
+                player.is_master,
+                player.is_guildmate,
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    format!(
+        concat!(
+            "{{\"ok\":true,\"command\":\"who\",\"pid\":{},\"request_id\":{},",
+            "\"round_trip_ms\":{},\"result\":\"who\",\"command_id\":{},",
+            "\"world_count\":{},\"country_count\":{},\"players\":[{}]}}"
+        ),
+        pid,
+        request_id,
+        round_trip_ms,
+        status.command_id,
+        list.world_count,
+        list.country_count,
+        players,
+    )
+}
+
+fn who_state(state: darpc_model::UserState) -> &'static str {
+    match state {
+        darpc_model::UserState::Awake => "awake",
+        darpc_model::UserState::DoNotDisturb => "do_not_disturb",
+        darpc_model::UserState::Daydreaming => "daydreaming",
+        darpc_model::UserState::NeedGroup => "need_group",
+        darpc_model::UserState::Grouped => "grouped",
+        darpc_model::UserState::LoneHunter => "lone_hunter",
+        darpc_model::UserState::GroupHunting => "group_hunting",
+        darpc_model::UserState::NeedHelp => "need_help",
+        darpc_model::UserState::Unknown(_) => "unknown",
+    }
+}
+
+fn who_class(class: darpc_model::CharacterClass) -> &'static str {
+    match class {
+        darpc_model::CharacterClass::Peasant => "peasant",
+        darpc_model::CharacterClass::Warrior => "warrior",
+        darpc_model::CharacterClass::Rogue => "rogue",
+        darpc_model::CharacterClass::Wizard => "wizard",
+        darpc_model::CharacterClass::Priest => "priest",
+        darpc_model::CharacterClass::Monk => "monk",
+        darpc_model::CharacterClass::Unknown(_) => "unknown",
     }
 }
 

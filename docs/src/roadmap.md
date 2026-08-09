@@ -737,6 +737,9 @@ Current implementation:
   group-open setting are retained and exposed through REST and ordered events.
   Native main-thread commands invite visible players, answer prompts, and use
   the client's group toggle to open grouping or leave an active group.
+- The server-ordered online-player list is available through direct IPC and
+  REST without opening the client panel. Requests coalesce for one second,
+  time out after three seconds, and support class and guildmate filters.
 - Local immutable rules remain to be implemented before this milestone is
   complete.
 
@@ -783,6 +786,6 @@ supported.
 
 ## Immediate next increment
 
-M15 adds one low-risk typed action through a confirmed native client producer.
-It reuses the qualified command queue while keeping execution distinct from a
-later observed server outcome.
+M16 remains focused on bounded packet observation and local fail-open rules.
+The supported action, dialog, group, and online-player paths provide the live
+behavior needed to exercise those rules before multi-client preview hardening.

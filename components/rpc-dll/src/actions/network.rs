@@ -5,7 +5,7 @@ use std::ffi::c_void;
 
 type SubmitFn = unsafe extern "thiscall" fn(*mut c_void, *const u8, i16) -> u32;
 
-pub(super) fn submit(body: &[u8]) -> Result<(), CommandFailure> {
+pub(crate) fn submit(body: &[u8]) -> Result<(), CommandFailure> {
     let module_base = module_base()?;
     let socket = read::<u32>(
         module_base

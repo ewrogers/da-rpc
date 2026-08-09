@@ -8,7 +8,7 @@ use darpc_model::{
     GroupMember, GroupState, GroupUpdate, InventoryItem, LocationUpdate, MapChange, MapLocation,
     MessageKind, MovementUpdate, ObjectUpdate, ProgressionStatus, Skill, SlotUpdate, Spell,
     SpellCancellationSource, SpellCastArguments, SpellTargetType, StateEvent, StateUpdate,
-    StatusUpdate, TilePosition, WorldObject,
+    StatusUpdate, TilePosition, UserState, WhoList, WhoPlayer, WorldObject,
 };
 use darpc_protocol::{
     Architecture, CommandFailure, CommandKind, CommandOperation, CommandRequest, CommandResponse,
@@ -712,6 +712,55 @@ fn every_message_round_trips() {
         Message::CommandResponse(CommandResponse {
             request_id: 23,
             result: CommandResult::Unavailable,
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 230,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::Who,
+                timeout_ms: 3_000,
+                wait_ms: 1_000,
+            },
+        }),
+        Message::CommandResponse(CommandResponse {
+            request_id: 231,
+            result: CommandResult::Who {
+                status: CommandStatus {
+                    command_id: 92,
+                    kind: CommandKind::Who,
+                    state: CommandState::Executed,
+                    enqueued_tick_ms: 100,
+                    deadline_tick_ms: 3_100,
+                    started_tick_ms: Some(101),
+                    completed_tick_ms: Some(120),
+                    execution_us: Some(20),
+                    main_thread_id: Some(42),
+                    failure: None,
+                },
+                list: WhoList {
+                    world_count: 100,
+                    country_count: 2,
+                    players: vec![
+                        WhoPlayer {
+                            name: "ZiLo".into(),
+                            title: "Aisling".into(),
+                            class: CharacterClass::Priest,
+                            state: UserState::NeedGroup,
+                            color: 3,
+                            is_master: true,
+                            is_guildmate: true,
+                        },
+                        WhoPlayer {
+                            name: "Eidolon".into(),
+                            title: String::new(),
+                            class: CharacterClass::Rogue,
+                            state: UserState::Awake,
+                            color: 0,
+                            is_master: false,
+                            is_guildmate: false,
+                        },
+                    ],
+                },
+            },
         }),
         Message::CommandRequest(CommandRequest {
             request_id: 24,

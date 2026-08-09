@@ -193,14 +193,15 @@ extern "C" fn observe_packet(body: *const u8, length: i16) {
         let Ok(length) = usize::try_from(length) else {
             return;
         };
-        if body.is_null() || length < 2 {
+        if body.is_null() || length == 0 {
             return;
         }
         if !is_client_main_thread() {
             return;
         }
         let mut prefix = [0; 2];
-        if !read_memory(body as usize, &mut prefix) {
+        let prefix_length = length.min(prefix.len());
+        if !read_memory(body as usize, &mut prefix[..prefix_length]) {
             OUTGOING_READ_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed);
             return;
         }
@@ -218,11 +219,13 @@ extern "C" fn observe_packet(body: *const u8, length: i16) {
                 | 0x44
                 | 0x4D
                 | 0x4E
+                | 0x18
         ) {
             return;
         }
         OUTGOING_OBSERVATION_COUNT.fetch_add(1, Ordering::Relaxed);
         let expected = match prefix[0] {
+            0x18 => 1,
             0x07 => 6,
             0x08 | 0x29 => 10,
             0x24 | 0x2A => 9,
@@ -230,6 +233,10 @@ extern "C" fn observe_packet(body: *const u8, length: i16) {
             _ => 2,
         };
         if length != expected || length > MAX_USE_SPELL_BODY {
+            return;
+        }
+        if prefix[0] == 0x18 {
+            crate::who::observe_request(sender_tick_ms());
             return;
         }
         if length == 2 {

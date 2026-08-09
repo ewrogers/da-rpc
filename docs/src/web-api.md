@@ -74,10 +74,12 @@ they need:
 | `GET /clients/{client}/messages` | [Messages](messages.md) |
 | `GET /clients/{client}/dialog` | [NPC dialogs](dialogs.md) |
 | `GET /clients/{client}/group` | [Groups](groups.md) |
+| `GET /clients/{client}/who` | [Online players](online.md) |
 
-These routes read the daemon's retained state. They do not ask the DLL to scan
-the game client for every HTTP request. See [Game data](state.md) for baseline
-capture, revisions, and unavailable values.
+Most routes read the daemon's retained state and do not ask the DLL to scan the
+game client for every HTTP request. The Who route is a bounded request to the
+game server. See [Game data](state.md) for baseline capture, revisions, and
+unavailable values, and [Online players](online.md) for Who timing and filters.
 
 The complete field list and JSON schema are generated from the Rust API models
 and are available in Swagger. The domain guides explain what the fields mean in

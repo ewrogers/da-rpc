@@ -29,6 +29,7 @@ pub(crate) mod dialog;
 pub(crate) mod group;
 pub(crate) mod interaction;
 pub(crate) mod movement;
+pub(crate) mod who;
 
 pub(crate) use ability::{
     CastSpellByName, CastSpellBySlot, CastSpellOptions, SkillNameOptions, SkillSlotOptions,
@@ -53,6 +54,7 @@ pub(crate) use movement::{
     ActionDirection, Destination, TurnOptions, WalkDestinationOptions, WalkDirectionOptions,
     WalkOptions, turn, walk,
 };
+pub(crate) use who::{UserState as WhoUserState, WhoClass, WhoList, WhoPlayer, who};
 
 pub(crate) const ROUTER_CAPACITY: usize = 64;
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -218,7 +220,7 @@ pub(crate) struct CommandCall {
     pub(crate) reply: oneshot::Sender<CommandReply>,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 #[cfg_attr(not(windows), allow(dead_code))]
 // Successful replies retain the complete protocol result until the HTTP task receives it.
 #[allow(clippy::large_enum_variant)]
@@ -275,6 +277,7 @@ pub(crate) enum CommandKind {
     SwapSpells,
     SwapSkills,
     Group,
+    Who,
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
@@ -459,6 +462,12 @@ async fn route(
         CommandReply::Result(ProtocolResult::Unavailable) | CommandReply::Unavailable => {
             Err(unavailable(pid))
         }
+        CommandReply::Result(ProtocolResult::Who { .. }) => Err(ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected_command_result",
+            "the command returned a Who list to a non-Who endpoint",
+            Some(pid),
+        )),
     }
 }
 
@@ -608,6 +617,7 @@ impl From<ProtocolKind> for CommandKind {
             ProtocolKind::SwapSlots(SlotSwap::Spellbook { .. }) => Self::SwapSpells,
             ProtocolKind::SwapSlots(SlotSwap::Skillbook { .. }) => Self::SwapSkills,
             ProtocolKind::Group(_) => Self::Group,
+            ProtocolKind::Who => Self::Who,
         }
     }
 }

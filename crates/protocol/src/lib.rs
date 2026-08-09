@@ -16,8 +16,8 @@ pub use command::{
     DialogText, GoldTransfer, GroupCommand, GroupInvitationAction, GroupText, ItemSlot,
     ItemTransfer, MAX_COMMAND_TIMEOUT_MS, MAX_COMMAND_WAIT_MS, MAX_DIALOG_INPUT_LEN,
     MAX_GROUP_NAME_LEN, MAX_ITEM_SLOT, MAX_SKILL_SLOT, MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT,
-    SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget,
-    TilePosition, TransferTarget, WalkTarget,
+    MAX_WHO_NAME_LEN, MAX_WHO_PLAYERS, MAX_WHO_TITLE_LEN, SkillSlot, SlotSwap, SpellArguments,
+    SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkTarget,
 };
 pub use error::{DecodeError, EncodeError};
 pub use event::{

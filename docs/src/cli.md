@@ -56,6 +56,7 @@ darpc group-toggle --pid <pid>
 darpc group-invite --pid <pid> <player>
 darpc group-accept --pid <pid> <invitation-id>
 darpc group-decline --pid <pid> <invitation-id>
+darpc who --pid <pid>
 darpc command-status --pid <pid> <command-id>
 darpc command-cancel --pid <pid> <command-id>
 ```
@@ -108,6 +109,9 @@ behavior is:
   validated ASCII player name. `group-accept` and `group-decline` answer one
   retained invitation ID. Direct `snapshot` exposes retained group state, but
   the daemon API adds visible-name resolution, REST resources, and live events.
+- `who` requests the server-ordered online-player list, waits up to three
+  seconds, and suppresses only its own client panel. Requests within one second
+  share an in-flight or recently completed result.
 - `command-status` reads a retained command result by its nonzero ID.
 - `command-cancel` atomically cancels a command that is still accepted. A
   command that already started retains its completed state.
@@ -132,6 +136,7 @@ darpc --output json walk --pid <pid> 120 85
 darpc --output json skill-use --pid <pid> 5
 darpc --output json spell-cast --pid <pid> 7 --input "nothing"
 darpc --output json group-invite --pid <pid> ZiLo
+darpc --output json who --pid <pid>
 darpc --output json command-status --pid <pid> <command-id>
 ```
 

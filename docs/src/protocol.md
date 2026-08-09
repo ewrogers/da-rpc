@@ -745,6 +745,7 @@ enum CommandKind: u8 {
     Interact { id: u32 } = 14,       // nonzero visible Mundane object ID
     Dialog(DialogCommand) = 15,
     Group(GroupCommand) = 16,
+    Who = 17,
 }
 
 enum GroupCommand: u8 {
@@ -849,6 +850,23 @@ enum CommandResult: u8 {
     Busy = 1,
     NotFound = 2,
     Unavailable = 3,
+    Who { status: CommandStatus, list: WhoList } = 4,
+}
+
+struct WhoList {
+    world_count: u16;
+    country_count: u16;
+    players: Vec<WhoPlayer>;       // u16 count, maximum 768
+}
+
+struct WhoPlayer {
+    name: string8;                 // at most 24 UTF-8 bytes
+    title: string8;                // at most 48 UTF-8 bytes
+    class: CharacterClass;
+    state: UserState;
+    color: u8;
+    is_master: bool;
+    is_guildmate: bool;
 }
 ```
 
@@ -870,6 +888,12 @@ with the collection discriminator followed by source and destination slots.
 immediate response when all fixed queue entries are pending, and `Unavailable`
 means the tick execution path is not installed. Terminal results are retained
 for bounded status queries and may be evicted under command pressure.
+
+`Who` submits the client's ordinary server request on the main thread and stays
+accepted until its matching response arrives. The result preserves server row
+order. Requests share an in-flight or completed command for one second and use
+a three-second command deadline. The DLL suppresses the stock Who panel only
+for a correlated daRPC request. A player-started request remains untouched.
 
 Command deadlines and queue delay use the same wrapping millisecond tick as
 frame timestamps. `execution_us` uses a higher-resolution local duration so a

@@ -31,7 +31,7 @@ const EVENT_TYPE_OFFSET: usize = 0x0C;
 const EVENT_BODY_OFFSET: usize = 0x14;
 const EVENT_BODY_LENGTH_OFFSET: usize = 0x18;
 const EVENT_VIEW_LENGTH: usize = 0x1C - EVENT_TYPE_OFFSET;
-const MAX_OBSERVED_BODY_LENGTH: usize = 8 * 1024;
+const MAX_OBSERVED_BODY_LENGTH: usize = u16::MAX as usize;
 
 #[unsafe(no_mangle)]
 static EVENT_HOOK_ACTIVITY: DetourActivity = DetourActivity::new();
@@ -118,7 +118,8 @@ impl EventHook {
 
         // SAFETY: the supported executable fingerprint and exact target entry
         // bytes were validated. The detour preserves the target's thiscall ABI,
-        // invokes the original first, and observes only bounded copied bytes.
+        // suppresses only a correlated daRPC Who response, and otherwise calls
+        // the original before observing bounded copied bytes.
         let mut prepared = unsafe { PreparedDetour::prepare(spec) }.map_err(InstallError::from)?;
         let relocated_bytes = u8::try_from(prepared.relocated_len())
             .map_err(|_| io::Error::other("relocated event prologue exceeds u8"))?;
@@ -248,6 +249,13 @@ unsafe extern "thiscall" fn event_dispatch_detour(
     core::arch::naked_asm!(
         "lock inc dword ptr [{activity}]",
         "push esi",
+        "push ecx",
+        "push dword ptr [esp + 12]",
+        "call {intercept}",
+        "add esp, 4",
+        "pop ecx",
+        "test al, al",
+        "jnz 2f",
         "push dword ptr [esp + 8]",
         "call dword ptr [{trampoline}]",
         "mov esi, eax",
@@ -258,10 +266,70 @@ unsafe extern "thiscall" fn event_dispatch_detour(
         "pop esi",
         "lock dec dword ptr [{activity}]",
         "ret 4",
+        "2:",
+        "mov eax, 1",
+        "pop esi",
+        "lock dec dword ptr [{activity}]",
+        "ret 4",
         activity = sym EVENT_HOOK_ACTIVITY,
         trampoline = sym EVENT_TRAMPOLINE,
         observe = sym observe_event,
+        intercept = sym intercept_event,
     );
+}
+
+extern "C" fn intercept_event(event: *const core::ffi::c_void) -> bool {
+    panic::catch_unwind(|| intercept_event_inner(event)).unwrap_or(false)
+}
+
+fn intercept_event_inner(event: *const core::ffi::c_void) -> bool {
+    if event.is_null() {
+        return false;
+    }
+    let mut view = [0_u8; EVENT_VIEW_LENGTH];
+    let Some(address) = (event as usize).checked_add(EVENT_TYPE_OFFSET) else {
+        return false;
+    };
+    if !read_memory(address, &mut view) || view[0] != SERVER_EVENT_TYPE {
+        return false;
+    }
+    let body_address = u32::from_le_bytes(
+        view[EVENT_BODY_OFFSET - EVENT_TYPE_OFFSET..EVENT_BODY_OFFSET - EVENT_TYPE_OFFSET + 4]
+            .try_into()
+            .expect("event body pointer is four bytes"),
+    );
+    let body_length = u32::from_le_bytes(
+        view[EVENT_BODY_LENGTH_OFFSET - EVENT_TYPE_OFFSET
+            ..EVENT_BODY_LENGTH_OFFSET - EVENT_TYPE_OFFSET + 4]
+            .try_into()
+            .expect("event body length is four bytes"),
+    ) as usize;
+    if body_address == 0 || body_length == 0 || body_length > MAX_OBSERVED_BODY_LENGTH {
+        return false;
+    }
+    let mut opcode = [0];
+    if !read_memory(body_address as usize, &mut opcode) || opcode[0] != 0x36 {
+        return false;
+    }
+    if EVENT_SCRATCH_IN_USE
+        .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+        .is_err()
+    {
+        return false;
+    }
+    let _scratch_guard = EventScratchGuard;
+    // SAFETY: the scratch guard owns exclusive access for this bounded copy.
+    let scratch = unsafe { &mut *EVENT_SCRATCH.0.get() };
+    if !read_memory(body_address as usize, &mut scratch.body[..body_length]) {
+        EVENT_READ_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed);
+        return false;
+    }
+    let suppressed = crate::who::intercept_response(&scratch.body[..body_length], sender_tick_ms());
+    if suppressed {
+        EVENT_OBSERVATION_COUNT.fetch_add(1, Ordering::Relaxed);
+        SERVER_EVENT_COUNT.fetch_add(1, Ordering::Relaxed);
+    }
+    suppressed
 }
 
 extern "C" fn observe_event(event: *const core::ffi::c_void) {

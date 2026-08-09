@@ -47,6 +47,7 @@ usage:
     darpc [--output <table|json>] group-invite --pid <pid> <player>
     darpc [--output <table|json>] group-accept --pid <pid> <invitation-id>
     darpc [--output <table|json>] group-decline --pid <pid> <invitation-id>
+    darpc [--output <table|json>] who --pid <pid>
     darpc [--output <table|json>] command-status --pid <pid> <command-id>
     darpc [--output <table|json>] command-cancel --pid <pid> <command-id>";
 
@@ -77,6 +78,7 @@ enum Operation {
     Unequip(EquipmentSlot),
     Emote(u8),
     Group(GroupCommand),
+    Who,
     CommandStatus(u32),
     CommandCancel(u32),
 }
@@ -112,6 +114,7 @@ impl Command {
                 action: GroupInvitationAction::Decline,
                 ..
             }) => "group-decline",
+            Operation::Who => "who",
             Operation::CommandStatus(_) => "command-status",
             Operation::CommandCancel(_) => "command-cancel",
         }
@@ -228,6 +231,7 @@ fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
             invitation_id: parse_group_invitation_id(arguments.next())?,
             action: GroupInvitationAction::Decline,
         }),
+        "who" => Operation::Who,
         "command-status" => Operation::CommandStatus(parse_command_id(arguments.next())?),
         "command-cancel" => Operation::CommandCancel(parse_command_id(arguments.next())?),
         "echo" => {

@@ -3,7 +3,7 @@ pub(crate) mod dialog;
 pub(crate) mod group;
 mod interaction;
 pub(crate) mod movement;
-mod network;
+pub(crate) mod network;
 mod skill;
 pub(crate) mod spell;
 
@@ -34,6 +34,7 @@ pub(crate) fn execute(command: CommandKind) -> Result<(), CommandFailure> {
         CommandKind::Interact(id) => movement::interact(id),
         CommandKind::Dialog(command) => dialog::submit(command),
         CommandKind::Group(command) => group::submit(command),
+        CommandKind::Who => Err(CommandFailure::Internal),
     }
 }
 

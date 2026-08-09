@@ -157,6 +157,42 @@ The requested button must be available in `navigation`. A dialog waiting for
 the server has `response_pending: true`; further answers are rejected until a
 new page arrives. Close remains available when the client permits it.
 
+## Follow the current page
+
+NPC conversations are server-driven. After every action, read `/dialog` again
+and respond to the new `interaction` and `revision`. Do not assume that every
+shop, pursuit, or character sees the same sequence of pages.
+
+A typical purchase works like this:
+
+1. Start the conversation with `/interact`.
+2. Select the Buy choice from the returned `choices` page.
+3. Read the new `items` page. Each row identifies its displayed `index` and
+   can include its name, description, price in `value`, and available quantity.
+4. Submit the chosen row with its current revision and desired quantity.
+5. Confirm the result through `/items`, `/status`, and the event stream.
+
+For example, selecting one item from revision 12 looks like this:
+
+```json
+{ "revision": 12, "index": 1, "quantity": 1 }
+```
+
+Selling commonly adds a confirmation page:
+
+1. Select Sell from the shopkeeper's opening `choices` page.
+2. Read the returned `inventory` rows. Each row maps a displayed zero-based
+   `index` to a one-based inventory `slot`.
+3. Select the row and quantity. The server can replace it with a `choices`
+   page containing the offered price.
+4. Read that new page and revision, then select Yes or No by its displayed
+   index.
+5. Confirm that the inventory and gold state changed as expected.
+
+The exact pages and wording belong to the game server. daRPC exposes what the
+client is currently showing instead of assigning special meanings to choice
+indexes.
+
 ## Revisions and errors
 
 Dialog revisions are wrapping nonzero `u32` values scoped to one loaded DLL

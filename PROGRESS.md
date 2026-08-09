@@ -112,6 +112,9 @@ Immutable local rules remain.
 - [x] Live-verified pursuit choice and navigation submissions, text-prompt
   parsing and input, server-driven replacement and closure, REST state, and SSE
   ordering.
+- [x] Live-verified a complete merchant purchase and sale, including item and
+  gold changes, inventory-row selection, the server-provided price
+  confirmation, and final dialog state.
 - [x] Live-tested default item quantity, tile drop, pickup, empty-slot failure,
   excessive stack quantity failure, and the normal player exchange flow.
 

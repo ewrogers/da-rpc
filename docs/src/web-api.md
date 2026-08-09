@@ -4,7 +4,7 @@
 interfaces. A script or application can use REST and Server-Sent Events (SSE)
 without implementing DLL injection, named pipes, or Dark Ages client layouts.
 
-REST and SSE are implemented. WebSocket support is planned.
+REST and SSE are the supported web interfaces.
 
 If you are building a consumer, start here for routes and actions, then use
 [Live events](events.md) for the complete streaming reference. The chapters
@@ -257,5 +257,10 @@ is not exposed to the network. Any future remote-listening mode must add
 authentication, authorization, request limits, and transport security before
 it is considered safe for general use.
 
-WebSocket support is planned for consumers that eventually need requests and
-events on one two-way stream. REST and SSE remain the implemented interfaces.
+WebSockets are intentionally unsupported. REST maps commands and state reads to
+bounded requests with ordinary HTTP status and error handling. SSE provides a
+persistent server-to-consumer event stream with straightforward reconnection.
+This split is adequate for real-time bot interaction and avoids duplicating
+validation, backpressure, ordering, and connection lifecycle behavior across a
+second bidirectional API. The decision can be revisited if a measured use case
+cannot be expressed cleanly with REST and SSE.

@@ -112,7 +112,7 @@ directly for discovery, aggregation, action status, and multi-client behavior.
 | M15 | First typed action | One low-risk action executes through a native client path. | Complete |
 | M16 | Packet observation and local rules | Bounded plaintext telemetry and fail-open decisions work locally. | In progress |
 | M17 | Multi-client hardening and preview | Failure and soak evidence support a preview release. | Planned |
-| M18 | WebSocket and remote access | Added only for a proven use case and defined security model. | Deferred |
+| M18 | Remote access | Added only with a defined security model. | Deferred |
 
 M2 through M15 are complete. M16 is the current increment.
 M1 has been exercised manually, but its separate evidence checklist remains
@@ -768,12 +768,11 @@ Done:
   recovery.
 - The preview release states exactly what is and is not supported.
 
-### M18: WebSocket and remote access
+### M18: Remote access
 
-This remains deferred until a real application demonstrates that REST plus
-Server-Sent Events cannot express its interaction cleanly. Remote listening
-also requires authentication, authorization, transport security, request
-limits, and administrative capability boundaries before it is supported.
+Remote listening requires authentication, authorization, transport security,
+request limits, and administrative capability boundaries before it is
+supported.
 
 ## Immediate next increment
 

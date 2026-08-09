@@ -53,8 +53,11 @@ scripts, and other consumers. It also keeps a slow web request or event
 subscriber from blocking unrelated game clients.
 
 REST reads current state and submits individual actions. Server-Sent Events
-(SSE) carry one-way live changes. WebSocket support is planned for consumers
-that eventually need requests and events on one two-way connection.
+(SSE) carry one-way live changes. Together they provide real-time interaction
+while keeping commands bounded and the event stream independently reconnectable.
+WebSockets are intentionally unsupported because another bidirectional transport
+would duplicate validation, flow control, ordering, and connection lifecycle
+behavior without a demonstrated requirement.
 
 ## Reading game state
 

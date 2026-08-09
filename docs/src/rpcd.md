@@ -7,7 +7,7 @@ the streaming interface.
 
 > **Status:** Automatic client discovery, the identity registry, daemon-managed
 > load, unload, and launch, current client state, routed movement commands,
-> REST, and Server-Sent Events are implemented. WebSocket APIs remain planned.
+> REST, and Server-Sent Events are implemented.
 
 `darpcd.exe` is a 64-bit x86-64 Windows daemon that makes injected clients easy
 to use from local applications.
@@ -25,8 +25,9 @@ Its current responsibilities are to:
 - Expose loopback REST and Server-Sent Events APIs, an OpenAPI document, and
   Swagger UI.
 
-Additional game actions and bidirectional WebSocket traffic can build on this
-boundary later. The daemon retains observations but is not the authority for
+Additional game actions can build on this boundary later. REST provides bounded
+requests and responses for those actions, while Server-Sent Events provide the
+live update stream. The daemon retains observations but is not the authority for
 client memory or local state.
 
 ## Discovery and registry

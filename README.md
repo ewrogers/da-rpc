@@ -56,7 +56,9 @@ like a second client trying to imitate it from the outside.
 - Talk directly to one DLL with a lightweight command-line client when a daemon
   is unnecessary.
 
-WebSocket support is planned. REST and SSE are available now.
+REST and SSE are the supported web interfaces. REST handles current state and
+bounded actions, while SSE delivers live changes without requiring a second
+bidirectional protocol.
 
 ## How it works
 
@@ -203,7 +205,8 @@ integrations.
 - **OpenAPI** describes the REST surface for tools such as Postman and API
   client generators.
 - **Swagger UI** provides an interactive API browser without extra setup.
-- **WebSocket** support is planned for consumers that need two-way streaming.
+- **REST and SSE** provide real-time interaction without duplicating command
+  validation, flow control, reconnection, and ordering across another transport.
 
 Clients can be addressed by process ID or, while in game, by character name.
 Some representative routes are:

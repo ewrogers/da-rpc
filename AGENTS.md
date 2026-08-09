@@ -16,7 +16,7 @@ daRPC is a Rust workspace for integrating with the 32-bit Windows client of
   injected DLL and presents binary protocol results as human-readable text or
   JSON.
 - `darpcd.exe`, a 64-bit x86-64 daemon that aggregates client state and real-time
-  events and presents REST, SSE, and WebSocket APIs.
+  events and presents REST and SSE APIs.
 
 `darpc.dll` communicates with `darpcd.exe` through a versioned binary protocol over
 process-specific Windows named pipes. `darpc.dll` owns the initial and updating
@@ -267,13 +267,13 @@ memory boundaries. Treat those boundaries as small audited interfaces.
   not discover uninjected processes.
 - Keep externally visible API models separate from internal client layouts and
   wire protocol models.
-- Validate request sizes and values at the HTTP and WebSocket boundaries.
+- Validate request sizes and values at HTTP boundaries.
 - Keep one current unversioned HTTP API until supported consumers create a
   concrete need for simultaneous incompatible schemas. Treat the OpenAPI
   document version as release metadata, not a URL version.
 - Generate OpenAPI from the HTTP models and keep the vendored documentation UI
   independent from registry and client-worker health.
-- Define SSE and WebSocket ordering, replay, lag, and disconnect behavior.
+- Define SSE ordering, replay, lag, and disconnect behavior.
 - Default network listeners to the least exposed practical interface. Any
   remote-access mode must document authentication, authorization, and transport
   security expectations.

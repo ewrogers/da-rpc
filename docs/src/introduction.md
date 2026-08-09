@@ -46,7 +46,10 @@ checks, scripts, and setups that do not need a central daemon.
 - Server-Sent Events (SSE) for live changes
 - OpenAPI and Swagger UI for exploring the API
 
-WebSocket support is planned.
+REST and SSE are the complete supported web transport model: REST handles
+bounded commands and state reads, and SSE streams live changes. WebSockets are
+intentionally unsupported because they would add a second command and
+connection lifecycle without a demonstrated need.
 
 ## Where to begin
 

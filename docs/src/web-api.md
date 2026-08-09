@@ -88,11 +88,16 @@ the game and how they change.
 | `POST /clients/{client}/turn` | Face a cardinal direction. |
 | `POST /clients/{client}/walk` | Take one step or pathfind to a tile. |
 | `POST /clients/{client}/skills/use` | Use a skill by slot or name. |
+| `POST /clients/{client}/skills/swap` | Swap skills using slot-or-name selectors. |
 | `POST /clients/{client}/spells/cast` | Cast a spell by slot or name. |
+| `POST /clients/{client}/spells/swap` | Swap spells using slot-or-name selectors. |
 | `POST /clients/{client}/items/use` | Use an inventory item by slot or name. |
-| `POST /clients/{client}/items/drop` | Drop an item at a tile or begin an exchange with a visible human, monster, or NPC. |
+| `POST /clients/{client}/items/drop` | Drop an item at a ground tile. |
+| `POST /clients/{client}/items/give` | Give an item to a visible human, monster, or NPC. |
+| `POST /clients/{client}/items/swap` | Swap inventory slots using slot-or-name selectors. |
 | `POST /clients/{client}/items/pickup` | Pick up the top ground item at a tile. |
-| `POST /clients/{client}/gold/drop` | Drop gold at a tile or offer it to a visible human, monster, or NPC. |
+| `POST /clients/{client}/gold/drop` | Drop gold at a ground tile. |
+| `POST /clients/{client}/gold/give` | Give gold to a visible human, monster, or NPC. |
 | `POST /clients/{client}/equipment/unequip` | Unequip one readable equipment slot. |
 | `POST /clients/{client}/emote` | Perform an emote by confirmed name or client code. |
 | `POST /clients/{client}/commands/diagnostic` | Run a no-op main-thread command for testing. |

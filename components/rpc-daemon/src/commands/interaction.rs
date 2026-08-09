@@ -18,16 +18,33 @@ pub(crate) struct DropItemOptions {
     name: Option<String>,
     #[serde(default = "one")]
     quantity: u32,
-    destination: Option<Destination>,
-    target: Option<ObjectTarget>,
+    destination: Destination,
+}
+
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct GiveItemOptions {
+    /// Select the item by its one-based inventory slot.
+    slot: Option<u8>,
+    /// Select the item by its case-insensitive inventory name.
+    name: Option<String>,
+    #[serde(default = "one")]
+    quantity: u32,
+    target: ObjectTarget,
 }
 
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct DropGoldOptions {
     amount: u32,
-    destination: Option<Destination>,
-    target: Option<ObjectTarget>,
+    destination: Destination,
+}
+
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct GiveGoldOptions {
+    amount: u32,
+    target: ObjectTarget,
 }
 
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
@@ -110,13 +127,39 @@ pub(crate) async fn drop_item(
     let (pid, identity, snapshot) = action_client(&state, &identifier)?;
     let item = resolve_item(pid, &snapshot, request.slot, request.name.as_deref())?;
     validate_item_quantity(pid, item, request.quantity)?;
-    let target =
-        resolve_transfer_target(pid, &snapshot, request.destination, request.target.as_ref())?;
+    validate_destination(pid, &snapshot, request.destination)?;
     submit_action(
         &state,
         pid,
         identity,
         ProtocolKind::DropItem(ItemTransfer {
+            slot: item_slot(pid, item.slot)?,
+            quantity: request.quantity,
+            target: TransferTarget::Tile(TilePosition {
+                x: request.destination.x,
+                y: request.destination.y,
+            }),
+        }),
+    )
+    .await
+}
+
+#[utoipa::path(post, path = "/clients/{client}/items/give", params(("client" = String, Path)), request_body = GiveItemOptions, responses((status = 200, body = CommandStatus), (status = 202, body = CommandStatus), (status = 400, body = crate::api::ErrorState), (status = 409, body = crate::api::ErrorState)))]
+pub(crate) async fn give_item(
+    State(state): State<ApiState>,
+    Path(identifier): Path<String>,
+    request: Result<Json<GiveItemOptions>, JsonRejection>,
+) -> Result<(StatusCode, Json<CommandStatus>), ApiError> {
+    let Json(request) = action_request(request)?;
+    let (pid, identity, snapshot) = action_client(&state, &identifier)?;
+    let item = resolve_item(pid, &snapshot, request.slot, request.name.as_deref())?;
+    validate_item_quantity(pid, item, request.quantity)?;
+    let target = resolve_object_target(pid, &snapshot, &request.target)?;
+    submit_action(
+        &state,
+        pid,
+        identity,
+        ProtocolKind::GiveItem(ItemTransfer {
             slot: item_slot(pid, item.slot)?,
             quantity: request.quantity,
             target,
@@ -133,25 +176,67 @@ pub(crate) async fn drop_gold(
 ) -> Result<(StatusCode, Json<CommandStatus>), ApiError> {
     let Json(request) = action_request(request)?;
     let (pid, identity, snapshot) = action_client(&state, &identifier)?;
-    if request.amount == 0 {
-        return Err(bad_request(pid, "amount must be greater than zero"));
-    }
-    let gold = snapshot.character.as_ref().map_or(0, |value| value.gold);
-    if request.amount > gold {
-        return Err(bad_request(
-            pid,
-            "amount exceeds the character's current gold",
-        ));
-    }
-    let target =
-        resolve_transfer_target(pid, &snapshot, request.destination, request.target.as_ref())?;
+    validate_gold_amount(pid, &snapshot, request.amount)?;
+    validate_destination(pid, &snapshot, request.destination)?;
     submit_action(
         &state,
         pid,
         identity,
         ProtocolKind::DropGold(GoldTransfer {
             amount: request.amount,
+            target: TransferTarget::Tile(TilePosition {
+                x: request.destination.x,
+                y: request.destination.y,
+            }),
+        }),
+    )
+    .await
+}
+
+#[utoipa::path(post, path = "/clients/{client}/gold/give", params(("client" = String, Path)), request_body = GiveGoldOptions, responses((status = 200, body = CommandStatus), (status = 202, body = CommandStatus), (status = 400, body = crate::api::ErrorState), (status = 409, body = crate::api::ErrorState)))]
+pub(crate) async fn give_gold(
+    State(state): State<ApiState>,
+    Path(identifier): Path<String>,
+    request: Result<Json<GiveGoldOptions>, JsonRejection>,
+) -> Result<(StatusCode, Json<CommandStatus>), ApiError> {
+    let Json(request) = action_request(request)?;
+    let (pid, identity, snapshot) = action_client(&state, &identifier)?;
+    validate_gold_amount(pid, &snapshot, request.amount)?;
+    let target = resolve_object_target(pid, &snapshot, &request.target)?;
+    submit_action(
+        &state,
+        pid,
+        identity,
+        ProtocolKind::GiveGold(GoldTransfer {
+            amount: request.amount,
             target,
+        }),
+    )
+    .await
+}
+
+#[utoipa::path(post, path = "/clients/{client}/items/swap", params(("client" = String, Path)), request_body = SwapSlotsOptions, responses((status = 200, body = CommandStatus), (status = 202, body = CommandStatus), (status = 400, body = crate::api::ErrorState), (status = 404, body = crate::api::ErrorState), (status = 409, body = crate::api::ErrorState)))]
+pub(crate) async fn swap_items(
+    State(state): State<ApiState>,
+    Path(identifier): Path<String>,
+    request: Result<Json<SwapSlotsOptions>, JsonRejection>,
+) -> Result<(StatusCode, Json<CommandStatus>), ApiError> {
+    let Json(request) = action_request(request)?;
+    let (pid, identity, snapshot) = action_client(&state, &identifier)?;
+    let inventory = snapshot
+        .character
+        .as_ref()
+        .and_then(|character| character.inventory.as_deref())
+        .ok_or_else(|| conflict(pid, "inventory is unavailable"))?;
+    let (source, destination) =
+        resolve_slot_swap(pid, inventory, &request, "inventory", MAX_ITEM_SLOT)?;
+    submit_action(
+        &state,
+        pid,
+        identity,
+        ProtocolKind::SwapSlots(SlotSwap::Inventory {
+            source: item_slot(pid, source)?,
+            destination: item_slot(pid, destination)?,
         }),
     )
     .await
@@ -258,26 +343,18 @@ fn validate_item_quantity(pid: u32, item: &InventoryItem, quantity: u32) -> Resu
     Ok(())
 }
 
-fn resolve_transfer_target(
-    pid: u32,
-    snapshot: &GameSnapshot,
-    destination: Option<Destination>,
-    target: Option<&ObjectTarget>,
-) -> Result<TransferTarget, ApiError> {
-    match (destination, target) {
-        (Some(destination), None) => {
-            validate_destination(pid, snapshot, destination)?;
-            Ok(TransferTarget::Tile(TilePosition {
-                x: destination.x,
-                y: destination.y,
-            }))
-        }
-        (None, Some(target)) => resolve_object_target(pid, snapshot, target),
-        _ => Err(bad_request(
-            pid,
-            "provide exactly one of destination or target",
-        )),
+fn validate_gold_amount(pid: u32, snapshot: &GameSnapshot, amount: u32) -> Result<(), ApiError> {
+    if amount == 0 {
+        return Err(bad_request(pid, "amount must be greater than zero"));
     }
+    let gold = snapshot.character.as_ref().map_or(0, |value| value.gold);
+    if amount > gold {
+        return Err(bad_request(
+            pid,
+            "amount exceeds the character's current gold",
+        ));
+    }
+    Ok(())
 }
 
 fn resolve_object_target(

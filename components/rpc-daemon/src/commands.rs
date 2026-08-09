@@ -9,14 +9,15 @@ use axum::{
 };
 use darpc_model::{
     ClientLifecycle, ClientSnapshot as GameSnapshot, CreatureKind, Direction as ModelDirection,
-    SpellTargetType as ModelSpellTargetType, WorldObject, emote_code, is_client_emote_code,
+    InventoryItem, Skill, Spell, SpellTargetType as ModelSpellTargetType, WorldObject, emote_code,
+    is_client_emote_code,
 };
 use darpc_protocol::{
     CommandFailure as ProtocolFailure, CommandKind as ProtocolKind, CommandOperation,
     CommandResult as ProtocolResult, CommandState as ProtocolState,
     CommandStatus as ProtocolStatus, DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS,
-    MAX_COMMAND_WAIT_MS, MAX_SKILL_SLOT, MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT, SkillSlot,
-    SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget, WalkTarget,
+    MAX_COMMAND_WAIT_MS, MAX_ITEM_SLOT, MAX_SKILL_SLOT, MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT,
+    SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget, WalkTarget,
 };
 use serde::{Deserialize, Serialize};
 use std::{num::NonZeroU32, time::Duration};
@@ -29,11 +30,12 @@ pub(crate) mod movement;
 
 pub(crate) use ability::{
     CastSpellByName, CastSpellBySlot, CastSpellOptions, SkillNameOptions, SkillSlotOptions,
-    SpellTargetOptions, UseSkillOptions, cast_spell, use_skill,
+    SpellTargetOptions, UseSkillOptions, cast_spell, swap_skills, swap_spells, use_skill,
 };
 pub(crate) use interaction::{
-    DropGoldOptions, DropItemOptions, EmoteOptions, PickupItemOptions, UnequipOptions,
-    UseItemOptions, drop_gold, drop_item, emote, pickup_item, unequip, use_item,
+    DropGoldOptions, DropItemOptions, EmoteOptions, GiveGoldOptions, GiveItemOptions,
+    PickupItemOptions, UnequipOptions, UseItemOptions, drop_gold, drop_item, emote, give_gold,
+    give_item, pickup_item, swap_items, unequip, use_item,
 };
 use movement::validate_destination;
 pub(crate) use movement::{
@@ -49,6 +51,154 @@ const ROUTE_TIMEOUT: Duration = Duration::from_secs(2);
 const MAX_SKILL_NAME_BYTES: usize = 128;
 const MAX_SPELL_NAME_BYTES: usize = 128;
 const SPELL_TARGET_DISTANCE: u32 = 14;
+
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SlotSelector {
+    /// Select an occupied slot by its one-based slot number.
+    slot: Option<u8>,
+    /// Select an occupied slot by its case-insensitive name.
+    name: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct SwapSlotsOptions {
+    source: SlotSelector,
+    destination: SlotSelector,
+}
+
+trait NamedSlot {
+    fn slot(&self) -> u8;
+    fn name(&self) -> Option<&str>;
+}
+
+impl NamedSlot for InventoryItem {
+    fn slot(&self) -> u8 {
+        self.slot
+    }
+
+    fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
+}
+
+impl NamedSlot for Skill {
+    fn slot(&self) -> u8 {
+        self.slot
+    }
+
+    fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
+}
+
+impl NamedSlot for Spell {
+    fn slot(&self) -> u8 {
+        self.slot
+    }
+
+    fn name(&self) -> Option<&str> {
+        self.name.as_deref()
+    }
+}
+
+fn resolve_slot_swap<T: NamedSlot>(
+    pid: u32,
+    entries: &[T],
+    request: &SwapSlotsOptions,
+    collection: &str,
+    max_slot: u8,
+) -> Result<(u8, u8), ApiError> {
+    let source = resolve_slot_selector(pid, entries, &request.source, collection, max_slot, true)?;
+    let destination = resolve_slot_selector(
+        pid,
+        entries,
+        &request.destination,
+        collection,
+        max_slot,
+        false,
+    )?;
+    if source == destination {
+        return Err(selector_bad_request(
+            pid,
+            "source and destination must resolve to different slots",
+        ));
+    }
+    Ok((source, destination))
+}
+
+fn resolve_slot_selector<T: NamedSlot>(
+    pid: u32,
+    entries: &[T],
+    selector: &SlotSelector,
+    collection: &str,
+    max_slot: u8,
+    require_occupied: bool,
+) -> Result<u8, ApiError> {
+    if selector.slot.is_some() == selector.name.is_some() {
+        return Err(selector_bad_request(
+            pid,
+            "each selector must provide exactly one of slot or name",
+        ));
+    }
+    if let Some(slot) = selector.slot {
+        if slot == 0 || slot > max_slot {
+            return Err(selector_bad_request(
+                pid,
+                format!("{collection} slot must be from 1 through {max_slot}"),
+            ));
+        }
+        if require_occupied && !entries.iter().any(|entry| entry.slot() == slot) {
+            return Err(ApiError::new(
+                StatusCode::NOT_FOUND,
+                "slot_not_found",
+                format!("the selected {collection} source slot is empty"),
+                Some(pid),
+            ));
+        }
+        return Ok(slot);
+    }
+
+    let requested = selector.name.as_deref().unwrap_or_default();
+    if requested.is_empty() || requested.len() > MAX_SPELL_NAME_BYTES {
+        return Err(selector_bad_request(
+            pid,
+            format!("{collection} name must contain from 1 through {MAX_SPELL_NAME_BYTES} bytes"),
+        ));
+    }
+    let mut matches = entries.iter().filter(|entry| {
+        entry
+            .name()
+            .is_some_and(|name| name.eq_ignore_ascii_case(requested))
+    });
+    let slot = matches.next().map(NamedSlot::slot).ok_or_else(|| {
+        ApiError::new(
+            StatusCode::NOT_FOUND,
+            "slot_not_found",
+            format!("the selected {collection} name was not found"),
+            Some(pid),
+        )
+    })?;
+    if matches.next().is_some() {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "ambiguous_slot_name",
+            format!("more than one {collection} entry has that case-insensitive name"),
+            Some(pid),
+        ));
+    }
+    Ok(slot)
+}
+
+fn selector_bad_request(pid: u32, message: impl Into<String>) -> ApiError {
+    ApiError::new(
+        StatusCode::BAD_REQUEST,
+        "invalid_swap_selector",
+        message,
+        Some(pid),
+    )
+}
 
 pub(crate) struct CommandCall {
     pub(crate) pid: u32,
@@ -104,6 +254,11 @@ pub(crate) enum CommandKind {
     PickupItem,
     Unequip,
     Emote,
+    GiveItem,
+    GiveGold,
+    SwapItems,
+    SwapSpells,
+    SwapSkills,
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
@@ -429,6 +584,11 @@ impl From<ProtocolKind> for CommandKind {
             ProtocolKind::PickupItem(_) => Self::PickupItem,
             ProtocolKind::Unequip(_) => Self::Unequip,
             ProtocolKind::Emote(_) => Self::Emote,
+            ProtocolKind::GiveItem(_) => Self::GiveItem,
+            ProtocolKind::GiveGold(_) => Self::GiveGold,
+            ProtocolKind::SwapSlots(SlotSwap::Inventory { .. }) => Self::SwapItems,
+            ProtocolKind::SwapSlots(SlotSwap::Spellbook { .. }) => Self::SwapSpells,
+            ProtocolKind::SwapSlots(SlotSwap::Skillbook { .. }) => Self::SwapSkills,
         }
     }
 }

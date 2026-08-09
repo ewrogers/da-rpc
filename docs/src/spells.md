@@ -8,6 +8,7 @@ methods and report each stage of delayed casting.
 | --- | --- |
 | Read learned spells | `GET /clients/{client}/spells` |
 | Cast a spell | `POST /clients/{client}/spells/cast` |
+| Swap spells | `POST /clients/{client}/spells/swap` |
 | Watch casting, feedback, and spellbook changes | [Spell events](events.md#spell-events) |
 
 ## Reading the spellbook
@@ -99,6 +100,17 @@ target returns `404 Not Found`.
 The DLL checks the live spell slot and arguments again before calling the
 matching native client routine. It does not switch the visible spell panel or
 synthesize user input.
+
+## Swapping spells
+
+```text
+POST /clients/{client}/spells/swap
+{"source":{"name":"Mist"},"destination":{"slot":12}}
+```
+
+Both selectors accept exactly one of `slot` or case-insensitive `name`, using
+the same payload as inventory and skill swaps. A destination slot may be empty.
+The source must be occupied, and the resolved slots must be different.
 
 ## Casting events
 

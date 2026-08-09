@@ -1,7 +1,7 @@
 use darpc_model::{Direction, EquipmentSlot};
 use darpc_protocol::{
     CommandFailure, CommandKind, CommandOperation, CommandResult, CommandState, CommandStatus,
-    GoldTransfer, ItemSlot, ItemTransfer, MAX_SPELL_INPUT_LEN, SkillSlot, SpellArguments,
+    GoldTransfer, ItemSlot, ItemTransfer, MAX_SPELL_INPUT_LEN, SkillSlot, SlotSwap, SpellArguments,
     SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkTarget,
 };
 use std::{
@@ -505,6 +505,36 @@ fn stored_kind(kind: CommandKind) -> (u8, u32, u32, u32, Option<SpellInput>) {
         CommandKind::PickupItem(position) => (14, position.x as u32, position.y as u32, 0, None),
         CommandKind::Unequip(slot) => (15, slot.raw() as u32, 0, 0, None),
         CommandKind::Emote(code) => (16, code as u32, 0, 0, None),
+        CommandKind::GiveItem(ItemTransfer {
+            slot,
+            quantity,
+            target: TransferTarget::Tile(position),
+        }) => (17, slot.get() as u32, quantity, pack_tile(position), None),
+        CommandKind::GiveItem(ItemTransfer {
+            slot,
+            quantity,
+            target: TransferTarget::Object(id),
+        }) => (18, slot.get() as u32, quantity, id.get(), None),
+        CommandKind::GiveGold(GoldTransfer {
+            amount,
+            target: TransferTarget::Tile(position),
+        }) => (19, amount, pack_tile(position), 0, None),
+        CommandKind::GiveGold(GoldTransfer {
+            amount,
+            target: TransferTarget::Object(id),
+        }) => (20, amount, id.get(), 0, None),
+        CommandKind::SwapSlots(SlotSwap::Inventory {
+            source,
+            destination,
+        }) => (21, source.get() as u32, destination.get() as u32, 0, None),
+        CommandKind::SwapSlots(SlotSwap::Spellbook {
+            source,
+            destination,
+        }) => (22, source.get() as u32, destination.get() as u32, 0, None),
+        CommandKind::SwapSlots(SlotSwap::Skillbook {
+            source,
+            destination,
+        }) => (23, source.get() as u32, destination.get() as u32, 0, None),
     }
 }
 
@@ -593,6 +623,60 @@ fn kind_from_value(
             .map(CommandKind::Unequip)
             .unwrap_or(CommandKind::Diagnostic),
         16 => CommandKind::Emote(argument_x as u8),
+        17 | 18 => {
+            let Some(slot) = ItemSlot::new(argument_x as u8) else {
+                return CommandKind::Diagnostic;
+            };
+            let target = if value == 17 {
+                TransferTarget::Tile(unpack_tile(argument_z))
+            } else {
+                let Some(id) = std::num::NonZeroU32::new(argument_z) else {
+                    return CommandKind::Diagnostic;
+                };
+                TransferTarget::Object(id)
+            };
+            CommandKind::GiveItem(ItemTransfer {
+                slot,
+                quantity: argument_y,
+                target,
+            })
+        }
+        19 => CommandKind::GiveGold(GoldTransfer {
+            amount: argument_x,
+            target: TransferTarget::Tile(unpack_tile(argument_y)),
+        }),
+        20 => match std::num::NonZeroU32::new(argument_y) {
+            Some(id) => CommandKind::GiveGold(GoldTransfer {
+                amount: argument_x,
+                target: TransferTarget::Object(id),
+            }),
+            None => CommandKind::Diagnostic,
+        },
+        21..=23 => {
+            let swap = match value {
+                21 => ItemSlot::new(argument_x as u8)
+                    .zip(ItemSlot::new(argument_y as u8))
+                    .map(|(source, destination)| SlotSwap::Inventory {
+                        source,
+                        destination,
+                    }),
+                22 => SpellSlot::new(argument_x as u8)
+                    .zip(SpellSlot::new(argument_y as u8))
+                    .map(|(source, destination)| SlotSwap::Spellbook {
+                        source,
+                        destination,
+                    }),
+                23 => SkillSlot::new(argument_x as u8)
+                    .zip(SkillSlot::new(argument_y as u8))
+                    .map(|(source, destination)| SlotSwap::Skillbook {
+                        source,
+                        destination,
+                    }),
+                _ => None,
+            };
+            swap.map(CommandKind::SwapSlots)
+                .unwrap_or(CommandKind::Diagnostic)
+        }
         _ => CommandKind::Diagnostic,
     }
 }

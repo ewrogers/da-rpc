@@ -8,7 +8,9 @@ present.
 | --- | --- |
 | Read carried items | `GET /clients/{client}/items` |
 | Use, drop, give, or pick up an item | `POST /clients/{client}/items/...` |
-| Drop or give gold | `POST /clients/{client}/gold/drop` |
+| Swap inventory slots | `POST /clients/{client}/items/swap` |
+| Drop gold | `POST /clients/{client}/gold/drop` |
+| Give gold | `POST /clients/{client}/gold/give` |
 | Watch changes and submitted actions | [Inventory events](events.md#inventory-and-equipment-events) |
 
 ## Reading inventory
@@ -59,14 +61,17 @@ POST /clients/{client}/items/use
 {"name":"Red Potion"}
 ```
 
-Drop an item at a zero-based map tile or give it to a visible human, monster,
-or NPC. Provide either `slot` or `name`, and either `destination` or `target`:
+Drop an item only at a zero-based map tile:
 
 ```text
 POST /clients/{client}/items/drop
 {"slot":12,"destination":{"x":3,"y":6}}
+```
 
-POST /clients/{client}/items/drop
+Give an item only to a visible human, monster, or NPC:
+
+```text
+POST /clients/{client}/items/give
 {"name":"Red Potion","quantity":2,"target":"ZiLo"}
 ```
 
@@ -85,13 +90,13 @@ POST /clients/{client}/items/pickup
 The client protocol identifies the tile rather than a ground object ID. On a
 stacked tile, the server decides which visible item is picked up.
 
-Gold uses the same destination choices:
+Gold uses the same distinct ground and entity routes:
 
 ```text
 POST /clients/{client}/gold/drop
 {"amount":100,"destination":{"x":3,"y":6}}
 
-POST /clients/{client}/gold/drop
+POST /clients/{client}/gold/give
 {"amount":100,"target":"ZiLo"}
 ```
 
@@ -99,6 +104,18 @@ An object target may be a visible human or named creature, matched without case
 sensitivity, or its numeric object ID. Name lookup checks human players first,
 then falls back to monsters and NPCs. The local character is not a valid
 transfer target.
+
+Rearrange inventory with the same swap payload used by skills and spells:
+
+```text
+POST /clients/{client}/items/swap
+{"source":{"name":"Red Potion"},"destination":{"slot":12}}
+```
+
+Each selector contains exactly one of `slot` or `name`. Names are matched
+without case sensitivity. A destination selected by slot may be empty; a name
+always resolves to an occupied slot. The two selectors must resolve to
+different slots.
 
 ## How inventory stays current
 

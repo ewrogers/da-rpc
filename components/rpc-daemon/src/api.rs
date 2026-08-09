@@ -344,6 +344,14 @@ fn router(state: ApiState) -> Router {
             post(crate::commands::drop_item),
         )
         .route(
+            "/clients/{client}/items/give",
+            post(crate::commands::give_item),
+        )
+        .route(
+            "/clients/{client}/items/swap",
+            post(crate::commands::swap_items),
+        )
+        .route(
             "/clients/{client}/items/pickup",
             post(crate::commands::pickup_item),
         )
@@ -355,6 +363,10 @@ fn router(state: ApiState) -> Router {
         .route(
             "/clients/{client}/gold/drop",
             post(crate::commands::drop_gold),
+        )
+        .route(
+            "/clients/{client}/gold/give",
+            post(crate::commands::give_gold),
         )
         .route("/clients/{client}/emote", post(crate::commands::emote))
         .route("/clients/{client}/spells", get(client_spells))
@@ -374,8 +386,16 @@ fn router(state: ApiState) -> Router {
             post(crate::commands::use_skill),
         )
         .route(
+            "/clients/{client}/skills/swap",
+            post(crate::commands::swap_skills),
+        )
+        .route(
             "/clients/{client}/spells/cast",
             post(crate::commands::cast_spell),
+        )
+        .route(
+            "/clients/{client}/spells/swap",
+            post(crate::commands::swap_spells),
         )
         .route(
             "/clients/{client}/commands/{command_id}",
@@ -418,12 +438,17 @@ async fn reject_request_body(request: Request<Body>, next: Next) -> Response {
             || request.uri().path().ends_with("/turn")
             || request.uri().path().ends_with("/walk")
             || request.uri().path().ends_with("/skills/use")
+            || request.uri().path().ends_with("/skills/swap")
             || request.uri().path().ends_with("/spells/cast")
+            || request.uri().path().ends_with("/spells/swap")
             || request.uri().path().ends_with("/items/use")
             || request.uri().path().ends_with("/items/drop")
+            || request.uri().path().ends_with("/items/give")
+            || request.uri().path().ends_with("/items/swap")
             || request.uri().path().ends_with("/items/pickup")
             || request.uri().path().ends_with("/equipment/unequip")
             || request.uri().path().ends_with("/gold/drop")
+            || request.uri().path().ends_with("/gold/give")
             || request.uri().path().ends_with("/emote"))
     {
         return next.run(request).await;
@@ -1083,10 +1108,15 @@ fn operation_in_progress(pid: u32) -> ApiError {
         crate::commands::movement::turn,
         crate::commands::movement::walk,
         crate::commands::ability::use_skill,
+        crate::commands::ability::swap_skills,
         crate::commands::ability::cast_spell,
+        crate::commands::ability::swap_spells,
         crate::commands::interaction::use_item,
         crate::commands::interaction::drop_item,
+        crate::commands::interaction::give_item,
+        crate::commands::interaction::swap_items,
         crate::commands::interaction::drop_gold,
+        crate::commands::interaction::give_gold,
         crate::commands::interaction::pickup_item,
         crate::commands::interaction::unequip,
         crate::commands::interaction::emote,
@@ -1157,7 +1187,11 @@ fn operation_in_progress(pid: u32) -> ApiError {
         crate::commands::CastSpellOptions,
         crate::commands::UseItemOptions,
         crate::commands::DropItemOptions,
+        crate::commands::GiveItemOptions,
         crate::commands::DropGoldOptions,
+        crate::commands::GiveGoldOptions,
+        crate::commands::SlotSelector,
+        crate::commands::SwapSlotsOptions,
         crate::commands::PickupItemOptions,
         crate::commands::UnequipOptions,
         crate::commands::EmoteOptions,
@@ -1594,8 +1628,8 @@ mod tests {
     use darpc_protocol::{
         Architecture, CommandKind, CommandOperation, CommandResult, CommandState, CommandStatus,
         ComponentVersion, GoldTransfer, Hello, ItemSlot, ItemTransfer, SUPPORTED_VERSIONS,
-        SkillSlot, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition,
-        TransferTarget, WalkTarget,
+        SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget,
+        TilePosition, TransferTarget, WalkTarget,
     };
     use serde_json::Value;
     use std::{
@@ -2047,6 +2081,14 @@ mod tests {
         let skill = CommandKind::UseSkill(SkillSlot::new(4).unwrap());
         assert_routes_action("/clients/42/skills/use", r#"{"slot":4}"#, skill);
         assert_routes_action("/clients/42/skills/use", r#"{"name":"aSsAiL"}"#, skill);
+        assert_routes_action(
+            "/clients/42/skills/swap",
+            r#"{"source":{"name":"aSsAiL"},"destination":{"slot":8}}"#,
+            CommandKind::SwapSlots(SlotSwap::Skillbook {
+                source: SkillSlot::new(4).unwrap(),
+                destination: SkillSlot::new(8).unwrap(),
+            }),
+        );
 
         assert_routes_action(
             "/clients/42/spells/cast",
@@ -2054,6 +2096,14 @@ mod tests {
             CommandKind::CastSpell(SpellCast {
                 slot: SpellSlot::new(1).unwrap(),
                 arguments: SpellArguments::None,
+            }),
+        );
+        assert_routes_action(
+            "/clients/42/spells/swap",
+            r#"{"source":{"slot":1},"destination":{"name":"AO PUINSEIN"}}"#,
+            CommandKind::SwapSlots(SlotSwap::Spellbook {
+                source: SpellSlot::new(1).unwrap(),
+                destination: SpellSlot::new(2).unwrap(),
             }),
         );
         assert_routes_action(
@@ -2114,21 +2164,29 @@ mod tests {
             }),
         );
         assert_routes_action(
-            "/clients/42/items/drop",
+            "/clients/42/items/give",
             r#"{"slot":1,"quantity":2,"target":2}"#,
-            CommandKind::DropItem(ItemTransfer {
+            CommandKind::GiveItem(ItemTransfer {
                 slot: ItemSlot::new(1).unwrap(),
                 quantity: 2,
                 target: TransferTarget::Object(std::num::NonZeroU32::new(2).unwrap()),
             }),
         );
         assert_routes_action(
-            "/clients/42/items/drop",
+            "/clients/42/items/give",
             r#"{"slot":1,"target":"iNnKeEpEr"}"#,
-            CommandKind::DropItem(ItemTransfer {
+            CommandKind::GiveItem(ItemTransfer {
                 slot: ItemSlot::new(1).unwrap(),
                 quantity: 1,
                 target: TransferTarget::Object(std::num::NonZeroU32::new(3).unwrap()),
+            }),
+        );
+        assert_routes_action(
+            "/clients/42/items/swap",
+            r#"{"source":{"name":"DARK BELT"},"destination":{"slot":9}}"#,
+            CommandKind::SwapSlots(SlotSwap::Inventory {
+                source: ItemSlot::new(1).unwrap(),
+                destination: ItemSlot::new(9).unwrap(),
             }),
         );
         assert_routes_action(
@@ -2137,6 +2195,14 @@ mod tests {
             CommandKind::DropGold(GoldTransfer {
                 amount: 50,
                 target: TransferTarget::Tile(TilePosition { x: 11, y: 22 }),
+            }),
+        );
+        assert_routes_action(
+            "/clients/42/gold/give",
+            r#"{"amount":50,"target":"iNnKeEpEr"}"#,
+            CommandKind::GiveGold(GoldTransfer {
+                amount: 50,
+                target: TransferTarget::Object(std::num::NonZeroU32::new(3).unwrap()),
             }),
         );
         assert_routes_action(
@@ -2201,6 +2267,45 @@ mod tests {
                 StatusCode::NOT_FOUND
             );
         }
+    }
+
+    #[test]
+    fn keeps_drop_give_and_swap_payloads_distinct() {
+        for (path, body) in [
+            ("/clients/42/items/drop", r#"{"slot":1,"target":2}"#),
+            (
+                "/clients/42/items/give",
+                r#"{"slot":1,"destination":{"x":11,"y":22}}"#,
+            ),
+            ("/clients/42/gold/drop", r#"{"amount":1,"target":2}"#),
+            (
+                "/clients/42/gold/give",
+                r#"{"amount":1,"destination":{"x":11,"y":22}}"#,
+            ),
+            (
+                "/clients/42/items/swap",
+                r#"{"source":{"slot":1,"name":"Dark Belt"},"destination":{"slot":2}}"#,
+            ),
+            (
+                "/clients/42/spells/swap",
+                r#"{"source":{"slot":1},"destination":{"name":"Mist"}}"#,
+            ),
+        ] {
+            assert_eq!(
+                post_json(state(), path, body).status(),
+                StatusCode::BAD_REQUEST,
+                "request unexpectedly succeeded: {path} {body}"
+            );
+        }
+        assert_eq!(
+            post_json(
+                state(),
+                "/clients/42/skills/swap",
+                r#"{"source":{"slot":8},"destination":{"slot":9}}"#,
+            )
+            .status(),
+            StatusCode::NOT_FOUND
+        );
     }
 
     #[test]
@@ -2591,12 +2696,17 @@ mod tests {
             "/clients/{client}/turn",
             "/clients/{client}/walk",
             "/clients/{client}/skills/use",
+            "/clients/{client}/skills/swap",
             "/clients/{client}/spells/cast",
+            "/clients/{client}/spells/swap",
             "/clients/{client}/items/use",
             "/clients/{client}/items/drop",
+            "/clients/{client}/items/give",
+            "/clients/{client}/items/swap",
             "/clients/{client}/items/pickup",
             "/clients/{client}/equipment/unequip",
             "/clients/{client}/gold/drop",
+            "/clients/{client}/gold/give",
             "/clients/{client}/emote",
             "/clients/{client}/commands/diagnostic",
             "/clients/{client}/commands/{command_id}",
@@ -2678,10 +2788,14 @@ mod tests {
             "SkillSlotOptions",
             "SkillNameOptions",
             "UseSkillOptions",
+            "SlotSelector",
+            "SwapSlotsOptions",
             "SpellTargetOptions",
             "CastSpellBySlot",
             "CastSpellByName",
             "CastSpellOptions",
+            "GiveItemOptions",
+            "GiveGoldOptions",
             "SkillUsed",
             "SpellBegin",
             "SpellChant",

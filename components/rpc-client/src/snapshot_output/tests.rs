@@ -1,7 +1,8 @@
 use super::{render_human, render_json};
 use darpc_model::{
     ClientLifecycle, ClientSnapshot, DialogChoice, DialogInteraction, DialogKind, DialogNavigation,
-    DialogSpeaker, DialogSpriteType, DialogState, DialogTarget,
+    DialogSpeaker, DialogSpriteType, DialogState, DialogTarget, ExchangeItem, ExchangeOffer,
+    ExchangeState,
 };
 
 fn snapshot() -> ClientSnapshot {
@@ -39,6 +40,22 @@ fn snapshot() -> ClientSnapshot {
             }]),
         }),
         group: None,
+        exchange: Some(ExchangeState {
+            id: 9,
+            partner: "ZiLo".into(),
+            local: ExchangeOffer {
+                items: vec![ExchangeItem {
+                    index: 0,
+                    sprite: 44,
+                    dye_color: 0,
+                    quantity: Some(2),
+                    name: "Red Potion".into(),
+                }],
+                gold: 100,
+                accepted: false,
+            },
+            other: ExchangeOffer::default(),
+        }),
     }
 }
 
@@ -49,12 +66,19 @@ fn snapshot_output_keeps_dialog_without_character_state() {
     assert!(human.contains("event_sequence=12"));
     assert!(human.contains("character: unavailable"));
     assert!(human.contains("dialog: revision=7"));
+    assert!(human.contains("exchange: id=9 partner=ZiLo"));
+    assert!(human.contains("exchange_item: party=local index=0 name=Red Potion quantity=2"));
     assert!(human.contains("0\t\"Ask\""));
 
     let json: serde_json::Value = serde_json::from_str(&render_json(42, 1, 2, &snapshot)).unwrap();
     assert_eq!(json["snapshot"]["event_sequence"], 12);
     assert_eq!(json["snapshot"]["updated_tick_ms"], 125);
     assert_eq!(json["snapshot"]["dialog"]["revision"], 7);
+    assert_eq!(json["snapshot"]["exchange"]["partner"], "ZiLo");
+    assert_eq!(
+        json["snapshot"]["exchange"]["local"]["items"][0]["quantity"],
+        2
+    );
     assert_eq!(
         json["snapshot"]["dialog"]["interaction"],
         serde_json::json!({

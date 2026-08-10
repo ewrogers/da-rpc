@@ -307,6 +307,15 @@ pub(crate) fn execute(pid: u32, operation: Operation) -> Result<CommandResult> {
             };
             request_action(&mut session, pid, action, CommandKind::Group(command))
         }
+        Operation::Exchange(command) => {
+            let action = match command {
+                darpc_protocol::ExchangeCommand::AddItem { .. } => "exchange item",
+                darpc_protocol::ExchangeCommand::SetGold(_) => "exchange gold",
+                darpc_protocol::ExchangeCommand::Accept => "exchange accept",
+                darpc_protocol::ExchangeCommand::Cancel => "exchange cancel",
+            };
+            request_action(&mut session, pid, action, CommandKind::Exchange(command))
+        }
         Operation::Who => request_who(&mut session, pid),
         Operation::CommandStatus(command_id) => request_command(
             &mut session,

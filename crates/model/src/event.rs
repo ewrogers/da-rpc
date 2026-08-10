@@ -1,7 +1,7 @@
 use crate::{
     CharacterModifiers, CharacterStats, ClientMessage, ClientSnapshot, DialogUpdate, Direction,
-    Effect, EntityUpdate, EquipmentSlot, GroupUpdate, InventoryItem, MapLocation, ObjectUpdate,
-    Skill, Spell,
+    Effect, EntityUpdate, EquipmentSlot, ExchangeUpdate, GroupUpdate, InventoryItem, MapLocation,
+    ObjectUpdate, Skill, Spell,
 };
 use std::{error::Error, fmt};
 
@@ -29,6 +29,7 @@ pub enum StateUpdate {
     Entity(EntityUpdate),
     Dialog(DialogUpdate),
     Group(GroupUpdate),
+    Exchange(ExchangeUpdate),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -503,6 +504,12 @@ impl ClientSnapshot {
                     self.group = Some(state.clone());
                 }
             }
+            StateUpdate::Exchange(update) => match update {
+                ExchangeUpdate::Completed { .. } | ExchangeUpdate::Cancelled { .. } => {
+                    self.exchange = None;
+                }
+                update => self.exchange = Some(update.state().clone()),
+            },
         }
         self.revision = event.revision;
         self.event_sequence = event.sequence;

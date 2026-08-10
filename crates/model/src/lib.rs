@@ -4,6 +4,7 @@ mod dialog;
 mod emote;
 mod entity;
 mod event;
+mod exchange;
 mod group;
 mod message;
 mod object;
@@ -30,6 +31,7 @@ pub use dialog::{
 
 pub use emote::{NAMED_EMOTES, NamedEmote, emote_code, is_client_emote_code};
 pub use entity::EntityUpdate;
+pub use exchange::{ExchangeItem, ExchangeOffer, ExchangeParty, ExchangeState, ExchangeUpdate};
 
 pub use message::{ClientMessage, MessageKind};
 

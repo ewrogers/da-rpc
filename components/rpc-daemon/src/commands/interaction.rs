@@ -306,7 +306,7 @@ pub(crate) async fn emote(
     submit_action(&state, pid, identity, ProtocolKind::Emote(code)).await
 }
 
-fn resolve_item<'a>(
+pub(super) fn resolve_item<'a>(
     pid: u32,
     snapshot: &'a GameSnapshot,
     slot: Option<u8>,
@@ -333,7 +333,11 @@ fn resolve_item<'a>(
         .ok_or_else(|| bad_request(pid, "the item was not found in the current inventory"))
 }
 
-fn validate_item_quantity(pid: u32, item: &InventoryItem, quantity: u32) -> Result<(), ApiError> {
+pub(super) fn validate_item_quantity(
+    pid: u32,
+    item: &InventoryItem,
+    quantity: u32,
+) -> Result<(), ApiError> {
     if quantity == 0 || quantity > item.quantity || (!item.can_stack && quantity != 1) {
         return Err(bad_request(
             pid,
@@ -407,7 +411,7 @@ fn matches_name(object: &WorldObject, name: &str, human: bool) -> bool {
     }
 }
 
-fn item_slot(pid: u32, slot: u8) -> Result<ItemSlot, ApiError> {
+pub(super) fn item_slot(pid: u32, slot: u8) -> Result<ItemSlot, ApiError> {
     ItemSlot::new(slot).ok_or_else(|| bad_request(pid, "item slot is outside 1 through 59"))
 }
 

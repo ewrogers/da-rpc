@@ -737,6 +737,12 @@ Current implementation:
   group-open setting are retained and exposed through REST and ordered events.
   Native main-thread commands invite visible players, answer prompts, and use
   the client's group toggle to open grouping or leave an active group.
+- Player exchanges retain both offers, validate and submit items or gold on the
+  client main thread, and expose accept and cancel through direct IPC, REST,
+  OpenAPI, and ordered events. Stack quantities are submitted without opening
+  the native quantity prompt. An independent launch option replaces only the
+  terminal completed and cancelled alerts with nonblocking floating messages
+  for unattended automation.
 - The server-ordered online-player list is available through direct IPC and
   REST without opening the client panel. Requests coalesce for one second,
   time out after three seconds, and support class and guildmate filters.
@@ -787,5 +793,6 @@ supported.
 ## Immediate next increment
 
 M16 remains focused on bounded packet observation and local fail-open rules.
-The supported action, dialog, group, and online-player paths provide the live
-behavior needed to exercise those rules before multi-client preview hardening.
+The supported action, dialog, group, exchange, and online-player paths provide
+the live behavior needed to exercise those rules before multi-client preview
+hardening.

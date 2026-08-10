@@ -7,7 +7,8 @@ daemon rather than internal client memory.
 
 daRPC presents each game client as a set of familiar resources. Character
 status, items, equipment, skills, spells, effects, nearby objects, messages,
-dialogs, and groups each have their own REST route and documentation chapter.
+dialogs, groups, and player exchanges each have their own REST route and
+documentation chapter.
 
 This chapter explains the behavior they share. The individual chapters focus
 on what a Dark Ages player or tool author can do with each kind of data.
@@ -22,9 +23,11 @@ on what a Dark Ages player or tool author can do with each kind of data.
 | [Skills](skills.md) | `/skills` | Skillbook changes and skill use | `/skills/use`, `/skills/swap` |
 | [Spells](spells.md) | `/spells` | Spellbook changes and casting stages | `/spells/cast`, `/spells/swap` |
 | [Effects](effects.md) | `/effects` | Effects added, changed, or removed | None |
-| [World and movement](world.md) | `/objects` and `/status` | Location, walking, and visible objects | `/turn` and `/walk` |
+| [World](world.md) | `/objects` and `/status` | Location, visible objects, and entity visuals | None |
+| [Movement and emotes](movement.md) | `/status` | Walking and character actions | `/turn`, `/walk`, and `/emote` |
 | [Messages](messages.md) | `/messages` | Chat and system messages by channel | None |
 | [Groups](groups.md) | `/group` | Invitations, settings, and roster changes | Group actions |
+| [Player exchanges](exchanges.md) | `/exchange` | Both offers and acceptance state | Offer, accept, and cancel actions |
 
 All client routes begin with `/clients/{client}`. The `{client}` value may be a
 process ID or the current character name. See [Choosing a client](web-api.md#choosing-a-client)

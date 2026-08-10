@@ -198,6 +198,10 @@ fn encode_event(output: &mut Vec<u8>, event: &StateEvent) -> Result<(), EncodeEr
             output.push(14);
             crate::group::encode_update(output, update)?;
         }
+        StateUpdate::Exchange(update) => {
+            output.push(15);
+            crate::exchange::encode_update(output, update)?;
+        }
     }
     Ok(())
 }
@@ -230,6 +234,7 @@ fn decode_event(reader: &mut PayloadReader<'_>) -> Result<StateEvent, DecodeErro
         12 => StateUpdate::Entity(decode_entity(reader)?),
         13 => StateUpdate::Dialog(crate::dialog::decode_update(reader)?),
         14 => StateUpdate::Group(crate::group::decode_update(reader)?),
+        15 => StateUpdate::Exchange(crate::exchange::decode_update(reader)?),
         actual => return Err(DecodeError::InvalidStateUpdateType { actual }),
     };
     Ok(StateEvent {

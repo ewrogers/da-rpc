@@ -137,6 +137,7 @@ pub struct ClientSnapshot {
     pub objects: Option<Vec<crate::WorldObject>>,
     pub dialog: Option<crate::DialogState>,
     pub group: Option<crate::GroupState>,
+    pub exchange: Option<crate::ExchangeState>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

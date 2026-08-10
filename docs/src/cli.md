@@ -65,6 +65,10 @@ darpc group toggle --pid <pid>
 darpc group invite --pid <pid> <player>
 darpc group accept --pid <pid> <invitation-id>
 darpc group decline --pid <pid> <invitation-id>
+darpc exchange item --pid <pid> <slot> [quantity]
+darpc exchange gold --pid <pid> <amount>
+darpc exchange accept --pid <pid>
+darpc exchange cancel --pid <pid>
 darpc who --pid <pid>
 darpc command status --pid <pid> <command-id>
 darpc command cancel --pid <pid> <command-id>
@@ -115,7 +119,7 @@ and connection lifecycle. Their behavior is:
   and uses the first empty inventory slot available at execution time.
 - `unequip` accepts the client's one-based equipment slot number from 1 through
   18. `emote` accepts a confirmed case-insensitive name such as `wave`, or a
-  normal client UI emote code. See [World and movement](world.md#emotes) for
+  normal client UI emote code. See [Movement and emotes](movement.md#emotes) for
   the named list.
 - `interact` starts a conversation with one visible Mundane object ID.
   `dialog select` submits a zero-based displayed row and optional nonzero
@@ -127,6 +131,11 @@ and connection lifecycle. Their behavior is:
   validated ASCII player name. `group accept` and `group decline` answer one
   retained invitation ID. Direct `snapshot` exposes retained group state, but
   the daemon API adds visible-name resolution, REST resources, and live events.
+- `exchange item` adds a live inventory slot to an already open player
+  exchange. Quantity defaults to 1 and is limited to 255. `exchange gold` sets
+  one nonzero amount no greater than the current character gold. `exchange
+  accept` and `exchange cancel` wait for the server to finish or close the
+  ordinary exchange window.
 - `who` requests the server-ordered online-player list, waits up to three
   seconds, and suppresses only its own client panel. Requests within one second
   share an in-flight or recently completed result.

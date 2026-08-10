@@ -5,6 +5,7 @@ fn snapshot_decoder_accepts_the_pre_dialog_protocol_1_0_tail() {
     let mut snapshot = snapshot();
     snapshot.dialog = None;
     snapshot.group = None;
+    snapshot.exchange = None;
     let frame = Frame::new(
         7,
         123,
@@ -16,7 +17,8 @@ fn snapshot_decoder_accepts_the_pre_dialog_protocol_1_0_tail() {
     let mut bytes = encode_frame(&frame).unwrap();
     assert_eq!(bytes.pop(), Some(0));
     assert_eq!(bytes.pop(), Some(0));
-    let payload_len = u32::from_le_bytes(bytes[16..20].try_into().unwrap()) - 2;
+    assert_eq!(bytes.pop(), Some(0));
+    let payload_len = u32::from_le_bytes(bytes[16..20].try_into().unwrap()) - 3;
     bytes[16..20].copy_from_slice(&payload_len.to_le_bytes());
 
     let decoded = decode_frame(&bytes).unwrap();

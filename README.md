@@ -152,6 +152,7 @@ loader.exe detach <pid> <path-to-darpc.dll>
 
 ```text
 loader.exe launch --allow-multiple --skip-intro --skip-notice \
+    --skip-exchange-alerts \
     <path-to-Darkages.exe> <path-to-darpc.dll>
 ```
 

@@ -70,10 +70,11 @@ they need:
 | `GET /clients/{client}/skills` | [Skills](skills.md) |
 | `GET /clients/{client}/spells` | [Spells](spells.md) |
 | `GET /clients/{client}/effects` | [Effects](effects.md) |
-| `GET /clients/{client}/objects` | [World and movement](world.md) |
+| `GET /clients/{client}/objects` | [World](world.md) |
 | `GET /clients/{client}/messages` | [Messages](messages.md) |
 | `GET /clients/{client}/dialog` | [NPC dialogs](dialogs.md) |
 | `GET /clients/{client}/group` | [Groups](groups.md) |
+| `GET /clients/{client}/exchange` | [Player exchanges](exchanges.md) |
 | `GET /clients/{client}/who` | [Online players](online.md) |
 
 Most routes read the daemon's retained state and do not ask the DLL to scan the
@@ -114,16 +115,22 @@ the game and how they change.
 | `POST /clients/{client}/group/invite` | Invite a visible player. |
 | `POST /clients/{client}/group/invitations/{id}/accept` | Accept a pending invitation. |
 | `POST /clients/{client}/group/invitations/{id}/decline` | Decline a pending invitation. |
+| `POST /clients/{client}/exchange/items` | Add an inventory item to the current exchange. |
+| `POST /clients/{client}/exchange/gold` | Set the local exchange gold once. |
+| `POST /clients/{client}/exchange/accept` | Accept the current exchange. |
+| `POST /clients/{client}/exchange/cancel` | Cancel the current exchange. |
 | `POST /clients/{client}/commands/diagnostic` | Run a no-op main-thread command for testing. |
 | `GET /clients/{client}/commands/{command_id}` | Read retained command status. |
 | `DELETE /clients/{client}/commands/{command_id}` | Cancel a command that has not started. |
 
-Movement request bodies are documented in [World and movement](world.md).
+Movement request bodies are documented in
+[Movement and emotes](movement.md).
 Item, gold, and pickup bodies are documented in [Inventory](inventory.md).
 Equipment, skill, and spell arguments are documented in their respective
 chapters. NPC interaction, revision checks, and dialog responses are documented
 in [NPC dialogs](dialogs.md). Group state, invitations, and roster confirmation
-are documented in [Groups](groups.md).
+are documented in [Groups](groups.md). Player offers, constraints, and exchange
+completion are documented in [Player exchanges](exchanges.md).
 
 ### Native command results
 
@@ -221,6 +228,7 @@ Available launch options are:
 {
     client_path,
     allow_multiple: false,
+    skip_exchange_alerts: false,
     skip_intro: false,
     skip_notice: false,
     server: null,
@@ -230,8 +238,11 @@ Available launch options are:
 `client_path` must be a fully qualified Windows drive or Universal Naming
 Convention (UNC) path. Its parent directory becomes the client's working
 directory. `server` accepts `host` or `host:port`, with port 2610 as the
-default. The API does not accept arbitrary game arguments or request-selected
-loader and DLL paths.
+default. `skip_exchange_alerts` replaces the one-button result shown after a
+completed or cancelled player exchange with the same text in the floating
+game-message bar without changing the exchange itself.
+The API does not accept arbitrary game arguments or request-selected loader and
+DLL paths.
 
 Load reports whether it actually changed an unloaded client. Unload reports
 whether it actually changed a loaded client. Launch returns the new process ID

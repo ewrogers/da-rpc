@@ -26,6 +26,7 @@ use utoipa::ToSchema;
 
 pub(crate) mod ability;
 pub(crate) mod dialog;
+pub(crate) mod exchange;
 pub(crate) mod group;
 pub(crate) mod interaction;
 pub(crate) mod movement;
@@ -39,6 +40,10 @@ pub(crate) use dialog::{
     DialogInputOptions, DialogRevisionOptions, DialogSelectOptions, InteractOptions,
     close as close_dialog, input as dialog_input, interact, next as dialog_next,
     previous as dialog_previous, select as dialog_select,
+};
+pub(crate) use exchange::{
+    AddExchangeItemOptions, SetExchangeGoldOptions, accept as accept_exchange,
+    add_item as add_exchange_item, cancel as cancel_exchange, set_gold as set_exchange_gold,
 };
 pub(crate) use group::{
     GroupInviteOptions, accept as accept_group_invitation, decline as decline_group_invitation,
@@ -278,6 +283,7 @@ pub(crate) enum CommandKind {
     SwapSkills,
     Group,
     Who,
+    Exchange,
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
@@ -618,6 +624,7 @@ impl From<ProtocolKind> for CommandKind {
             ProtocolKind::SwapSlots(SlotSwap::Skillbook { .. }) => Self::SwapSkills,
             ProtocolKind::Group(_) => Self::Group,
             ProtocolKind::Who => Self::Who,
+            ProtocolKind::Exchange(_) => Self::Exchange,
         }
     }
 }

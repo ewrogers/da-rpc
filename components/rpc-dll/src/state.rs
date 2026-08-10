@@ -46,6 +46,16 @@ use update::*;
 pub(crate) fn observe_outgoing(body: &[u8], tick_ms: u32) {
     ability::observe_outgoing(body, tick_ms);
     action::observe_outgoing(body, tick_ms);
+    crate::exchange::observe_outgoing(body, tick_ms);
+}
+
+pub(crate) fn current_gold() -> Option<u32> {
+    // SAFETY: commands run on the client main thread, which owns the cache.
+    unsafe { CACHE.gold() }
+}
+
+pub(crate) fn observe_exchange(update: crate::exchange::QueuedExchange, tick_ms: u32) -> bool {
+    push_event(QueuedStateUpdate::Exchange(update), tick_ms)
 }
 
 pub(crate) fn observe_spell_cancelled(tick_ms: u32) {

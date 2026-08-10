@@ -290,7 +290,7 @@ with another map.
 ## Walking and character action events
 
 Read the current flags and position from `GET /clients/{client}/status`. See
-[World and movement](world.md) for the action routes.
+[Movement and emotes](movement.md) for the action routes.
 
 | SSE event | JSON type |
 | --- | --- |
@@ -481,7 +481,7 @@ different from the temporary `player.effect`, `monster.effect`, and
 ## World object events
 
 Read the currently retained view from `GET /clients/{client}/objects`. See
-[World and movement](world.md) for object fields, view-range behavior, and map
+[World](world.md) for object fields, view-range behavior, and map
 boundaries.
 
 Players, monsters, and Mundanes each publish the same four actions:
@@ -676,6 +676,55 @@ consumer's retained value with that `group` instead of applying an inferred
 partial change. `group.invitation_sent` only confirms local submission because
 the game does not send a direct response when the other player declines.
 
+## Player exchange events
+
+Read the current offer from `GET /clients/{client}/exchange`. The
+[Player exchanges](exchanges.md) chapter explains initiation, quantity handling,
+one-time gold, acceptance, and cancellation.
+
+```text
+exchange.opened
+ExchangeOpened {
+    observation: EventObservation,
+    exchange: ExchangeState,
+}
+
+exchange.item_added
+ExchangeItemAdded {
+    observation: EventObservation,
+    party: ExchangeParty,
+    item: ExchangeItem,
+    exchange: ExchangeState,
+}
+
+exchange.gold_changed
+ExchangeGoldChanged {
+    observation: EventObservation,
+    party: ExchangeParty,
+    gold: u32,
+    exchange: ExchangeState,
+}
+
+exchange.accepted
+ExchangeAccepted {
+    observation: EventObservation,
+    party: ExchangeParty,
+    message: string,
+    exchange: ExchangeState,
+}
+
+exchange.completed | exchange.cancelled
+ExchangeFinished {
+    observation: EventObservation,
+    message: string,
+    exchange: ExchangeState,
+}
+```
+
+`party` is `local` or `other`. Each event includes the complete offer state at
+that point. Replace a consumer's retained value with `exchange` instead of
+trying to infer state from only the changed field.
+
 ## Complete event index
 
 | Domain | Events | REST recovery route |
@@ -692,6 +741,7 @@ the game does not send a direct response when the other player declines.
 | Messages | `message.say`, `message.shout`, `message.whisper`, `message.guild`, `message.group`, `message.system`, `message.world` | `/messages` |
 | NPC dialogs | `dialog.opened`, `dialog.changed`, `dialog.submitted`, `dialog.closed` | `/dialog` |
 | Groups | `group.settings_changed`, `group.invitation_sent`, `group.invitation_received`, `group.invitation_closed`, `group.joined`, `group.member_joined`, `group.member_left`, `group.disbanded` | `/group`, then `/status` for convenience fields |
+| Player exchanges | `exchange.opened`, `exchange.item_added`, `exchange.gold_changed`, `exchange.accepted`, `exchange.completed`, `exchange.cancelled` | `/exchange`, then `/status` for `is_in_exchange` |
 
 The OpenAPI document at `/openapi.json` remains the exact machine-readable
 schema for these payloads. This chapter is the human-readable reference.

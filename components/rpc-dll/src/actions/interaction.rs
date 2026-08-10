@@ -24,6 +24,12 @@ pub(super) fn use_item(slot: ItemSlot) -> Result<(), CommandFailure> {
     Ok(())
 }
 
+pub(crate) fn validate_item_quantity(slot: ItemSlot, quantity: u32) -> Result<(), CommandFailure> {
+    Inventory::resolve()?
+        .item(slot)?
+        .validate_quantity(quantity)
+}
+
 pub(super) fn drop_item(transfer: ItemTransfer) -> Result<(), CommandFailure> {
     let item = Inventory::resolve()?.item(transfer.slot)?;
     item.validate_quantity(transfer.quantity)?;

@@ -13,6 +13,8 @@ mod dialog;
 #[cfg(any(windows, test))]
 mod event_queue;
 #[cfg(any(windows, test))]
+mod exchange;
+#[cfg(any(windows, test))]
 mod group;
 #[cfg(windows)]
 mod hooks;

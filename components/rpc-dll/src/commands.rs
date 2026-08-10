@@ -1,9 +1,10 @@
 use darpc_model::{Direction, EquipmentSlot};
 use darpc_protocol::{
     CommandFailure, CommandKind, CommandOperation, CommandResult, CommandState, CommandStatus,
-    DialogAction, DialogCommand, DialogText, GoldTransfer, GroupCommand, GroupInvitationAction,
-    GroupText, ItemSlot, ItemTransfer, MAX_DIALOG_INPUT_LEN, SkillSlot, SlotSwap, SpellArguments,
-    SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkTarget,
+    DialogAction, DialogCommand, DialogText, ExchangeCommand, GoldTransfer, GroupCommand,
+    GroupInvitationAction, GroupText, ItemSlot, ItemTransfer, MAX_DIALOG_INPUT_LEN, SkillSlot,
+    SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition,
+    TransferTarget, WalkTarget,
 };
 use std::{
     panic,
@@ -701,6 +702,12 @@ fn stored_kind(kind: CommandKind) -> (u8, u32, u32, u32, Option<StoredInput>) {
             action: GroupInvitationAction::Decline,
         }) => (32, invitation_id, 0, 0, None),
         CommandKind::Who => (34, 0, 0, 0, None),
+        CommandKind::Exchange(ExchangeCommand::AddItem { slot, quantity }) => {
+            (35, u32::from(slot.get()), u32::from(quantity), 0, None)
+        }
+        CommandKind::Exchange(ExchangeCommand::SetGold(amount)) => (36, amount, 0, 0, None),
+        CommandKind::Exchange(ExchangeCommand::Accept) => (37, 0, 0, 0, None),
+        CommandKind::Exchange(ExchangeCommand::Cancel) => (38, 0, 0, 0, None),
     }
 }
 
@@ -895,6 +902,17 @@ fn kind_from_value(
         }),
         33 => CommandKind::Group(GroupCommand::Toggle),
         34 => CommandKind::Who,
+        35 => ItemSlot::new(argument_x as u8)
+            .map(|slot| {
+                CommandKind::Exchange(ExchangeCommand::AddItem {
+                    slot,
+                    quantity: argument_y as u8,
+                })
+            })
+            .unwrap_or(CommandKind::Diagnostic),
+        36 => CommandKind::Exchange(ExchangeCommand::SetGold(argument_x)),
+        37 => CommandKind::Exchange(ExchangeCommand::Accept),
+        38 => CommandKind::Exchange(ExchangeCommand::Cancel),
         _ => CommandKind::Diagnostic,
     }
 }

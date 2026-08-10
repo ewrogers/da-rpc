@@ -24,16 +24,18 @@ use darpc_model::{
     DialogSpriteType as ModelDialogSpriteType, DialogState as ModelDialogState,
     DialogTarget as ModelDialogTarget, Direction as ModelDirection, Effect as ModelEffect,
     EffectDuration as ModelEffectDuration, EquipmentItem as ModelEquipmentItem,
-    EquipmentSlot as ModelEquipmentSlot, Gender, InventoryItem as ModelInventoryItem, MapLocation,
-    MessageKind as ModelMessageKind, Skill as ModelSkill, Spell as ModelSpell,
-    SpellCastArguments as ModelSpellCastArguments, SpellTargetType as ModelSpellTargetType,
-    StateEvent, StateUpdate, WorldObject as ModelWorldObject,
+    EquipmentSlot as ModelEquipmentSlot, ExchangeItem as ModelExchangeItem,
+    ExchangeOffer as ModelExchangeOffer, ExchangeState as ModelExchangeState, Gender,
+    InventoryItem as ModelInventoryItem, MapLocation, MessageKind as ModelMessageKind,
+    Skill as ModelSkill, Spell as ModelSpell, SpellCastArguments as ModelSpellCastArguments,
+    SpellTargetType as ModelSpellTargetType, StateEvent, StateUpdate,
+    WorldObject as ModelWorldObject,
 };
 use darpc_protocol::{
     Architecture, CommandKind, CommandOperation, CommandResult, CommandState, CommandStatus,
-    ComponentVersion, DialogAction, DialogCommand, GoldTransfer, Hello, ItemSlot, ItemTransfer,
-    SUPPORTED_VERSIONS, SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot,
-    SpellTarget, TilePosition, TransferTarget, WalkTarget,
+    ComponentVersion, DialogAction, DialogCommand, ExchangeCommand, GoldTransfer, Hello, ItemSlot,
+    ItemTransfer, SUPPORTED_VERSIONS, SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput,
+    SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkTarget,
 };
 use serde_json::Value;
 use std::{
@@ -251,10 +253,35 @@ fn game_snapshot() -> ModelClientSnapshot {
             }]),
         }),
         group: None,
+        exchange: None,
     }
 }
 
+fn exchange_snapshot() -> ModelClientSnapshot {
+    let mut snapshot = game_snapshot();
+    snapshot.exchange = Some(ModelExchangeState {
+        id: 1234,
+        partner: "ZiLo".into(),
+        local: ModelExchangeOffer {
+            items: vec![ModelExchangeItem {
+                index: 0,
+                sprite: 123,
+                dye_color: 4,
+                quantity: Some(2),
+                name: "Wine".into(),
+            }],
+            ..ModelExchangeOffer::default()
+        },
+        other: ModelExchangeOffer::default(),
+    });
+    snapshot
+}
+
 fn state() -> ApiState {
+    state_with_snapshot(game_snapshot())
+}
+
+fn state_with_snapshot(snapshot: ModelClientSnapshot) -> ApiState {
     let mut registry = Registry::new();
     let hello = hello();
     registry.apply(&ConnectionEvent::Connected {
@@ -265,7 +292,7 @@ fn state() -> ApiState {
     registry.apply(&ConnectionEvent::Snapshot {
         pid: 42,
         identity: RegistryClientIdentity::from_hello(hello),
-        snapshot: Box::new(game_snapshot()),
+        snapshot: Box::new(snapshot),
     });
     let (events, _receiver) = mpsc::channel();
     ApiState::new(registry.snapshot(), Arc::new(FakeLifecycle), events)
@@ -316,11 +343,15 @@ fn response(path: &str) -> axum::response::Response {
 }
 
 fn json(path: &str) -> Value {
+    json_with_state(state(), path)
+}
+
+fn json_with_state(state: ApiState, path: &str) -> Value {
     tokio::runtime::Builder::new_current_thread()
         .build()
         .unwrap()
         .block_on(async {
-            let response = router(state())
+            let response = router(state)
                 .oneshot(Request::get(path).body(Body::empty()).unwrap())
                 .await
                 .unwrap();
@@ -375,6 +406,15 @@ fn post_json(state: ApiState, path: &str, body: &str) -> axum::response::Respons
 }
 
 fn assert_routes_action(path: &str, body: &str, expected_kind: CommandKind) {
+    assert_routes_action_with_snapshot(path, body, expected_kind, game_snapshot());
+}
+
+fn assert_routes_action_with_snapshot(
+    path: &str,
+    body: &str,
+    expected_kind: CommandKind,
+    snapshot: ModelClientSnapshot,
+) {
     let mut registry = Registry::new();
     let hello = hello();
     let identity = RegistryClientIdentity::from_hello(hello);
@@ -386,7 +426,7 @@ fn assert_routes_action(path: &str, body: &str, expected_kind: CommandKind) {
     registry.apply(&ConnectionEvent::Snapshot {
         pid: 42,
         identity,
-        snapshot: Box::new(game_snapshot()),
+        snapshot: Box::new(snapshot),
     });
     let (events, _event_receiver) = mpsc::channel();
     let (commands, command_receiver) = mpsc::sync_channel(ROUTER_CAPACITY);
@@ -701,6 +741,101 @@ fn serves_dialog_state_and_rejects_stale_actions() {
 }
 
 #[test]
+fn serves_exchange_state_and_routes_exchange_actions() {
+    let snapshot = exchange_snapshot();
+    let exchange = json_with_state(
+        state_with_snapshot(snapshot.clone()),
+        "/clients/42/exchange",
+    );
+    assert_eq!(exchange["exchange"]["partner"], "ZiLo");
+    assert_eq!(exchange["exchange"]["local"]["gold"], 0);
+    assert_eq!(exchange["exchange"]["local"]["items"][0]["quantity"], 2);
+    let status = json_with_state(state_with_snapshot(snapshot.clone()), "/clients/42/status");
+    assert_eq!(status["character"]["is_in_exchange"], true);
+
+    assert_routes_action_with_snapshot(
+        "/clients/42/exchange/items",
+        r#"{"name":"dark belt","quantity":2}"#,
+        CommandKind::Exchange(ExchangeCommand::AddItem {
+            slot: ItemSlot::new(1).unwrap(),
+            quantity: 2,
+        }),
+        snapshot.clone(),
+    );
+    assert_routes_action_with_snapshot(
+        "/clients/42/exchange/gold",
+        r#"{"amount":50}"#,
+        CommandKind::Exchange(ExchangeCommand::SetGold(50)),
+        snapshot.clone(),
+    );
+    assert_routes_action_with_snapshot(
+        "/clients/42/exchange/accept",
+        "",
+        CommandKind::Exchange(ExchangeCommand::Accept),
+        snapshot.clone(),
+    );
+    assert_routes_action_with_snapshot(
+        "/clients/42/exchange/cancel",
+        "",
+        CommandKind::Exchange(ExchangeCommand::Cancel),
+        snapshot,
+    );
+}
+
+#[test]
+fn exchange_actions_enforce_offer_rules() {
+    assert_eq!(
+        post_json(state(), "/clients/42/exchange/accept", "").status(),
+        StatusCode::CONFLICT
+    );
+    for (path, body) in [
+        ("/clients/42/exchange/items", r#"{"slot":1,"quantity":0}"#),
+        ("/clients/42/exchange/items", r#"{"slot":1,"quantity":4}"#),
+        ("/clients/42/exchange/gold", r#"{"amount":0}"#),
+        ("/clients/42/exchange/gold", r#"{"amount":100}"#),
+    ] {
+        assert_eq!(
+            post_json(state_with_snapshot(exchange_snapshot()), path, body).status(),
+            StatusCode::BAD_REQUEST,
+            "request unexpectedly succeeded: {path} {body}"
+        );
+    }
+
+    let mut gold_set = exchange_snapshot();
+    gold_set.exchange.as_mut().unwrap().local.gold = 1;
+    assert_eq!(
+        post_json(
+            state_with_snapshot(gold_set),
+            "/clients/42/exchange/gold",
+            r#"{"amount":1}"#,
+        )
+        .status(),
+        StatusCode::CONFLICT
+    );
+
+    let mut accepted = exchange_snapshot();
+    accepted.exchange.as_mut().unwrap().local.accepted = true;
+    assert_eq!(
+        post_json(
+            state_with_snapshot(accepted.clone()),
+            "/clients/42/exchange/items",
+            r#"{"slot":1}"#,
+        )
+        .status(),
+        StatusCode::CONFLICT
+    );
+    assert_eq!(
+        post_json(
+            state_with_snapshot(accepted),
+            "/clients/42/exchange/gold",
+            r#"{"amount":1}"#,
+        )
+        .status(),
+        StatusCode::CONFLICT
+    );
+}
+
+#[test]
 fn rejects_invalid_movement_requests() {
     for (path, body) in [
         ("/clients/42/turn", r#"{"direction":"up"}"#),
@@ -845,6 +980,7 @@ fn serves_health_and_client_resources() {
     assert_eq!(status["character"]["is_action_restricted"], false);
     assert_eq!(status["character"]["is_blinded"], true);
     assert_eq!(status["character"]["is_walking"], false);
+    assert_eq!(status["character"]["is_in_exchange"], false);
     assert!(status["character"].get("gender_id").is_none());
     assert!(status["character"].get("class_id").is_none());
     assert!(status["character"].get("inventory").is_none());
@@ -1179,6 +1315,11 @@ fn serves_the_openapi_contract_and_vendored_swagger_ui() {
         "/clients/{client}/equipment/unequip",
         "/clients/{client}/gold/drop",
         "/clients/{client}/gold/give",
+        "/clients/{client}/exchange",
+        "/clients/{client}/exchange/items",
+        "/clients/{client}/exchange/gold",
+        "/clients/{client}/exchange/accept",
+        "/clients/{client}/exchange/cancel",
         "/clients/{client}/emote",
         "/clients/{client}/commands/diagnostic",
         "/clients/{client}/commands/{command_id}",
@@ -1278,6 +1419,19 @@ fn serves_the_openapi_contract_and_vendored_swagger_ui() {
         "SpellFailureReason",
         "SpellReceived",
         "ReceivedSpellKind",
+        "ExchangeSnapshot",
+        "ExchangeState",
+        "ExchangeOffer",
+        "ExchangeItem",
+        "ExchangeParty",
+        "ExchangeOpened",
+        "ExchangeItemAdded",
+        "ExchangeGoldChanged",
+        "ExchangeAccepted",
+        "ExchangeCompleted",
+        "ExchangeCancelled",
+        "AddExchangeItemOptions",
+        "SetExchangeGoldOptions",
         "CommandStatus",
         "CommandKind",
         "CommandState",
@@ -1309,6 +1463,12 @@ fn serves_the_openapi_contract_and_vendored_swagger_ui() {
         "spell_succeeded",
         "spell_failed",
         "spell_received",
+        "exchange_opened",
+        "exchange_item_added",
+        "exchange_gold_changed",
+        "exchange_accepted",
+        "exchange_completed",
+        "exchange_cancelled",
     ] {
         assert!(event_variants.iter().any(|variant| {
             variant["properties"]["type"]["enum"]
@@ -1323,6 +1483,7 @@ fn serves_the_openapi_contract_and_vendored_swagger_ui() {
             .iter()
             .any(|field| field == "client_path")
     );
+    assert!(schemas["LaunchOptions"]["properties"]["skip_exchange_alerts"].is_object());
     assert!(schemas["LoadResult"]["properties"]["was_loaded"].is_object());
     assert!(schemas["LoadResult"]["properties"]["changed"].is_null());
     assert!(schemas["UnloadResult"]["properties"]["was_unloaded"].is_object());
@@ -1447,7 +1608,7 @@ fn rejects_arbitrary_launch_arguments() {
 #[test]
 fn accepts_a_full_client_path_and_defaults_the_server_port() {
     let request: LaunchOptions = serde_json::from_str(
-        r#"{"client_path":"D:\\Games\\Dark Ages\\Darkages.exe","server":"da0.kru.com"}"#,
+        r#"{"client_path":"D:\\Games\\Dark Ages\\Darkages.exe","server":"da0.kru.com","skip_exchange_alerts":true}"#,
     )
     .unwrap();
     let options = ManagedLaunchOptions::try_from(request).unwrap();
@@ -1455,6 +1616,7 @@ fn accepts_a_full_client_path_and_defaults_the_server_port() {
         options.client_path,
         std::path::PathBuf::from(r"D:\Games\Dark Ages\Darkages.exe")
     );
+    assert!(options.skip_exchange_alerts);
     let server = options.server.unwrap();
     assert_eq!(server.host, "da0.kru.com");
     assert_eq!(server.port, 2610);
@@ -1496,6 +1658,7 @@ fn rejects_invalid_server_strings() {
         let request = LaunchOptions {
             client_path: r"C:\Darkages.exe".into(),
             allow_multiple: false,
+            skip_exchange_alerts: false,
             skip_intro: false,
             skip_notice: false,
             server: Some(server.into()),

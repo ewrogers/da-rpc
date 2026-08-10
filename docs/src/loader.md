@@ -56,14 +56,14 @@ loader [--json] inspect <pid>
 loader [--json] attach <pid> <dll-path>
 loader [--json] detach <pid> <dll-path>
 loader [--json] launch [--allow-multiple] [--server <host[:port]>] \
-    [--skip-intro] [--skip-notice] \
+    [--skip-intro] [--skip-notice] [--skip-exchange-alerts] \
     <executable-path> <dll-path> [-- <argument>...]
 ```
 
 Arguments after the `--` separator are forwarded to the launched executable.
 The executable path is also supplied explicitly as its `argv[0]`.
 
-The four launch options are independent, may be combined, and are disabled by
+The five launch options are independent, may be combined, and are disabled by
 default. They apply only to a new suspended child. `attach` never modifies
 client startup behavior.
 
@@ -73,6 +73,7 @@ client startup behavior.
 | `--server <host[:port]>` | Resolves the host to IPv4, enables the client's positional endpoint parser, and disables fallback to the official endpoint. The default port is 2610. |
 | `--skip-intro` | Enters the client's normal post-video state directly. |
 | `--skip-notice` | Hides both notice-window paths, enables early title-menu pointer input, and removes the fixed one-second transfer delay while preserving normal notice and transfer processing. |
+| `--skip-exchange-alerts` | Replaces the one-button alert shown after a player exchange completes or is cancelled with the same text in the floating game-message bar. Exchange state and item or gold transfers are unchanged. |
 
 ### Standard launch profile
 
@@ -80,7 +81,8 @@ The standard project profile passes all four launch options explicitly:
 
 ```text
 loader.exe launch --allow-multiple --server <host[:port]> \
-    --skip-intro --skip-notice <executable-path> <dll-path>
+    --skip-intro --skip-notice --skip-exchange-alerts \
+    <executable-path> <dll-path>
 ```
 
 Use `--server 127.0.0.1:2610` when intentionally routing through
@@ -325,12 +327,13 @@ Complete the interactive portion of behavioral acceptance privately:
 Verify optional launch patches with automated current-user launches where
 practical. Exercise each option independently, then launch two clients
 concurrently with `--allow-multiple --skip-intro --skip-notice` and, when needed,
-`--server <host[:port]>`. Confirm that the intro and notice are absent, both
-clients reach normal login, the selected endpoint is used, and ordinary login
-and exit behavior remain intact. An unflagged launch remains the comparison
-case. An explicit server is strict: if that connection fails, the client follows
-its normal disconnected cleanup and does not retry the compiled official
-endpoint.
+`--skip-exchange-alerts` or `--server <host[:port]>`. Confirm that the intro and
+notice are absent, both clients reach normal login, terminal exchange alerts
+are absent only when requested, the selected endpoint is used, and ordinary
+login and exit behavior remain intact. An unflagged launch remains the
+comparison case. An explicit server is strict: if that connection fails, the
+client follows its normal disconnected cleanup and does not retry the compiled
+official endpoint.
 
 The loader-owned startup patches run between suspended process validation and
 DLL initialization. Hooks and trampolines owned by daRPC remain the

@@ -1,5 +1,9 @@
 use crate::{
     dialog::{DialogChanged, DialogClosed, DialogOpened, DialogSubmitted},
+    exchange::{
+        ExchangeAccepted, ExchangeCancelled, ExchangeCompleted, ExchangeGoldChanged,
+        ExchangeItemAdded, ExchangeOpened,
+    },
     group::{
         GroupDisbanded, GroupInvitationClosed, GroupInvitationReceived, GroupInvitationSent,
         GroupJoined, GroupMemberChanged, GroupSettingsChanged,
@@ -142,6 +146,12 @@ pub(crate) enum ClientEvent {
     GroupMemberJoined(GroupMemberChanged),
     GroupMemberLeft(GroupMemberChanged),
     GroupDisbanded(GroupDisbanded),
+    ExchangeOpened(ExchangeOpened),
+    ExchangeItemAdded(ExchangeItemAdded),
+    ExchangeGoldChanged(ExchangeGoldChanged),
+    ExchangeAccepted(ExchangeAccepted),
+    ExchangeCompleted(ExchangeCompleted),
+    ExchangeCancelled(ExchangeCancelled),
     StreamResyncRequired(StreamResyncRequired),
     StreamClosed(StreamClosed),
 }
@@ -228,6 +238,12 @@ impl ClientEvent {
             Self::GroupMemberJoined(_) => "group.member_joined",
             Self::GroupMemberLeft(_) => "group.member_left",
             Self::GroupDisbanded(_) => "group.disbanded",
+            Self::ExchangeOpened(_) => "exchange.opened",
+            Self::ExchangeItemAdded(_) => "exchange.item_added",
+            Self::ExchangeGoldChanged(_) => "exchange.gold_changed",
+            Self::ExchangeAccepted(_) => "exchange.accepted",
+            Self::ExchangeCompleted(_) => "exchange.completed",
+            Self::ExchangeCancelled(_) => "exchange.cancelled",
             Self::StreamResyncRequired(_) => "stream.resync_required",
             Self::StreamClosed(_) => "stream.closed",
         }
@@ -315,6 +331,12 @@ impl ClientEvent {
                 value.observation.event_sequence
             }
             Self::GroupDisbanded(value) => value.observation.event_sequence,
+            Self::ExchangeOpened(value) => value.observation.event_sequence,
+            Self::ExchangeItemAdded(value) => value.observation.event_sequence,
+            Self::ExchangeGoldChanged(value) => value.observation.event_sequence,
+            Self::ExchangeAccepted(value) => value.observation.event_sequence,
+            Self::ExchangeCompleted(value) => value.observation.event_sequence,
+            Self::ExchangeCancelled(value) => value.observation.event_sequence,
             Self::StreamResyncRequired(value) => value.last_event_sequence,
             Self::StreamClosed(value) => value.last_event_sequence,
         }

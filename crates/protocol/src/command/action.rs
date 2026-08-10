@@ -38,6 +38,15 @@ pub enum CommandKind {
     Dialog(DialogCommand),
     Group(GroupCommand),
     Who,
+    Exchange(ExchangeCommand),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExchangeCommand {
+    AddItem { slot: ItemSlot, quantity: u8 },
+    SetGold(u32),
+    Accept,
+    Cancel,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -436,6 +445,20 @@ pub(super) fn encode_kind(output: &mut Vec<u8>, kind: CommandKind) {
             }
         }
         CommandKind::Who => output.push(17),
+        CommandKind::Exchange(command) => {
+            output.push(18);
+            match command {
+                ExchangeCommand::AddItem { slot, quantity } => {
+                    output.extend_from_slice(&[1, slot.get(), quantity]);
+                }
+                ExchangeCommand::SetGold(amount) => {
+                    output.push(2);
+                    push_u32(output, amount);
+                }
+                ExchangeCommand::Accept => output.push(3),
+                ExchangeCommand::Cancel => output.push(4),
+            }
+        }
     }
 }
 
@@ -577,6 +600,16 @@ pub(super) fn decode_kind(reader: &mut PayloadReader<'_>) -> Result<CommandKind,
             actual => Err(DecodeError::InvalidGroupField { actual }),
         },
         17 => Ok(CommandKind::Who),
+        18 => Ok(CommandKind::Exchange(match reader.read_u8()? {
+            1 => ExchangeCommand::AddItem {
+                slot: decode_item_slot(reader)?,
+                quantity: reader.read_u8()?,
+            },
+            2 => ExchangeCommand::SetGold(reader.read_u32()?),
+            3 => ExchangeCommand::Accept,
+            4 => ExchangeCommand::Cancel,
+            actual => return Err(DecodeError::InvalidExchangeField { actual }),
+        })),
         actual => Err(DecodeError::InvalidCommandKind { actual }),
     }
 }

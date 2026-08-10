@@ -10,8 +10,8 @@ remain concise.
 ## Current focus
 
 M15, the first typed client actions, is complete. M16 is in progress with
-bounded packet observation, native actions, and NPC dialog interaction.
-Immutable local rules remain.
+bounded packet observation, native actions, NPC dialog interaction, and
+end-to-end player exchanges. Immutable local rules remain.
 
 ## Milestone snapshot
 
@@ -35,7 +35,7 @@ Immutable local rules remain.
 | M13, event-driven updates | Complete | Bounded status, location, spell-effect, collection, world-object, and typed message updates, daemon reduction and message lookback, resynchronization, per-client SSE, and live-client acceptance pass. |
 | M14, main-thread command queue | Complete | Fixed DLL and daemon queues, one command per tick, direct CLI and REST routing, explicit states, and live-client verification pass. |
 | M15, first typed action | Complete | Native turn, directional step, exact-tile pathfinding, non-disruptive skill use, validation, walking state and events, and live direct and REST verification pass. |
-| M16, packet observation and local rules | In progress | Bounded action observation plus typed movement, ability, item, gold, equipment, pickup, emote, and NPC dialog actions are implemented; local rules remain. |
+| M16, packet observation and local rules | In progress | Bounded action observation plus typed movement, ability, item, gold, equipment, pickup, emote, NPC dialog, group, Who, and player-exchange actions are implemented; local rules remain. |
 
 ## Completed recently
 
@@ -125,6 +125,15 @@ Immutable local rules remain.
   confirmation, and final dialog state.
 - [x] Live-tested default item quantity, tile drop, pickup, empty-slot failure,
   excessive stack quantity failure, and the normal player exchange flow.
+- [x] Added retained two-party exchange offers, stack-aware item and one-time
+  gold submission, accept and cancel actions, direct CLI and REST resources,
+  OpenAPI schemas, and ordered exchange events.
+- [x] Live-verified cancellation and completion on stock clients, including an
+  exact one-item transfer, cleared exchange state, and continued client
+  responsiveness.
+- [x] Added an independent launch option that replaces only completed and
+  cancelled exchange alerts with the same nonblocking floating message while
+  preserving native exchange handling.
 
 ## M15 completion evidence
 

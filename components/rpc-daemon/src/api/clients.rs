@@ -84,6 +84,26 @@ pub(super) async fn client_group(
 
 #[utoipa::path(
     get,
+    path = "/clients/{client}/exchange",
+    params(("client" = String, Path, description = "Process ID or current in-game character name")),
+    responses(
+        (status = 200, description = "The current player exchange, or null when none is open", body = ExchangeSnapshot),
+        (status = 400, body = ErrorState),
+        (status = 404, body = ErrorState),
+        (status = 503, body = ErrorState)
+    )
+)]
+pub(super) async fn client_exchange(
+    Path(identifier): Path<String>,
+    State(state): State<ApiState>,
+) -> Result<Json<ExchangeSnapshot>, ApiError> {
+    let registry = state.snapshot();
+    let (pid, snapshot) = resolve_game_snapshot(&registry, &identifier)?;
+    Ok(Json(ExchangeSnapshot::from_model(pid, snapshot)))
+}
+
+#[utoipa::path(
+    get,
     path = "/clients/{client}/items",
     params(("client" = String, Path, description = "Process ID or current in-game character name")),
     responses(

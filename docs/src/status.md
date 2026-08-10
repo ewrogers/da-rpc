@@ -58,6 +58,7 @@ Character {
     is_casting: bool,
     is_walking: bool,
     is_group_open: bool?,
+    is_in_exchange: bool,
     group_members: Vec<GroupMember>,
     gold: u32,
     weight: u32,
@@ -112,6 +113,9 @@ spell activation can still be available.
 `is_blinded` follows the blind state retained from the character's latest
 status update.
 
+`is_in_exchange` is true while daRPC retains an open player exchange. The full
+offer is available from [`GET /exchange`](exchanges.md).
+
 ## Appearance limits
 
 Gender, hairstyle, hair color, and body sprite come from the local character's
@@ -153,4 +157,5 @@ Appearance and lifecycle changes do not currently have dedicated SSE event
 names. A new in-game world produces a fresh baseline, and a process disconnect
 closes the stream. Consumers should reread status after reconnecting.
 
-See [World and movement](world.md) for map transition and route details.
+See [World](world.md) for map transitions and
+[Movement and emotes](movement.md) for route details.

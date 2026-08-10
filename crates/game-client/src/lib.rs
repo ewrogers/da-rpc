@@ -7,9 +7,9 @@ pub use runtime::{
     ADVANCE_PATH_RVA, BUILD_PATH_RVA, CLIENT_MAIN_THREAD_ID_RVA, CLIENT_PACKET_SUBMIT_ENTRY,
     CLIENT_PACKET_SUBMIT_RVA, CLIENT_SOCKET_POINTER_RVA, EVENT_DISPATCH_ENTRY, EVENT_DISPATCH_RVA,
     EVENT_DISPATCHER_POINTER_RVA, EVENT_DISPATCHER_TICK_ENTRY, EVENT_DISPATCHER_TICK_RVA,
-    GUI_BACK_PANE_GET_RVA, ITEM_ACTIVATE_RVA, MAP_SIZE_HANDLER_ENTRY, MAP_SIZE_HANDLER_RVA,
-    NPC_SESSION_COL_RVAS, RESET_MOVEMENT_RVA, SELF_OBJECT_RVA, SKILL_ACTIVATE_RVA,
-    SPELL_DELAY_ACTIVE_OFFSET, SPELL_DELAY_CONTROL_PANE_GET_RVA,
+    GAME_MESSAGE_APPEND_RVA, GUI_BACK_PANE_GET_RVA, ITEM_ACTIVATE_RVA, MAP_SIZE_HANDLER_ENTRY,
+    MAP_SIZE_HANDLER_RVA, NPC_SESSION_COL_RVAS, RESET_MOVEMENT_RVA, SELF_OBJECT_RVA,
+    SKILL_ACTIVATE_RVA, SPELL_DELAY_ACTIVE_OFFSET, SPELL_DELAY_CONTROL_PANE_GET_RVA,
     SPELL_DELAY_CONTROL_PANE_POINTER_RVA, SPELL_DENIED_RVA, SPELL_NO_ARGS_RVA, SPELL_START_RVA,
     SPELL_TARGET_RVA, TURN_RVA, WALK_RVA, WORLD_ENTITY_INTERACTION_RVA, WORLD_PANE_ADJUSTMENT,
     WORLD_PANE_POINTER_RVA, WORLD_PANE_ROUTE_ACTIVE_OFFSET,
@@ -107,6 +107,33 @@ pub const SKIP_NOTICE_PATCHES: &[LaunchPatch] = &[
     },
 ];
 
+pub const CANCELLED_EXCHANGE_ALERT_PATCH: LaunchPatch = LaunchPatch {
+    name: "skip cancelled exchange alert",
+    rva: 0x0006_AA81,
+    expected: &[
+        0x6A, 0x00, 0x68, 0x34, 0x06, 0x00, 0x00, 0xE8, 0x43, 0x9A, 0x04, 0x00,
+    ],
+    replacement: &[
+        0x31, 0xC0, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
+    ],
+};
+
+pub const COMPLETED_EXCHANGE_ALERT_PATCH: LaunchPatch = LaunchPatch {
+    name: "skip completed exchange alert",
+    rva: 0x0006_AC57,
+    expected: &[
+        0x6A, 0x00, 0x68, 0x34, 0x06, 0x00, 0x00, 0xE8, 0x6D, 0x98, 0x04, 0x00,
+    ],
+    replacement: &[
+        0x31, 0xC0, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90, 0x90,
+    ],
+};
+
+pub const SKIP_EXCHANGE_ALERTS_PATCHES: &[LaunchPatch] = &[
+    CANCELLED_EXCHANGE_ALERT_PATCH,
+    COMPLETED_EXCHANGE_ALERT_PATCH,
+];
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClientExecutable {
     path: PathBuf,
@@ -186,8 +213,8 @@ fn encode_hash(hash: &[u8; 32]) -> String {
 mod tests {
     use super::{
         ALLOW_MULTIPLE_PATCHES, COMMAND_LINE_ENDPOINT_PATCHES, ClientExecutable,
-        DISABLE_ENDPOINT_FALLBACK_PATCHES, EXECUTABLE_SHA256, EXECUTABLE_SIZE, SKIP_INTRO_PATCHES,
-        SKIP_NOTICE_PATCHES, executable_sha256,
+        DISABLE_ENDPOINT_FALLBACK_PATCHES, EXECUTABLE_SHA256, EXECUTABLE_SIZE,
+        SKIP_EXCHANGE_ALERTS_PATCHES, SKIP_INTRO_PATCHES, SKIP_NOTICE_PATCHES, executable_sha256,
     };
     use std::{fs, process};
 
@@ -208,9 +235,10 @@ mod tests {
             .chain(DISABLE_ENDPOINT_FALLBACK_PATCHES)
             .chain(SKIP_INTRO_PATCHES)
             .chain(SKIP_NOTICE_PATCHES)
+            .chain(SKIP_EXCHANGE_ALERTS_PATCHES)
             .collect::<Vec<_>>();
 
-        assert_eq!(patches.len(), 8);
+        assert_eq!(patches.len(), 10);
 
         for patch in &patches {
             assert!(!patch.expected.is_empty());

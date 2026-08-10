@@ -7,6 +7,11 @@ use crate::{
         DialogSubmitted,
     },
     event::DaemonEvent,
+    exchange::{
+        ExchangeAccepted, ExchangeCancelled, ExchangeCompleted, ExchangeGoldChanged, ExchangeItem,
+        ExchangeItemAdded, ExchangeOffer, ExchangeOpened, ExchangeParty, ExchangeSnapshot,
+        ExchangeState,
+    },
     group::{
         GroupDisbanded, GroupInvitation, GroupInvitationCloseReason, GroupInvitationClosed,
         GroupInvitationReceived, GroupInvitationSent, GroupJoined, GroupMember, GroupMemberChanged,
@@ -356,6 +361,23 @@ fn router(state: ApiState) -> Router {
         .route("/clients/{client}/status", get(client_status))
         .route("/clients/{client}/dialog", get(client_dialog))
         .route("/clients/{client}/group", get(client_group))
+        .route("/clients/{client}/exchange", get(client_exchange))
+        .route(
+            "/clients/{client}/exchange/items",
+            post(crate::commands::add_exchange_item),
+        )
+        .route(
+            "/clients/{client}/exchange/gold",
+            post(crate::commands::set_exchange_gold),
+        )
+        .route(
+            "/clients/{client}/exchange/accept",
+            post(crate::commands::accept_exchange),
+        )
+        .route(
+            "/clients/{client}/exchange/cancel",
+            post(crate::commands::cancel_exchange),
+        )
         .route("/clients/{client}/who", get(crate::commands::who))
         .route(
             "/clients/{client}/group/invite",
@@ -512,6 +534,8 @@ async fn reject_request_body(request: Request<Body>, next: Next) -> Response {
             || request.uri().path().ends_with("/equipment/unequip")
             || request.uri().path().ends_with("/gold/drop")
             || request.uri().path().ends_with("/gold/give")
+            || request.uri().path().ends_with("/exchange/items")
+            || request.uri().path().ends_with("/exchange/gold")
             || request.uri().path().ends_with("/emote")
             || request.uri().path().ends_with("/interact")
             || request.uri().path().ends_with("/dialog/select")
@@ -554,6 +578,7 @@ fn openapi() -> utoipa::openapi::OpenApi {
         client_status,
         client_dialog,
         client_group,
+        client_exchange,
         crate::commands::who::who,
         client_items,
         client_equipment,
@@ -592,6 +617,10 @@ fn openapi() -> utoipa::openapi::OpenApi {
         crate::commands::group::toggle,
         crate::commands::group::accept,
         crate::commands::group::decline,
+        crate::commands::exchange::add_item,
+        crate::commands::exchange::set_gold,
+        crate::commands::exchange::accept,
+        crate::commands::exchange::cancel,
         crate::commands::status,
         crate::commands::cancel
     ),
@@ -664,6 +693,17 @@ fn openapi() -> utoipa::openapi::OpenApi {
         GroupJoined,
         GroupMemberChanged,
         GroupDisbanded,
+        ExchangeSnapshot,
+        ExchangeState,
+        ExchangeOffer,
+        ExchangeItem,
+        ExchangeParty,
+        ExchangeOpened,
+        ExchangeItemAdded,
+        ExchangeGoldChanged,
+        ExchangeAccepted,
+        ExchangeCompleted,
+        ExchangeCancelled,
         crate::commands::WhoList,
         crate::commands::WhoPlayer,
         crate::commands::WhoClass,
@@ -678,6 +718,8 @@ fn openapi() -> utoipa::openapi::OpenApi {
         ClientEvent,
         crate::commands::DiagnosticOptions,
         crate::commands::GroupInviteOptions,
+        crate::commands::AddExchangeItemOptions,
+        crate::commands::SetExchangeGoldOptions,
         crate::commands::ActionDirection,
         crate::commands::TurnOptions,
         crate::commands::WalkDirectionOptions,

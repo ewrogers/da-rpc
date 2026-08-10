@@ -86,6 +86,7 @@ pub(crate) enum ServerUpdate<'a> {
     Visual(VisualUpdate),
     Dialog(&'a [u8]),
     Group(&'a [u8]),
+    Exchange(&'a [u8]),
 }
 
 pub(crate) fn update<'a>(
@@ -100,6 +101,12 @@ pub(crate) fn update<'a>(
     }
     if matches!(body.first(), Some(0x39 | 0x63)) {
         return Ok(Some(ServerUpdate::Group(body)));
+    }
+    if body.first() == Some(&0x42) {
+        if body.len() < 2 {
+            return Err(ParseError::truncated(1, 1, 0));
+        }
+        return Ok(Some(ServerUpdate::Exchange(body)));
     }
     if let Some(update) = message::update(body)? {
         return Ok(Some(ServerUpdate::Message(update)));

@@ -149,12 +149,15 @@ The complete payload structures and batch rules are in
 
 These names refer only to carried inventory. Ground items use
 `item.appeared`, `item.disappeared`, and `item.moved` as described in
-[World and movement](world.md).
+[World](world.md).
 
 Action events describe an outgoing request observed at the client's normal
 packet boundary. Giving an item opens the game's ordinary exchange flow; it
 does not mean the other player accepted it. Later inventory and gold state
 events confirm results accepted by the server.
+
+Continue an open offer, set gold, accept, or cancel through the
+[player exchange API](exchanges.md).
 
 Each inventory event contains:
 

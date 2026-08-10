@@ -51,10 +51,13 @@ impl GameStatus {
         Self {
             observation: ObservationMetadata::from_model(pid, snapshot),
             lifecycle: ClientLifecycle::from(snapshot.lifecycle),
-            character: snapshot
-                .character
-                .as_ref()
-                .map(|character| CharacterStatus::from_model(character, snapshot.group.as_ref())),
+            character: snapshot.character.as_ref().map(|character| {
+                CharacterStatus::from_model(
+                    character,
+                    snapshot.group.as_ref(),
+                    snapshot.exchange.is_some(),
+                )
+            }),
             map: snapshot.character.as_ref().and_then(|character| {
                 character.location.as_ref().map(|location| MapLocation {
                     id: location.id,
@@ -185,6 +188,7 @@ pub(crate) struct CharacterStatus {
     is_casting: bool,
     is_walking: bool,
     is_group_open: Option<bool>,
+    is_in_exchange: bool,
     group_members: Vec<crate::group::GroupMember>,
     gold: u32,
     weight: u32,
@@ -196,7 +200,11 @@ pub(crate) struct CharacterStatus {
 }
 
 impl CharacterStatus {
-    fn from_model(value: &ModelCharacterSnapshot, group: Option<&darpc_model::GroupState>) -> Self {
+    fn from_model(
+        value: &ModelCharacterSnapshot,
+        group: Option<&darpc_model::GroupState>,
+        is_in_exchange: bool,
+    ) -> Self {
         Self {
             id: value.id,
             name: value.name.clone(),
@@ -212,6 +220,7 @@ impl CharacterStatus {
             is_casting: value.is_casting,
             is_walking: value.is_walking,
             is_group_open: group.and_then(|group| group.is_group_open),
+            is_in_exchange,
             group_members: group
                 .map(|group| {
                     group

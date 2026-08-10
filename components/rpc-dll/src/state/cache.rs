@@ -386,6 +386,11 @@ impl MainThreadCache {
         unsafe { (&*self.0.get()).self_id }
     }
 
+    pub(super) unsafe fn gold(&self) -> Option<u32> {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&*self.0.get()).gold }
+    }
+
     pub(super) unsafe fn self_name(&self) -> Option<([u8; 16], u8)> {
         // SAFETY: the caller guarantees exclusive main-thread access.
         let cache = unsafe { &*self.0.get() };

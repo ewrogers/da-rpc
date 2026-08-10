@@ -105,8 +105,9 @@ candidate signal.
 
 Launch requests expose the client executable path and only the supported
 startup choices: allow multiple clients, skip the intro, skip the notice
-sequence, and optionally select a server endpoint. The API never accepts
-arbitrary process arguments or request-selected loader and DLL paths.
+sequence, suppress terminal exchange alerts, and optionally select a server
+endpoint. The API never accepts arbitrary process arguments or request-selected
+loader and DLL paths.
 
 The current console output reports transitions such as:
 

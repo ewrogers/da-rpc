@@ -122,6 +122,7 @@ fn kind(kind: CommandKind) -> &'static str {
         CommandKind::Dialog(_) => "dialog",
         CommandKind::Group(_) => "group",
         CommandKind::Who => "who",
+        CommandKind::Exchange(_) => "exchange",
     }
 }
 

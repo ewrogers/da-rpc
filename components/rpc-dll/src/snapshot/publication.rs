@@ -1,6 +1,7 @@
 use super::convert;
 
 use crate::dialog::RawDialog;
+use crate::exchange::RawExchange;
 use darpc_game_client::{RawObjects, RawStateSnapshot, StateReadError};
 use darpc_model::ClientSnapshot;
 use darpc_win32::pipe::sender_tick_ms;
@@ -38,9 +39,15 @@ pub(super) fn read() -> Option<Publication> {
     let stored = reader.stored();
     Some(Publication {
         request_generation: stored.request_generation,
-        result: stored
-            .result
-            .map(|ready| convert::snapshot(ready, reader.raw(), reader.objects(), reader.dialog())),
+        result: stored.result.map(|ready| {
+            convert::snapshot(
+                ready,
+                reader.raw(),
+                reader.objects(),
+                reader.dialog(),
+                reader.exchange(),
+            )
+        }),
     })
 }
 
@@ -50,6 +57,7 @@ struct PublicationSlot {
     snapshot: UnsafeCell<SnapshotBuffer>,
     objects: UnsafeCell<RawObjects>,
     dialog: UnsafeCell<RawDialog>,
+    exchange: UnsafeCell<RawExchange>,
 }
 
 // SAFETY: access to `value` is exclusively transferred between the main-thread
@@ -64,6 +72,7 @@ impl PublicationSlot {
             snapshot: UnsafeCell::new(SnapshotBuffer::new()),
             objects: UnsafeCell::new(RawObjects::empty()),
             dialog: UnsafeCell::new(RawDialog::empty()),
+            exchange: UnsafeCell::new(RawExchange::empty()),
         }
     }
 
@@ -142,6 +151,9 @@ impl PublicationWriter<'_> {
         // SAFETY: publication runs on the main thread while this writer owns
         // the destination slot, so both dialog copies are stable.
         unsafe { crate::dialog::copy_current(&mut *self.slot.dialog.get()) };
+        // SAFETY: publication runs on the main thread while this writer owns
+        // the destination slot, so the exchange copy is stable.
+        unsafe { crate::exchange::copy_current(&mut *self.slot.exchange.get()) };
         self.finish(StoredPublication {
             request_generation,
             result: Ok(ReadyPublication {
@@ -203,6 +215,11 @@ impl PublicationReader<'_> {
     fn dialog(&self) -> RawDialog {
         // SAFETY: READING excludes the writer and RawDialog is Copy.
         unsafe { *self.slot.dialog.get() }
+    }
+
+    fn exchange(&self) -> RawExchange {
+        // SAFETY: READING excludes the writer and RawExchange is Copy.
+        unsafe { *self.slot.exchange.get() }
     }
 }
 

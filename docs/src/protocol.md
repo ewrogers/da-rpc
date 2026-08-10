@@ -216,6 +216,28 @@ struct ClientSnapshot {
     objects: Option<Vec<WorldObject>>;
     dialog: Option<DialogState>;
     group: Option<GroupState>;
+    exchange: Option<ExchangeState>;
+}
+
+struct ExchangeState {
+    id: u32;
+    partner: string16;                     // maximum 255 UTF-8 bytes
+    local: ExchangeOffer;
+    other: ExchangeOffer;
+}
+
+struct ExchangeOffer {
+    items: Vec<ExchangeItem>;              // u8 count, maximum 8
+    gold: u32;
+    accepted: bool;
+}
+
+struct ExchangeItem {
+    index: u8;                             // zero-based, 0 through 7
+    sprite: u16;
+    dye_color: u8;
+    quantity: Option<u8>;
+    name: string16;                        // maximum 255 UTF-8 bytes
 }
 
 struct GroupState {
@@ -373,7 +395,7 @@ enum EffectDuration: u8 {
 }
 ```
 
-The dialog and group fields were appended during protocol 1.0 development. A
+The dialog, group, and exchange fields were appended during protocol 1.0 development. A
 1.0 decoder accepts an older snapshot that ends after `objects`, or after the
 dialog field, and treats the missing tail fields as `None`. New encoders always
 include both optional-field markers.
@@ -455,6 +477,21 @@ enum StateUpdate: u8 {
     Entity(EntityUpdate) = 12,
     Dialog(DialogUpdate) = 13,
     Group(GroupUpdate) = 14,
+    Exchange(ExchangeUpdate) = 15,
+}
+
+enum ExchangeUpdate: u8 {
+    Opened(ExchangeState) = 1,
+    ItemAdded { state: ExchangeState, party: ExchangeParty, item: ExchangeItem } = 2,
+    GoldChanged { state: ExchangeState, party: ExchangeParty, gold: u32 } = 3,
+    Accepted { state: ExchangeState, party: ExchangeParty, message: string16 } = 4,
+    Completed { state: ExchangeState, message: string16 } = 5,
+    Cancelled { state: ExchangeState, message: string16 } = 6,
+}
+
+enum ExchangeParty: u8 {
+    Local = 0,
+    Other = 1,
 }
 
 enum GroupUpdate: u8 {
@@ -746,6 +783,14 @@ enum CommandKind: u8 {
     Dialog(DialogCommand) = 15,
     Group(GroupCommand) = 16,
     Who = 17,
+    Exchange(ExchangeCommand) = 18,
+}
+
+enum ExchangeCommand: u8 {
+    AddItem { slot: u8, quantity: u8 } = 1,
+    SetGold { amount: u32 } = 2,
+    Accept = 3,
+    Cancel = 4,
 }
 
 enum GroupCommand: u8 {

@@ -4,9 +4,10 @@ use darpc_model::{
     ClientMessage, ClientSnapshot, CollectionChange, CooldownStatus, CoreStatus, CreatureKind,
     CurrentVitals, DialogChoice, DialogInteraction, DialogKind, DialogNavigation, DialogSpeaker,
     DialogSpriteType, DialogState, DialogTarget, DialogUpdate, Direction, Effect, EffectDuration,
-    EffectUpdate, Element, EntityUpdate, EquipmentItem, EquipmentSlot, Gender, GroupInvitation,
-    GroupMember, GroupState, GroupUpdate, InventoryItem, LocationUpdate, MapChange, MapLocation,
-    MessageKind, MovementUpdate, ObjectUpdate, ProgressionStatus, Skill, SlotUpdate, Spell,
+    EffectUpdate, Element, EntityUpdate, EquipmentItem, EquipmentSlot, ExchangeItem, ExchangeOffer,
+    ExchangeParty, ExchangeState, ExchangeUpdate, Gender, GroupInvitation, GroupMember, GroupState,
+    GroupUpdate, InventoryItem, LocationUpdate, MapChange, MapLocation, MessageKind,
+    MovementUpdate, ObjectUpdate, ProgressionStatus, Skill, SlotUpdate, Spell,
     SpellCancellationSource, SpellCastArguments, SpellTargetType, StateEvent, StateUpdate,
     StatusUpdate, TilePosition, UserState, WhoList, WhoPlayer, WorldObject,
 };
@@ -14,14 +15,15 @@ use darpc_protocol::{
     Architecture, CommandFailure, CommandKind, CommandOperation, CommandRequest, CommandResponse,
     CommandResult, CommandState, CommandStatus, ComponentVersion, DecodeError, DialogAction,
     DialogCommand, DialogText, EchoRequest, EchoResponse, EncodeError, EventPollRequest,
-    EventPollResponse, EventPollResult, FRAME_HEADER_LEN, FRAME_MAGIC, FRAME_VERSION, Frame,
-    FrameHeader, GoldTransfer, GroupCommand, GroupInvitationAction, GroupText, Hello, HelloAck,
-    ItemSlot, ItemTransfer, MAX_COMMAND_TIMEOUT_MS, MAX_COMMAND_WAIT_MS, MAX_ECHO_TEXT_LEN,
-    MAX_PAYLOAD_LEN, Message, MessageType, PROTOCOL_VERSION_1_0, Ping, Pong, SkillSlot, SlotSwap,
-    SnapshotRequest, SnapshotResponse, SnapshotResult, SnapshotUnavailableReason, SpellArguments,
-    SpellCast, SpellInput, SpellSlot, SpellTarget, TickHealthRequest, TickHealthResponse,
-    TilePosition as CommandTilePosition, TransferTarget, VersionRange, WalkTarget, decode_frame,
-    decode_header, encode_frame, protocol_version, protocol_version_major, protocol_version_minor,
+    EventPollResponse, EventPollResult, ExchangeCommand, FRAME_HEADER_LEN, FRAME_MAGIC,
+    FRAME_VERSION, Frame, FrameHeader, GoldTransfer, GroupCommand, GroupInvitationAction,
+    GroupText, Hello, HelloAck, ItemSlot, ItemTransfer, MAX_COMMAND_TIMEOUT_MS,
+    MAX_COMMAND_WAIT_MS, MAX_ECHO_TEXT_LEN, MAX_PAYLOAD_LEN, Message, MessageType,
+    PROTOCOL_VERSION_1_0, Ping, Pong, SkillSlot, SlotSwap, SnapshotRequest, SnapshotResponse,
+    SnapshotResult, SnapshotUnavailableReason, SpellArguments, SpellCast, SpellInput, SpellSlot,
+    SpellTarget, TickHealthRequest, TickHealthResponse, TilePosition as CommandTilePosition,
+    TransferTarget, VersionRange, WalkTarget, decode_frame, decode_header, encode_frame,
+    protocol_version, protocol_version_major, protocol_version_minor,
 };
 
 fn hello() -> Hello {
@@ -182,6 +184,7 @@ fn snapshot() -> ClientSnapshot {
         ]),
         dialog: Some(dialog_state()),
         group: Some(group_state()),
+        exchange: Some(exchange_state()),
     }
 }
 
@@ -204,6 +207,25 @@ fn group_state() -> GroupState {
         }],
         is_group_open: Some(true),
         auto_accept: Some(false),
+    }
+}
+
+fn exchange_state() -> ExchangeState {
+    ExchangeState {
+        id: 0x1122_3344,
+        partner: "ZiLo".into(),
+        local: ExchangeOffer {
+            items: vec![ExchangeItem {
+                index: 0,
+                sprite: 321,
+                dye_color: 4,
+                quantity: Some(3),
+                name: "Wine".into(),
+            }],
+            gold: 1_000,
+            accepted: false,
+        },
+        other: ExchangeOffer::default(),
     }
 }
 

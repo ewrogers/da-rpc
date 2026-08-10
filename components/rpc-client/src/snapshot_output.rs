@@ -10,9 +10,11 @@ use crate::output::json_string;
 
 mod collections;
 mod dialog;
+mod exchange;
 
 use collections::*;
 use dialog::*;
+use exchange::*;
 
 pub(crate) fn render_human(
     pid: u32,
@@ -41,6 +43,7 @@ pub(crate) fn render_human(
         output.push_str("\ncharacter: unavailable");
         render_group(&mut output, snapshot.group.as_ref());
         render_dialog(&mut output, snapshot.dialog.as_ref());
+        render_exchange(&mut output, snapshot.exchange.as_ref());
         crate::object_output::render_human(&mut output, snapshot.objects.as_deref());
         return output;
     };
@@ -131,6 +134,7 @@ pub(crate) fn render_human(
     render_collections(&mut output, character);
     render_group(&mut output, snapshot.group.as_ref());
     render_dialog(&mut output, snapshot.dialog.as_ref());
+    render_exchange(&mut output, snapshot.exchange.as_ref());
     crate::object_output::render_human(&mut output, snapshot.objects.as_deref());
     output
 }
@@ -167,6 +171,7 @@ fn snapshot_value(snapshot: &ClientSnapshot) -> serde_json::Value {
         }),
         "dialog": snapshot.dialog.as_ref().map(dialog_value),
         "group": snapshot.group.as_ref().map(group_value),
+        "exchange": snapshot.exchange.as_ref().map(exchange_value),
     })
 }
 

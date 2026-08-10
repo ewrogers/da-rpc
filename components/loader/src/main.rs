@@ -32,7 +32,7 @@ usage:
     loader [--json] attach <pid> <dll-path>
     loader [--json] detach <pid> <dll-path>
     loader [--json] launch [--allow-multiple] [--server <host[:port]>] \
-        [--skip-intro] [--skip-notice] \
+        [--skip-intro] [--skip-notice] [--skip-exchange-alerts] \
         <executable-path> <dll-path> [-- <argument>...]";
 
 #[derive(Debug, Eq, PartialEq)]
@@ -172,6 +172,7 @@ fn parse_launch(mut arguments: impl Iterator<Item = OsString>) -> Result<Command
             }
             Some("--skip-intro") => patches.skip_intro = true,
             Some("--skip-notice") => patches.skip_notice = true,
+            Some("--skip-exchange-alerts") => patches.skip_exchange_alerts = true,
             Some(option) if option.starts_with("--") => {
                 return Err(invalid_arguments(format!(
                     "unknown launch option: `{option}`\n{USAGE}"
@@ -439,6 +440,7 @@ mod tests {
                 "--allow-multiple",
                 "--skip-intro",
                 "--skip-notice",
+                "--skip-exchange-alerts",
                 "target.exe",
                 "darpc.dll",
             ]))
@@ -450,6 +452,7 @@ mod tests {
                 patches: LaunchPatches {
                     allow_multiple: true,
                     command_line_endpoint: false,
+                    skip_exchange_alerts: true,
                     skip_intro: true,
                     skip_notice: true,
                 },

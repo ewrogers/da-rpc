@@ -15,6 +15,8 @@ mod discovery;
 #[cfg(any(windows, test))]
 mod event;
 #[cfg(any(windows, test))]
+mod exchange;
+#[cfg(any(windows, test))]
 mod group;
 #[cfg(any(windows, test))]
 mod lifecycle;

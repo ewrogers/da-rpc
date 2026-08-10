@@ -4,10 +4,11 @@ use crate::{
 };
 use darpc_model::{Direction, EquipmentSlot, emote_code, is_client_emote_code};
 use darpc_protocol::{
-    DialogAction, DialogCommand, DialogText, GoldTransfer, GroupCommand, GroupInvitationAction,
-    GroupText, ItemSlot, ItemTransfer, MAX_DIALOG_INPUT_LEN, MAX_ECHO_TEXT_LEN, MAX_ITEM_SLOT,
-    MAX_SKILL_SLOT, MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT, SkillSlot, SlotSwap, SpellArguments,
-    SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkTarget,
+    DialogAction, DialogCommand, DialogText, ExchangeCommand, GoldTransfer, GroupCommand,
+    GroupInvitationAction, GroupText, ItemSlot, ItemTransfer, MAX_DIALOG_INPUT_LEN,
+    MAX_ECHO_TEXT_LEN, MAX_ITEM_SLOT, MAX_SKILL_SLOT, MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT,
+    SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget,
+    TilePosition, TransferTarget, WalkTarget,
 };
 use std::ffi::OsString;
 
@@ -48,6 +49,10 @@ usage:
     darpc [--output <table|json>] group invite --pid <pid> <player>
     darpc [--output <table|json>] group accept --pid <pid> <invitation-id>
     darpc [--output <table|json>] group decline --pid <pid> <invitation-id>
+    darpc [--output <table|json>] exchange item --pid <pid> <slot> [quantity]
+    darpc [--output <table|json>] exchange gold --pid <pid> <amount>
+    darpc [--output <table|json>] exchange accept --pid <pid>
+    darpc [--output <table|json>] exchange cancel --pid <pid>
     darpc [--output <table|json>] who --pid <pid>
     darpc [--output <table|json>] command status --pid <pid> <command-id>
     darpc [--output <table|json>] command cancel --pid <pid> <command-id>";
@@ -82,6 +87,7 @@ pub(crate) enum Operation {
     Interact(std::num::NonZeroU32),
     Dialog(DialogCommand),
     Group(GroupCommand),
+    Exchange(ExchangeCommand),
     Who,
     CommandStatus(u32),
     CommandCancel(u32),
@@ -142,6 +148,10 @@ impl Command {
                 action: GroupInvitationAction::Decline,
                 ..
             }) => "group decline",
+            Operation::Exchange(ExchangeCommand::AddItem { .. }) => "exchange item",
+            Operation::Exchange(ExchangeCommand::SetGold(_)) => "exchange gold",
+            Operation::Exchange(ExchangeCommand::Accept) => "exchange accept",
+            Operation::Exchange(ExchangeCommand::Cancel) => "exchange cancel",
             Operation::Who => "who",
             Operation::CommandStatus(_) => "command status",
             Operation::CommandCancel(_) => "command cancel",
@@ -244,6 +254,20 @@ pub(crate) fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
             invitation_id: parse_group_invitation_id(arguments.next())?,
             action: GroupInvitationAction::Decline,
         }),
+        "exchange item" => Operation::Exchange(ExchangeCommand::AddItem {
+            slot: parse_item_slot(arguments.next())?,
+            quantity: arguments
+                .next()
+                .map(|value| parse_u8(Some(value), "exchange quantity"))
+                .transpose()?
+                .unwrap_or(1),
+        }),
+        "exchange gold" => Operation::Exchange(ExchangeCommand::SetGold(parse_u32(
+            arguments.next(),
+            "exchange gold",
+        )?)),
+        "exchange accept" => Operation::Exchange(ExchangeCommand::Accept),
+        "exchange cancel" => Operation::Exchange(ExchangeCommand::Cancel),
         "who" => Operation::Who,
         "command status" => Operation::CommandStatus(parse_command_id(arguments.next())?),
         "command cancel" => Operation::CommandCancel(parse_command_id(arguments.next())?),
@@ -283,6 +307,7 @@ fn parse_action(arguments: &mut impl Iterator<Item = OsString>) -> Result<String
         "gold" => &["drop", "give"],
         "dialog" => &["select", "input", "previous", "next", "close"],
         "group" => &["toggle", "invite", "accept", "decline"],
+        "exchange" => &["item", "gold", "accept", "cancel"],
         "command" => &["status", "cancel"],
         _ => return Ok(command),
     };

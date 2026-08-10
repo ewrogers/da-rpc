@@ -272,6 +272,9 @@ pub enum DecodeError {
     InvalidGroupField {
         actual: u8,
     },
+    InvalidExchangeField {
+        actual: u8,
+    },
     InvalidDialogText,
     InvalidStatusFields {
         actual: u8,
@@ -523,6 +526,9 @@ impl fmt::Display for DecodeError {
             }
             Self::InvalidGroupField { actual } => {
                 write!(formatter, "invalid group field value {actual}")
+            }
+            Self::InvalidExchangeField { actual } => {
+                write!(formatter, "invalid exchange field value {actual}")
             }
             Self::InvalidDialogText => formatter.write_str("dialog text is not valid UTF-8"),
             Self::InvalidStatusFields { actual } => {

@@ -12,6 +12,9 @@ pub const EVENT_DISPATCH_RVA: usize = 0x0006_47C0;
 /// decoded-event dispatcher detour.
 pub const EVENT_DISPATCH_ENTRY: [u8; 5] = [0x55, 0x8B, 0xEC, 0x6A, 0xFF];
 
+/// Module-relative address of the normal floating game-message append helper.
+pub const GAME_MESSAGE_APPEND_RVA: usize = 0x0008_03A0;
+
 /// Module-relative address of the accepted server map-size handler.
 pub const MAP_SIZE_HANDLER_RVA: usize = 0x001F_1BF0;
 

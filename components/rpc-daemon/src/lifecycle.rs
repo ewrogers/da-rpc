@@ -16,6 +16,7 @@ pub(crate) struct ServerEndpoint {
 pub(crate) struct LaunchOptions {
     pub(crate) client_path: PathBuf,
     pub(crate) allow_multiple: bool,
+    pub(crate) skip_exchange_alerts: bool,
     pub(crate) skip_intro: bool,
     pub(crate) skip_notice: bool,
     pub(crate) server: Option<ServerEndpoint>,
@@ -115,6 +116,9 @@ impl LoaderControl {
         }
         if options.skip_notice {
             arguments.push(OsString::from("--skip-notice"));
+        }
+        if options.skip_exchange_alerts {
+            arguments.push(OsString::from("--skip-exchange-alerts"));
         }
         arguments.push(options.client_path.as_os_str().to_owned());
         arguments.push(self.dll_path.as_os_str().to_owned());
@@ -242,6 +246,7 @@ mod tests {
         let arguments = control.launch_arguments(&LaunchOptions {
             client_path: PathBuf::from("Darkages.exe"),
             allow_multiple: true,
+            skip_exchange_alerts: true,
             skip_intro: true,
             skip_notice: true,
             server: Some(ServerEndpoint {
@@ -259,6 +264,7 @@ mod tests {
                 "127.0.0.1:2610",
                 "--skip-intro",
                 "--skip-notice",
+                "--skip-exchange-alerts",
                 "Darkages.exe",
                 "darpc.dll",
             ]

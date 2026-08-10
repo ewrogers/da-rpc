@@ -514,6 +514,54 @@ pub(super) fn expand(
             });
             return events;
         }
+        StateUpdate::Exchange(update) => {
+            events.push(match update {
+                darpc_model::ExchangeUpdate::Opened(state) => {
+                    ClientEvent::ExchangeOpened(ExchangeOpened::new(observation, state))
+                }
+                darpc_model::ExchangeUpdate::ItemAdded { state, party, item } => {
+                    ClientEvent::ExchangeItemAdded(ExchangeItemAdded::new(
+                        observation,
+                        state,
+                        party,
+                        item,
+                    ))
+                }
+                darpc_model::ExchangeUpdate::GoldChanged { state, party, gold } => {
+                    ClientEvent::ExchangeGoldChanged(ExchangeGoldChanged::new(
+                        observation,
+                        state,
+                        party,
+                        gold,
+                    ))
+                }
+                darpc_model::ExchangeUpdate::Accepted {
+                    state,
+                    party,
+                    message,
+                } => ClientEvent::ExchangeAccepted(ExchangeAccepted::new(
+                    observation,
+                    state,
+                    party,
+                    message,
+                )),
+                darpc_model::ExchangeUpdate::Completed { state, message } => {
+                    ClientEvent::ExchangeCompleted(ExchangeCompleted::new(
+                        observation,
+                        state,
+                        message,
+                    ))
+                }
+                darpc_model::ExchangeUpdate::Cancelled { state, message } => {
+                    ClientEvent::ExchangeCancelled(ExchangeCancelled::new(
+                        observation,
+                        state,
+                        message,
+                    ))
+                }
+            });
+            return events;
+        }
     };
     if let Some(core) = update.core {
         events.push(ClientEvent::StatsChanged(StatsChanged {

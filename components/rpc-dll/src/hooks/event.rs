@@ -250,7 +250,10 @@ unsafe extern "thiscall" fn event_dispatch_detour(
         "lock inc dword ptr [{activity}]",
         "push esi",
         "cmp dword ptr [{intercept_command_id}], 0",
+        "jne 4f",
+        "cmp byte ptr [{exchange_intercept_pending}], 0",
         "je 3f",
+        "4:",
         "push eax",
         "push edx",
         "mov eax, dword ptr [esp + 16]",
@@ -262,7 +265,10 @@ unsafe extern "thiscall" fn event_dispatch_detour(
         "test edx, edx",
         "jz 1f",
         "cmp byte ptr [edx], {who_response_opcode}",
+        "je 5f",
+        "cmp byte ptr [edx], {exchange_opcode}",
         "jne 1f",
+        "5:",
         "push ecx",
         "push dword ptr [esp + 20]",
         "call {intercept}",
@@ -298,10 +304,12 @@ unsafe extern "thiscall" fn event_dispatch_detour(
         observe = sym observe_event,
         intercept = sym intercept_event,
         intercept_command_id = sym crate::who::INTERCEPT_COMMAND_ID,
+        exchange_intercept_pending = sym crate::exchange::INTERCEPT_PENDING,
         event_type_offset = const EVENT_TYPE_OFFSET,
         server_event_type = const SERVER_EVENT_TYPE,
         event_body_offset = const EVENT_BODY_OFFSET,
         who_response_opcode = const 0x36_u8,
+        exchange_opcode = const 0x42_u8,
     );
 }
 
@@ -335,7 +343,7 @@ fn intercept_event_inner(event: *const core::ffi::c_void) -> bool {
         return false;
     }
     let mut opcode = [0];
-    if !read_memory(body_address as usize, &mut opcode) || opcode[0] != 0x36 {
+    if !read_memory(body_address as usize, &mut opcode) || !matches!(opcode[0], 0x36 | 0x42) {
         return false;
     }
     if EVENT_SCRATCH_IN_USE
@@ -351,7 +359,12 @@ fn intercept_event_inner(event: *const core::ffi::c_void) -> bool {
         EVENT_READ_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed);
         return false;
     }
-    let suppressed = crate::who::intercept_response(&scratch.body[..body_length], sender_tick_ms());
+    let body = &scratch.body[..body_length];
+    let suppressed = match opcode[0] {
+        0x36 => crate::who::intercept_response(body, sender_tick_ms()),
+        0x42 => crate::exchange::intercept_quantity(body),
+        _ => false,
+    };
     if suppressed {
         EVENT_OBSERVATION_COUNT.fetch_add(1, Ordering::Relaxed);
         SERVER_EVENT_COUNT.fetch_add(1, Ordering::Relaxed);
@@ -464,6 +477,9 @@ extern "C" fn observe_event(event: *const core::ffi::c_void) {
             }
             packet::ServerUpdate::Group(body) => {
                 crate::group::observe_packet(body, tick_ms);
+            }
+            packet::ServerUpdate::Exchange(body) => {
+                crate::exchange::observe_server(body, tick_ms);
             }
         }
     });

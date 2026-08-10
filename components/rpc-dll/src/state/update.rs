@@ -32,6 +32,9 @@ impl QueuedStateEvent {
             QueuedStateUpdate::Entity(update) => StateUpdate::Entity(update.into_model()),
             QueuedStateUpdate::Dialog(update) => StateUpdate::Dialog(crate::dialog::take(update)?),
             QueuedStateUpdate::Group(update) => StateUpdate::Group(crate::group::take(update)?),
+            QueuedStateUpdate::Exchange(update) => {
+                StateUpdate::Exchange(crate::exchange::take(update)?)
+            }
         };
         Some(StateEvent {
             sequence: self.sequence,
@@ -47,6 +50,9 @@ impl QueuedStateEvent {
         }
         if let QueuedStateUpdate::Group(update) = self.update {
             crate::group::release(update);
+        }
+        if let QueuedStateUpdate::Exchange(update) = self.update {
+            crate::exchange::release(update);
         }
     }
 }
@@ -69,6 +75,7 @@ pub(super) enum QueuedStateUpdate {
     Entity(QueuedEntityUpdate),
     Dialog(crate::dialog::QueuedDialog),
     Group(crate::group::QueuedGroup),
+    Exchange(crate::exchange::QueuedExchange),
 }
 
 impl QueuedStateUpdate {

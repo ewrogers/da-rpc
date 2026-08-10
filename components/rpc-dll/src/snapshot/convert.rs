@@ -18,6 +18,7 @@ pub(super) fn snapshot(
     raw: &darpc_game_client::RawStateSnapshot,
     raw_objects: &RawObjects,
     raw_dialog: crate::dialog::RawDialog,
+    raw_exchange: crate::exchange::RawExchange,
 ) -> ClientSnapshot {
     ClientSnapshot {
         revision: ready.revision,
@@ -39,6 +40,7 @@ pub(super) fn snapshot(
         group: raw
             .group_available
             .then(|| crate::group::model_state(&raw.group)),
+        exchange: crate::exchange::decode_current(raw_exchange),
     }
 }
 

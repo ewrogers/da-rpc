@@ -310,6 +310,41 @@ fn command_messages_round_trip() {
                 wait_ms: 50,
             },
         }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 42,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::Exchange(ExchangeCommand::AddItem {
+                    slot: ItemSlot::new(3).unwrap(),
+                    quantity: 5,
+                }),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 43,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::Exchange(ExchangeCommand::SetGold(1_000)),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 44,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::Exchange(ExchangeCommand::Accept),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 45,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::Exchange(ExchangeCommand::Cancel),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
     ];
 
     for message in messages {

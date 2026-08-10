@@ -1,13 +1,14 @@
 #[cfg(any(windows, test))]
 use darpc_game_client::{
     ALLOW_MULTIPLE_PATCHES, COMMAND_LINE_ENDPOINT_PATCHES, DISABLE_ENDPOINT_FALLBACK_PATCHES,
-    LaunchPatch, SKIP_INTRO_PATCHES, SKIP_NOTICE_PATCHES,
+    LaunchPatch, SKIP_EXCHANGE_ALERTS_PATCHES, SKIP_INTRO_PATCHES, SKIP_NOTICE_PATCHES,
 };
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct LaunchPatches {
     pub(crate) allow_multiple: bool,
     pub(crate) command_line_endpoint: bool,
+    pub(crate) skip_exchange_alerts: bool,
     pub(crate) skip_intro: bool,
     pub(crate) skip_notice: bool,
 }
@@ -15,7 +16,11 @@ pub(crate) struct LaunchPatches {
 impl LaunchPatches {
     #[cfg(windows)]
     pub(crate) const fn is_empty(self) -> bool {
-        !self.allow_multiple && !self.command_line_endpoint && !self.skip_intro && !self.skip_notice
+        !self.allow_multiple
+            && !self.command_line_endpoint
+            && !self.skip_exchange_alerts
+            && !self.skip_intro
+            && !self.skip_notice
     }
 
     #[cfg(any(windows, test))]
@@ -28,6 +33,9 @@ impl LaunchPatches {
         if self.command_line_endpoint {
             selected.extend(COMMAND_LINE_ENDPOINT_PATCHES);
             selected.extend(DISABLE_ENDPOINT_FALLBACK_PATCHES);
+        }
+        if self.skip_exchange_alerts {
+            selected.extend(SKIP_EXCHANGE_ALERTS_PATCHES);
         }
         if self.skip_intro {
             selected.extend(SKIP_INTRO_PATCHES);
@@ -379,6 +387,15 @@ mod tests {
         assert!(LaunchPatches::default().selected().is_empty());
         assert_eq!(
             LaunchPatches {
+                skip_exchange_alerts: true,
+                ..Default::default()
+            }
+            .selected()
+            .len(),
+            2
+        );
+        assert_eq!(
+            LaunchPatches {
                 allow_multiple: true,
                 ..Default::default()
             }
@@ -417,12 +434,13 @@ mod tests {
             LaunchPatches {
                 allow_multiple: true,
                 command_line_endpoint: true,
+                skip_exchange_alerts: true,
                 skip_intro: true,
                 skip_notice: true,
             }
             .selected()
             .len(),
-            8
+            10
         );
     }
 }

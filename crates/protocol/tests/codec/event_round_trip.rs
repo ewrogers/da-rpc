@@ -335,6 +335,16 @@ fn event_messages_round_trip() {
                         state: group_state(),
                     }),
                 },
+                StateEvent {
+                    sequence: 63,
+                    revision: 29,
+                    tick_ms: 144,
+                    update: StateUpdate::Exchange(ExchangeUpdate::ItemAdded {
+                        state: exchange_state(),
+                        party: ExchangeParty::Local,
+                        item: exchange_state().local.items[0].clone(),
+                    }),
+                },
             ]),
         }),
         Message::EventPollResponse(EventPollResponse {

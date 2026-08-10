@@ -61,6 +61,7 @@ updates drive:
   visible living entities
 - Chat and system messages
 - Merchant and pursuit dialog pages
+- Player exchange state, offers, acceptance, completion, and cancellation
 
 Unknown, malformed, oversized, or unreadable events are ignored. The client's
 original result is preserved. The sole intentional exception is a valid Who

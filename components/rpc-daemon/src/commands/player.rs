@@ -4,6 +4,44 @@ use std::time::Instant;
 const INSPECT_TIMEOUT: Duration = Duration::from_secs(3);
 const ROUTE_WAIT: Duration = Duration::from_millis(1_250);
 
+/// Returns one visible player's latest cached object and optional inspected profile.
+#[utoipa::path(
+    get,
+    path = "/clients/{client}/players/{player}",
+    params(
+        ("client" = String, Path, description = "Process ID or current in-game character name"),
+        ("player" = String, Path, description = "Case-insensitive visible player name")
+    ),
+    responses(
+        (status = 200, description = "The latest cached visible player", body = crate::state::WorldObject),
+        (status = 400, description = "The process identifier was invalid", body = crate::api::ErrorState),
+        (status = 404, description = "The client or visible player was not found", body = crate::api::ErrorState),
+        (status = 409, description = "The client or visible player name is ambiguous", body = crate::api::ErrorState),
+        (status = 503, description = "No client observation is currently available", body = crate::api::ErrorState)
+    )
+)]
+pub(crate) async fn cached_player(
+    State(state): State<ApiState>,
+    Path((identifier, player_name)): Path<(String, String)>,
+) -> Result<Json<crate::state::WorldObject>, ApiError> {
+    let registry = state.snapshot();
+    let client = resolve_client(&registry, &identifier)?;
+    let pid = client.pid;
+    let snapshot = client.game_snapshot.as_ref().ok_or_else(|| {
+        ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "observation_unavailable",
+            client
+                .snapshot_reason
+                .as_deref()
+                .unwrap_or("the client has not published an observation yet"),
+            Some(pid),
+        )
+    })?;
+    let player = visible_player(pid, snapshot, &player_name)?;
+    Ok(Json(crate::state::WorldObject::from(player)))
+}
+
 /// Refreshes one visible player's cached equipment, identity, group state, and legend.
 #[utoipa::path(
     post,
@@ -26,6 +64,17 @@ pub(crate) async fn inspect_player(
     Path((identifier, player_name)): Path<(String, String)>,
 ) -> Result<Json<crate::state::WorldObject>, ApiError> {
     let (pid, identity, snapshot) = action_client(&state, &identifier)?;
+    let player = visible_player(pid, &snapshot, &player_name)?;
+    let id = NonZeroU32::new(player.id()).ok_or_else(|| unavailable(pid))?;
+    let player = request(&state, pid, identity, id).await?;
+    Ok(Json(crate::state::WorldObject::from(&player)))
+}
+
+fn visible_player<'a>(
+    pid: u32,
+    snapshot: &'a GameSnapshot,
+    player_name: &str,
+) -> Result<&'a WorldObject, ApiError> {
     let mut matches = snapshot
         .objects
         .as_deref()
@@ -35,7 +84,7 @@ pub(crate) async fn inspect_player(
             matches!(
                 object,
                 WorldObject::Player { name: Some(name), .. }
-                    if name.eq_ignore_ascii_case(&player_name)
+                    if name.eq_ignore_ascii_case(player_name)
             )
         });
     let player = matches.next().ok_or_else(|| {
@@ -54,9 +103,7 @@ pub(crate) async fn inspect_player(
             Some(pid),
         ));
     }
-    let id = NonZeroU32::new(player.id()).ok_or_else(|| unavailable(pid))?;
-    let player = request(&state, pid, identity, id).await?;
-    Ok(Json(crate::state::WorldObject::from(&player)))
+    Ok(player)
 }
 
 async fn request(

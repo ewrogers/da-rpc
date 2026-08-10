@@ -288,6 +288,27 @@ fn state() -> ApiState {
     state_with_snapshot(game_snapshot())
 }
 
+fn player_profile() -> ModelPlayerProfile {
+    ModelPlayerProfile {
+        identity: ModelPlayerIdentity {
+            nation: ModelNation::Mileth,
+            title: "Mentor".into(),
+            guild_rank: "Leader".into(),
+            display_class: "Summoner".into(),
+            guild: "Guild".into(),
+        },
+        user_state: darpc_model::UserState::Grouped,
+        is_group_open: true,
+        equipment: vec![ModelPlayerEquipmentItem {
+            slot: ModelEquipmentSlot::Necklace,
+            sprite: 0x4321,
+            dye_color: 4,
+        }],
+        legend: vec![],
+        inspected_tick_ms: 120,
+    }
+}
+
 fn state_with_snapshot(snapshot: ModelClientSnapshot) -> ApiState {
     let mut registry = Registry::new();
     let hello = hello();
@@ -615,6 +636,36 @@ fn legend_route_returns_refreshed_marks_with_friendly_icons() {
 }
 
 #[test]
+fn cached_player_route_resolves_visible_name_without_refreshing() {
+    let mut snapshot = game_snapshot();
+    let player = snapshot
+        .objects
+        .as_mut()
+        .and_then(|objects| objects.first_mut())
+        .expect("fixture has a visible player");
+    let ModelWorldObject::Player { profile, .. } = player else {
+        panic!("first fixture object is a player")
+    };
+    *profile = Some(Box::new(player_profile()));
+
+    let body = json_with_state(state_with_snapshot(snapshot), "/clients/42/players/eIDoLoN");
+    assert_eq!(body["kind"], "player");
+    assert_eq!(body["name"], "Eidolon");
+    assert_eq!(body["profile"]["identity"]["nation"], "mileth");
+    assert_eq!(body["profile"]["identity"]["display_class"], "Summoner");
+    assert_eq!(body["profile"]["is_group_open"], true);
+    assert_eq!(body["profile"]["equipment"][0]["slot"], "necklace");
+    assert_eq!(body["profile"]["inspected_tick_ms"], 120);
+}
+
+#[test]
+fn cached_player_route_exposes_a_pending_null_profile() {
+    let body = json("/clients/42/players/eIDoLoN");
+    assert_eq!(body["name"], "Eidolon");
+    assert!(body["profile"].is_null());
+}
+
+#[test]
 fn player_inspection_route_resolves_visible_name_and_returns_profile() {
     let mut registry = Registry::new();
     let hello = hello();
@@ -633,24 +684,7 @@ fn player_inspection_route_resolves_visible_name_and_returns_profile() {
     let (commands, command_receiver) = mpsc::sync_channel(ROUTER_CAPACITY);
     let state = ApiState::new(registry.snapshot(), Arc::new(FakeLifecycle), events)
         .with_command_sender(commands);
-    let profile = ModelPlayerProfile {
-        identity: ModelPlayerIdentity {
-            nation: ModelNation::Mileth,
-            title: "Mentor".into(),
-            guild_rank: "Leader".into(),
-            display_class: "Summoner".into(),
-            guild: "Guild".into(),
-        },
-        user_state: darpc_model::UserState::Grouped,
-        is_group_open: true,
-        equipment: vec![ModelPlayerEquipmentItem {
-            slot: ModelEquipmentSlot::Necklace,
-            sprite: 0x4321,
-            dye_color: 4,
-        }],
-        legend: vec![],
-        inspected_tick_ms: 120,
-    };
+    let profile = player_profile();
     let worker_player = ModelWorldObject::Player {
         id: 1,
         name: Some("Eidolon".into()),

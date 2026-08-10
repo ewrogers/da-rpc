@@ -66,7 +66,7 @@ pub(crate) use movement::{
     ActionDirection, Destination, TurnOptions, WalkDestinationOptions, WalkDirectionOptions,
     WalkOptions, turn, walk,
 };
-pub(crate) use player::inspect_player;
+pub(crate) use player::{cached_player, inspect_player};
 pub(crate) use who::{UserState as WhoUserState, WhoClass, WhoList, WhoPlayer, who};
 
 pub(crate) const ROUTER_CAPACITY: usize = 64;

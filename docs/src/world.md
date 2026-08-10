@@ -8,6 +8,7 @@ map.
 | --- | --- |
 | Read map and self position | `GET /clients/{client}/status` |
 | Read visible objects | `GET /clients/{client}/objects` |
+| Read one cached visible player by name | `GET /clients/{client}/players/{player}` |
 | Refresh one visible player | `POST /clients/{client}/players/{player}/inspect` |
 | Watch objects and visuals | [World object events](events.md#world-object-events) |
 
@@ -94,6 +95,18 @@ normal player click still opens it and also refreshes daRPC's cache. Leaving
 view removes the player object, and the next `0x33` redraw starts a fresh
 inspection.
 
+Read one visible player's retained object and latest profile without sending a
+packet to the game server:
+
+```console
+curl "http://127.0.0.1:2626/clients/ZiLo/players/Eidolon"
+```
+
+The cached lookup is case-insensitive and returns the same `WorldObject` shape
+as the objects collection. It can return `profile: null` while the automatic
+inspection is pending. It searches only the current visible-object set; daRPC
+does not retain a historical profile after that player leaves view.
+
 Use a manual refresh for changes that do not redraw the player, such as a belt
 or necklace change:
 
@@ -101,8 +114,9 @@ or necklace change:
 curl -X POST "http://127.0.0.1:2626/clients/ZiLo/players/Eidolon/inspect"
 ```
 
-The visible player name is case-insensitive. Missing names return `404`, an
-ambiguous name returns `409`, and a server timeout returns `504`.
+Both player-name routes use the same case-insensitive visible-player lookup.
+Missing names return `404` and ambiguous names return `409`. Only the refresh
+route can return `504` when the game server does not respond.
 
 The initial baseline walks the client's retained object collection. A creature
 name or numeric sprite can be unavailable after a late attach when the client

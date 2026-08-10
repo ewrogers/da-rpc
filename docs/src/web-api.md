@@ -78,6 +78,7 @@ they need:
 | `GET /clients/{client}/exchange` | [Exchange](exchanges.md) |
 | `GET /clients/{client}/who` | [Online players](online.md) |
 | `GET /clients/{client}/legend` | [Legend](legend.md) |
+| `GET /clients/{client}/players/{player}` | Read one case-insensitive visible player from retained state; see [World](world.md). |
 | `POST /clients/{client}/players/{player}/inspect` | Refresh one visible player; see [World](world.md). |
 
 Most routes read the daemon's retained state and do not ask the DLL to scan the
@@ -134,7 +135,7 @@ the game and how they change.
 | `POST /clients/{client}/exchange/gold` | Set the local exchange gold once. |
 | `POST /clients/{client}/exchange/accept` | Accept the current exchange. |
 | `POST /clients/{client}/exchange/cancel` | Cancel the current exchange. |
-| `POST /clients/{client}/players/{player}/inspect` | Refresh one case-insensitive visible player profile. |
+| `POST /clients/{client}/players/{player}/inspect` | Refresh one case-insensitive visible player profile. The cache-only `GET` route is listed under current data routes. |
 | `POST /clients/{client}/commands/diagnostic` | Run a no-op main-thread command for testing. |
 | `GET /clients/{client}/commands/{command_id}` | Read retained command status. |
 | `DELETE /clients/{client}/commands/{command_id}` | Cancel a command that has not started. |

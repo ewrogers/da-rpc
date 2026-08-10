@@ -17,7 +17,7 @@ supported client build.
 | --- | --- |
 | Client tick | Captures requested baselines, settles collection changes, watches walking state, and executes at most one queued native command. |
 | Decoded server event | Observes supported updates after the client has handled them, including status, inventory, abilities, effects, objects, movement, and messages. It captures a correlated daRPC Who response before the client opens its panel. |
-| Outbound packet submission | Observes supported ability, item, gold, equipment, emote, pickup, turn, and Who requests before encryption. |
+| Outbound packet submission | Observes supported ability, item, gold, equipment, emote, pickup, turn, Who, and local slash-command requests before encryption. |
 | Map size | Captures map identity, name, and dimensions so a map change can be committed atomically with the following position. |
 
 These four hooks have different jobs because no single client boundary provides
@@ -88,6 +88,7 @@ The outbound hook watches the common plaintext submission path for:
 - Gold tile drops and exchange requests
 - Ground-item pickup, equipment removal, emotes, and turning
 - Who requests, including whether daRPC or the player started each request
+- Public-speech slash commands and escaped literal slashes
 
 NPC dialog responses use native main-thread methods and are observed through
 their retained dialog state. This preserves the visible page and the client's
@@ -99,8 +100,9 @@ through either daRPC or the normal game interface. It also helps keep spell
 replacement and cancellation ordering sensible.
 
 Only the recognized, bounded fields needed by the state model are copied. Full
-packet bodies are not retained or written to the diagnostic log. The original
-client submission always continues normally.
+packet bodies are not retained or written to the diagnostic log. Original
+client submissions continue normally except that one-slash commands are
+suppressed and a double-slash escape is submitted with one slash removed.
 
 ## Atomic map changes
 

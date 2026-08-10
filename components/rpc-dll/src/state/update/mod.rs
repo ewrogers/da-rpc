@@ -22,6 +22,7 @@ impl QueuedStateEvent {
             #[cfg(not(test))]
             QueuedStateUpdate::Lifecycle(update) => StateUpdate::Lifecycle(update),
             QueuedStateUpdate::Audio(update) => StateUpdate::Audio(update),
+            QueuedStateUpdate::Command(update) => StateUpdate::Command(update.into_model()?),
             QueuedStateUpdate::Status(update) => StateUpdate::Status(update),
             #[cfg(not(test))]
             QueuedStateUpdate::Movement(update) => StateUpdate::Movement(update),
@@ -72,6 +73,7 @@ pub(super) enum QueuedStateUpdate {
     #[cfg(not(test))]
     Lifecycle(LifecycleUpdate),
     Audio(AudioUpdate),
+    Command(QueuedCommand),
     Status(StatusUpdate),
     #[cfg(not(test))]
     Movement(MovementUpdate),
@@ -87,6 +89,23 @@ pub(super) enum QueuedStateUpdate {
     Group(crate::group::QueuedGroup),
     Exchange(crate::exchange::QueuedExchange),
     Legend(crate::legend::QueuedLegend),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct QueuedCommand {
+    text: QueuedClientText<MAX_EVENT_COMMAND_BYTES>,
+}
+
+impl QueuedCommand {
+    pub(super) fn new(text: &[u8]) -> Option<Self> {
+        Some(Self {
+            text: QueuedClientText::new(text)?,
+        })
+    }
+
+    fn into_model(self) -> Option<ClientCommand> {
+        ClientCommand::parse(&self.text.decode()?)
+    }
 }
 
 impl QueuedStateUpdate {

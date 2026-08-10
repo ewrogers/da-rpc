@@ -13,11 +13,11 @@ mod snapshot;
 mod who;
 
 pub use event::{
-    AbilityUpdate, ActionUpdate, ApplyEventError, AudioUpdate, CollectionBatch, CollectionChange,
-    CollectionKind, CoreStatus, CurrentVitals, EffectUpdate, InventoryUpdate, LifecycleUpdate,
-    LocationUpdate, MapChange, MovementUpdate, ProgressionStatus, SkillbookUpdate, SlotUpdate,
-    SpellCancellationSource, SpellCastArguments, SpellbookUpdate, StateEvent, StateUpdate,
-    StatusUpdate, TilePosition,
+    AbilityUpdate, ActionUpdate, ApplyEventError, AudioUpdate, ClientCommand, CollectionBatch,
+    CollectionChange, CollectionKind, CoreStatus, CurrentVitals, EffectUpdate, InventoryUpdate,
+    LifecycleUpdate, LocationUpdate, MapChange, MovementUpdate, ProgressionStatus, SkillbookUpdate,
+    SlotUpdate, SpellCancellationSource, SpellCastArguments, SpellbookUpdate, StateEvent,
+    StateUpdate, StatusUpdate, TilePosition,
 };
 
 pub use group::{

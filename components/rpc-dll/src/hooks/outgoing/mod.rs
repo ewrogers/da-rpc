@@ -15,7 +15,7 @@ use std::{
     time::{Duration, Instant},
 };
 use windows_sys::Win32::System::{
-    Diagnostics::Debug::ReadProcessMemory,
+    Diagnostics::Debug::{ReadProcessMemory, WriteProcessMemory},
     LibraryLoader::GetModuleHandleW,
     Threading::{GetCurrentProcess, GetCurrentThreadId},
 };
@@ -26,7 +26,9 @@ const DETOUR_RANGE_LEN: usize = 128;
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(5);
 const UNINSTALL_TIMEOUT: Duration = Duration::from_secs(5);
 const COMMIT_RETRY_INTERVAL: Duration = Duration::from_millis(1);
-const MAX_USE_SPELL_BODY: usize = 102;
+const MESSAGE_OPCODE: u8 = 0x0E;
+const SAY_MODE: u8 = 0;
+const MAX_OUTGOING_BODY: usize = u8::MAX as usize + 3;
 
 #[unsafe(no_mangle)]
 static OUTGOING_HOOK_ACTIVITY: DetourActivity = DetourActivity::new();
@@ -169,6 +171,15 @@ unsafe extern "thiscall" fn client_packet_submit_detour(
 ) -> u32 {
     core::arch::naked_asm!(
         "lock inc dword ptr [{activity}]",
+        "push ecx",
+        "push dword ptr [esp + 12]",
+        "push dword ptr [esp + 12]",
+        "call {intercept}",
+        "add esp, 8",
+        "pop ecx",
+        "test eax, eax",
+        "jz 1f",
+        "mov dword ptr [esp + 8], eax",
         "push esi",
         "push dword ptr [esp + 12]",
         "push dword ptr [esp + 12]",
@@ -182,10 +193,65 @@ unsafe extern "thiscall" fn client_packet_submit_detour(
         "pop esi",
         "lock dec dword ptr [{activity}]",
         "ret 8",
+        "1:",
+        "xor eax, eax",
+        "lock dec dword ptr [{activity}]",
+        "ret 8",
         activity = sym OUTGOING_HOOK_ACTIVITY,
         trampoline = sym OUTGOING_TRAMPOLINE,
+        intercept = sym intercept_packet,
         observe = sym observe_packet,
     );
+}
+
+extern "C" fn intercept_packet(body: *mut u8, length: i16) -> i32 {
+    let original_length = i32::from(length);
+    panic::catch_unwind(|| {
+        let Ok(length) = usize::try_from(length) else {
+            return original_length;
+        };
+        if body.is_null() || length == 0 {
+            return original_length;
+        }
+        if !is_client_main_thread() {
+            return original_length;
+        }
+        let mut prefix = [0; 3];
+        let prefix_length = length.min(prefix.len());
+        if !read_memory(body as usize, &mut prefix[..prefix_length]) {
+            OUTGOING_READ_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed);
+            return original_length;
+        }
+        if prefix_length == 3 && prefix[0] == MESSAGE_OPCODE && prefix[1] == SAY_MODE {
+            let expected = usize::from(prefix[2]) + 3;
+            if length != expected || length > MAX_OUTGOING_BODY {
+                return original_length;
+            }
+            let mut packet = [0; MAX_OUTGOING_BODY];
+            if !read_memory(body as usize, &mut packet[..length]) {
+                OUTGOING_READ_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed);
+                return original_length;
+            }
+            return match say_action(&packet[..length]) {
+                SayAction::Pass => original_length,
+                SayAction::Command(command) => {
+                    crate::state::observe_command(command, sender_tick_ms());
+                    0
+                }
+                SayAction::Escape => {
+                    let escaped_length = escape_say(&mut packet[..length])
+                        .expect("classified double-slash packet is escapable");
+                    if write_memory(body as usize, &packet[..escaped_length]) {
+                        i32::try_from(escaped_length).expect("outgoing packet length fits i32")
+                    } else {
+                        original_length
+                    }
+                }
+            };
+        }
+        original_length
+    })
+    .unwrap_or(original_length)
 }
 
 extern "C" fn observe_packet(body: *const u8, length: i16) {
@@ -193,10 +259,7 @@ extern "C" fn observe_packet(body: *const u8, length: i16) {
         let Ok(length) = usize::try_from(length) else {
             return;
         };
-        if body.is_null() || length == 0 {
-            return;
-        }
-        if !is_client_main_thread() {
+        if body.is_null() || length == 0 || !is_client_main_thread() {
             return;
         }
         let mut prefix = [0; 2];
@@ -232,7 +295,7 @@ extern "C" fn observe_packet(body: *const u8, length: i16) {
             0x0F => length,
             _ => 2,
         };
-        if length != expected || length > MAX_USE_SPELL_BODY {
+        if length != expected || length > MAX_OUTGOING_BODY {
             return;
         }
         if prefix[0] == 0x18 {
@@ -243,13 +306,51 @@ extern "C" fn observe_packet(body: *const u8, length: i16) {
             crate::state::observe_outgoing(&prefix, sender_tick_ms());
             return;
         }
-        let mut packet = [0; MAX_USE_SPELL_BODY];
+        let mut packet = [0; MAX_OUTGOING_BODY];
         if !read_memory(body as usize, &mut packet[..length]) {
             OUTGOING_READ_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed);
             return;
         }
         crate::state::observe_outgoing(&packet[..length], sender_tick_ms());
     });
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SayAction<'a> {
+    Pass,
+    Command(&'a [u8]),
+    Escape,
+}
+
+fn say_action(packet: &[u8]) -> SayAction<'_> {
+    let Some(text) = packet.get(3..) else {
+        return SayAction::Pass;
+    };
+    if text.starts_with(b"//") {
+        return SayAction::Escape;
+    }
+    let Some(command) = text.strip_prefix(b"/") else {
+        return SayAction::Pass;
+    };
+    let name_length = command
+        .iter()
+        .position(|byte| byte.is_ascii_whitespace())
+        .unwrap_or(command.len());
+    if name_length == 0 {
+        SayAction::Pass
+    } else {
+        SayAction::Command(command)
+    }
+}
+
+fn escape_say(packet: &mut [u8]) -> Option<usize> {
+    if !packet.get(3..)?.starts_with(b"//") {
+        return None;
+    }
+    packet[2] = packet[2].checked_sub(1)?;
+    let length = packet.len();
+    packet.copy_within(4..length, 3);
+    Some(length - 1)
 }
 
 fn is_client_main_thread() -> bool {
@@ -282,9 +383,25 @@ fn read_memory(address: usize, output: &mut [u8]) -> bool {
     succeeded != 0 && read == output.len()
 }
 
+fn write_memory(address: usize, input: &[u8]) -> bool {
+    let mut written = 0_usize;
+    // SAFETY: WriteProcessMemory validates the destination range and input is
+    // readable for exactly input.len() bytes.
+    let succeeded = unsafe {
+        WriteProcessMemory(
+            GetCurrentProcess(),
+            address as *mut core::ffi::c_void,
+            input.as_ptr().cast(),
+            input.len(),
+            &mut written,
+        )
+    };
+    succeeded != 0 && written == input.len()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::validate_entry;
+    use super::{SayAction, escape_say, say_action, validate_entry};
     use darpc_game_client::CLIENT_PACKET_SUBMIT_ENTRY;
     use std::ptr::NonNull;
 
@@ -299,5 +416,23 @@ mod tests {
                 .kind(),
             std::io::ErrorKind::InvalidData
         );
+    }
+
+    #[test]
+    fn classifies_commands_and_double_slash_escapes() {
+        assert_eq!(
+            say_action(b"\x0E\0\x09/walk x,y"),
+            SayAction::Command(b"walk x,y")
+        );
+        assert_eq!(say_action(b"\x0E\0\x0A//walk x,y"), SayAction::Escape);
+        assert_eq!(say_action(b"\x0E\0\x05hello"), SayAction::Pass);
+        assert_eq!(say_action(b"\x0E\0\x01/"), SayAction::Pass);
+    }
+
+    #[test]
+    fn removes_one_slash_and_updates_the_say_packet_lengths() {
+        let mut packet = *b"\x0E\0\x0A//walk x,y";
+        let length = escape_say(&mut packet).unwrap();
+        assert_eq!(&packet[..length], b"\x0E\0\x09/walk x,y");
     }
 }

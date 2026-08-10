@@ -34,6 +34,15 @@ fn event_messages_round_trip() {
                     update: StateUpdate::Audio(AudioUpdate::MusicStopped),
                 },
                 StateEvent {
+                    sequence: 400,
+                    revision: 90,
+                    tick_ms: 122,
+                    update: StateUpdate::Command(ClientCommand {
+                        command: "walk".into(),
+                        args: vec!["x".into(), "y".into()],
+                    }),
+                },
+                StateEvent {
                     sequence: 41,
                     revision: 10,
                     tick_ms: 123,

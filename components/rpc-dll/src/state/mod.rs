@@ -15,9 +15,9 @@ use darpc_game_client::{
     RawWorldObject,
 };
 use darpc_model::{
-    AbilityUpdate, ActionUpdate, AudioUpdate, CharacterModifiers, CharacterStats, ClientLifecycle,
-    ClientMessage, CollectionBatch, CollectionKind, CoreStatus, CurrentVitals, Effect,
-    EffectDuration, EffectUpdate, Element, EntityUpdate, LifecycleUpdate, LocationUpdate,
+    AbilityUpdate, ActionUpdate, AudioUpdate, CharacterModifiers, CharacterStats, ClientCommand,
+    ClientLifecycle, ClientMessage, CollectionBatch, CollectionKind, CoreStatus, CurrentVitals,
+    Effect, EffectDuration, EffectUpdate, Element, EntityUpdate, LifecycleUpdate, LocationUpdate,
     MapChange, MessageKind, MovementUpdate, ProgressionStatus, SpellCancellationSource,
     SpellCastArguments, StateEvent, StateUpdate, StatusUpdate, TilePosition,
 };
@@ -217,6 +217,7 @@ pub(crate) const EVENT_QUEUE_BYTES: usize = 1024 * 1024;
 const MAX_EVENT_MAP_NAME_BYTES: usize = u8::MAX as usize;
 const MAX_EVENT_MESSAGE_NAME_BYTES: usize = 15;
 const MAX_EVENT_MESSAGE_TEXT_BYTES: usize = 256;
+const MAX_EVENT_COMMAND_BYTES: usize = u8::MAX as usize - 1;
 const MAX_SPELL_INPUT_BYTES: usize = 100;
 const EVENT_QUEUE_CAPACITY: usize = EVENT_QUEUE_BYTES / size_of::<QueuedStateEvent>();
 const POLL_INTERVAL: Duration = Duration::from_millis(2);
@@ -503,6 +504,13 @@ pub(crate) fn observe_message(message: ParsedMessage<'_>, tick_ms: u32) {
         return;
     };
     push_event(QueuedStateUpdate::Message(message), tick_ms);
+}
+
+pub(crate) fn observe_command(command: &[u8], tick_ms: u32) -> bool {
+    let Some(command) = QueuedCommand::new(command) else {
+        return false;
+    };
+    push_event(QueuedStateUpdate::Command(command), tick_ms)
 }
 
 fn participant(

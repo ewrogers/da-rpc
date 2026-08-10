@@ -133,6 +133,29 @@ EffectDuration = white | red | orange | yellow | green | blue
 Tile coordinates are zero-based. Effect durations are the client's visible
 color bands from longest to shortest, not exact timers.
 
+## Client command events
+
+Public speech beginning with one slash is a local command. The DLL suppresses
+the chat submission and publishes `client.command` with the JSON discriminator
+`client_command`:
+
+```text
+ClientCommand {
+    observation: EventObservation,
+    command: string,
+    args: string[],
+}
+```
+
+The command is the nonempty text between `/` and the first whitespace. The
+remaining text is split on commas; surrounding whitespace and empty entries are
+removed. For example, `/walk x, , y` publishes `command: "walk"` and
+`args: ["x", "y"]`. Commands are transient and have no REST recovery route.
+
+Begin speech with `//` to escape interception. The DLL removes one slash before
+submission, so `//walk x,y` is spoken as `/walk x,y` and does not publish a
+command event. Other speech and chat channels continue normally.
+
 ## Client lifecycle events
 
 The DLL checks the client lifecycle on the game thread and emits semantic

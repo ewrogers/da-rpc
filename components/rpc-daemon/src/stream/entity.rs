@@ -42,7 +42,7 @@ enum EntityCategory {
     Mundane,
 }
 
-pub(super) fn expand(
+pub(super) fn expand_entity(
     observation: EventObservation,
     update: darpc_model::EntityUpdate,
 ) -> Option<ClientEvent> {

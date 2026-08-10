@@ -65,7 +65,7 @@ pub(crate) struct Turned {
     direction: Direction,
 }
 
-pub(super) fn expand(observation: EventObservation, update: ActionUpdate) -> ClientEvent {
+pub(super) fn expand_action(observation: EventObservation, update: ActionUpdate) -> ClientEvent {
     match update {
         ActionUpdate::ItemUsed { slot } => ClientEvent::ItemUsed(ItemUsed { observation, slot }),
         ActionUpdate::ItemDropped {

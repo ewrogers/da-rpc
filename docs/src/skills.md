@@ -9,6 +9,7 @@ normal activation.
 | Read learned skills | `GET /clients/{client}/skills` |
 | Use a skill | `POST /clients/{client}/skills/use` |
 | Swap skills | `POST /clients/{client}/skills/swap` |
+| Perform a basic attack | `POST /clients/{client}/assail` |
 | Watch skillbook and use activity | [Skill events](events.md#skill-events) |
 
 ## Reading the skillbook
@@ -76,6 +77,29 @@ mouse, or synthesize a click.
 An executed command means local client activation ran. `skill.used` is the
 later observation that the client submitted the skill. Neither result alone is
 a promise that the game server accepted the action.
+
+## Basic attack (Assail)
+
+Assail is the client's built-in basic attack action. It does not select or
+require a learned skillbook slot:
+
+```console
+curl --request POST "http://127.0.0.1:2626/clients/ZiLo/assail"
+```
+
+The direct named-pipe client exposes the same action for one injected process:
+
+```console
+darpc assail --pid 3780
+```
+
+The command queues on the game thread and submits the native client attack
+packet `0x13`. A successful command result means the packet was submitted. The
+corresponding server response can produce `player.animated` and `sound.played`
+events, which provide the observable animation and audio cues.
+
+Use `/assail` for the built-in basic attack. Use `/skills/use` when selecting a
+learned skillbook entry by slot or name.
 
 ## Swapping skills
 

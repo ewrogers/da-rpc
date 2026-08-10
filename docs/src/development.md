@@ -116,6 +116,8 @@ runtime artifacts. The versioned archive contains:
 
 - `darpc.dll` and `loader.exe` for `i686-pc-windows-msvc`
 - `darpc.exe` and `darpcd.exe` for `x86_64-pc-windows-msvc`
+- `openapi.json`, exported from the packaged `darpcd.exe` and validated as the
+  daRPC OpenAPI 3.1 document
 - the README, license, and per-file SHA-256 checksums
 
 The GitHub Release also includes a SHA-256 checksum for the complete archive.

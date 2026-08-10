@@ -24,7 +24,30 @@ The command-line boundaries are:
 | `darpc.exe` | Exchange typed protocol messages directly with one injected DLL. |
 | `darpcd.exe` | Maintain multiple client connections and expose aggregate state through web APIs. |
 
-## Direct IPC commands
+## Command-line reference
+
+Every direct command accepts the process selector `--pid <pid>`. Put the
+optional global output selector before the command:
+
+```text
+darpc.exe [--output <table|json>] <command> [arguments]
+```
+
+| Flag | Meaning |
+|---|---|
+| `--output table` | Write the default human-readable output. |
+| `--output json` | Write one stable JSON value to standard output for scripts. |
+| `--pid <pid>` | Connect to the daRPC pipe owned by this game process. This command-level flag is required. |
+| `--input <text>` | Supply text to a spell prompt. |
+| `--target-id <id>` | Cast a spell at the specified numeric object identifier. |
+| `--target <x> <y>` | Cast a spell at the specified map coordinates. |
+
+For spell casting, `--target-id` and `--target` are mutually exclusive. Omit
+both for a spell that does not require an explicit target. Item names supplied
+to sell, deposit, withdraw, and repair commands are case-sensitive and must
+preserve their punctuation and spacing exactly.
+
+### Direct IPC commands
 
 The implemented operations prove communication, expose hook health, read a
 current client snapshot, and submit movement through the client:

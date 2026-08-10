@@ -30,6 +30,47 @@ requests and responses for those actions, while Server-Sent Events provide the
 live update stream. The daemon retains observations but is not the authority for
 client memory or local state.
 
+## Command-line reference
+
+```text
+darpcd.exe [--pid <pid> ...] [--port <port>] [--auto-load]
+           [--loader-path <path>] [--dll-path <path>]
+darpcd.exe --print-openapi
+```
+
+| Flag | Meaning |
+|---|---|
+| `--pid <pid>` | Retain a specific process as a controlled target. Repeat the flag for multiple clients. Normal window discovery remains active. |
+| `--port <port>` | Listen on this TCP port instead of `2626`. The listener remains bound to `127.0.0.1`. |
+| `--auto-load` | Use the configured loader and DLL once for each discovered, supported client that is not already loaded. |
+| `--loader-path <path>` | Use this `loader.exe` for managed load, unload, launch, and automatic loading. The default is `loader.exe` beside the daemon. |
+| `--dll-path <path>` | Use this `darpc.dll` for managed load, launch, and automatic loading. The default is `darpc.dll` beside the daemon. |
+| `--print-openapi` | Print the OpenAPI 3.1 document as JSON and exit. This standalone flag cannot be combined with server flags. |
+
+Paths containing spaces must be quoted. Repeating a single-value flag or using
+an unknown flag is an error. The daemon reports startup failures on standard
+error and exits nonzero.
+
+Start normal discovery and serve the API on the default loopback address:
+
+```text
+darpcd.exe
+```
+
+Automatically load uninjected supported clients and select explicit runtime
+files:
+
+```text
+darpcd.exe --auto-load --loader-path "C:\daRPC\loader.exe" --dll-path "C:\daRPC\darpc.dll"
+```
+
+Export the same OpenAPI document that the running daemon serves at
+`/openapi.json`:
+
+```text
+darpcd.exe --print-openapi > openapi.json
+```
+
 ## Discovery and registry
 
 Start the daemon without a PID to discover clients from their verified

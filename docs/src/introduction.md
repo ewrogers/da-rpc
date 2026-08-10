@@ -60,6 +60,7 @@ Choose the path that matches what you are building:
 | Read client state or submit actions | [Web API](web-api.md) |
 | React to changes as they happen | [Live events](events.md) |
 | Understand character and world fields | [Game data](state.md) |
+| Compare the three command-line programs | [Executable components](executables.md) |
 | Work directly with one DLL without the daemon | [`darpc.exe`](cli.md) |
 | Launch, attach, or automatically load clients | [`darpcd.exe`](rpcd.md) and [`loader.exe`](loader.md) |
 | Learn how the pieces fit together | [How it works](architecture.md) |

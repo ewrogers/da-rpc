@@ -47,7 +47,7 @@ with `DARPC_LOADER_TEST_ALLOW_UNSUPPORTED_CLIENT=1`. This escape hatch exists
 only in debug builds. Release builds ignore it and always require the exact
 supported fingerprint.
 
-## Commands
+## Command-line reference
 
 The command surface is:
 
@@ -63,6 +63,23 @@ loader [--json] launch [--allow-multiple] [--server <host[:port]>] \
 Arguments after the `--` separator are forwarded to the launched executable.
 The executable path is also supplied explicitly as its `argv[0]`.
 
+| Command | Purpose |
+|---|---|
+| `inspect` | Validate a running process and report whether the supported DLL is loaded. |
+| `attach` | Validate a running process, inject the DLL, and confirm the loaded module. |
+| `detach` | Ask the DLL to unload cleanly and confirm that the module is gone. |
+| `launch` | Create a supported client in a suspended state, apply selected startup options, inject the DLL, then resume it. |
+
+`--json` is a global output flag and must precede the command. It writes one
+machine-readable result to standard output while keeping diagnostics on
+standard error.
+
+```text
+loader.exe inspect 3780
+loader.exe --json attach 3780 .\darpc.dll
+loader.exe detach 3780 .\darpc.dll
+```
+
 The five launch options are independent, may be combined, and are disabled by
 default. They apply only to a new suspended child. `attach` never modifies
 client startup behavior.
@@ -77,7 +94,7 @@ client startup behavior.
 
 ### Standard launch profile
 
-The standard project profile passes all four launch options explicitly:
+The standard project profile passes all five launch options explicitly:
 
 ```text
 loader.exe launch --allow-multiple --server <host[:port]> \

@@ -3,308 +3,170 @@
 [![Documentation](https://github.com/ewrogers/da-rpc/actions/workflows/docs.yml/badge.svg)](https://github.com/ewrogers/da-rpc/actions/workflows/docs.yml)
 [![Windows](https://github.com/ewrogers/da-rpc/actions/workflows/windows.yml/badge.svg)](https://github.com/ewrogers/da-rpc/actions/workflows/windows.yml)
 
-daRPC is a Windows integration toolkit for observing and controlling the 32-bit
-*Dark Ages* client. It attaches a small Rust DLL to the client, reads the state
-the client already knows, and performs actions through the client's own code.
+daRPC is a Windows integration toolkit for observing and controlling the
+32-bit *Dark Ages* client. It attaches a small Rust DLL to the client, reads
+the state the client already knows, and performs actions through the client's
+own code.
 
-Start with the [daRPC Book](https://ewrogers.github.io/da-rpc/) for the complete
-documentation, or continue below for a quick overview.
+The [daRPC Book](https://ewrogers.github.io/da-rpc/) is the complete user and
+developer reference. This README covers the project at a glance and the
+shortest path to a working installation.
 
 > daRPC 1.0 supports one exact 7.41 client build. It validates that build before
 > using version-specific addresses or installing hooks.
 
-## Why daRPC?
+## Overview
 
-Network proxies are excellent tools for inspecting game traffic, but the wire
-only tells part of the story. A proxy may need to redirect the client, recreate
-state from packets, and guess at details that exist only inside the client or
-its user interface.
+daRPC provides typed access to character state, inventory, equipment, skills,
+spells, effects, world objects, dialogs, groups, exchanges, online players,
+legend marks, chat, movement, and supported client actions. Applications can
+use a direct command-line interface or a local REST and Server-Sent Events API.
 
-daRPC takes a different approach. Its DLL can attach to a running client and
-detach cleanly when it is no longer needed. This gives tools direct access to
-the client's current state without requiring all traffic to pass through a
-proxy. You can still use a network analyzer such as
-[Arbiter](https://github.com/ewrogers/Arbiter) alongside daRPC when packet-level
-visibility is useful.
+The daemon publishes an OpenAPI 3.1 document and hosts a vendored Swagger UI at
+`http://127.0.0.1:2626/docs`. The documentation UI works without an internet
+connection and can execute requests against the local daemon.
 
-Actions also travel through the client's native methods instead of being
-created as injected network packets. This has a few important benefits:
+## Goals
 
-- The client user interface reflects actions normally.
-- Client-side timing and validation stay in the normal execution path.
-- Built-in pathfinding handles movement instead of an external controller
-  sending every step.
-- Player input can naturally interrupt or replace a path without competing
-  with a separate movement loop.
-
-The result is an integration that behaves more like part of the client and less
-like a second client trying to imitate it from the outside.
-
-## Highlights
-
-- Attach to an existing client or launch a new one.
-- Detach safely without closing the game client.
-- Read character status, inventory, equipment, spellbook, skillbook, effects,
-  visible objects, and recent messages.
-- Follow changes as they happen through an ordered event stream.
-- Turn, walk, use items and skills, cast spells, move items and gold, unequip
-  gear, pick up ground items, and emote through normal client behavior.
-- Observe and answer merchant and pursuit dialogs through native client UI
-  methods.
-- Read group rosters, invite visible players, and answer group invitations.
-- Observe and manage item, gold, acceptance, and cancellation state during an
-  exchange.
-- Read the ordered online-player list without opening the client's Who panel.
-- Refresh and read legend marks without opening the client legend panel.
-- Manage several clients from one daemon.
-- Query state and submit actions through REST.
-- Subscribe to live events through Server-Sent Events (SSE).
-- Explore the API through its built-in Swagger UI and OpenAPI document.
-- Talk directly to one DLL with a lightweight command-line client when a daemon
-  is unnecessary.
-
-REST and SSE are the supported web interfaces. REST handles current state and
-bounded actions, while SSE delivers live changes without requiring a second
-bidirectional protocol.
-
-## How it works
-
-```text
-                         direct commands
-                    +---------------------- darpc.exe
-                    |
-Darkages.exe <-> darpc.dll <-> named pipe <-> darpcd.exe <-> REST / SSE
-     ^                                                       OpenAPI / Swagger
-     |
- loader.exe
-```
-
-`loader.exe` launches a supported client or attaches `darpc.dll` to one that is
-already running. Each DLL maintains the state for its own client and exposes a
-process-specific named pipe. `darpc.exe` can use that pipe directly, while
-`darpcd.exe` discovers multiple clients and presents them through a web API.
-
-Small hooks observe the places where the client receives new state. They copy
-only the information needed and hand off the heavier work. Actions that depend
-on the client's main thread are scheduled there, so native methods run in the
-context they expect. During detach, daRPC stops new work, removes its hooks, and
-then unloads the DLL.
-
-This keeps the timing-sensitive parts short and lets the client continue to run
-if the daemon disconnects or restarts.
+- Expose useful client state and actions through small, typed interfaces.
+- Preserve the client's native behavior instead of reimplementing game logic.
+- Validate every supported executable before touching version-specific memory.
+- Isolate failures so a tool or daemon disconnect cannot terminate the client.
+- Keep local use simple, observable, and scriptable.
 
 ## Components
 
-| File | Purpose |
-| --- | --- |
-| `darpc.dll` | Lives inside one game client, tracks its state, and runs native actions. |
-| `loader.exe` | Launches clients and attaches or detaches the DLL. |
-| `darpc.exe` | Talks directly to one injected client and prints text or JSON. |
-| `darpcd.exe` | Discovers clients and exposes their state and actions through web APIs. |
+| Component | Architecture | Role |
+|---|---:|---|
+| `darpc.dll` | 32-bit x86 | Runs inside the supported client, owns local state, and exposes a PID-specific named pipe. |
+| [`loader.exe`](https://ewrogers.github.io/da-rpc/loader.html) | 32-bit x86 | Inspects, attaches to, detaches from, or launches a supported client. |
+| [`darpc.exe`](https://ewrogers.github.io/da-rpc/cli.html) | 64-bit x86-64 | Sends one direct command to one injected client. |
+| [`darpcd.exe`](https://ewrogers.github.io/da-rpc/rpcd.html) | 64-bit x86-64 | Discovers clients and serves aggregate REST, events, OpenAPI, and Swagger UI. |
 
-The DLL and loader are 32-bit x86 programs because the game client is 32-bit.
-The command-line client and daemon are 64-bit x86-64 programs.
+The [executable components
+chapter](https://ewrogers.github.io/da-rpc/executables.html) explains which
+program to choose. Each executable has a separate guide with complete syntax,
+flags, examples, output behavior, and operational notes.
+
+## Prerequisites
+
+To use a release you need:
+
+- 64-bit Windows running the supported 32-bit *Dark Ages* 7.41 client build.
+- Permission to launch or attach to a client process owned by your account.
+- The complete daRPC release directory. Keep its files together.
+
+To build daRPC, also install:
+
+- Rust stable with the `i686-pc-windows-msvc` and
+  `x86_64-pc-windows-msvc` targets.
+- Visual Studio Build Tools with the Desktop development with C++ workload.
+- PowerShell for repository verification and release packaging scripts.
 
 ## Getting started
 
 ### Download a release
 
-Download the latest Windows archive from
-[GitHub Releases](https://github.com/ewrogers/da-rpc/releases/latest). Each
-release contains the four runtime files, the README and license, per-file
-SHA-256 checksums, and a separate checksum for the complete archive.
+1. Download the Windows archive and its `.sha256` file from the [latest
+   release](https://github.com/ewrogers/da-rpc/releases/latest).
+2. Verify the archive checksum:
 
-Keep `darpc.dll`, `loader.exe`, `darpc.exe`, and `darpcd.exe` together unless
-you explicitly configure different loader or DLL paths.
+   ```powershell
+   Get-FileHash .\da-rpc-v1.0.0-windows.zip -Algorithm SHA256
+   Get-Content .\da-rpc-v1.0.0-windows.zip.sha256
+   ```
 
-The release binaries are currently unsigned. Microsoft Defender SmartScreen
-may show an unrecognized-app warning when they are first run. Verify the published
-SHA-256 checksum and continue only when the archive came from this repository's
-GitHub Release. Do not disable antivirus protection to run daRPC.
+3. Extract the archive to a directory you control.
+4. Start and sign in to the supported game client.
+5. From the extracted directory, run:
+
+   ```powershell
+   .\darpcd.exe --auto-load
+   ```
+
+6. Open `http://127.0.0.1:2626/docs` to explore the API in Swagger UI.
+
+The daemon discovers supported client windows, loads `darpc.dll` when needed,
+and serves only on the local loopback interface. Use `loader.exe` when you want
+explicit process lifecycle control, or `darpc.exe` for one-off terminal and
+script commands.
+
+The release directory contains:
+
+- `darpc.dll`, `loader.exe`, `darpc.exe`, and `darpcd.exe`
+- `openapi.json`, the static OpenAPI 3.1 document for code generation and tools
+- `README.md`, `LICENSE`, and `SHA256SUMS`
+
+`SHA256SUMS` covers every file in the extracted bundle. The adjacent
+`.zip.sha256` file covers the archive itself.
+
+Windows binaries are currently unsigned. Microsoft Defender SmartScreen may
+show an unrecognized-app warning because the release has no code-signing
+reputation. Verify the published checksum before running it. Do not disable
+antivirus or security protections to use daRPC.
 
 ### Build from source
 
-Building daRPC requires:
+Install the targets once:
 
-- Windows with the supported *Dark Ages* client
-- A current stable Rust toolchain
-- [Visual Studio Build Tools](https://visualstudio.microsoft.com/downloads/)
-  with the Desktop development with C++ workload and a current Windows SDK
-- The `i686-pc-windows-msvc` and `x86_64-pc-windows-msvc` Rust targets
-
-Install the Rust targets from a Windows shell:
-
-```text
+```powershell
 rustup target add i686-pc-windows-msvc x86_64-pc-windows-msvc
 ```
 
-Build the 32-bit client components from a Visual Studio x86 developer shell:
+Build the 32-bit injected components and 64-bit tools:
 
-```text
+```powershell
 cargo build -p loader -p rpc-dll --target i686-pc-windows-msvc --release
-```
-
-Build the 64-bit tools from a Visual Studio x64 developer shell:
-
-```text
 cargo build -p rpc-client -p rpc-daemon --target x86_64-pc-windows-msvc --release
 ```
 
-See the book's [development guide](https://ewrogers.github.io/da-rpc/development.html)
-for testing, macOS with Parallels, and repository-specific build guidance.
+See the [development
+chapter](https://ewrogers.github.io/da-rpc/development.html) for the full build,
+test, documentation, Windows verification, and packaging workflow.
 
-## Usage
+## API and documentation
 
-### Attach to a running client
+While `darpcd.exe` is running:
 
-```text
-loader.exe attach <pid> <path-to-darpc.dll>
+| Resource | URL |
+|---|---|
+| Swagger UI | `http://127.0.0.1:2626/docs` |
+| OpenAPI JSON | `http://127.0.0.1:2626/openapi.json` |
+| Client registry | `http://127.0.0.1:2626/clients` |
+| Server-Sent Events | `http://127.0.0.1:2626/events` |
+
+The same specification is included as `openapi.json` in release bundles. It can
+also be exported directly from the matching daemon binary:
+
+```powershell
+.\darpcd.exe --print-openapi > openapi.json
 ```
 
-Inspect or detach it later:
+Detailed references:
 
-```text
-loader.exe inspect <pid>
-loader.exe detach <pid> <path-to-darpc.dll>
-```
-
-### Launch a client
-
-```text
-loader.exe launch --allow-multiple --skip-intro --skip-notice \
-    --skip-exchange-alerts \
-    <path-to-Darkages.exe> <path-to-darpc.dll>
-```
-
-The loader can also select a server endpoint for local development and network
-analysis. See the [loader guide](https://ewrogers.github.io/da-rpc/loader.html)
-for every launch option.
-
-### Use one client directly
-
-`darpc.exe` is the simplest way to inspect or control one injected client. It
-uses the binary named-pipe protocol directly and does not require the daemon.
-
-```text
-darpc.exe hello --pid <pid>
-darpc.exe snapshot --pid <pid>
-darpc.exe turn --pid <pid> north
-darpc.exe walk --pid <pid> 120 85
-darpc.exe item drop --pid <pid> 1 120 85
-darpc.exe item give --pid <pid> 1 <object-id>
-darpc.exe skill use --pid <pid> 5
-darpc.exe spell cast --pid <pid> 2 --target-id <object-id>
-darpc.exe --output json snapshot --pid <pid>
-```
-
-See the [`darpc.exe` guide](https://ewrogers.github.io/da-rpc/cli.html) for the
-full command reference.
-
-### Run the daemon
-
-Start `darpcd.exe` to discover and aggregate clients:
-
-```text
-darpcd.exe
-```
-
-To inject the DLL into discovered clients automatically, provide the loader and
-DLL paths and enable auto-load:
-
-```text
-darpcd.exe --auto-load --loader-path <loader.exe> --dll-path <darpc.dll>
-```
-
-The daemon listens on `127.0.0.1:2626` by default. Open
-`http://127.0.0.1:2626/docs` for Swagger UI or
-`http://127.0.0.1:2626/openapi.json` for the OpenAPI document.
-
-## Web API
-
-The web API is designed for scripts, desktop tools, dashboards, and other local
-integrations.
-
-- **REST** reads current state and submits actions.
-- **SSE** streams ordered state, message, object, and action events as they
-  happen.
-- **OpenAPI** describes the REST surface for tools such as Postman and API
-  client generators.
-- **Swagger UI** provides an interactive API browser without extra setup.
-- **REST and SSE** provide real-time interaction without duplicating command
-  validation, flow control, reconnection, and ordering across another transport.
-
-Clients can be addressed by process ID or, while in game, by character name.
-Some representative routes are:
-
-```text
-GET  /clients
-GET  /clients/{client}/status
-GET  /clients/{client}/items
-GET  /clients/{client}/skills
-GET  /clients/{client}/spells
-GET  /clients/{client}/objects
-GET  /clients/{client}/who
-GET  /clients/{client}/legend
-GET  /clients/{client}/group
-GET  /clients/{client}/exchange
-GET  /clients/{client}/events
-POST /clients/{client}/turn
-POST /clients/{client}/walk
-POST /clients/{client}/skills/use
-POST /clients/{client}/spells/cast
-POST /clients/{client}/items/use
-POST /clients/{client}/items/drop
-POST /clients/{client}/items/pickup
-POST /clients/{client}/chant
-POST /clients/{client}/items/sell
-POST /clients/{client}/items/repair-all
-POST /clients/{client}/gold/drop
-POST /clients/{client}/equipment/unequip
-POST /clients/{client}/emote
-POST /clients/{client}/group/invite
-POST /clients/{client}/exchange/accept
-POST /clients/launch
-POST /clients/{client}/load
-POST /clients/{client}/unload
-```
-
-The [web API guide](https://ewrogers.github.io/da-rpc/web-api.html) explains
-routes, requests, and errors. The [live event reference](https://ewrogers.github.io/da-rpc/events.html)
-documents every SSE event, payload, ordering rule, and reconnect procedure.
+- [Web API and Swagger UI](https://ewrogers.github.io/da-rpc/web-api.html)
+- [Live events](https://ewrogers.github.io/da-rpc/events.html)
+- [Executable components](https://ewrogers.github.io/da-rpc/executables.html)
+- [Game data](https://ewrogers.github.io/da-rpc/state.html)
+- [Architecture](https://ewrogers.github.io/da-rpc/architecture.html)
+- [Safety and security](https://ewrogers.github.io/da-rpc/safety.html)
 
 ## Version support
 
-daRPC 1.0 is not a general-purpose game injection framework. It is deliberately
-specific to one supported client build. A matching game window is only a
-discovery candidate; the loader and DLL must still validate and negotiate with
-the client before daRPC accepts it.
-
-The current implementation includes client lifecycle management, local state,
-event-driven updates, native movement, skill and spell actions, REST, SSE, and
-direct binary IPC. See the [roadmap](https://ewrogers.github.io/da-rpc/roadmap.html)
-for post-1.0 priorities.
+Version-specific memory layouts and hooks are deliberate safety boundaries.
+daRPC refuses unsupported executables instead of guessing. See [runtime hooks
+and compatibility](https://ewrogers.github.io/da-rpc/hooks.html) for the exact
+validation model.
 
 ## Development
 
-The repository is a Rust workspace organized by runtime component and shared
-domain boundary:
-
-```text
-components/   DLL, loader, command-line client, and daemon
-crates/       game layout, hooks, models, protocol, and Windows support
-tools/        lifecycle, injection, hook, and integration test harnesses
-docs/         mdBook source
-```
-
-Before contributing, read the
-[development guide](https://ewrogers.github.io/da-rpc/development.html) and
-[repository conventions](AGENTS.md). Use short
-[Conventional Commits](https://www.conventionalcommits.org/) and include focused
-tests and documentation with behavioral changes.
+Repository-wide contributor and agent guidance lives in [AGENTS.md](AGENTS.md).
+Changes should remain focused, include appropriate tests and documentation, and
+use [Conventional Commits](https://www.conventionalcommits.org/).
 
 ## License
 
-daRPC is available under the [MIT License](LICENSE).
+daRPC is licensed under the [MIT License](LICENSE).
 
 ## Legal disclaimer
 

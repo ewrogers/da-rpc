@@ -285,9 +285,19 @@ models are included in OpenAPI.
 The OpenAPI document is generated from the Rust HTTP models. It can be imported
 into Postman, Apidog, client generators, or another OpenAPI consumer.
 
+- `/docs` hosts the interactive Swagger UI.
+- `/openapi.json` serves the canonical OpenAPI 3.1 JSON for the running binary.
+- Release bundles include the same document as `openapi.json` for offline use.
+- `darpcd.exe --print-openapi` prints the document and exits without starting
+  the server.
+
 Swagger UI uses vendored assets and an Ayu-inspired dark theme, so it works
 without an internet connection. A Swagger rendering problem cannot affect the
 registry, JSON routes, or DLL connections.
+
+The OpenAPI document is the interface contract; Swagger UI is only one viewer.
+This separation allows the documentation frontend to change later without
+changing API routes or generated clients.
 
 OpenAPI describes the JSON event envelopes but cannot fully express the
 surrounding SSE lines, stream ordering, lag, and reconnect behavior. This

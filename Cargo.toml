@@ -21,7 +21,7 @@ authors = ["Erik 'SiLo' Rogers"]
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/ewrogers/da-rpc"
-version = "1.0.0"
+version = "1.1.0"
 
 [workspace.dependencies]
 darpc-game-client = { path = "crates/game-client" }

@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.1.0 - 2026-08-10
+
 ### Added
 
 - Added automatic visible-player inspection caching, cache-only lookup by

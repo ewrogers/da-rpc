@@ -117,6 +117,7 @@ the game and how they change.
 | `POST /clients/{client}/equipment/unequip` | Unequip one readable equipment slot. |
 | `POST /clients/{client}/emote` | Perform an emote by confirmed name or client code. |
 | `POST /clients/{client}/raw/send` | Send a bounded custom client packet or dispatch a synthetic server packet. |
+| `POST /clients/{client}/assail` | Submit the client's native basic-attack packet. |
 | `POST /clients/{client}/interact` | Start a conversation with a visible Mundane. |
 | `POST /clients/{client}/dialog/select` | Select a row in the current NPC dialog. |
 | `POST /clients/{client}/dialog/input` | Answer the current text prompt. |
@@ -145,6 +146,16 @@ in [NPC dialogs](dialogs.md). Group state, invitations, and roster confirmation
 are documented in [Groups](groups.md). Player offers, constraints, and exchange
 completion are documented in [Exchange](exchanges.md).
 Raw packet syntax and crash risks are documented in [Raw packets](raw.md).
+
+Basic attacks require no request body:
+
+```sh
+curl --request POST "http://127.0.0.1:2626/clients/ZiLo/assail"
+```
+
+The action submits client packet `0x13` on the game thread. Observe
+`player.animated` and `sound.played` on the client's event stream for the
+server-confirmed animation and sound cues.
 
 ### Native command results
 

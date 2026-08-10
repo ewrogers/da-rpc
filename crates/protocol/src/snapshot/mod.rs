@@ -315,7 +315,7 @@ fn decode_character(reader: &mut PayloadReader<'_>) -> Result<CharacterSnapshot,
     })
 }
 
-fn lifecycle_wire(lifecycle: ClientLifecycle) -> u8 {
+pub(crate) fn lifecycle_wire(lifecycle: ClientLifecycle) -> u8 {
     match lifecycle {
         ClientLifecycle::Unknown => 0,
         ClientLifecycle::Title => 1,
@@ -325,7 +325,7 @@ fn lifecycle_wire(lifecycle: ClientLifecycle) -> u8 {
     }
 }
 
-fn lifecycle_from_wire(value: u8) -> Result<ClientLifecycle, DecodeError> {
+pub(crate) fn lifecycle_from_wire(value: u8) -> Result<ClientLifecycle, DecodeError> {
     match value {
         0 => Ok(ClientLifecycle::Unknown),
         1 => Ok(ClientLifecycle::Title),

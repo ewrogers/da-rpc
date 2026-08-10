@@ -38,11 +38,15 @@ Message {
 }
 ```
 
-The channel is one of:
+Retained history uses one of these channels:
 
 ```text
 say, shout, whisper, guild, group, system, world
 ```
+
+Spell chants are transient `message.chant` SSE events and are intentionally not
+stored by `/messages`. This keeps spell and NPC command chants from crowding
+ordinary conversation history.
 
 Channel markers and participant punctuation shown by the game are removed from
 the text. Empty messages are ignored. A world shout is stored once as `world`,
@@ -78,6 +82,7 @@ Each channel has its own SSE routing name:
 ```text
 message.say
 message.shout
+message.chant
 message.whisper
 message.guild
 message.group
@@ -85,13 +90,14 @@ message.system
 message.world
 ```
 
-All seven routes use the JSON discriminator `type: "message"`. The channel is
+All eight routes use the JSON discriminator `type: "message"`. The channel is
 inside `data.channel`. Separate SSE names let a browser subscribe only to the
 channels it cares about.
 
 Message events do not contain the common state `observation` object. The SSE
 `id` still provides ordering, and the subscription path identifies the client.
-The daemon adds the normalized message to REST history before broadcasting it.
+The daemon adds normal chat and system messages to REST history before
+broadcasting them. It broadcasts chants without retaining them.
 
 Some system messages also confirm spell results. In those cases the stream
 contains both `message.system` and a semantic `spell.succeeded`, `spell.failed`,
@@ -105,8 +111,8 @@ instance. It removes the oldest messages first. History is held in memory and
 is cleared when the daemon restarts or a new DLL instance replaces the old one.
 
 If an SSE connection is interrupted, read `/messages` with a suitable `since`
-value to recover recent conversation context. State events from before the
-subscription are not replayed.
+value to recover recent conversation context. Chants and state events from
+before the subscription are not replayed.
 
 ## Privacy
 

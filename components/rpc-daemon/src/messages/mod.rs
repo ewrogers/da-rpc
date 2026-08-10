@@ -18,6 +18,7 @@ pub(crate) const MAX_MESSAGE_COUNT: usize = 100;
 pub(crate) enum MessageChannel {
     Say,
     Shout,
+    Chant,
     Whisper,
     Guild,
     Group,
@@ -30,6 +31,7 @@ impl MessageChannel {
         match self {
             Self::Say => "message.say",
             Self::Shout => "message.shout",
+            Self::Chant => "message.chant",
             Self::Whisper => "message.whisper",
             Self::Guild => "message.guild",
             Self::Group => "message.group",
@@ -44,6 +46,7 @@ impl From<MessageKind> for MessageChannel {
         match kind {
             MessageKind::Say => Self::Say,
             MessageKind::Shout => Self::Shout,
+            MessageKind::Chant => Self::Chant,
             MessageKind::Whisper => Self::Whisper,
             MessageKind::Guild => Self::Guild,
             MessageKind::Group => Self::Group,
@@ -60,6 +63,7 @@ impl FromStr for MessageChannel {
         match value {
             "say" => Ok(Self::Say),
             "shout" => Ok(Self::Shout),
+            "chant" => Ok(Self::Chant),
             "whisper" => Ok(Self::Whisper),
             "guild" => Ok(Self::Guild),
             "group" => Ok(Self::Group),
@@ -149,7 +153,7 @@ impl StoredMessage {
         observed_at_utc: DateTime<Utc>,
         message: &ClientMessage,
     ) -> Option<Self> {
-        if message.text.trim().is_empty() {
+        if message.kind == MessageKind::Chant || message.text.trim().is_empty() {
             return None;
         }
         Some(Self {
@@ -371,6 +375,22 @@ mod tests {
                 .with_timezone(&Utc),
             observed_at(2)
         );
+    }
+
+    #[test]
+    fn chants_are_not_retained_in_message_history() {
+        let identity = ClientIdentity::from_hello(hello(1));
+        let mut store = MessageStore::default();
+        store.observe(
+            &ConnectionEvent::StateEvents {
+                pid: 42,
+                identity,
+                events: vec![event_on(1, MessageKind::Chant, "ard cradh")],
+            },
+            observed_at(2),
+        );
+
+        assert!(store.get(identity, &all_messages()).messages.is_empty());
     }
 
     #[test]

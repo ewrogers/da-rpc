@@ -612,6 +612,7 @@ fn legend_route_returns_refreshed_marks_with_friendly_icons() {
 
 #[test]
 fn routes_typed_actions() {
+    assert_routes_action("/clients/42/assail", "", CommandKind::Assail);
     assert_routes_action(
         "/clients/42/raw/send",
         r#"{"direction":"client","command":"0x7E","payload":"00 03 02"}"#,
@@ -1464,6 +1465,7 @@ fn serves_the_openapi_contract_and_vendored_swagger_ui() {
         "/clients/{client}/exchange/cancel",
         "/clients/{client}/emote",
         "/clients/{client}/raw/send",
+        "/clients/{client}/assail",
         "/clients/{client}/commands/diagnostic",
         "/clients/{client}/commands/{command_id}",
     ] {
@@ -1535,6 +1537,10 @@ fn serves_the_openapi_contract_and_vendored_swagger_ui() {
         "ErrorState",
         "ErrorDetail",
         "ClientEvent",
+        "ClientLifecycleChanged",
+        "SoundPlayed",
+        "MusicStarted",
+        "MusicStopped",
         "StreamReady",
         "EventObservation",
         "EffectAdded",
@@ -1589,6 +1595,11 @@ fn serves_the_openapi_contract_and_vendored_swagger_ui() {
     ] {
         assert!(schemas.contains_key(name), "OpenAPI omitted {name}");
     }
+    assert!(
+        schemas["MessageChannel"]["enum"]
+            .as_array()
+            .is_some_and(|values| values.iter().any(|value| value == "chant"))
+    );
     let message_parameters = openapi["paths"]["/clients/{client}/messages"]["get"]["parameters"]
         .as_array()
         .unwrap();
@@ -1606,6 +1617,11 @@ fn serves_the_openapi_contract_and_vendored_swagger_ui() {
     let event_variants = schemas["ClientEvent"]["oneOf"].as_array().unwrap();
     for event_type in [
         "stream_ready",
+        "client_logged_in",
+        "client_disconnected",
+        "sound_played",
+        "music_started",
+        "music_stopped",
         "effect_added",
         "effect_removed",
         "effect_changed",

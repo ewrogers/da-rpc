@@ -19,6 +19,9 @@ impl QueuedStateEvent {
 
     pub(crate) fn into_model(self) -> Option<StateEvent> {
         let update = match self.update {
+            #[cfg(not(test))]
+            QueuedStateUpdate::Lifecycle(update) => StateUpdate::Lifecycle(update),
+            QueuedStateUpdate::Audio(update) => StateUpdate::Audio(update),
             QueuedStateUpdate::Status(update) => StateUpdate::Status(update),
             #[cfg(not(test))]
             QueuedStateUpdate::Movement(update) => StateUpdate::Movement(update),
@@ -66,6 +69,9 @@ impl QueuedStateEvent {
 // would allocate in the game-thread observer.
 #[allow(clippy::large_enum_variant)]
 pub(super) enum QueuedStateUpdate {
+    #[cfg(not(test))]
+    Lifecycle(LifecycleUpdate),
+    Audio(AudioUpdate),
     Status(StatusUpdate),
     #[cfg(not(test))]
     Movement(MovementUpdate),

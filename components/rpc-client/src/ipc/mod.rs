@@ -202,6 +202,7 @@ pub(crate) fn execute(pid: u32, operation: Operation) -> Result<CommandResult> {
                 wait_ms: MAX_COMMAND_WAIT_MS,
             },
         ),
+        Operation::Assail => request_action(&mut session, pid, "assail", CommandKind::Assail),
         Operation::Turn(direction) => request_command(
             &mut session,
             pid,

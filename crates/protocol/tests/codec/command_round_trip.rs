@@ -404,6 +404,14 @@ fn command_messages_round_trip() {
                 wait_ms: 50,
             },
         }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 49,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::Assail,
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
     ];
 
     for message in messages {

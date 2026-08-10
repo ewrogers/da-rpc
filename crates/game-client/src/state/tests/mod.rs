@@ -233,7 +233,12 @@ impl MemoryReader for FakeMemory {
 #[test]
 fn captures_the_scalar_gameplay_snapshot() {
     let memory = FakeMemory::gameplay();
-    let snapshot = StateWalker::new(&memory, BASE).capture(THREAD_ID).unwrap();
+    let walker = StateWalker::new(&memory, BASE);
+    let snapshot = walker.capture(THREAD_ID).unwrap();
+    assert_eq!(
+        walker.capture_lifecycle(THREAD_ID).unwrap(),
+        RawLifecycle::InGame
+    );
     assert!(snapshot.character_available);
     let character = &snapshot.character;
     let location = character.location.unwrap();
@@ -384,7 +389,12 @@ fn title_state_has_no_character() {
     memory.u32(BASE + GUI_BACK_PANE_RVA, 0);
     memory.u32(BASE + MAIN_MENU_PANE_RVA, 0x1234);
 
-    let snapshot = StateWalker::new(&memory, BASE).capture(THREAD_ID).unwrap();
+    let walker = StateWalker::new(&memory, BASE);
+    let snapshot = walker.capture(THREAD_ID).unwrap();
+    assert_eq!(
+        walker.capture_lifecycle(THREAD_ID).unwrap(),
+        RawLifecycle::Title
+    );
     assert_eq!(snapshot.lifecycle, RawLifecycle::Title);
     assert!(!snapshot.character_available);
 }
@@ -401,7 +411,12 @@ fn reconnect_dialog_takes_precedence_over_the_stable_world() {
     memory.u8(RECONNECT_DIALOG + 0x130, 1);
     memory.u8(RECONNECT_DIALOG + 0x188, 0x02);
 
-    let snapshot = StateWalker::new(&memory, BASE).capture(THREAD_ID).unwrap();
+    let walker = StateWalker::new(&memory, BASE);
+    let snapshot = walker.capture(THREAD_ID).unwrap();
+    assert_eq!(
+        walker.capture_lifecycle(THREAD_ID).unwrap(),
+        RawLifecycle::Disconnected
+    );
     assert_eq!(snapshot.lifecycle, RawLifecycle::Disconnected);
     assert!(snapshot.character_available);
 }

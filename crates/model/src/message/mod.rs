@@ -2,6 +2,7 @@
 pub enum MessageKind {
     Say,
     Shout,
+    Chant,
     Whisper,
     Guild,
     Group,

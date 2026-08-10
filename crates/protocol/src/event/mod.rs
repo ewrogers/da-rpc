@@ -4,11 +4,11 @@ use crate::{
     snapshot::{MAX_MAP_NAME_LEN, decode_optional_string, encode_optional_string},
 };
 use darpc_model::{
-    AbilityUpdate, ActionUpdate, CharacterModifiers, CharacterStats, ClientMessage,
+    AbilityUpdate, ActionUpdate, AudioUpdate, CharacterModifiers, CharacterStats, ClientMessage,
     CollectionChange, CoreStatus, CurrentVitals, Direction, Effect, EffectDuration, EffectUpdate,
-    Element, EntityUpdate, EquipmentSlot, InventoryItem, LocationUpdate, MapChange, MessageKind,
-    MovementUpdate, ObjectUpdate, ProgressionStatus, Skill, SlotUpdate, Spell,
-    SpellCancellationSource, SpellCastArguments, StateEvent, StateUpdate, StatusUpdate,
+    Element, EntityUpdate, EquipmentSlot, InventoryItem, LifecycleUpdate, LocationUpdate,
+    MapChange, MessageKind, MovementUpdate, ObjectUpdate, ProgressionStatus, Skill, SlotUpdate,
+    Spell, SpellCancellationSource, SpellCastArguments, StateEvent, StateUpdate, StatusUpdate,
     TilePosition,
 };
 
@@ -138,6 +138,25 @@ fn encode_event(output: &mut Vec<u8>, event: &StateEvent) -> Result<(), EncodeEr
     push_u32(output, event.revision);
     push_u32(output, event.tick_ms);
     match &event.update {
+        StateUpdate::Lifecycle(update) => {
+            output.push(17);
+            output.push(crate::snapshot::lifecycle_wire(update.previous));
+            output.push(crate::snapshot::lifecycle_wire(update.current));
+        }
+        StateUpdate::Audio(update) => {
+            output.push(18);
+            match update {
+                AudioUpdate::SoundPlayed { effect } => {
+                    output.push(0);
+                    output.push(*effect);
+                }
+                AudioUpdate::MusicStarted { track } => {
+                    output.push(1);
+                    output.push(*track);
+                }
+                AudioUpdate::MusicStopped => output.push(2),
+            }
+        }
         StateUpdate::Status(update) => {
             output.push(1);
             encode_status(output, *update);
@@ -215,6 +234,20 @@ fn decode_event(reader: &mut PayloadReader<'_>) -> Result<StateEvent, DecodeErro
     let revision = reader.read_u32()?;
     let tick_ms = reader.read_u32()?;
     let update = match reader.read_u8()? {
+        17 => StateUpdate::Lifecycle(LifecycleUpdate {
+            previous: crate::snapshot::lifecycle_from_wire(reader.read_u8()?)?,
+            current: crate::snapshot::lifecycle_from_wire(reader.read_u8()?)?,
+        }),
+        18 => StateUpdate::Audio(match reader.read_u8()? {
+            0 => AudioUpdate::SoundPlayed {
+                effect: reader.read_u8()?,
+            },
+            1 => AudioUpdate::MusicStarted {
+                track: reader.read_u8()?,
+            },
+            2 => AudioUpdate::MusicStopped,
+            actual => return Err(DecodeError::InvalidStateUpdateType { actual }),
+        }),
         1 => StateUpdate::Status(decode_status(reader)?),
         2 => StateUpdate::Location(decode_location(reader)?),
         3 => StateUpdate::Effect(decode_effect(reader)?),

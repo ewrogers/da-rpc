@@ -25,6 +25,7 @@ use tokio::{sync::oneshot, time::timeout};
 use utoipa::ToSchema;
 
 pub(crate) mod ability;
+pub(crate) mod assail;
 pub(crate) mod chant;
 pub(crate) mod dialog;
 pub(crate) mod exchange;
@@ -292,6 +293,7 @@ pub(crate) enum CommandKind {
     Chant,
     Legend,
     Raw,
+    Assail,
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
@@ -642,6 +644,7 @@ impl From<ProtocolKind> for CommandKind {
             ProtocolKind::Chant(_) => Self::Chant,
             ProtocolKind::Legend => Self::Legend,
             ProtocolKind::Raw(_) => Self::Raw,
+            ProtocolKind::Assail => Self::Assail,
         }
     }
 }

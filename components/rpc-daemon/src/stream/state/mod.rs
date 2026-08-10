@@ -1,6 +1,30 @@
 use super::*;
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
+pub(crate) struct ClientLifecycleChanged {
+    pub(super) observation: EventObservation,
+    pub(super) previous: crate::state::ClientLifecycle,
+    pub(super) current: crate::state::ClientLifecycle,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub(crate) struct SoundPlayed {
+    pub(super) observation: EventObservation,
+    pub(super) effect: u8,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub(crate) struct MusicStarted {
+    pub(super) observation: EventObservation,
+    pub(super) track: u8,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub(crate) struct MusicStopped {
+    pub(super) observation: EventObservation,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
 pub(crate) struct LegendMarkAdded {
     pub(super) observation: EventObservation,
     pub(super) mark: LegendMark,
@@ -273,6 +297,40 @@ pub(super) fn expand(
     let observation = EventObservation::new(pid, identity, &event);
     let mut events = Vec::with_capacity(9);
     let update = match event.update {
+        StateUpdate::Lifecycle(update) => {
+            let payload = ClientLifecycleChanged {
+                observation,
+                previous: update.previous.into(),
+                current: update.current.into(),
+            };
+            match update.current {
+                darpc_model::ClientLifecycle::InGame => {
+                    events.push(ClientEvent::ClientLoggedIn(payload));
+                }
+                darpc_model::ClientLifecycle::Disconnected => {
+                    events.push(ClientEvent::ClientDisconnected(payload));
+                }
+                _ => {}
+            }
+            return events;
+        }
+        StateUpdate::Audio(update) => {
+            events.push(match update {
+                darpc_model::AudioUpdate::SoundPlayed { effect } => {
+                    ClientEvent::SoundPlayed(SoundPlayed {
+                        observation,
+                        effect,
+                    })
+                }
+                darpc_model::AudioUpdate::MusicStarted { track } => {
+                    ClientEvent::MusicStarted(MusicStarted { observation, track })
+                }
+                darpc_model::AudioUpdate::MusicStopped => {
+                    ClientEvent::MusicStopped(MusicStopped { observation })
+                }
+            });
+            return events;
+        }
         StateUpdate::Status(update) => update,
         StateUpdate::Location(update) => {
             events.push(ClientEvent::LocationChanged(LocationChanged {

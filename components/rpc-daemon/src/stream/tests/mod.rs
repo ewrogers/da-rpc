@@ -1,13 +1,13 @@
 use super::*;
 use darpc_model::{
-    AbilityUpdate, ActionUpdate, CharacterStats, ClientMessage, CollectionChange, CooldownStatus,
-    CoreStatus, CurrentVitals, Effect, EffectDuration, EffectUpdate, EntityUpdate,
-    ExchangeItem as ModelExchangeItem, ExchangeOffer as ModelExchangeOffer,
-    ExchangeParty as ModelExchangeParty, ExchangeState as ModelExchangeState, ExchangeUpdate,
-    InventoryItem as ModelInventoryItem, LegendIcon as ModelLegendIcon,
-    LegendMark as ModelLegendMark, LegendUpdate, LocationUpdate, MapChange, MessageKind,
-    MovementUpdate, Skill as ModelSkill, SlotUpdate, Spell as ModelSpell,
-    SpellCancellationSource as ModelSpellCancellationSource,
+    AbilityUpdate, ActionUpdate, AudioUpdate, CharacterStats, ClientLifecycle, ClientMessage,
+    CollectionChange, CooldownStatus, CoreStatus, CurrentVitals, Effect, EffectDuration,
+    EffectUpdate, EntityUpdate, ExchangeItem as ModelExchangeItem,
+    ExchangeOffer as ModelExchangeOffer, ExchangeParty as ModelExchangeParty,
+    ExchangeState as ModelExchangeState, ExchangeUpdate, InventoryItem as ModelInventoryItem,
+    LegendIcon as ModelLegendIcon, LegendMark as ModelLegendMark, LegendUpdate, LifecycleUpdate,
+    LocationUpdate, MapChange, MessageKind, MovementUpdate, Skill as ModelSkill, SlotUpdate,
+    Spell as ModelSpell, SpellCancellationSource as ModelSpellCancellationSource,
     SpellCastArguments as ModelSpellCastArguments, SpellTargetType, StateUpdate, StatusUpdate,
     TilePosition as ModelTilePosition,
 };
@@ -627,6 +627,7 @@ fn message_types_have_distinct_public_event_names() {
     for (sequence, kind, expected) in [
         (1, MessageKind::Say, "message.say"),
         (2, MessageKind::Shout, "message.shout"),
+        (8, MessageKind::Chant, "message.chant"),
         (3, MessageKind::Whisper, "message.whisper"),
         (4, MessageKind::Guild, "message.guild"),
         (5, MessageKind::Group, "message.group"),
@@ -653,6 +654,87 @@ fn message_types_have_distinct_public_event_names() {
         );
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].name(), expected);
+    }
+}
+
+#[test]
+fn lifecycle_transitions_have_semantic_public_event_names() {
+    let identity = ClientIdentity {
+        pid: 42,
+        process_creation_time: 100,
+        dll_instance_id: [1; 16],
+    };
+    for (sequence, previous, current, expected) in [
+        (
+            1,
+            ClientLifecycle::Title,
+            ClientLifecycle::InGame,
+            "client.logged_in",
+        ),
+        (
+            2,
+            ClientLifecycle::InGame,
+            ClientLifecycle::Disconnected,
+            "client.disconnected",
+        ),
+    ] {
+        let events = expand(
+            42,
+            identity,
+            StateEvent {
+                sequence,
+                revision: sequence,
+                tick_ms: sequence,
+                update: StateUpdate::Lifecycle(LifecycleUpdate { previous, current }),
+            },
+            None,
+            None,
+            observed_at(),
+        );
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].name(), expected);
+        let json = serde_json::to_value(&events[0]).unwrap();
+        assert!(!json["data"]["previous"].is_null());
+        assert!(!json["data"]["current"].is_null());
+    }
+}
+
+#[test]
+fn audio_updates_have_distinct_public_event_names() {
+    let identity = ClientIdentity {
+        pid: 42,
+        process_creation_time: 100,
+        dll_instance_id: [1; 16],
+    };
+    for (sequence, update, expected) in [
+        (1, AudioUpdate::SoundPlayed { effect: 12 }, "sound.played"),
+        (2, AudioUpdate::MusicStarted { track: 4 }, "music.started"),
+        (3, AudioUpdate::MusicStopped, "music.stopped"),
+    ] {
+        let events = expand(
+            42,
+            identity,
+            StateEvent {
+                sequence,
+                revision: sequence,
+                tick_ms: sequence,
+                update: StateUpdate::Audio(update),
+            },
+            None,
+            None,
+            observed_at(),
+        );
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].name(), expected);
+        let json = serde_json::to_value(&events[0]).unwrap();
+        match update {
+            AudioUpdate::SoundPlayed { effect } => assert_eq!(json["data"]["effect"], effect),
+            AudioUpdate::MusicStarted { track } => assert_eq!(json["data"]["track"], track),
+            AudioUpdate::MusicStopped => {
+                assert!(json["data"].get("effect").is_none());
+                assert!(json["data"].get("track").is_none());
+            }
+        }
     }
 }
 

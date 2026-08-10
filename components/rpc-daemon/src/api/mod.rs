@@ -487,6 +487,10 @@ fn router(state: ApiState) -> Router {
             "/clients/{client}/raw/send",
             post(crate::commands::raw::send),
         )
+        .route(
+            "/clients/{client}/assail",
+            post(crate::commands::assail::assail),
+        )
         .route("/clients/{client}/spells", get(client_spells))
         .route("/clients/{client}/skills", get(client_skills))
         .route("/clients/{client}/effects", get(client_effects))
@@ -649,6 +653,7 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         crate::commands::interaction::unequip,
         crate::commands::interaction::emote,
         crate::commands::raw::send,
+        crate::commands::assail::assail,
         crate::commands::chant::chant,
         crate::commands::chant::sell,
         crate::commands::chant::sell_all,
@@ -771,6 +776,10 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         ErrorState,
         ErrorDetail,
         ClientEvent,
+        crate::stream::ClientLifecycleChanged,
+        crate::stream::SoundPlayed,
+        crate::stream::MusicStarted,
+        crate::stream::MusicStopped,
         crate::commands::DiagnosticOptions,
         crate::commands::raw::RawDirection,
         crate::commands::raw::RawSendOptions,

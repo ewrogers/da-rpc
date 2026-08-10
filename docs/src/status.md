@@ -95,6 +95,9 @@ available yet:
 The reconnect dialog takes priority over the scene behind it. A disconnected
 status may retain the last readable character and map, so use `lifecycle`
 rather than the presence of `character` to decide whether the session is live.
+The DLL refreshes lifecycle during client ticks. Consumers can also watch
+`client.logged_in` and `client.disconnected`; see
+[Client lifecycle events](events.md#client-lifecycle-events).
 
 ## Action flags
 
@@ -153,9 +156,10 @@ Status event values are absolute replacements, not amounts to add or subtract.
 Several events can share one revision when one game update changed several
 groups.
 
-Appearance and lifecycle changes do not currently have dedicated SSE event
-names. A new in-game world produces a fresh baseline, and a process disconnect
-closes the stream. Consumers should reread status after reconnecting.
+Lifecycle transitions emit `client.logged_in` when the title screen enters the
+game and `client.disconnected` when the client returns to its disconnected
+state. A closed process also closes its stream. Consumers should reread status
+after reconnecting.
 
 See [World](world.md) for map transitions and
 [Movement and emotes](movement.md) for route details.

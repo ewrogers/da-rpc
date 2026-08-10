@@ -7,6 +7,33 @@ fn event_messages_round_trip() {
             request_id: 12,
             result: EventPollResult::Events(vec![
                 StateEvent {
+                    sequence: 37,
+                    revision: 6,
+                    tick_ms: 119,
+                    update: StateUpdate::Lifecycle(LifecycleUpdate {
+                        previous: ClientLifecycle::Title,
+                        current: ClientLifecycle::InGame,
+                    }),
+                },
+                StateEvent {
+                    sequence: 38,
+                    revision: 7,
+                    tick_ms: 120,
+                    update: StateUpdate::Audio(AudioUpdate::SoundPlayed { effect: 12 }),
+                },
+                StateEvent {
+                    sequence: 39,
+                    revision: 8,
+                    tick_ms: 121,
+                    update: StateUpdate::Audio(AudioUpdate::MusicStarted { track: 4 }),
+                },
+                StateEvent {
+                    sequence: 40,
+                    revision: 9,
+                    tick_ms: 122,
+                    update: StateUpdate::Audio(AudioUpdate::MusicStopped),
+                },
+                StateEvent {
                     sequence: 41,
                     revision: 10,
                     tick_ms: 123,
@@ -110,6 +137,17 @@ fn event_messages_round_trip() {
                         sender: Some("Eidolon".into()),
                         recipient: Some("Monitor".into()),
                         text: "hello".into(),
+                    }),
+                },
+                StateEvent {
+                    sequence: 470,
+                    revision: 160,
+                    tick_ms: 129,
+                    update: StateUpdate::Message(ClientMessage {
+                        kind: MessageKind::Chant,
+                        sender: Some("Eidolon".into()),
+                        recipient: None,
+                        text: "ard cradh".into(),
                     }),
                 },
                 StateEvent {

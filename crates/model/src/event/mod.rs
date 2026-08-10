@@ -1,7 +1,7 @@
 use crate::{
-    CharacterModifiers, CharacterStats, ClientMessage, ClientSnapshot, DialogUpdate, Direction,
-    Effect, EntityUpdate, EquipmentSlot, ExchangeUpdate, GroupUpdate, InventoryItem, LegendUpdate,
-    MapLocation, ObjectUpdate, Skill, Spell,
+    CharacterModifiers, CharacterStats, ClientLifecycle, ClientMessage, ClientSnapshot,
+    DialogUpdate, Direction, Effect, EntityUpdate, EquipmentSlot, ExchangeUpdate, GroupUpdate,
+    InventoryItem, LegendUpdate, MapLocation, ObjectUpdate, Skill, Spell,
 };
 use std::{error::Error, fmt};
 
@@ -15,6 +15,8 @@ pub struct StateEvent {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum StateUpdate {
+    Lifecycle(LifecycleUpdate),
+    Audio(AudioUpdate),
     Status(StatusUpdate),
     Movement(MovementUpdate),
     Location(LocationUpdate),
@@ -31,6 +33,19 @@ pub enum StateUpdate {
     Group(GroupUpdate),
     Exchange(ExchangeUpdate),
     Legend(LegendUpdate),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LifecycleUpdate {
+    pub previous: ClientLifecycle,
+    pub current: ClientLifecycle,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AudioUpdate {
+    SoundPlayed { effect: u8 },
+    MusicStarted { track: u8 },
+    MusicStopped,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -288,6 +303,16 @@ impl ClientSnapshot {
             });
         }
         match event.update {
+            StateUpdate::Lifecycle(update) => {
+                if self.lifecycle != update.previous {
+                    return Err(ApplyEventError::UnexpectedLifecycle {
+                        expected: self.lifecycle,
+                        actual: update.previous,
+                    });
+                }
+                self.lifecycle = update.current;
+            }
+            StateUpdate::Audio(_) => {}
             StateUpdate::Status(update) => {
                 let character = self
                     .character
@@ -549,6 +574,10 @@ pub enum ApplyEventError {
         expected: u32,
         actual: u32,
     },
+    UnexpectedLifecycle {
+        expected: ClientLifecycle,
+        actual: ClientLifecycle,
+    },
     CharacterUnavailable,
     LocationUnavailable,
     EffectsUnavailable,
@@ -597,6 +626,10 @@ impl fmt::Display for ApplyEventError {
                     "expected state revision {expected}, received {actual}"
                 )
             }
+            Self::UnexpectedLifecycle { expected, actual } => write!(
+                formatter,
+                "expected lifecycle {expected:?}, received previous lifecycle {actual:?}"
+            ),
             Self::CharacterUnavailable => {
                 formatter.write_str("state event has no retained character state")
             }
@@ -739,6 +772,62 @@ const fn next_nonzero(value: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn empty_snapshot(lifecycle: ClientLifecycle) -> ClientSnapshot {
+        ClientSnapshot {
+            revision: 1,
+            event_sequence: 1,
+            captured_tick_ms: 10,
+            updated_tick_ms: 10,
+            capture_duration_us: 0,
+            world_generation: 1,
+            lifecycle,
+            character: None,
+            objects: None,
+            dialog: None,
+            group: None,
+            exchange: None,
+            legend: None,
+        }
+    }
+
+    #[test]
+    fn lifecycle_update_requires_and_replaces_the_previous_state() {
+        let mut snapshot = empty_snapshot(ClientLifecycle::Title);
+        snapshot
+            .apply_event(StateEvent {
+                sequence: 2,
+                revision: 2,
+                tick_ms: 20,
+                update: StateUpdate::Lifecycle(LifecycleUpdate {
+                    previous: ClientLifecycle::Title,
+                    current: ClientLifecycle::InGame,
+                }),
+            })
+            .unwrap();
+        assert_eq!(snapshot.lifecycle, ClientLifecycle::InGame);
+
+        let error = snapshot
+            .apply_event(StateEvent {
+                sequence: 3,
+                revision: 3,
+                tick_ms: 30,
+                update: StateUpdate::Lifecycle(LifecycleUpdate {
+                    previous: ClientLifecycle::Title,
+                    current: ClientLifecycle::Disconnected,
+                }),
+            })
+            .unwrap_err();
+        assert_eq!(
+            error,
+            ApplyEventError::UnexpectedLifecycle {
+                expected: ClientLifecycle::InGame,
+                actual: ClientLifecycle::Title,
+            }
+        );
+        assert_eq!(snapshot.event_sequence, 2);
+        assert_eq!(snapshot.lifecycle, ClientLifecycle::InGame);
+    }
 
     fn item(slot: u8, quantity: u32) -> InventoryItem {
         InventoryItem {

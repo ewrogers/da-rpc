@@ -60,6 +60,7 @@ darpc tick health --pid <pid>
 darpc snapshot --pid <pid>
 darpc diagnostic --pid <pid>
 darpc raw send --pid <pid> <client|server> <0xNN> [hex-payload]
+darpc assail --pid <pid>
 darpc turn --pid <pid> <north|east|south|west>
 darpc walk --pid <pid> <north|east|south|west>
 darpc walk --pid <pid> <x> <y>
@@ -136,6 +137,8 @@ and connection lifecycle. Their behavior is:
 - `diagnostic` submits a no-op command to the bounded main-thread queue, waits
   up to one second, and reports its state, queue delay, execution duration, and
   client main-thread ID.
+- `assail` submits the client's native `0x13` basic-attack packet. The resulting
+  client observations can emit `player.animated` and `sound.played` events.
 - `turn` cancels any queued native route and asks the client to face one of the
   four cardinal directions.
 - `walk` with a direction cancels any queued route and attempts one native,

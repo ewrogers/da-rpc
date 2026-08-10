@@ -439,6 +439,9 @@ extern "C" fn observe_event(event: *const core::ffi::c_void) {
         EVENT_COUNT.fetch_add(1, Ordering::Relaxed);
         let tick_ms = sender_tick_ms();
         match update {
+            packet::ServerUpdate::Audio(update) => {
+                state::observe_audio(update, tick_ms);
+            }
             packet::ServerUpdate::Status(update) => {
                 state::observe_status(update, tick_ms);
             }

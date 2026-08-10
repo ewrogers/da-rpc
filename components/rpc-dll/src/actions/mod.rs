@@ -41,6 +41,7 @@ pub(crate) fn execute(command: CommandKind) -> Result<(), CommandFailure> {
         CommandKind::Chant(text) => chant::submit(text),
         CommandKind::Legend => network::submit(&[0x2D]),
         CommandKind::Raw(packet) => network::raw(packet),
+        CommandKind::Assail => network::submit(&[0x13]),
     }
 }
 

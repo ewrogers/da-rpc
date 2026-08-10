@@ -88,6 +88,7 @@ pub enum CommandKind {
     Chant(ChantText),
     Legend,
     Raw(RawPacket),
+    Assail,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -598,6 +599,7 @@ pub(super) fn encode_kind(output: &mut Vec<u8>, kind: CommandKind) {
             output.push(packet.payload_length);
             output.extend_from_slice(packet.payload());
         }
+        CommandKind::Assail => output.push(22),
     }
 }
 
@@ -772,6 +774,7 @@ pub(super) fn decode_kind(reader: &mut PayloadReader<'_>) -> Result<CommandKind,
                     .expect("a wire-sized raw packet payload always fits"),
             ))
         }
+        22 => Ok(CommandKind::Assail),
         actual => Err(DecodeError::InvalidCommandKind { actual }),
     }
 }
@@ -881,6 +884,13 @@ mod tests {
             )
             .is_none()
         );
+    }
+
+    #[test]
+    fn assail_command_has_a_stable_wire_discriminant() {
+        let mut encoded = Vec::new();
+        encode_kind(&mut encoded, CommandKind::Assail);
+        assert_eq!(encoded, [22]);
     }
 
     #[test]

@@ -152,7 +152,7 @@ impl Skillbook {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ClientLifecycle {
     Unknown,

@@ -65,6 +65,7 @@ fn decode_map_name(bytes: &[u8]) -> Option<String> {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(super) struct StateCache {
+    pub(super) lifecycle: Option<ClientLifecycle>,
     pub(super) self_id: Option<u32>,
     pub(super) self_name: [u8; 16],
     pub(super) self_name_len: u8,
@@ -87,15 +88,18 @@ pub(super) struct StateCache {
 
 impl StateCache {
     pub(super) fn from_raw(raw: &RawStateSnapshot) -> Self {
-        if raw.character_available {
+        let mut cache = if raw.character_available {
             Self::from_character(&raw.character)
         } else {
             Self::default()
-        }
+        };
+        cache.lifecycle = Some(super::lifecycle(raw.lifecycle));
+        cache
     }
 
     pub(super) fn from_character(raw: &RawCharacter) -> Self {
         Self {
+            lifecycle: None,
             self_id: raw.id,
             self_name: raw.name,
             self_name_len: raw.name_len,
@@ -165,6 +169,11 @@ impl StateCache {
             ),
             is_casting: changed(&mut self.is_casting, update.is_casting),
         }
+    }
+
+    pub(super) fn lifecycle(&mut self, current: ClientLifecycle) -> Option<LifecycleUpdate> {
+        let previous = self.lifecycle.replace(current)?;
+        (previous != current).then_some(LifecycleUpdate { previous, current })
     }
 
     #[cfg(not(test))]
@@ -355,6 +364,7 @@ unsafe impl Sync for MainThreadCache {}
 impl MainThreadCache {
     pub(super) const fn new() -> Self {
         Self(UnsafeCell::new(StateCache {
+            lifecycle: None,
             self_id: None,
             self_name: [0; 16],
             self_name_len: 0,
@@ -459,6 +469,12 @@ impl MainThreadCache {
     }
 
     #[cfg(not(test))]
+    pub(super) unsafe fn lifecycle(&self, current: ClientLifecycle) -> Option<LifecycleUpdate> {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&mut *self.0.get()).lifecycle(current) }
+    }
+
+    #[cfg(not(test))]
     pub(super) unsafe fn movement(
         &self,
         is_walking: bool,
@@ -505,5 +521,24 @@ impl MainThreadCache {
     ) -> Option<EffectUpdate> {
         // SAFETY: the caller guarantees exclusive main-thread access.
         unsafe { (&mut *self.0.get()).effect(icon, duration) }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn lifecycle_only_emits_real_transitions() {
+        let mut cache = StateCache::default();
+        assert_eq!(cache.lifecycle(ClientLifecycle::Title), None);
+        assert_eq!(cache.lifecycle(ClientLifecycle::Title), None);
+        assert_eq!(
+            cache.lifecycle(ClientLifecycle::InGame),
+            Some(LifecycleUpdate {
+                previous: ClientLifecycle::Title,
+                current: ClientLifecycle::InGame,
+            })
+        );
     }
 }

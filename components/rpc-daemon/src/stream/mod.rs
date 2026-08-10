@@ -69,6 +69,11 @@ pub(crate) enum PublishedEvent {
 /// The transport-level `event` and `id` fields are emitted separately.
 pub(crate) enum ClientEvent {
     StreamReady(StreamReady),
+    ClientLoggedIn(ClientLifecycleChanged),
+    ClientDisconnected(ClientLifecycleChanged),
+    SoundPlayed(SoundPlayed),
+    MusicStarted(MusicStarted),
+    MusicStopped(MusicStopped),
     StatsChanged(StatsChanged),
     VitalsChanged(VitalsChanged),
     ProgressionChanged(ProgressionChanged),
@@ -164,6 +169,11 @@ impl ClientEvent {
     const fn name(&self) -> &'static str {
         match self {
             Self::StreamReady(_) => "stream.ready",
+            Self::ClientLoggedIn(_) => "client.logged_in",
+            Self::ClientDisconnected(_) => "client.disconnected",
+            Self::SoundPlayed(_) => "sound.played",
+            Self::MusicStarted(_) => "music.started",
+            Self::MusicStopped(_) => "music.stopped",
             Self::StatsChanged(_) => "stats.changed",
             Self::VitalsChanged(_) => "vitals.changed",
             Self::ProgressionChanged(_) => "progression.changed",
@@ -259,6 +269,12 @@ impl ClientEvent {
     fn sequence(&self) -> u32 {
         match self {
             Self::StreamReady(value) => value.event_sequence,
+            Self::ClientLoggedIn(value) | Self::ClientDisconnected(value) => {
+                value.observation.event_sequence
+            }
+            Self::SoundPlayed(value) => value.observation.event_sequence,
+            Self::MusicStarted(value) => value.observation.event_sequence,
+            Self::MusicStopped(value) => value.observation.event_sequence,
             Self::StatsChanged(value) => value.observation.event_sequence,
             Self::VitalsChanged(value) => value.observation.event_sequence,
             Self::ProgressionChanged(value) => value.observation.event_sequence,

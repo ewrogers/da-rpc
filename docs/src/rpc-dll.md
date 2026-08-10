@@ -54,12 +54,12 @@ owns text decoding, allocation, and serialization. See [Game data](state.md)
 for the snapshot surface and concurrency model.
 
 The DLL also observes the central decoded-event dispatcher after original
-handling. Bounded status, collection, effect, position, world-object, and
-message values update the retained state and enter a fixed 1 MiB queue as
-ordered mutations. Map-size metadata is staged until an authoritative position
-completes the transition. The pipe worker serves those mutations through
-bounded long polls. It requests no allocation, logging, serialization, or IPC
-work from the hook path.
+handling. Bounded status, collection, effect, position, world-object, message,
+and audio values update retained state or enter a fixed 1 MiB queue as ordered
+events. A tick-time lifecycle check records login and disconnect transitions.
+Map-size metadata is staged until an authoritative position completes the
+transition. The pipe worker serves those updates through bounded long polls. It
+requests no allocation, logging, serialization, or IPC work from the hook path.
 
 A separate observer watches the common outbound submission boundary after the
 client has processed an action. It copies only recognized bounded fields,
@@ -102,6 +102,10 @@ through the confirmed client packet function. The packet carries one nonempty
 length-prefixed ASCII string and preserves every supplied byte. NPC sell,
 deposit, withdraw, and repair helpers format their phrases in the controller and
 use this same executor.
+
+Assail commands submit the one-byte `0x13` basic-attack packet through that
+same confirmed client packet function. Server responses remain responsible for
+the observed player animation and sound events.
 
 Skill use resolves the live lower-tray root, skill inventory, pointer table,
 and one-based entry on the main thread, then calls the client's normal skill

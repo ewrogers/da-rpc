@@ -133,6 +133,29 @@ EffectDuration = white | red | orange | yellow | green | blue
 Tile coordinates are zero-based. Effect durations are the client's visible
 color bands from longest to shortest, not exact timers.
 
+## Client lifecycle events
+
+The DLL checks the client lifecycle on the game thread and emits semantic
+events when it enters the two states most useful to automation:
+
+| SSE event | JSON type | Meaning |
+| --- | --- | --- |
+| `client.logged_in` | `client_logged_in` | The client entered the in-game state. |
+| `client.disconnected` | `client_disconnected` | The client displayed its reconnect dialog. |
+
+```text
+ClientLifecycleChanged {
+    observation: EventObservation,
+    previous: unknown | title | transition | in_game | disconnected,
+    current: unknown | title | transition | in_game | disconnected,
+}
+```
+
+`client.disconnected` describes the game client's server connection. It is not
+the same as `stream.closed`, which means the daemon lost its DLL connection.
+Transitions to other lifecycle states update the REST snapshot without
+publishing another lifecycle event.
+
 ## Reconnect and recover
 
 Events are ordered within one client stream. daRPC does not replay state events
@@ -553,6 +576,20 @@ EntityDamaged {
 meter. It is not the amount of damage dealt. Effects drawn only at ground
 coordinates are not published yet.
 
+## Audio events
+
+Audio packets provide useful automation cues even when they do not change
+visible state.
+
+| SSE event | JSON type | Payload after `observation` |
+| --- | --- | --- |
+| `sound.played` | `sound_played` | `effect: u8` |
+| `music.started` | `music_started` | `track: u8` |
+| `music.stopped` | `music_stopped` | No additional fields |
+
+The numeric values are the effect and music identifiers sent by the server.
+These transient events have no REST recovery route and are not replayed.
+
 ## Message events
 
 Read recent retained messages from `GET /clients/{client}/messages`. See
@@ -563,6 +600,7 @@ privacy.
 | --- | --- |
 | `message.say` | Nearby speech |
 | `message.shout` | Nearby shout |
+| `message.chant` | Spell chant or mock chant used for an NPC interaction |
 | `message.whisper` | Incoming or outgoing whisper |
 | `message.guild` | Guild chat |
 | `message.group` | Group chat |
@@ -584,8 +622,9 @@ Message {
 ```
 
 The SSE ID carries message stream ordering; it is not repeated in the JSON
-message. The daemon stores a normalized message before broadcasting it. Some system
-messages also produce `spell.succeeded`, `spell.failed`, or `spell.received`.
+message. The daemon stores a normalized message before broadcasting it, except
+for `message.chant`, which is intentionally transient. Some system messages
+also produce `spell.succeeded`, `spell.failed`, or `spell.received`.
 Both frames are intentional: one preserves the text shown by the game and the
 other supplies semantic spell data.
 
@@ -715,6 +754,7 @@ trying to infer state from only the changed field.
 | Domain | Events | REST recovery route |
 | --- | --- | --- |
 | Stream | `stream.ready`, `stream.resync_required`, `stream.closed` | Reread every resource the consumer uses. |
+| Client lifecycle | `client.logged_in`, `client.disconnected` | `/status` |
 | Status | `stats.changed`, `vitals.changed`, `progression.changed`, `gold.changed`, `weight.changed`, `modifiers.changed`, `location.changed`, `blind.changed`, `action_restriction.changed` | `/status` |
 | Walking | `walking.started`, `walking.stopped`, `character.turned`, `character.emoted` | `/status` |
 | Inventory | `item.added`, `item.removed`, `item.changed`, `item.used`, `item.dropped`, `item.given`, `item.picked_up`, `gold.dropped`, `gold.given` | `/items`, then `/status` for gold |
@@ -723,7 +763,8 @@ trying to infer state from only the changed field.
 | Spells | `spell.added`, `spell.removed`, `spell.changed`, `spell.begin`, `spell.chant`, `spell.cast`, `spell.cancelled`, `spell.succeeded`, `spell.failed`, `spell.received` | `/spells`, then `/status` for casting state |
 | Effects | `effect.added`, `effect.removed`, `effect.changed` | `/effects` |
 | World | Player, monster, Mundane, ground-item, visual, damage, and `objects.cleared` events | `/objects` |
-| Messages | `message.say`, `message.shout`, `message.whisper`, `message.guild`, `message.group`, `message.system`, `message.world` | `/messages` |
+| Audio | `sound.played`, `music.started`, `music.stopped` | None; transient events are not replayed. |
+| Messages | `message.say`, `message.shout`, `message.chant`, `message.whisper`, `message.guild`, `message.group`, `message.system`, `message.world` | `/messages`, except transient chants |
 | NPC dialogs | `dialog.opened`, `dialog.changed`, `dialog.submitted`, `dialog.closed` | `/dialog` |
 | Groups | `group.settings_changed`, `group.invitation_sent`, `group.invitation_received`, `group.invitation_closed`, `group.joined`, `group.member_joined`, `group.member_left`, `group.disbanded` | `/group`, then `/status` for convenience fields |
 | Exchange | `exchange.opened`, `exchange.item_added`, `exchange.gold_changed`, `exchange.accepted`, `exchange.completed`, `exchange.cancelled` | `/exchange`, then `/status` for `is_in_exchange` |

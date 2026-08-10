@@ -69,24 +69,7 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
         }
 
         let roots = self.capture_roots()?;
-        let reconnect_dialog_open = self.reconnect_dialog_is_open(roots.event_dispatcher)?;
-        let world_user = if roots.world == 0 {
-            0
-        } else {
-            self.read_u32(add(roots.world, 0x2CC)?)?
-        };
-        let lifecycle = if reconnect_dialog_open {
-            RawLifecycle::Disconnected
-        } else {
-            match (roots.main_menu != 0, roots.world != 0, world_user != 0) {
-                (true, false, false) => RawLifecycle::Title,
-                (false, true, true) => RawLifecycle::InGame,
-                (false, false, false) | (true, true, _) | (_, true, false) => {
-                    RawLifecycle::Transition
-                }
-                _ => RawLifecycle::Unknown,
-            }
-        };
+        let (lifecycle, world_user) = self.lifecycle(&roots)?;
 
         let character_available =
             matches!(lifecycle, RawLifecycle::InGame | RawLifecycle::Disconnected)
@@ -114,6 +97,30 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
         output.lifecycle = lifecycle;
         output.character_available = character_available;
         Ok(())
+    }
+
+    pub fn capture_lifecycle(
+        &self,
+        current_thread_id: u32,
+    ) -> Result<RawLifecycle, StateReadError> {
+        let expected_thread_id = self.read_module_u32(MAIN_THREAD_ID_RVA)?;
+        if expected_thread_id == 0 || expected_thread_id != current_thread_id {
+            return Err(StateReadError::WrongThread {
+                expected: expected_thread_id,
+                actual: current_thread_id,
+            });
+        }
+
+        let roots = self.capture_roots()?;
+        let (lifecycle, _) = self.lifecycle(&roots)?;
+        let current = self.capture_roots()?;
+        if current.world_interface != roots.world_interface
+            || current.event_dispatcher != roots.event_dispatcher
+            || current.main_menu != roots.main_menu
+        {
+            return Err(StateReadError::PointersChanged);
+        }
+        Ok(lifecycle)
     }
 
     #[cfg(test)]
@@ -214,6 +221,28 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
             return Err(StateReadError::PointersChanged);
         }
         Ok(())
+    }
+
+    fn lifecycle(&self, roots: &Roots) -> Result<(RawLifecycle, u32), StateReadError> {
+        let reconnect_dialog_open = self.reconnect_dialog_is_open(roots.event_dispatcher)?;
+        let world_user = if roots.world == 0 {
+            0
+        } else {
+            self.read_u32(add(roots.world, 0x2CC)?)?
+        };
+        let lifecycle = if reconnect_dialog_open {
+            RawLifecycle::Disconnected
+        } else {
+            match (roots.main_menu != 0, roots.world != 0, world_user != 0) {
+                (true, false, false) => RawLifecycle::Title,
+                (false, true, true) => RawLifecycle::InGame,
+                (false, false, false) | (true, true, _) | (_, true, false) => {
+                    RawLifecycle::Transition
+                }
+                _ => RawLifecycle::Unknown,
+            }
+        };
+        Ok((lifecycle, world_user))
     }
 
     fn capture_objects_from_world(

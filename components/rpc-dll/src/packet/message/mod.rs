@@ -48,14 +48,20 @@ fn parse_say(body: &[u8]) -> Result<Option<ParsedMessage<'_>>, ParseError> {
     let mut reader = Reader::new(body);
     reader.expect(SAY_OPCODE)?;
     let mode = reader.u8()?;
-    if mode == CHANT_MODE {
-        return Ok(None);
-    }
-    if !matches!(mode, SAY_MODE | SHOUT_MODE) {
+    if !matches!(mode, SAY_MODE | SHOUT_MODE | CHANT_MODE) {
         return Ok(None);
     }
     let sender_id = reader.u32_be()?;
     let displayed = trim_ascii(reader.string8()?);
+    if mode == CHANT_MODE {
+        return Ok((!displayed.is_empty()).then_some(ParsedMessage {
+            kind: MessageKind::Chant,
+            sender: Participant::None,
+            recipient: Participant::None,
+            sender_id: Some(sender_id),
+            text: displayed,
+        }));
+    }
     if mode == SHOUT_MODE && world_prefix(displayed).is_some() {
         return Ok(None);
     }
@@ -302,9 +308,14 @@ mod tests {
     }
 
     #[test]
-    fn ignores_popups_and_spell_chants() {
+    fn ignores_popups_and_parses_spell_chants() {
         assert_eq!(update(&message(0x08, b"popup")).unwrap(), None);
-        assert_eq!(update(&say(CHANT_MODE, 42, b"ard cradh")).unwrap(), None);
+        let body = say(CHANT_MODE, 42, b"ard cradh");
+        let parsed = update(&body).unwrap().unwrap();
+        assert_eq!(parsed.kind, MessageKind::Chant);
+        assert_eq!(parsed.sender, Participant::None);
+        assert_eq!(parsed.sender_id, Some(42));
+        assert_eq!(parsed.text, b"ard cradh");
     }
 
     #[test]
@@ -317,6 +328,7 @@ mod tests {
             say(SAY_MODE, 42, b""),
             say(SAY_MODE, 42, b"Aisling:   "),
             say(SHOUT_MODE, 42, b"Aisling!   "),
+            say(CHANT_MODE, 42, b"   "),
         ] {
             assert_eq!(update(&body).unwrap(), None);
         }

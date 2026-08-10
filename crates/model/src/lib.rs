@@ -13,9 +13,9 @@ mod snapshot;
 mod who;
 
 pub use event::{
-    AbilityUpdate, ActionUpdate, ApplyEventError, CollectionBatch, CollectionChange,
-    CollectionKind, CoreStatus, CurrentVitals, EffectUpdate, InventoryUpdate, LocationUpdate,
-    MapChange, MovementUpdate, ProgressionStatus, SkillbookUpdate, SlotUpdate,
+    AbilityUpdate, ActionUpdate, ApplyEventError, AudioUpdate, CollectionBatch, CollectionChange,
+    CollectionKind, CoreStatus, CurrentVitals, EffectUpdate, InventoryUpdate, LifecycleUpdate,
+    LocationUpdate, MapChange, MovementUpdate, ProgressionStatus, SkillbookUpdate, SlotUpdate,
     SpellCancellationSource, SpellCastArguments, SpellbookUpdate, StateEvent, StateUpdate,
     StatusUpdate, TilePosition,
 };

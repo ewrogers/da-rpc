@@ -1,6 +1,8 @@
 mod convert;
 mod publication;
 
+#[cfg(not(test))]
+use darpc_game_client::RawLifecycle;
 use darpc_game_client::{
     MemoryReader, RawGroupState, RawInventory, RawObjects, RawSkillbook, RawSpellbook,
     RawStateSnapshot, StateReadError, StateWalker,
@@ -133,6 +135,12 @@ pub(crate) fn capture_abilities(
 ) -> Result<(bool, bool), StateReadError> {
     let (walker, thread_id) = process_walker()?;
     walker.capture_ability_state(thread_id, skillbook, spellbook)
+}
+
+#[cfg(not(test))]
+pub(crate) fn capture_lifecycle() -> Result<RawLifecycle, StateReadError> {
+    let (walker, thread_id) = process_walker()?;
+    walker.capture_lifecycle(thread_id)
 }
 
 fn process_walker() -> Result<(StateWalker<'static, ProcessMemory>, u32), StateReadError> {

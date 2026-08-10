@@ -487,6 +487,19 @@ enum StateUpdate: u8 {
     Group(GroupUpdate) = 14,
     Exchange(ExchangeUpdate) = 15,
     Legend(LegendUpdate) = 16,
+    Lifecycle(LifecycleUpdate) = 17,
+    Audio(AudioUpdate) = 18,
+}
+
+struct LifecycleUpdate {
+    previous: ClientLifecycle;
+    current: ClientLifecycle;
+}
+
+enum AudioUpdate: u8 {
+    SoundPlayed { effect: u8 } = 0,
+    MusicStarted { track: u8 } = 1,
+    MusicStopped = 2,
 }
 
 enum LegendUpdate: u8 {
@@ -579,6 +592,7 @@ enum MessageKind: u8 {
     Group = 5,
     System = 6,
     World = 7,
+    Chant = 8,
 }
 
 struct ClientMessage {
@@ -807,6 +821,7 @@ enum CommandKind: u8 {
         payload_length: u8;
         payload: [u8; payload_length];
     } = 21,
+    Assail = 22,
 }
 
 enum ExchangeCommand: u8 {
@@ -824,6 +839,9 @@ actions are controller-side formatters and use this same typed command.
 to 255 payload bytes. It is an intentionally unsafe semantic escape hatch: the
 codec validates its direction and bounds, but it cannot validate arbitrary
 game packet contents.
+
+`Assail` submits the one-byte client packet body `0x13` through the confirmed
+client packet function.
 
 enum GroupCommand: u8 {
     Invite { target: string8 } = 1,

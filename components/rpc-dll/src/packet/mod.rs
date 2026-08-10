@@ -1,9 +1,11 @@
+pub(crate) mod audio;
 pub(crate) mod message;
 pub(crate) mod object;
 mod state;
 pub(crate) mod visual;
 
 use self::{
+    audio::AudioUpdate,
     message::ParsedMessage,
     object::WorldUpdate,
     state::{CollectionDirty, Position, SpelledUpdate, StatePacketUpdate, UserAppearance},
@@ -74,6 +76,7 @@ impl ParseError {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ServerUpdate<'a> {
+    Audio(AudioUpdate),
     Status(StatusUpdate),
     UserAppearance(UserAppearance),
     UserPosition(Position),
@@ -110,6 +113,9 @@ pub(crate) fn update<'a>(
     }
     if let Some(update) = message::update(body)? {
         return Ok(Some(ServerUpdate::Message(update)));
+    }
+    if let Some(update) = audio::update(body)? {
+        return Ok(Some(ServerUpdate::Audio(update)));
     }
     if let Some(update) = object::update(body, objects)? {
         return Ok(Some(ServerUpdate::World(update)));

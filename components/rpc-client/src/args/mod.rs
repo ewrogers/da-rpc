@@ -22,6 +22,7 @@ usage:
     darpc [--output <table|json>] echo --pid <pid> <text>
     darpc [--output <table|json>] diagnostic --pid <pid>
     darpc [--output <table|json>] raw send --pid <pid> <client|server> <0xNN> [hex-payload]
+    darpc [--output <table|json>] assail --pid <pid>
     darpc [--output <table|json>] turn --pid <pid> <north|east|south|west>
     darpc [--output <table|json>] walk --pid <pid> <north|east|south|west>
     darpc [--output <table|json>] walk --pid <pid> <x> <y>
@@ -82,6 +83,7 @@ pub(crate) enum Operation {
     Echo(String),
     Diagnostic,
     Raw(RawPacket),
+    Assail,
     Turn(Direction),
     Walk(WalkTarget),
     UseSkill(SkillSlot),
@@ -144,6 +146,7 @@ impl Command {
             Operation::Echo(_) => "echo",
             Operation::Diagnostic => "diagnostic",
             Operation::Raw(_) => "raw send",
+            Operation::Assail => "assail",
             Operation::Turn(_) => "turn",
             Operation::Walk(_) => "walk",
             Operation::UseSkill(_) => "skill use",
@@ -246,6 +249,7 @@ pub(crate) fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
         "snapshot" => Operation::Snapshot,
         "diagnostic" => Operation::Diagnostic,
         "raw send" => Operation::Raw(parse_raw_packet(&mut arguments)?),
+        "assail" => Operation::Assail,
         "turn" => Operation::Turn(parse_direction(arguments.next())?),
         "walk" => Operation::Walk(parse_walk_target(&mut arguments)?),
         "skill use" => Operation::UseSkill(parse_skill_slot(arguments.next())?),
@@ -822,6 +826,16 @@ mod tests {
                 Command {
                     pid: 42,
                     operation: Operation::Legend,
+                }
+            )
+        );
+        assert_eq!(
+            parse(arguments(&["assail", "--pid", "42"])).unwrap(),
+            (
+                OutputFormat::Table,
+                Command {
+                    pid: 42,
+                    operation: Operation::Assail,
                 }
             )
         );

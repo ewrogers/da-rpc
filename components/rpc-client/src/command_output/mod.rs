@@ -132,6 +132,7 @@ fn kind(kind: CommandKind) -> &'static str {
         CommandKind::Chant(_) => "chant",
         CommandKind::Legend => "legend",
         CommandKind::Raw(_) => "raw",
+        CommandKind::Assail => "assail",
     }
 }
 

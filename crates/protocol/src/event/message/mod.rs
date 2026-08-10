@@ -7,6 +7,7 @@ pub(super) fn encode_message(
     output.push(match message.kind {
         MessageKind::Say => 1,
         MessageKind::Shout => 2,
+        MessageKind::Chant => 8,
         MessageKind::Whisper => 3,
         MessageKind::Guild => 4,
         MessageKind::Group => 5,
@@ -22,6 +23,7 @@ pub(super) fn decode_message(reader: &mut PayloadReader<'_>) -> Result<ClientMes
     let kind = match reader.read_u8()? {
         1 => MessageKind::Say,
         2 => MessageKind::Shout,
+        8 => MessageKind::Chant,
         3 => MessageKind::Whisper,
         4 => MessageKind::Guild,
         5 => MessageKind::Group,

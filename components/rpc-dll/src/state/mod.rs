@@ -11,14 +11,15 @@ use crate::{
     },
 };
 use darpc_game_client::{
-    MAX_OBJECT_NAME_BYTES, RawCharacter, RawModifiers, RawObjects, RawStateSnapshot, RawWorldObject,
+    MAX_OBJECT_NAME_BYTES, RawCharacter, RawLifecycle, RawModifiers, RawObjects, RawStateSnapshot,
+    RawWorldObject,
 };
 use darpc_model::{
-    AbilityUpdate, ActionUpdate, CharacterModifiers, CharacterStats, ClientMessage,
-    CollectionBatch, CollectionKind, CoreStatus, CurrentVitals, Effect, EffectDuration,
-    EffectUpdate, Element, EntityUpdate, LocationUpdate, MapChange, MessageKind, MovementUpdate,
-    ProgressionStatus, SpellCancellationSource, SpellCastArguments, StateEvent, StateUpdate,
-    StatusUpdate, TilePosition,
+    AbilityUpdate, ActionUpdate, AudioUpdate, CharacterModifiers, CharacterStats, ClientLifecycle,
+    ClientMessage, CollectionBatch, CollectionKind, CoreStatus, CurrentVitals, Effect,
+    EffectDuration, EffectUpdate, Element, EntityUpdate, LifecycleUpdate, LocationUpdate,
+    MapChange, MessageKind, MovementUpdate, ProgressionStatus, SpellCancellationSource,
+    SpellCastArguments, StateEvent, StateUpdate, StatusUpdate, TilePosition,
 };
 use darpc_protocol::EventPollResult;
 #[cfg(windows)]
@@ -47,6 +48,10 @@ pub(crate) fn observe_outgoing(body: &[u8], tick_ms: u32) {
     ability::observe_outgoing(body, tick_ms);
     action::observe_outgoing(body, tick_ms);
     crate::exchange::observe_outgoing(body, tick_ms);
+}
+
+pub(crate) fn observe_audio(update: AudioUpdate, tick_ms: u32) {
+    push_event(QueuedStateUpdate::Audio(update), tick_ms);
 }
 
 #[cfg_attr(
@@ -215,9 +220,12 @@ const MAX_EVENT_MESSAGE_TEXT_BYTES: usize = 256;
 const MAX_SPELL_INPUT_BYTES: usize = 100;
 const EVENT_QUEUE_CAPACITY: usize = EVENT_QUEUE_BYTES / size_of::<QueuedStateEvent>();
 const POLL_INTERVAL: Duration = Duration::from_millis(2);
+#[cfg(not(test))]
+const LIFECYCLE_POLL_INTERVAL_MS: u32 = 100;
 
 static REVISION: AtomicU32 = AtomicU32::new(0);
 static EVENT_SEQUENCE: AtomicU32 = AtomicU32::new(0);
+static NEXT_LIFECYCLE_POLL_MS: AtomicU32 = AtomicU32::new(0);
 static CACHE: MainThreadCache = MainThreadCache::new();
 static OBJECTS: MainThreadObjects = MainThreadObjects::new();
 static COLLECTIONS: MainThreadCollections = MainThreadCollections::new();
@@ -233,6 +241,7 @@ pub(crate) struct SnapshotBoundary {
 pub(crate) fn reset() {
     REVISION.store(0, Ordering::Release);
     EVENT_SEQUENCE.store(0, Ordering::Release);
+    NEXT_LIFECYCLE_POLL_MS.store(0, Ordering::Release);
     QUEUE.reset();
     #[cfg(all(windows, not(test)))]
     crate::actions::movement::reset_tracking();
@@ -340,6 +349,8 @@ pub(crate) fn observe_tick() {
     #[cfg(not(windows))]
     let tick_ms = 0;
     #[cfg(all(windows, not(test)))]
+    observe_lifecycle(tick_ms);
+    #[cfg(all(windows, not(test)))]
     if crate::dialog::is_active() && !crate::actions::dialog::is_open() {
         observe_dialog_closed(darpc_model::DialogCloseReason::Client, tick_ms);
     }
@@ -368,6 +379,37 @@ pub(crate) fn observe_tick() {
         if let Some(update) = unsafe { CACHE.observe_casting(casting) } {
             push_event(QueuedStateUpdate::Ability(update), tick_ms);
         }
+    }
+}
+
+#[cfg(all(windows, not(test)))]
+fn observe_lifecycle(tick_ms: u32) {
+    let next_poll = NEXT_LIFECYCLE_POLL_MS.load(Ordering::Acquire);
+    if tick_ms.wrapping_sub(next_poll) >= 0x8000_0000 {
+        return;
+    }
+    NEXT_LIFECYCLE_POLL_MS.store(
+        tick_ms.wrapping_add(LIFECYCLE_POLL_INTERVAL_MS),
+        Ordering::Release,
+    );
+    let Ok(raw) = crate::snapshot::capture_lifecycle() else {
+        return;
+    };
+    let current = lifecycle(raw);
+    // SAFETY: lifecycle capture runs from the client main-thread tick, which
+    // is the sole state-cache producer.
+    if let Some(update) = unsafe { CACHE.lifecycle(current) } {
+        push_event(QueuedStateUpdate::Lifecycle(update), tick_ms);
+    }
+}
+
+const fn lifecycle(raw: RawLifecycle) -> ClientLifecycle {
+    match raw {
+        RawLifecycle::Unknown => ClientLifecycle::Unknown,
+        RawLifecycle::Title => ClientLifecycle::Title,
+        RawLifecycle::Transition => ClientLifecycle::Transition,
+        RawLifecycle::InGame => ClientLifecycle::InGame,
+        RawLifecycle::Disconnected => ClientLifecycle::Disconnected,
     }
 }
 
@@ -471,9 +513,21 @@ fn participant(
         Participant::Named(name) => QueuedClientText::new(name),
         Participant::SelfPlayer => unsafe { CACHE.self_name() }
             .and_then(|(name, length)| QueuedClientText::new(&name[..usize::from(length)])),
-        Participant::None => fallback_id
-            .and_then(|id| unsafe { OBJECTS.name(id) })
-            .and_then(|(name, length)| QueuedClientText::new(&name[..usize::from(length)])),
+        Participant::None => fallback_id.and_then(|id| {
+            // SAFETY: packet observation runs on the client main thread,
+            // which is the sole owner of both name caches.
+            unsafe {
+                if CACHE.self_id() == Some(id) {
+                    CACHE.self_name().and_then(|(name, length)| {
+                        QueuedClientText::new(&name[..usize::from(length)])
+                    })
+                } else {
+                    OBJECTS.name(id).and_then(|(name, length)| {
+                        QueuedClientText::new(&name[..usize::from(length)])
+                    })
+                }
+            }
+        }),
     }
 }
 

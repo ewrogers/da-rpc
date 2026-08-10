@@ -744,6 +744,7 @@ fn stored_kind(kind: CommandKind) -> (u8, u32, u32, u32, Option<StoredInput>) {
             0,
             Some(StoredInput::Raw(packet)),
         ),
+        CommandKind::Assail => (42, 0, 0, 0, None),
     }
 }
 
@@ -965,6 +966,7 @@ fn kind_from_value(
                 .map(CommandKind::Raw)
                 .unwrap_or(CommandKind::Diagnostic)
         }
+        42 => CommandKind::Assail,
         _ => CommandKind::Diagnostic,
     }
 }
@@ -1118,6 +1120,7 @@ mod tests {
             CommandKind::Walk(WalkTarget::Direction(Direction::North)),
             CommandKind::Walk(WalkTarget::Destination { x: 120, y: 85 }),
             CommandKind::UseSkill(SkillSlot::new(7).unwrap()),
+            CommandKind::Assail,
         ];
 
         for kind in commands {

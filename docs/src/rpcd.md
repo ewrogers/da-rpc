@@ -35,7 +35,7 @@ client memory or local state.
 ```text
 darpcd.exe [--pid <pid> ...] [--port <port> | --listen <ipv4[:port]>]
            [--auto-load]
-           [--loader-path <path>] [--dll-path <path>]
+           [--loader-path <path>] [--dll-path <path>] [--maps-path <path>]
 darpcd.exe --print-openapi
 ```
 
@@ -47,6 +47,7 @@ darpcd.exe --print-openapi
 | `--auto-load` | Use the configured loader and DLL once for each discovered, supported client that is not already loaded. |
 | `--loader-path <path>` | Use this `loader.exe` for managed load, unload, launch, and automatic loading. The default is `loader.exe` beside the daemon. |
 | `--dll-path <path>` | Use this `darpc.dll` for managed load, launch, and automatic loading. The default is `darpc.dll` beside the daemon. |
+| `--maps-path <path>` | Override the automatically discovered local client `Maps` directory used by `GET /maps/{map_id}/download`. The path must name an existing directory. |
 | `--print-openapi` | Print the OpenAPI 3.1 document as JSON and exit. This standalone flag cannot be combined with server flags. |
 
 Paths containing spaces must be quoted. Repeating a single-value flag or using
@@ -76,6 +77,18 @@ files:
 ```text
 darpcd.exe --auto-load --loader-path "C:\daRPC\loader.exe" --dll-path "C:\daRPC\darpc.dll"
 ```
+
+Override the local client's automatically discovered map directory:
+
+```text
+darpcd.exe --maps-path "C:\Dark Ages\Maps"
+```
+
+Without the flag, the daemon adopts the `Maps` directory beside the first
+discovered `Darkages.exe`, including a client discovered after daemon startup.
+Until a client or override supplies a directory, map downloads return `404`.
+The daemon fails at startup if an explicit override is missing or is not a
+directory.
 
 Export the same OpenAPI document that the running daemon serves at
 `/openapi.json`:

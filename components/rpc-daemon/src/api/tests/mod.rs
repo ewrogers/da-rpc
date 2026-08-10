@@ -11,7 +11,7 @@ use crate::{
 };
 use axum::{
     body::{Body, to_bytes},
-    http::{Request, StatusCode},
+    http::{Request, StatusCode, header},
 };
 use chrono::DateTime;
 use darpc_model::{
@@ -43,8 +43,14 @@ use darpc_protocol::{
 };
 use serde_json::Value;
 use std::{
+    fs,
     net::{Ipv4Addr, SocketAddrV4, TcpListener},
-    sync::{Arc, mpsc},
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+        mpsc,
+    },
 };
 use tower::ServiceExt as _;
 
@@ -403,6 +409,72 @@ fn text(path: &str) -> String {
             let bytes = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
             String::from_utf8(bytes.to_vec()).unwrap()
         })
+}
+
+static NEXT_MAP_DIRECTORY: AtomicU64 = AtomicU64::new(0);
+
+fn map_directory() -> PathBuf {
+    std::env::temp_dir().join(format!(
+        "darpc-map-download-{}-{}",
+        std::process::id(),
+        NEXT_MAP_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+    ))
+}
+
+#[test]
+fn downloads_configured_map_bytes_and_reports_missing_maps() {
+    let directory = map_directory();
+    fs::create_dir(&directory).unwrap();
+    fs::write(directory.join("lod3001.map"), [0x00, 0x7f, 0x80, 0xff]).unwrap();
+    let state = state().with_maps_directory(Some(directory.clone()));
+    assert!(!state.set_maps_directory_if_unset("ignored".into()));
+
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(async {
+            let response = router(state.clone())
+                .oneshot(
+                    Request::get("/maps/3001/download")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(
+                response.headers()[header::CONTENT_TYPE],
+                "application/octet-stream"
+            );
+            assert_eq!(
+                response.headers()[header::CONTENT_DISPOSITION],
+                "attachment; filename=\"lod3001.map\""
+            );
+            assert_eq!(
+                to_bytes(response.into_body(), 1024).await.unwrap().as_ref(),
+                [0x00, 0x7f, 0x80, 0xff]
+            );
+
+            let missing = router(state)
+                .oneshot(
+                    Request::get("/maps/3002/download")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+            let missing: Value =
+                serde_json::from_slice(&to_bytes(missing.into_body(), 1024).await.unwrap())
+                    .unwrap();
+            assert_eq!(missing["error"]["code"], "map_not_found");
+        });
+
+    fs::remove_dir_all(directory).unwrap();
+    assert_eq!(
+        response("/maps/3001/download").status(),
+        StatusCode::NOT_FOUND
+    );
 }
 
 fn state_with_status(event: ConnectionEvent) -> (ApiState, mpsc::Receiver<DaemonEvent>) {
@@ -1557,6 +1629,12 @@ fn serves_the_openapi_contract_and_vendored_swagger_ui() {
     assert_eq!(openapi["info"]["title"], "daRPC API");
     assert!(openapi["paths"]["/health"].is_object());
     assert!(openapi["paths"]["/clients"].is_object());
+    assert!(openapi["paths"]["/maps/{map_id}/download"].is_object());
+    assert!(
+        openapi["paths"]["/maps/{map_id}/download"]["get"]["responses"]["200"]["content"]
+            ["application/octet-stream"]
+            .is_object()
+    );
     for path in [
         "/clients/{client}/status",
         "/clients/{client}/items",

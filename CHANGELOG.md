@@ -6,6 +6,9 @@
 
 ### Added
 
+- Added bounded raw map-file downloads through
+  `GET /maps/{map_id}/download`, with automatic local client map-directory
+  discovery and an optional `--maps-path` override.
 - Added automatic visible-player inspection caching, cache-only lookup by
   visible player name, local self-look identity, `player.inspected` and
   `character.profile_changed` events, and manual REST and direct CLI inspection

@@ -80,6 +80,7 @@ they need:
 | `GET /clients/{client}/legend` | [Legend](legend.md) |
 | `GET /clients/{client}/players/{player}` | Read one case-insensitive visible player from retained state; see [World](world.md). |
 | `POST /clients/{client}/players/{player}/inspect` | Refresh one visible player; see [World](world.md). |
+| `GET /maps/{map_id}/download` | Download one locally available raw map file. |
 
 Most routes read the daemon's retained state and do not ask the DLL to scan the
 game client for every HTTP request. The Who, Legend, and player-inspection
@@ -92,6 +93,23 @@ for self-look refresh behavior.
 The complete field list and JSON schema are generated from the Rust API models
 and are available in Swagger. The domain guides explain what the fields mean in
 the game and how they change.
+
+## Map file downloads
+
+The daemon automatically uses the `Maps` directory beside the first discovered
+local `Darkages.exe`. Use `--maps-path <path>` only to override that directory.
+A remote consumer can request `GET /maps/{map_id}/download`; map ID `3001`, for
+example, reads `lod3001.map` from the selected directory.
+
+A successful response is the exact file bytes with media type
+`application/octet-stream` and an attachment filename. HTTP already transports
+arbitrary bytes without corruption, so the endpoint does not add base64
+encoding or JSON overhead. Missing files and the period before a client map
+directory is discovered return `404` with the normal structured
+`map_not_found` error. Files larger
+than 4 MiB are rejected with `413`; the daemon does not read an unbounded file
+into memory. Numeric 16-bit map IDs are the only accepted path input, so a
+request cannot select another file in or outside the configured directory.
 
 ## Action routes
 

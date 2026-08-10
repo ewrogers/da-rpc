@@ -34,7 +34,7 @@ use std::{collections::BTreeSet, env, ffi::OsString, path::PathBuf, process::Exi
 const DEFAULT_PORT: u16 = 2626;
 const USAGE: &str = concat!(
     "usage: darpcd [--pid <pid> ...] [--port <port>] [--auto-load] ",
-    "[--loader-path <path>] [--dll-path <path>]"
+    "[--loader-path <path>] [--dll-path <path>]\n       darpcd --print-openapi"
 );
 
 #[derive(Debug, Eq, PartialEq)]
@@ -44,6 +44,7 @@ struct Options {
     auto_load: bool,
     loader_path: Option<PathBuf>,
     dll_path: Option<PathBuf>,
+    print_openapi: bool,
 }
 
 fn main() -> ExitCode {
@@ -55,7 +56,12 @@ fn main() -> ExitCode {
         }
     };
 
-    match run(options) {
+    let result = if options.print_openapi {
+        print_openapi()
+    } else {
+        run(options)
+    };
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             eprintln!("darpcd: {error}");
@@ -72,6 +78,7 @@ fn parse_options(arguments: impl IntoIterator<Item = OsString>) -> Result<Option
     let mut auto_load = false;
     let mut loader_path = None;
     let mut dll_path = None;
+    let mut print_openapi = false;
 
     while let Some(option) = arguments.next() {
         if option == "--pid" {
@@ -117,9 +124,24 @@ fn parse_options(arguments: impl IntoIterator<Item = OsString>) -> Result<Option
             parse_path_option(&mut arguments, &mut loader_path, "--loader-path")?;
         } else if option == "--dll-path" {
             parse_path_option(&mut arguments, &mut dll_path, "--dll-path")?;
+        } else if option == "--print-openapi" {
+            if print_openapi {
+                return Err("--print-openapi may be provided only once".into());
+            }
+            print_openapi = true;
         } else {
             return Err(format!("unknown option `{}`", option.to_string_lossy()));
         }
+    }
+
+    if print_openapi
+        && (!pids.is_empty()
+            || port.is_some()
+            || auto_load
+            || loader_path.is_some()
+            || dll_path.is_some())
+    {
+        return Err("--print-openapi cannot be combined with server options".into());
     }
 
     Ok(Options {
@@ -128,7 +150,21 @@ fn parse_options(arguments: impl IntoIterator<Item = OsString>) -> Result<Option
         auto_load,
         loader_path,
         dll_path,
+        print_openapi,
     })
+}
+
+#[cfg(windows)]
+fn print_openapi() -> Result<(), String> {
+    let json = serde_json::to_string_pretty(&api::openapi())
+        .map_err(|error| format!("failed to serialize OpenAPI: {error}"))?;
+    println!("{json}");
+    Ok(())
+}
+
+#[cfg(not(windows))]
+fn print_openapi() -> Result<(), String> {
+    Err("OpenAPI export requires Windows".into())
 }
 
 fn parse_path_option(
@@ -446,6 +482,7 @@ mod tests {
                 auto_load: false,
                 loader_path: None,
                 dll_path: None,
+                print_openapi: false,
             }
         );
         assert_eq!(
@@ -456,6 +493,7 @@ mod tests {
                 auto_load: false,
                 loader_path: None,
                 dll_path: None,
+                print_openapi: false,
             }
         );
     }
@@ -476,6 +514,7 @@ mod tests {
                 auto_load: false,
                 loader_path: Some("tools/loader.exe".into()),
                 dll_path: Some("tools/darpc.dll".into()),
+                print_openapi: false,
             }
         );
         assert!(parse_options(Vec::<OsString>::new()).is_ok());
@@ -483,6 +522,11 @@ mod tests {
             parse_options(arguments(&["--auto-load"]))
                 .unwrap()
                 .auto_load
+        );
+        assert!(
+            parse_options(arguments(&["--print-openapi"]))
+                .unwrap()
+                .print_openapi
         );
     }
 
@@ -493,6 +537,8 @@ mod tests {
         assert!(parse_options(arguments(&["--pids", "7,8"])).is_err());
         assert!(parse_options(arguments(&["--client-path", "Darkages.exe"])).is_err());
         assert!(parse_options(arguments(&["--auto-load", "--auto-load"])).is_err());
+        assert!(parse_options(arguments(&["--print-openapi", "--port", "2626"])).is_err());
+        assert!(parse_options(arguments(&["--print-openapi", "--print-openapi"])).is_err());
         assert!(parse_options(arguments(&["--pid", "7", "--port"])).is_err());
         assert!(parse_options(arguments(&["--pid", "7", "--port", "0"])).is_err());
         assert!(parse_options(arguments(&["--pid", "7", "--port", "65536"])).is_err());

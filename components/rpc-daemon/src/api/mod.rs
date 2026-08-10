@@ -599,7 +599,7 @@ async fn reject_request_body(request: Request<Body>, next: Next) -> Response {
     next.run(request).await
 }
 
-fn openapi() -> utoipa::openapi::OpenApi {
+pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
     let mut document = ApiDoc::openapi();
     document.info.title = "daRPC API".into();
     document

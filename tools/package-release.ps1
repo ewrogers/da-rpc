@@ -80,6 +80,19 @@ foreach ($artifact in $artifacts) {
 Copy-Item -LiteralPath (Join-Path $sourceRoot "README.md") -Destination $bundle
 Copy-Item -LiteralPath (Join-Path $sourceRoot "LICENSE") -Destination $bundle
 
+$daemonPath = Join-Path $bundle "darpcd.exe"
+$openApiPath = Join-Path $bundle "openapi.json"
+$openApiLines = @(& $daemonPath --print-openapi)
+if ($LASTEXITCODE -ne 0) {
+    throw "failed to export OpenAPI from darpcd.exe"
+}
+$openApiText = $openApiLines -join [Environment]::NewLine
+$openApi = $openApiText | ConvertFrom-Json
+if ($openApi.openapi -ne "3.1.0" -or $openApi.info.title -ne "daRPC API") {
+    throw "darpcd.exe returned an unexpected OpenAPI document"
+}
+[IO.File]::WriteAllText($openApiPath, $openApiText, [Text.UTF8Encoding]::new($false))
+
 Get-ChildItem -LiteralPath $bundle -File |
     Sort-Object Name |
     ForEach-Object {

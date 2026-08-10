@@ -59,7 +59,7 @@ darpc echo --pid <pid> "hello"
 darpc tick health --pid <pid>
 darpc snapshot --pid <pid>
 darpc diagnostic --pid <pid>
-darpc raw send --pid <pid> <client|server> <0xNN> [hex-payload]
+darpc raw send --pid <pid> <client|server> <NN|0xNN> [hex-payload]
 darpc assail --pid <pid>
 darpc turn --pid <pid> <north|east|south|west>
 darpc walk --pid <pid> <north|east|south|west>
@@ -108,7 +108,8 @@ darpc command cancel --pid <pid> <command-id>
 ```
 
 For raw packets, quote a nonempty space-separated payload, for example `darpc
-raw send --pid 3780 client 0x7E "00 03 02"`. The command accepts at most 255
+raw send --pid 3780 client 7E "00 03 02"`. The command byte accepts two
+hexadecimal digits with an optional `0x` prefix. The payload accepts at most 255
 payload bytes. See [Raw packets](raw.md) before using this low-level interface;
 malformed packets can disconnect sessions or crash the game client or server.
 

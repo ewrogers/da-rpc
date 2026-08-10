@@ -21,7 +21,7 @@ usage:
     darpc [--output <table|json>] snapshot --pid <pid>
     darpc [--output <table|json>] echo --pid <pid> <text>
     darpc [--output <table|json>] diagnostic --pid <pid>
-    darpc [--output <table|json>] raw send --pid <pid> <client|server> <0xNN> [hex-payload]
+    darpc [--output <table|json>] raw send --pid <pid> <client|server> <NN|0xNN> [hex-payload]
     darpc [--output <table|json>] assail --pid <pid>
     darpc [--output <table|json>] turn --pid <pid> <north|east|south|west>
     darpc [--output <table|json>] walk --pid <pid> <north|east|south|west>
@@ -444,10 +444,10 @@ fn parse_raw_packet(arguments: &mut impl Iterator<Item = OsString>) -> Result<Ra
     let digits = command
         .strip_prefix("0x")
         .or_else(|| command.strip_prefix("0X"))
-        .ok_or_else(|| invalid_arguments("raw command must be 0x followed by two hex digits"))?;
+        .unwrap_or(&command);
     if digits.len() != 2 || !digits.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err(invalid_arguments(
-            "raw command must be 0x followed by two hex digits",
+            "raw command must be exactly two hex digits, optionally prefixed by 0x",
         ));
     }
     let command = u8::from_str_radix(digits, 16)
@@ -1033,7 +1033,7 @@ mod tests {
     fn parses_raw_packets_and_rejects_malformed_hex() {
         assert_eq!(
             parse(arguments(&[
-                "raw", "send", "--pid", "9", "client", "0x7E", "00 03 02",
+                "raw", "send", "--pid", "9", "client", "7E", "00 03 02",
             ]))
             .unwrap(),
             (
@@ -1047,7 +1047,8 @@ mod tests {
                 },
             )
         );
-        assert!(parse(arguments(&["raw", "send", "--pid", "9", "server", "7E"])).is_err());
+        assert!(parse(arguments(&["raw", "send", "--pid", "9", "server", "0x3A"])).is_ok());
+        assert!(parse(arguments(&["raw", "send", "--pid", "9", "server", "7"])).is_err());
         assert!(
             parse(arguments(&[
                 "raw", "send", "--pid", "9", "client", "0x7E", "000302",

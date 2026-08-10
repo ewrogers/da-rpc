@@ -5,7 +5,7 @@ daRPC exposes a low-level escape hatch for protocol research and testing:
 ```console
 curl --request POST \
   --header "Content-Type: application/json" \
-  --data '{"direction":"client","command":"0x7E","payload":"00 03 02"}' \
+  --data '{"direction":"client","command":"7E","payload":"00 03 02"}' \
   "http://127.0.0.1:2626/clients/ZiLo/raw/send"
 ```
 
@@ -20,7 +20,7 @@ The JSON request has three required string fields:
 ```json
 {
   "direction": "client",
-  "command": "0x7E",
+  "command": "7E",
   "payload": "00 03 02"
 }
 ```
@@ -28,7 +28,7 @@ The JSON request has three required string fields:
 | Field | Format |
 |---|---|
 | `direction` | `client` sends a client packet to the connected game server. `server` dispatches a synthetic server packet inside the game client. |
-| `command` | Exactly `0x` followed by two hexadecimal digits. This becomes the first byte of the packet body. |
+| `command` | Exactly two hexadecimal digits, optionally prefixed by `0x`. This becomes the first byte of the packet body. |
 | `payload` | Zero or more two-digit hexadecimal bytes separated by ASCII whitespace. The maximum is 255 bytes. Use an empty string for no payload. |
 
 The endpoint joins `command` and `payload`; it does not accept encrypted wire
@@ -42,7 +42,7 @@ Send a custom client packet to the game server:
 ```console
 curl --request POST \
   --header "Content-Type: application/json" \
-  --data '{"direction":"client","command":"0x7E","payload":"00 03 02"}' \
+  --data '{"direction":"client","command":"7E","payload":"00 03 02"}' \
   "http://127.0.0.1:2626/clients/ZiLo/raw/send"
 ```
 
@@ -51,7 +51,7 @@ Dispatch a custom server packet to the client:
 ```console
 curl --request POST \
   --header "Content-Type: application/json" \
-  --data '{"direction":"server","command":"0x3A","payload":""}' \
+  --data '{"direction":"server","command":"3A","payload":""}' \
   "http://127.0.0.1:2626/clients/ZiLo/raw/send"
 ```
 
@@ -65,9 +65,9 @@ can be polled through the normal command-status route.
 The direct client provides the same operation for one injected process:
 
 ```text
-darpc.exe raw send --pid 3780 client 0x7E "00 03 02"
-darpc.exe raw send --pid 3780 server 0x3A
-darpc.exe --output json raw send --pid 3780 client 0x7E "00 03 02"
+darpc.exe raw send --pid 3780 client 7E "00 03 02"
+darpc.exe raw send --pid 3780 server 3A
+darpc.exe --output json raw send --pid 3780 client 7E "00 03 02"
 ```
 
 Quote a nonempty payload so it is passed as one argument. Omitting the payload

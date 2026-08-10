@@ -34,8 +34,9 @@ pub(crate) struct RawSendOptions {
     /// `client` submits a packet to the game server; `server` dispatches a
     /// synthetic server packet inside the game client.
     pub(crate) direction: RawDirection,
-    /// One command byte written as `0x` and exactly two hexadecimal digits.
-    #[schema(example = "0x7E")]
+    /// One command byte as exactly two hexadecimal digits, with an optional
+    /// `0x` prefix.
+    #[schema(example = "7E")]
     pub(crate) command: String,
     /// Up to 255 space-separated hexadecimal bytes, or an empty string.
     #[schema(example = "00 03 02")]
@@ -79,9 +80,9 @@ fn parse_command(value: &str) -> Result<u8, &'static str> {
     let digits = value
         .strip_prefix("0x")
         .or_else(|| value.strip_prefix("0X"))
-        .ok_or("expected 0x followed by exactly two hexadecimal digits")?;
+        .unwrap_or(value);
     if digits.len() != 2 || !digits.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return Err("expected 0x followed by exactly two hexadecimal digits");
+        return Err("expected exactly two hexadecimal digits, optionally prefixed by 0x");
     }
     u8::from_str_radix(digits, 16).map_err(|_| "command is not a byte")
 }
@@ -123,13 +124,15 @@ mod tests {
     fn parses_explicit_hex_command_and_payload() {
         assert_eq!(parse_command("0x7E"), Ok(0x7e));
         assert_eq!(parse_command("0X00"), Ok(0));
+        assert_eq!(parse_command("7E"), Ok(0x7e));
+        assert_eq!(parse_command("00"), Ok(0));
         assert_eq!(parse_payload("00 03 02").unwrap(), [0x00, 0x03, 0x02]);
         assert!(parse_payload("").unwrap().is_empty());
     }
 
     #[test]
     fn rejects_ambiguous_or_oversized_hex() {
-        for command in ["7E", "0x7", "0x7EE", "0xGG", " 0x7E"] {
+        for command in ["7", "777", "0x7", "0x7EE", "0xGG", " 7E", "7E "] {
             assert!(parse_command(command).is_err());
         }
         for payload in ["0", "0003", "0x03", "GG", "03,"] {

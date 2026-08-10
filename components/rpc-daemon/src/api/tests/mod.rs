@@ -615,7 +615,7 @@ fn routes_typed_actions() {
     assert_routes_action("/clients/42/assail", "", CommandKind::Assail);
     assert_routes_action(
         "/clients/42/raw/send",
-        r#"{"direction":"client","command":"0x7E","payload":"00 03 02"}"#,
+        r#"{"direction":"client","command":"7E","payload":"00 03 02"}"#,
         CommandKind::Raw(
             RawPacket::new(RawPacketDirection::Client, 0x7e, &[0x00, 0x03, 0x02]).unwrap(),
         ),
@@ -1049,7 +1049,7 @@ fn keeps_drop_give_and_swap_payloads_distinct() {
     );
     for body in [
         r#"{"direction":"outbound","command":"0x7E","payload":"00"}"#,
-        r#"{"direction":"client","command":"7E","payload":"00"}"#,
+        r#"{"direction":"client","command":"7","payload":"00"}"#,
         r#"{"direction":"client","command":"0x7E","payload":"0002"}"#,
     ] {
         assert_eq!(

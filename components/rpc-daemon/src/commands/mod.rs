@@ -33,6 +33,7 @@ pub(crate) mod group;
 pub(crate) mod interaction;
 pub(crate) mod legend;
 pub(crate) mod movement;
+pub(crate) mod player;
 pub(crate) mod raw;
 pub(crate) mod who;
 
@@ -65,6 +66,7 @@ pub(crate) use movement::{
     ActionDirection, Destination, TurnOptions, WalkDestinationOptions, WalkDirectionOptions,
     WalkOptions, turn, walk,
 };
+pub(crate) use player::inspect_player;
 pub(crate) use who::{UserState as WhoUserState, WhoClass, WhoList, WhoPlayer, who};
 
 pub(crate) const ROUTER_CAPACITY: usize = 64;
@@ -292,6 +294,7 @@ pub(crate) enum CommandKind {
     Exchange,
     Chant,
     Legend,
+    InspectPlayer,
     Raw,
     Assail,
 }
@@ -490,6 +493,12 @@ async fn route(
             "the command returned legend marks to a non-legend endpoint",
             Some(pid),
         )),
+        CommandReply::Result(ProtocolResult::Player { .. }) => Err(ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected_command_result",
+            "the command returned a player profile to a non-inspection endpoint",
+            Some(pid),
+        )),
     }
 }
 
@@ -645,6 +654,7 @@ impl From<ProtocolKind> for CommandKind {
             ProtocolKind::Legend => Self::Legend,
             ProtocolKind::Raw(_) => Self::Raw,
             ProtocolKind::Assail => Self::Assail,
+            ProtocolKind::InspectPlayer(_) => Self::InspectPlayer,
         }
     }
 }

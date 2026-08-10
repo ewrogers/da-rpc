@@ -71,6 +71,14 @@ pub(crate) fn encode(output: &mut Vec<u8>, snapshot: &ClientSnapshot) -> Result<
     crate::group::encode_optional_state(output, snapshot.group.as_ref())?;
     crate::exchange::encode_optional_state(output, snapshot.exchange.as_ref())?;
     crate::legend::encode_optional(output, snapshot.legend.as_deref())?;
+    crate::player::encode_optional_identity(
+        output,
+        snapshot
+            .character
+            .as_ref()
+            .and_then(|character| character.identity.as_ref()),
+    )?;
+    encode_player_profiles(output, snapshot.objects.as_deref())?;
     Ok(())
 }
 
@@ -108,7 +116,16 @@ pub(crate) fn decode(reader: &mut PayloadReader<'_>) -> Result<ClientSnapshot, D
     } else {
         crate::legend::decode_optional(reader)?
     };
-    Ok(ClientSnapshot {
+    let identity = if reader.is_empty() {
+        None
+    } else {
+        crate::player::decode_optional_identity(reader)?
+    };
+    let mut objects = objects;
+    if !reader.is_empty() {
+        decode_player_profiles(reader, objects.as_deref_mut())?;
+    }
+    let mut snapshot = ClientSnapshot {
         revision,
         event_sequence,
         captured_tick_ms,
@@ -122,7 +139,11 @@ pub(crate) fn decode(reader: &mut PayloadReader<'_>) -> Result<ClientSnapshot, D
         group,
         exchange,
         legend,
-    })
+    };
+    if let Some(character) = snapshot.character.as_mut() {
+        character.identity = identity;
+    }
+    Ok(snapshot)
 }
 
 fn encode_character(
@@ -286,6 +307,7 @@ fn decode_character(reader: &mut PayloadReader<'_>) -> Result<CharacterSnapshot,
     Ok(CharacterSnapshot {
         id,
         name,
+        identity: None,
         appearance,
         class,
         is_action_restricted,
@@ -313,6 +335,60 @@ fn decode_character(reader: &mut PayloadReader<'_>) -> Result<CharacterSnapshot,
         skillbook: collections.skillbook,
         effects: collections.effects,
     })
+}
+
+fn encode_player_profiles(
+    output: &mut Vec<u8>,
+    objects: Option<&[darpc_model::WorldObject]>,
+) -> Result<(), EncodeError> {
+    let profiles = objects
+        .into_iter()
+        .flatten()
+        .filter_map(|object| match object {
+            darpc_model::WorldObject::Player {
+                id,
+                profile: Some(profile),
+                ..
+            } => Some((*id, profile)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    push_u16(
+        output,
+        u16::try_from(profiles.len()).map_err(|_| EncodeError::LengthOverflow)?,
+    );
+    for (id, profile) in profiles {
+        push_u32(output, id);
+        crate::player::encode_profile(output, profile)?;
+    }
+    Ok(())
+}
+
+fn decode_player_profiles(
+    reader: &mut PayloadReader<'_>,
+    objects: Option<&mut [darpc_model::WorldObject]>,
+) -> Result<(), DecodeError> {
+    let count = usize::from(reader.read_u16()?);
+    let mut seen = Vec::with_capacity(count);
+    let mut objects = objects;
+    for _ in 0..count {
+        let id = reader.read_u32()?;
+        if seen.contains(&id) {
+            return Err(DecodeError::DuplicateWorldObjectId { id });
+        }
+        seen.push(id);
+        let profile = crate::player::decode_profile(reader)?;
+        let player = objects
+            .as_deref_mut()
+            .and_then(|objects| objects.iter_mut().find(|object| object.id() == id));
+        match player {
+            Some(darpc_model::WorldObject::Player {
+                profile: current, ..
+            }) => *current = Some(Box::new(profile)),
+            _ => return Err(DecodeError::InvalidPlayerProfileTarget { id }),
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn lifecycle_wire(lifecycle: ClientLifecycle) -> u8 {

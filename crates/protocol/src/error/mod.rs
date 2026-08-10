@@ -12,6 +12,10 @@ pub enum EncodeError {
     DuplicateSnapshotSlot { slot: u8 },
     DuplicateEffectIcon { icon: u16 },
     DuplicateWorldObjectId { id: u32 },
+    InvalidNation { actual: u8 },
+    InvalidPlayerProfileTarget { id: u32 },
+    InvalidPlayerInspectionChanges { actual: u8 },
+    InvalidPlayerInspectionTrigger { actual: u8 },
     EventBatchTooLong { length: usize, max: usize },
     EventStringTooLong { length: usize, max: usize },
     InvalidCollectionBatch { index: u8, count: u8 },
@@ -65,6 +69,24 @@ impl fmt::Display for EncodeError {
             }
             Self::DuplicateWorldObjectId { id } => {
                 write!(formatter, "world object ID {id} appears more than once")
+            }
+            Self::InvalidNation { actual } => {
+                write!(formatter, "nation value {actual} is outside 0..=13")
+            }
+            Self::InvalidPlayerProfileTarget { id } => {
+                write!(
+                    formatter,
+                    "player profile target {id} is not a player object"
+                )
+            }
+            Self::InvalidPlayerInspectionChanges { actual } => {
+                write!(
+                    formatter,
+                    "invalid player inspection change mask 0x{actual:02X}"
+                )
+            }
+            Self::InvalidPlayerInspectionTrigger { actual } => {
+                write!(formatter, "invalid player inspection trigger {actual}")
             }
             Self::EventBatchTooLong { length, max } => {
                 write!(
@@ -205,6 +227,18 @@ pub enum DecodeError {
     },
     DuplicateWorldObjectId {
         id: u32,
+    },
+    InvalidNation {
+        actual: u8,
+    },
+    InvalidPlayerProfileTarget {
+        id: u32,
+    },
+    InvalidPlayerInspectionChanges {
+        actual: u8,
+    },
+    InvalidPlayerInspectionTrigger {
+        actual: u8,
     },
     InvalidWorldObjectType {
         actual: u8,
@@ -463,6 +497,24 @@ impl fmt::Display for DecodeError {
             }
             Self::DuplicateWorldObjectId { id } => {
                 write!(formatter, "world object ID {id} appears more than once")
+            }
+            Self::InvalidNation { actual } => {
+                write!(formatter, "nation value {actual} is outside 0..=13")
+            }
+            Self::InvalidPlayerProfileTarget { id } => {
+                write!(
+                    formatter,
+                    "player profile target {id} is not a player object"
+                )
+            }
+            Self::InvalidPlayerInspectionChanges { actual } => {
+                write!(
+                    formatter,
+                    "invalid player inspection change mask 0x{actual:02X}"
+                )
+            }
+            Self::InvalidPlayerInspectionTrigger { actual } => {
+                write!(formatter, "invalid player inspection trigger {actual}")
             }
             Self::InvalidWorldObjectType { actual } => {
                 write!(formatter, "invalid world object type {actual}")

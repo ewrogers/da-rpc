@@ -16,6 +16,7 @@ pub(crate) fn render_human(output: &mut String, objects: Option<&[WorldObject]>)
                 x,
                 y,
                 direction,
+                ..
             } => {
                 let _ = write!(
                     output,
@@ -69,6 +70,7 @@ pub(crate) fn json_value(object: &WorldObject) -> serde_json::Value {
             x,
             y,
             direction,
+            ..
         } => json!({
             "kind": "player", "id": id, "name": name, "x": x, "y": y,
             "direction": direction_name(*direction),

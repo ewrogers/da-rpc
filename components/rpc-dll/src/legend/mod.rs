@@ -333,7 +333,25 @@ fn parse(body: &[u8], output: &mut RawLegendState) -> bool {
             return false;
         }
     }
-    offset = match offset.checked_add(5) {
+    let Some(is_recruiting) = body.get(offset + 1).copied() else {
+        return false;
+    };
+    offset = match offset.checked_add(2) {
+        Some(offset) if offset <= body.len() => offset,
+        _ => return false,
+    };
+    if is_recruiting == 1 {
+        for _ in 0..3 {
+            if take_string(body, &mut offset).is_none() {
+                return false;
+            }
+        }
+        offset = match offset.checked_add(12) {
+            Some(offset) if offset <= body.len() => offset,
+            _ => return false,
+        };
+    }
+    offset = match offset.checked_add(3) {
         Some(offset) if offset <= body.len() => offset,
         _ => return false,
     };
@@ -431,5 +449,27 @@ mod tests {
                 icon: LegendIcon::Wizard,
             }]
         );
+    }
+
+    #[test]
+    fn self_look_parser_skips_the_optional_recruiting_block() {
+        let mut body = vec![0x39, 1, 0, 0, 0, 1, 1];
+        for value in [b"Lead".as_slice(), b"Team", b"Note"] {
+            body.push(value.len() as u8);
+            body.extend_from_slice(value);
+        }
+        body.extend_from_slice(&[1, 99]);
+        body.extend_from_slice(&[0; 10]);
+        body.extend_from_slice(&[3, 1, 1, 8]);
+        body.extend_from_slice(b"Summoner");
+        body.extend_from_slice(&[5]);
+        body.extend_from_slice(b"Guild");
+        body.extend_from_slice(&[1, 3, 7, 5]);
+        body.extend_from_slice(b"Quest");
+        body.extend_from_slice(&[4]);
+        body.extend_from_slice(b"Done");
+        let mut state = RawLegendState::empty();
+        assert!(parse(&body, &mut state));
+        assert_eq!(model_state(&state)[0].text, "Done");
     }
 }

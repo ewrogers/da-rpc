@@ -1,7 +1,8 @@
 use crate::{
-    CharacterModifiers, CharacterStats, ClientLifecycle, ClientMessage, ClientSnapshot,
-    DialogUpdate, Direction, Effect, EntityUpdate, EquipmentSlot, ExchangeUpdate, GroupUpdate,
-    InventoryItem, LegendUpdate, MapLocation, ObjectUpdate, Skill, Spell,
+    CharacterModifiers, CharacterProfileUpdate, CharacterStats, ClientLifecycle, ClientMessage,
+    ClientSnapshot, DialogUpdate, Direction, Effect, EntityUpdate, EquipmentSlot, ExchangeUpdate,
+    GroupUpdate, InventoryItem, LegendUpdate, MapLocation, ObjectUpdate, PlayerUpdate, Skill,
+    Spell,
 };
 use std::{error::Error, fmt};
 
@@ -23,6 +24,8 @@ pub enum StateUpdate {
     Location(LocationUpdate),
     Effect(EffectUpdate),
     Object(ObjectUpdate),
+    Player(PlayerUpdate),
+    CharacterProfile(CharacterProfileUpdate),
     Message(ClientMessage),
     Inventory(InventoryUpdate),
     Spellbook(SpellbookUpdate),
@@ -494,6 +497,37 @@ impl ClientSnapshot {
                     ObjectUpdate::Cleared => objects.clear(),
                 }
                 objects.sort_unstable_by_key(WorldObjectSortKey::of);
+            }
+            StateUpdate::Player(update) => {
+                let objects = self
+                    .objects
+                    .as_mut()
+                    .ok_or(ApplyEventError::ObjectsUnavailable)?;
+                let id = update.player.id();
+                let next_profile = match update.player {
+                    crate::WorldObject::Player {
+                        profile: Some(profile),
+                        ..
+                    } => *profile,
+                    _ => return Err(ApplyEventError::ObjectNotFound { id }),
+                };
+                let player = objects
+                    .iter_mut()
+                    .find(|object| object.id() == id)
+                    .ok_or(ApplyEventError::ObjectNotFound { id })?;
+                match player {
+                    crate::WorldObject::Player { profile, .. } => {
+                        *profile = Some(Box::new(next_profile));
+                    }
+                    _ => return Err(ApplyEventError::ObjectNotFound { id }),
+                }
+            }
+            StateUpdate::CharacterProfile(update) => {
+                let character = self
+                    .character
+                    .as_mut()
+                    .ok_or(ApplyEventError::CharacterUnavailable)?;
+                character.identity = Some(update.current);
             }
             StateUpdate::Command(_) | StateUpdate::Message(_) => {}
             StateUpdate::Inventory(update) => {

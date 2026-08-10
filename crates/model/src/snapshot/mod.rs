@@ -145,6 +145,7 @@ pub struct ClientSnapshot {
 pub struct CharacterSnapshot {
     pub id: Option<u32>,
     pub name: Option<String>,
+    pub identity: Option<crate::PlayerIdentity>,
     pub appearance: Option<CharacterAppearance>,
     pub class: CharacterClass,
     pub is_action_restricted: bool,

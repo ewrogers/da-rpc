@@ -40,6 +40,10 @@ impl QueuedStateEvent {
                 StateUpdate::Exchange(crate::exchange::take(update)?)
             }
             QueuedStateUpdate::Legend(update) => StateUpdate::Legend(crate::legend::take(update)?),
+            QueuedStateUpdate::Player(update) => StateUpdate::Player(crate::player::take(update)?),
+            QueuedStateUpdate::CharacterProfile(update) => {
+                StateUpdate::CharacterProfile(crate::player::take_identity(update)?)
+            }
         };
         Some(StateEvent {
             sequence: self.sequence,
@@ -61,6 +65,12 @@ impl QueuedStateEvent {
         }
         if let QueuedStateUpdate::Legend(update) = self.update {
             crate::legend::release(update);
+        }
+        if let QueuedStateUpdate::Player(update) = self.update {
+            crate::player::release(update);
+        }
+        if let QueuedStateUpdate::CharacterProfile(update) = self.update {
+            crate::player::release_identity(update);
         }
     }
 }
@@ -89,6 +99,8 @@ pub(super) enum QueuedStateUpdate {
     Group(crate::group::QueuedGroup),
     Exchange(crate::exchange::QueuedExchange),
     Legend(crate::legend::QueuedLegend),
+    Player(crate::player::QueuedPlayer),
+    CharacterProfile(crate::player::QueuedCharacterProfile),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

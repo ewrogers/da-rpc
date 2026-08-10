@@ -89,6 +89,7 @@ pub enum CommandKind {
     Legend,
     Raw(RawPacket),
     Assail,
+    InspectPlayer(NonZeroU32),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -600,6 +601,10 @@ pub(super) fn encode_kind(output: &mut Vec<u8>, kind: CommandKind) {
             output.extend_from_slice(packet.payload());
         }
         CommandKind::Assail => output.push(22),
+        CommandKind::InspectPlayer(id) => {
+            output.push(23);
+            push_u32(output, id.get());
+        }
     }
 }
 
@@ -775,6 +780,9 @@ pub(super) fn decode_kind(reader: &mut PayloadReader<'_>) -> Result<CommandKind,
             ))
         }
         22 => Ok(CommandKind::Assail),
+        23 => NonZeroU32::new(reader.read_u32()?)
+            .map(CommandKind::InspectPlayer)
+            .ok_or(DecodeError::InvalidTransferTarget { actual: 1 }),
         actual => Err(DecodeError::InvalidCommandKind { actual }),
     }
 }

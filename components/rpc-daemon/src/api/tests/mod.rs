@@ -28,6 +28,8 @@ use darpc_model::{
     ExchangeOffer as ModelExchangeOffer, ExchangeState as ModelExchangeState, Gender,
     InventoryItem as ModelInventoryItem, LegendIcon as ModelLegendIcon,
     LegendMark as ModelLegendMark, MapLocation, MessageKind as ModelMessageKind,
+    Nation as ModelNation, PlayerEquipmentItem as ModelPlayerEquipmentItem,
+    PlayerIdentity as ModelPlayerIdentity, PlayerProfile as ModelPlayerProfile,
     Skill as ModelSkill, Spell as ModelSpell, SpellCastArguments as ModelSpellCastArguments,
     SpellTargetType as ModelSpellTargetType, StateEvent, StateUpdate,
     WorldObject as ModelWorldObject,
@@ -75,6 +77,7 @@ fn game_snapshot() -> ModelClientSnapshot {
         character: Some(ModelCharacterSnapshot {
             id: Some(1234),
             name: Some("SiLo".into()),
+            identity: None,
             appearance: Some(CharacterAppearance {
                 gender: Gender::Male,
                 hair_style: 17,
@@ -204,6 +207,7 @@ fn game_snapshot() -> ModelClientSnapshot {
                 x: 10,
                 y: 20,
                 direction: ModelDirection::North,
+                profile: None,
             },
             ModelWorldObject::Creature {
                 id: 2,
@@ -607,6 +611,91 @@ fn legend_route_returns_refreshed_marks_with_friendly_icons() {
     assert_eq!(response["marks"][0]["tag"], "Quest");
     assert_eq!(response["marks"][0]["color"], 7);
     assert_eq!(response["marks"][0]["icon"], "wizard");
+    worker.join().unwrap();
+}
+
+#[test]
+fn player_inspection_route_resolves_visible_name_and_returns_profile() {
+    let mut registry = Registry::new();
+    let hello = hello();
+    let identity = RegistryClientIdentity::from_hello(hello);
+    registry.apply(&ConnectionEvent::Connected {
+        pid: 42,
+        hello,
+        selected_version: SUPPORTED_VERSIONS.max,
+    });
+    registry.apply(&ConnectionEvent::Snapshot {
+        pid: 42,
+        identity,
+        snapshot: Box::new(game_snapshot()),
+    });
+    let (events, _event_receiver) = mpsc::channel();
+    let (commands, command_receiver) = mpsc::sync_channel(ROUTER_CAPACITY);
+    let state = ApiState::new(registry.snapshot(), Arc::new(FakeLifecycle), events)
+        .with_command_sender(commands);
+    let profile = ModelPlayerProfile {
+        identity: ModelPlayerIdentity {
+            nation: ModelNation::Mileth,
+            title: "Mentor".into(),
+            guild_rank: "Leader".into(),
+            display_class: "Summoner".into(),
+            guild: "Guild".into(),
+        },
+        user_state: darpc_model::UserState::Grouped,
+        is_group_open: true,
+        equipment: vec![ModelPlayerEquipmentItem {
+            slot: ModelEquipmentSlot::Necklace,
+            sprite: 0x4321,
+            dye_color: 4,
+        }],
+        legend: vec![],
+        inspected_tick_ms: 120,
+    };
+    let worker_player = ModelWorldObject::Player {
+        id: 1,
+        name: Some("Eidolon".into()),
+        x: 10,
+        y: 20,
+        direction: ModelDirection::North,
+        profile: Some(Box::new(profile.clone())),
+    };
+    let worker = std::thread::spawn(move || {
+        let call = command_receiver.recv().unwrap();
+        assert!(matches!(
+            call.operation,
+            CommandOperation::Submit {
+                kind: CommandKind::InspectPlayer(id),
+                timeout_ms: 3_000,
+                wait_ms: 1_000,
+            } if id.get() == 1
+        ));
+        call.reply
+            .send(CommandReply::Result(CommandResult::Player {
+                status: CommandStatus {
+                    command_id: 9,
+                    kind: CommandKind::InspectPlayer(std::num::NonZeroU32::new(1).unwrap()),
+                    state: CommandState::Executed,
+                    enqueued_tick_ms: 100,
+                    deadline_tick_ms: 3_100,
+                    started_tick_ms: Some(101),
+                    completed_tick_ms: Some(120),
+                    execution_us: Some(2),
+                    main_thread_id: Some(77),
+                    failure: None,
+                },
+                player: Box::new(worker_player),
+            }))
+            .unwrap();
+    });
+
+    let response = post_empty(state, "/clients/42/players/eIDoLoN/inspect");
+    assert_eq!(response.status(), StatusCode::OK);
+    let body = response_json(response);
+    assert_eq!(body["name"], "Eidolon");
+    assert_eq!(body["profile"]["identity"]["nation"], "mileth");
+    assert_eq!(body["profile"]["identity"]["display_class"], "Summoner");
+    assert_eq!(body["profile"]["is_group_open"], true);
+    assert_eq!(body["profile"]["equipment"][0]["slot"], "necklace");
     worker.join().unwrap();
 }
 
@@ -1298,9 +1387,9 @@ fn correlates_spell_feedback_before_broadcasting_to_subscribers() {
     assert!(matches!(
         receiver.try_recv().unwrap(),
         PublishedEvent::State {
-            feedback: Some(SpellFeedback::Succeeded(_)),
+            feedback: Some(feedback),
             ..
-        }
+        } if matches!(*feedback, SpellFeedback::Succeeded(_))
     ));
 }
 

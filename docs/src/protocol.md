@@ -269,6 +269,7 @@ struct GroupInvitation {
 struct CharacterSnapshot {
     id: Option<u32>;
     name: Option<utf8>;
+    identity: Option<PlayerIdentity>;
     appearance: Option<CharacterAppearance>;
     class: CharacterClass;
     is_action_restricted: bool;
@@ -288,6 +289,23 @@ struct CharacterSnapshot {
     spellbook: Option<Vec<Spell>>;
     skillbook: Option<Vec<Skill>>;
     effects: Option<Vec<Effect>>;
+}
+
+struct PlayerIdentity {
+    nation: u8;                           // exact Nation value 0 through 13
+    title: string16;
+    guild_rank: string16;
+    display_class: string16;
+    guild: string16;
+}
+
+struct PlayerProfile {
+    identity: PlayerIdentity;
+    user_state: u8;
+    is_group_open: bool;
+    equipment: Vec<PlayerEquipmentItem>; // maximum 18
+    legend: Vec<LegendMark>;              // maximum 255
+    inspected_tick_ms: u32;
 }
 
 struct CharacterAppearance {
@@ -374,6 +392,7 @@ enum WorldObject: u8 {
         y: i32;
         direction: Direction;
         name: Option<utf8>;
+        profile: Option<PlayerProfile>; // stored in the appended profile table
     },
     Creature = 2 {
         id: u32;
@@ -403,10 +422,11 @@ enum EffectDuration: u8 {
 }
 ```
 
-The dialog, group, and exchange fields were appended during protocol 1.0 development. A
-1.0 decoder accepts an older snapshot that ends after `objects`, or after the
-dialog field, and treats the missing tail fields as `None`. New encoders always
-include both optional-field markers.
+The dialog, group, exchange, legend, local identity, and visible-player profile
+fields were appended during protocol 1.0 development. A 1.0 decoder accepts an
+older snapshot ending at any supported tail boundary and treats missing values
+as unavailable. New encoders append local identity and a profile table keyed by
+visible player ID after the original object records.
 
 Optional values begin with a strict boolean byte. Strings use a `u16` UTF-8
 byte length. Character collections use a `u8` count followed by occupied
@@ -490,6 +510,8 @@ enum StateUpdate: u8 {
     Lifecycle(LifecycleUpdate) = 17,
     Audio(AudioUpdate) = 18,
     Command(ClientCommand) = 19,
+    Player(PlayerUpdate) = 20,
+    CharacterProfile(CharacterProfileUpdate) = 21,
 }
 
 struct ClientCommand {
@@ -833,6 +855,7 @@ enum CommandKind: u8 {
         payload: [u8; payload_length];
     } = 21,
     Assail = 22,
+    InspectPlayer { id: u32 } = 23, // nonzero visible player object ID
 }
 
 enum ExchangeCommand: u8 {
@@ -957,6 +980,8 @@ enum CommandResult: u8 {
     NotFound = 2,
     Unavailable = 3,
     Who { status: CommandStatus, list: WhoList } = 4,
+    Legend { status: CommandStatus, marks: Vec<LegendMark> } = 5,
+    Player { status: CommandStatus, id: u32, profile: PlayerProfile } = 6,
 }
 
 struct WhoList {
@@ -1000,6 +1025,14 @@ accepted until its matching response arrives. The result preserves server row
 order. Requests share an in-flight or completed command for one second and use
 a three-second command deadline. The DLL suppresses the stock Who panel only
 for a correlated daRPC request. A player-started request remains untouched.
+
+`InspectPlayer` submits `43 01 <u32be id>` and stays accepted until the matching
+`0x34` response arrives. Internal requests are correlated by object ID and send
+order. Only their responses skip the stock other-player pane; player-started
+requests run the original handler and still refresh the profile cache. Its
+terminal command result carries the complete player object captured with the
+profile, rather than requiring the caller to merge data from a separate
+snapshot.
 
 Command deadlines and queue delay use the same wrapping millisecond tick as
 frame timestamps. `execution_us` uses a higher-resolution local duration so a
@@ -1085,7 +1118,10 @@ to these bytes and decode them back to the expected values.
 - `timeGetTime` is the shared diagnostic clock because it matches the client and
   provides adequate millisecond resolution for round-trip and sequencing data.
 - Unknown values, gaps, and trailing bytes remain strict errors unless real
-  interoperability evidence shows that a specific rule should be relaxed.
+  interoperability evidence shows that a specific rule should be relaxed. The
+  `0x34` player response is one documented exception: the stock client accepts
+  a presence-only portrait marker and ignores extension bytes after the bounded
+  known fields.
 - Echo text remains limited to 4 KiB. A future domain field with a known larger
   bound, such as message-board content near `0x8000` bytes, should receive an
   explicit field-specific limit or chunking design rather than silently lifting

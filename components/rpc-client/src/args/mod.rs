@@ -65,6 +65,7 @@ usage:
     darpc [--output <table|json>] exchange cancel --pid <pid>
     darpc [--output <table|json>] who --pid <pid>
     darpc [--output <table|json>] legend --pid <pid>
+    darpc [--output <table|json>] inspect --pid <pid> <object-id>
     darpc [--output <table|json>] command status --pid <pid> <command-id>
     darpc [--output <table|json>] command cancel --pid <pid> <command-id>";
 
@@ -107,6 +108,7 @@ pub(crate) enum Operation {
     },
     Who,
     Legend,
+    InspectPlayer(std::num::NonZeroU32),
     CommandStatus(u32),
     CommandCancel(u32),
 }
@@ -200,6 +202,7 @@ impl Command {
             Operation::Chant { action, .. } => action.name(),
             Operation::Who => "who",
             Operation::Legend => "legend",
+            Operation::InspectPlayer(_) => "inspect",
             Operation::CommandStatus(_) => "command status",
             Operation::CommandCancel(_) => "command cancel",
         }
@@ -347,6 +350,7 @@ pub(crate) fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
         "exchange cancel" => Operation::Exchange(ExchangeCommand::Cancel),
         "who" => Operation::Who,
         "legend" => Operation::Legend,
+        "inspect" => Operation::InspectPlayer(parse_nonzero_u32(arguments.next(), "object ID")?),
         "command status" => Operation::CommandStatus(parse_command_id(arguments.next())?),
         "command cancel" => Operation::CommandCancel(parse_command_id(arguments.next())?),
         "echo" => {
@@ -826,6 +830,16 @@ mod tests {
                 Command {
                     pid: 42,
                     operation: Operation::Legend,
+                }
+            )
+        );
+        assert_eq!(
+            parse(arguments(&["inspect", "--pid", "42", "77"])).unwrap(),
+            (
+                OutputFormat::Table,
+                Command {
+                    pid: 42,
+                    operation: Operation::InspectPlayer(std::num::NonZeroU32::new(77).unwrap()),
                 }
             )
         );

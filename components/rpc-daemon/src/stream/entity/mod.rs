@@ -12,6 +12,64 @@ pub(crate) struct EntityAnimated {
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
+pub(crate) struct PlayerInspected {
+    pub(super) observation: EventObservation,
+    trigger: PlayerInspectionTrigger,
+    player: WorldObject,
+    changes: Vec<PlayerInspectionChange>,
+}
+
+impl PlayerInspected {
+    pub(super) fn from_model(
+        observation: EventObservation,
+        update: darpc_model::PlayerUpdate,
+    ) -> Self {
+        let mut changes = Vec::with_capacity(3);
+        if update.changes.info {
+            changes.push(PlayerInspectionChange::Info);
+        }
+        if update.changes.equipment {
+            changes.push(PlayerInspectionChange::Equipment);
+        }
+        if update.changes.legend {
+            changes.push(PlayerInspectionChange::Legend);
+        }
+        Self {
+            observation,
+            trigger: update.trigger.into(),
+            player: WorldObject::from(&update.player),
+            changes,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+enum PlayerInspectionTrigger {
+    Appeared,
+    Manual,
+    User,
+}
+
+impl From<darpc_model::PlayerInspectionTrigger> for PlayerInspectionTrigger {
+    fn from(trigger: darpc_model::PlayerInspectionTrigger) -> Self {
+        match trigger {
+            darpc_model::PlayerInspectionTrigger::Appeared => Self::Appeared,
+            darpc_model::PlayerInspectionTrigger::Manual => Self::Manual,
+            darpc_model::PlayerInspectionTrigger::User => Self::User,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+enum PlayerInspectionChange {
+    Info,
+    Equipment,
+    Legend,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
 /// A visual effect was attached to a living entity.
 pub(crate) struct EntityEffect {
     pub(super) observation: EventObservation,

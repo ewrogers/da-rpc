@@ -283,12 +283,14 @@ extern "C" fn observe_packet(body: *const u8, length: i16) {
                 | 0x4D
                 | 0x4E
                 | 0x18
+                | 0x43
         ) {
             return;
         }
         OUTGOING_OBSERVATION_COUNT.fetch_add(1, Ordering::Relaxed);
         let expected = match prefix[0] {
             0x18 => 1,
+            0x43 => 6,
             0x07 => 6,
             0x08 | 0x29 => 10,
             0x24 | 0x2A => 9,
@@ -309,6 +311,11 @@ extern "C" fn observe_packet(body: *const u8, length: i16) {
         let mut packet = [0; MAX_OUTGOING_BODY];
         if !read_memory(body as usize, &mut packet[..length]) {
             OUTGOING_READ_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
+        if packet[0] == 0x43 && packet[1] == 1 {
+            let id = u32::from_be_bytes(packet[2..6].try_into().expect("object request body"));
+            crate::player::observe_request(id, sender_tick_ms());
             return;
         }
         crate::state::observe_outgoing(&packet[..length], sender_tick_ms());

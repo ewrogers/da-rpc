@@ -52,7 +52,7 @@ pub(crate) enum PublishedEvent {
         event: Box<StateEvent>,
         ability_name: Option<String>,
         target_name: Option<String>,
-        feedback: Option<SpellFeedback>,
+        feedback: Option<Box<SpellFeedback>>,
         observed_at_utc: DateTime<Utc>,
     },
     #[cfg_attr(not(windows), allow(dead_code))]
@@ -86,6 +86,7 @@ pub(crate) enum ClientEvent {
     WalkingStarted(WalkingStarted),
     WalkingStopped(WalkingStopped),
     ActionRestrictionChanged(ActionRestrictionChanged),
+    CharacterProfileChanged(CharacterProfileChanged),
     EffectAdded(EffectAdded),
     EffectRemoved(EffectRemoved),
     EffectChanged(EffectChanged),
@@ -116,6 +117,7 @@ pub(crate) enum ClientEvent {
     Emoted(Emoted),
     Turned(Turned),
     PlayerAppeared(ObjectChanged),
+    PlayerInspected(PlayerInspected),
     PlayerDisappeared(ObjectChanged),
     PlayerMoved(ObjectChanged),
     PlayerDirectionChanged(ObjectChanged),
@@ -187,6 +189,7 @@ impl ClientEvent {
             Self::WalkingStarted(_) => "walking.started",
             Self::WalkingStopped(_) => "walking.stopped",
             Self::ActionRestrictionChanged(_) => "action_restriction.changed",
+            Self::CharacterProfileChanged(_) => "character.profile_changed",
             Self::EffectAdded(_) => "effect.added",
             Self::EffectRemoved(_) => "effect.removed",
             Self::EffectChanged(_) => "effect.changed",
@@ -217,6 +220,7 @@ impl ClientEvent {
             Self::Emoted(_) => "character.emoted",
             Self::Turned(_) => "character.turned",
             Self::PlayerAppeared(_) => "player.appeared",
+            Self::PlayerInspected(_) => "player.inspected",
             Self::PlayerDisappeared(_) => "player.disappeared",
             Self::PlayerMoved(_) => "player.moved",
             Self::PlayerDirectionChanged(_) => "player.direction_changed",
@@ -318,6 +322,7 @@ impl ClientEvent {
             Self::EquipmentUnequipped(value) => value.observation.event_sequence,
             Self::Emoted(value) => value.observation.event_sequence,
             Self::Turned(value) => value.observation.event_sequence,
+            Self::CharacterProfileChanged(value) => value.observation.event_sequence,
             Self::PlayerAppeared(value)
             | Self::PlayerDisappeared(value)
             | Self::PlayerMoved(value)
@@ -333,6 +338,7 @@ impl ClientEvent {
             | Self::ItemAppeared(value)
             | Self::ItemDisappeared(value)
             | Self::ItemMoved(value) => value.observation.event_sequence,
+            Self::PlayerInspected(value) => value.observation.event_sequence,
             Self::PlayerAnimated(value)
             | Self::MonsterAnimated(value)
             | Self::MundaneAnimated(value) => value.observation.event_sequence,
@@ -481,7 +487,7 @@ pub(crate) fn response(
                         observed_at_utc,
                     );
                     if let Some(feedback) = feedback {
-                        api_events.push(feedback.into_event(feedback_observation));
+                        api_events.push((*feedback).into_event(feedback_observation));
                     }
                     for api_event in api_events {
                         yield Ok(api_event.into_sse());

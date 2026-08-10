@@ -1,6 +1,6 @@
 # Player inspection plan
 
-Status: planned, not implemented.
+Status: implemented.
 
 ## Goal
 
@@ -88,8 +88,10 @@ the existing local equipment and legend collections as their richer canonical
 sources.
 
 Do not retain the `0x34` portrait or biography in this feature. Parse and bound
-the tail so malformed data is rejected, then discard it. This avoids storing
-large or private profile content outside the requested scope.
+the known nested portrait and biography fields, then discard them. The client
+treats the leading `u16` as a presence-only marker and ignores extension bytes
+after the known fields, so daRPC does the same. This avoids storing large or
+private profile content outside the requested scope.
 
 ## Request and suppression flow
 
@@ -207,4 +209,3 @@ the full current identity and its previous value. Keep existing legend events.
   confirm no pane opens, confirm a real click still opens the pane, change a
   non-visible equipment slot if practical, manually inspect, and verify the cache
   and event change set refresh correctly.
-

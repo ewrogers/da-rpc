@@ -486,6 +486,7 @@ fn object_updates_use_noun_action_event_names() {
         x: 10,
         y: 20,
         direction: Direction::East,
+        profile: None,
     };
     let monster = ModelWorldObject::Creature {
         id: 2,
@@ -584,6 +585,7 @@ fn entity_visual_updates_expose_packet_values() {
         x: 10,
         y: 20,
         direction: Direction::East,
+        profile: None,
     };
     let mundane = ModelWorldObject::Creature {
         id: 2,

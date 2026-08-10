@@ -267,6 +267,13 @@ pub(crate) struct ActionRestrictionChanged {
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
+pub(crate) struct CharacterProfileChanged {
+    pub(super) observation: EventObservation,
+    previous: Option<crate::state::PlayerIdentity>,
+    current: crate::state::PlayerIdentity,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
 pub(crate) struct ObjectChanged {
     pub(super) observation: EventObservation,
     pub(super) object: WorldObject,
@@ -304,6 +311,19 @@ pub(super) fn expand(
     let observation = EventObservation::new(pid, identity, &event);
     let mut events = Vec::with_capacity(9);
     let update = match event.update {
+        StateUpdate::CharacterProfile(update) => {
+            events.push(ClientEvent::CharacterProfileChanged(
+                CharacterProfileChanged {
+                    observation,
+                    previous: update
+                        .previous
+                        .as_ref()
+                        .map(crate::state::PlayerIdentity::from),
+                    current: crate::state::PlayerIdentity::from(&update.current),
+                },
+            ));
+            return events;
+        }
         StateUpdate::Command(command) => {
             events.push(ClientEvent::ClientCommand(ClientCommand {
                 observation,
@@ -344,6 +364,13 @@ pub(super) fn expand(
                     ClientEvent::MusicStopped(MusicStopped { observation })
                 }
             });
+            return events;
+        }
+        StateUpdate::Player(update) => {
+            events.push(ClientEvent::PlayerInspected(PlayerInspected::from_model(
+                observation,
+                update,
+            )));
             return events;
         }
         StateUpdate::Status(update) => update,

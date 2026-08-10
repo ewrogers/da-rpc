@@ -32,6 +32,8 @@ mod map_name;
 mod objects;
 #[cfg(any(windows, test))]
 mod packet;
+#[cfg(any(windows, test))]
+mod player;
 #[cfg(windows)]
 mod snapshot;
 #[cfg(any(windows, test))]

@@ -122,6 +122,7 @@ async fn request(
             ProtocolResult::NotFound => return Err(legend_timeout(pid)),
             ProtocolResult::Unavailable => return Err(unavailable(pid)),
             ProtocolResult::Who { .. } => return Err(unavailable(pid)),
+            ProtocolResult::Player { .. } => return Err(unavailable(pid)),
         }
     }
 }

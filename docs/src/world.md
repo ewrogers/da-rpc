@@ -8,6 +8,8 @@ map.
 | --- | --- |
 | Read map and self position | `GET /clients/{client}/status` |
 | Read visible objects | `GET /clients/{client}/objects` |
+| Read one cached visible player by name | `GET /clients/{client}/players/{player}` |
+| Refresh one visible player | `POST /clients/{client}/players/{player}/inspect` |
 | Watch objects and visuals | [World object events](events.md#world-object-events) |
 
 ## Map and position
@@ -41,7 +43,7 @@ The response can contain four object kinds:
 
 | Kind | Available data |
 | --- | --- |
-| `player` | ID, optional name, x/y, and direction |
+| `player` | ID, optional name, x/y, direction, and optional inspected profile |
 | `monster` | ID, optional sprite, x/y, and direction |
 | `mundane` | ID, optional name and sprite, x/y, and direction |
 | `item` | ID, sprite, x/y, and per-tile `z_index` |
@@ -60,7 +62,7 @@ WorldObjects {
 }
 
 WorldObject =
-    Player { id, name?, x, y, direction }
+    Player { id, name?, x, y, direction, profile? }
   | Monster { id, sprite?, x, y, direction }
   | Mundane { id, sprite?, name?, x, y, direction }
   | Item { id, sprite, x, y, z_index }
@@ -74,6 +76,47 @@ curl "http://127.0.0.1:2626/clients/ZiLo/objects?types=player,mundane,monster"
 
 Without `types`, the route returns every observed kind. An unknown type or
 malformed filter returns `400 Bad Request`.
+
+### Player profiles
+
+When opcode `0x33` draws a human, daRPC automatically requests that player's
+object information. The successful response fills `profile` with nation, title,
+guild rank, display class, guild, user state, `is_group_open`, worn equipment,
+legend marks, and `inspected_tick_ms`. `profile: null` means the player is
+visible but the inspection has not completed.
+
+The profile equipment uses the same slot, sprite, and dye-color names as local
+equipment. Other-player packets do not provide item names or durability, so
+those fields are not invented. `display_class` is separate from the base class;
+for example, it can be `Summoner` for a Wizard.
+
+Automatic requests do not open the game's other-player information pane. A
+normal player click still opens it and also refreshes daRPC's cache. Leaving
+view removes the player object, and the next `0x33` redraw starts a fresh
+inspection.
+
+Read one visible player's retained object and latest profile without sending a
+packet to the game server:
+
+```console
+curl "http://127.0.0.1:2626/clients/ZiLo/players/Eidolon"
+```
+
+The cached lookup is case-insensitive and returns the same `WorldObject` shape
+as the objects collection. It can return `profile: null` while the automatic
+inspection is pending. It searches only the current visible-object set; daRPC
+does not retain a historical profile after that player leaves view.
+
+Use a manual refresh for changes that do not redraw the player, such as a belt
+or necklace change:
+
+```console
+curl -X POST "http://127.0.0.1:2626/clients/ZiLo/players/Eidolon/inspect"
+```
+
+Both player-name routes use the same case-insensitive visible-player lookup.
+Missing names return `404` and ambiguous names return `409`. Only the refresh
+route can return `504` when the game server does not respond.
 
 The initial baseline walks the client's retained object collection. A creature
 name or numeric sprite can be unavailable after a late attach when the client
@@ -92,6 +135,7 @@ player.appeared              monster.appeared              mundane.appeared
 player.disappeared           monster.disappeared           mundane.disappeared
 player.moved                 monster.moved                 mundane.moved
 player.direction_changed     monster.direction_changed     mundane.direction_changed
+player.inspected
 ```
 
 Ground items use:

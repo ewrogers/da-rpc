@@ -507,6 +507,7 @@ mod tests {
             character: Some(CharacterSnapshot {
                 id: Some(7),
                 name: Some("Silo".into()),
+                identity: None,
                 appearance: None,
                 class: CharacterClass::Warrior,
                 is_action_restricted: false,

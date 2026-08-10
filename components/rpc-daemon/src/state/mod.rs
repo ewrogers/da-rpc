@@ -183,6 +183,7 @@ pub(crate) struct CharacterStatus {
     hair_color: Option<u8>,
     body_sprite: Option<u16>,
     class: CharacterClass,
+    identity: Option<PlayerIdentity>,
     is_action_restricted: bool,
     is_blinded: bool,
     is_casting: bool,
@@ -215,6 +216,7 @@ impl CharacterStatus {
             hair_color: value.appearance.map(|appearance| appearance.hair_color),
             body_sprite: value.appearance.map(|appearance| appearance.body_sprite),
             class: CharacterClass::from(value.class),
+            identity: value.identity.as_ref().map(PlayerIdentity::from),
             is_action_restricted: value.is_action_restricted,
             is_blinded: value.is_blinded,
             is_casting: value.is_casting,
@@ -405,4 +407,4 @@ pub(crate) use collections::{
     CooldownStatus, Effect, EffectDuration, Effects, EquipmentItem, EquipmentSlot, InventoryItem,
     Skill, Spell, SpellTargetType,
 };
-pub(crate) use objects::{Direction, WorldObject, WorldObjectKind, WorldObjects};
+pub(crate) use objects::{Direction, PlayerIdentity, WorldObject, WorldObjectKind, WorldObjects};

@@ -68,6 +68,7 @@ fn objects(raw: &RawObjects) -> Vec<WorldObject> {
                 y,
                 direction: Direction::from_raw(direction)
                     .expect("captured player direction is valid"),
+                profile: crate::player::profile(id).map(Box::new),
             },
             RawWorldObject::Creature {
                 id,
@@ -115,6 +116,7 @@ fn character_snapshot(raw: &RawCharacter, world_token: u32, tick_ms: u32) -> Cha
     CharacterSnapshot {
         id: raw.id,
         name: client_text::decode(&raw.name[..usize::from(raw.name_len)]),
+        identity: crate::player::self_identity(),
         appearance: raw.appearance.map(|appearance| CharacterAppearance {
             gender: Gender::from_raw(appearance.gender),
             hair_style: appearance.hair_style,

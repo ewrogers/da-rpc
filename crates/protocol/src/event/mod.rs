@@ -4,12 +4,13 @@ use crate::{
     snapshot::{MAX_MAP_NAME_LEN, decode_optional_string, encode_optional_string},
 };
 use darpc_model::{
-    AbilityUpdate, ActionUpdate, AudioUpdate, CharacterModifiers, CharacterStats, ClientCommand,
-    ClientMessage, CollectionChange, CoreStatus, CurrentVitals, Direction, Effect, EffectDuration,
-    EffectUpdate, Element, EntityUpdate, EquipmentSlot, InventoryItem, LifecycleUpdate,
-    LocationUpdate, MapChange, MessageKind, MovementUpdate, ObjectUpdate, ProgressionStatus, Skill,
-    SlotUpdate, Spell, SpellCancellationSource, SpellCastArguments, StateEvent, StateUpdate,
-    StatusUpdate, TilePosition,
+    AbilityUpdate, ActionUpdate, AudioUpdate, CharacterModifiers, CharacterProfileUpdate,
+    CharacterStats, ClientCommand, ClientMessage, CollectionChange, CoreStatus, CurrentVitals,
+    Direction, Effect, EffectDuration, EffectUpdate, Element, EntityUpdate, EquipmentSlot,
+    InventoryItem, LifecycleUpdate, LocationUpdate, MapChange, MessageKind, MovementUpdate,
+    ObjectUpdate, PlayerInspectionChanges, PlayerInspectionTrigger, PlayerUpdate,
+    ProgressionStatus, Skill, SlotUpdate, Spell, SpellCancellationSource, SpellCastArguments,
+    StateEvent, StateUpdate, StatusUpdate, TilePosition,
 };
 
 mod action;
@@ -166,6 +167,36 @@ fn encode_event(output: &mut Vec<u8>, event: &StateEvent) -> Result<(), EncodeEr
                 encode_event_string(output, arg, MAX_CLIENT_COMMAND_PART_LEN)?;
             }
         }
+        StateUpdate::Player(update) => {
+            output.push(20);
+            crate::snapshot::objects::encode_object(output, &update.player)?;
+            let profile = match &update.player {
+                darpc_model::WorldObject::Player {
+                    profile: Some(profile),
+                    ..
+                } => profile,
+                _ => {
+                    return Err(EncodeError::InvalidPlayerProfileTarget {
+                        id: update.player.id(),
+                    });
+                }
+            };
+            crate::player::encode_profile(output, profile)?;
+            let changes = u8::from(update.changes.info)
+                | (u8::from(update.changes.equipment) << 1)
+                | (u8::from(update.changes.legend) << 2);
+            output.push(changes);
+            output.push(match update.trigger {
+                PlayerInspectionTrigger::Appeared => 0,
+                PlayerInspectionTrigger::Manual => 1,
+                PlayerInspectionTrigger::User => 2,
+            });
+        }
+        StateUpdate::CharacterProfile(update) => {
+            output.push(21);
+            crate::player::encode_optional_identity(output, update.previous.as_ref())?;
+            crate::player::encode_identity(output, &update.current)?;
+        }
         StateUpdate::Status(update) => {
             output.push(1);
             encode_status(output, *update);
@@ -266,6 +297,43 @@ fn decode_event(reader: &mut PayloadReader<'_>) -> Result<StateEvent, DecodeErro
             }
             StateUpdate::Command(ClientCommand { command, args })
         }
+        20 => {
+            let mut player = crate::snapshot::objects::decode_object(reader)?;
+            let id = player.id();
+            match &mut player {
+                darpc_model::WorldObject::Player { profile, .. } => {
+                    *profile = Some(Box::new(crate::player::decode_profile(reader)?));
+                }
+                _ => return Err(DecodeError::InvalidPlayerProfileTarget { id }),
+            }
+            let raw_changes = reader.read_u8()?;
+            if raw_changes & !0x07 != 0 {
+                return Err(DecodeError::InvalidPlayerInspectionChanges {
+                    actual: raw_changes,
+                });
+            }
+            let trigger = match reader.read_u8()? {
+                0 => PlayerInspectionTrigger::Appeared,
+                1 => PlayerInspectionTrigger::Manual,
+                2 => PlayerInspectionTrigger::User,
+                actual => {
+                    return Err(DecodeError::InvalidPlayerInspectionTrigger { actual });
+                }
+            };
+            StateUpdate::Player(PlayerUpdate {
+                player,
+                changes: PlayerInspectionChanges {
+                    info: raw_changes & 1 != 0,
+                    equipment: raw_changes & 2 != 0,
+                    legend: raw_changes & 4 != 0,
+                },
+                trigger,
+            })
+        }
+        21 => StateUpdate::CharacterProfile(CharacterProfileUpdate {
+            previous: crate::player::decode_optional_identity(reader)?,
+            current: crate::player::decode_identity(reader)?,
+        }),
         1 => StateUpdate::Status(decode_status(reader)?),
         2 => StateUpdate::Location(decode_location(reader)?),
         3 => StateUpdate::Effect(decode_effect(reader)?),

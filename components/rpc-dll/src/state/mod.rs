@@ -107,6 +107,17 @@ pub(crate) fn observe_legend(update: crate::legend::QueuedLegend, tick_ms: u32) 
     push_event(QueuedStateUpdate::Legend(update), tick_ms)
 }
 
+pub(crate) fn observe_player(update: crate::player::QueuedPlayer, tick_ms: u32) -> bool {
+    push_event(QueuedStateUpdate::Player(update), tick_ms)
+}
+
+pub(crate) fn observe_character_profile(
+    update: crate::player::QueuedCharacterProfile,
+    tick_ms: u32,
+) -> bool {
+    push_event(QueuedStateUpdate::CharacterProfile(update), tick_ms)
+}
+
 pub(crate) fn observe_visual(update: VisualUpdate, tick_ms: u32) {
     match update {
         VisualUpdate::Motion {
@@ -254,6 +265,7 @@ pub(crate) fn reset() {
     // SAFETY: reset has the same exclusive lifecycle access described above.
     unsafe { COLLECTIONS.reset() };
     crate::legend::reset();
+    crate::player::reset();
 }
 
 #[must_use]
@@ -432,6 +444,7 @@ pub(crate) fn observe_user_position(x: i32, y: i32, tick_ms: u32) {
     };
     push_event(QueuedStateUpdate::Location(update), tick_ms);
     if map_changed {
+        crate::player::cleared();
         if let Some(update) = unsafe { OBJECTS.clear() } {
             push_event(QueuedStateUpdate::Object(update), tick_ms);
         }
@@ -490,10 +503,19 @@ pub(crate) fn observe_world(update: WorldUpdate, objects: &RawObjects, tick_ms: 
             }
         }
         WorldUpdate::Remove { id } => {
+            crate::player::removed(id);
             if let Some(update) = unsafe { OBJECTS.remove(id) } {
                 push_event(QueuedStateUpdate::Object(update), tick_ms);
             }
         }
+    }
+}
+
+pub(crate) fn observed_player(id: u32) -> Option<RawWorldObject> {
+    // SAFETY: callers run on the client main thread, which owns the cache.
+    match unsafe { OBJECTS.get(id) } {
+        Some(player @ RawWorldObject::Player { .. }) => Some(player),
+        _ => None,
     }
 }
 
@@ -545,6 +567,9 @@ fn observe_self_position(x: i32, y: i32, tick_ms: u32) {
         push_event(QueuedStateUpdate::Object(update), tick_ms);
     }
     while let Some(update) = unsafe { OBJECTS.take_outside(x, y) } {
+        if let QueuedObjectUpdate::Disappeared(RawWorldObject::Player { id, .. }) = update {
+            crate::player::removed(id);
+        }
         push_event(QueuedStateUpdate::Object(update), tick_ms);
     }
 }

@@ -16,8 +16,8 @@ supported client build.
 | Hook | Purpose |
 | --- | --- |
 | Client tick | Captures requested baselines, settles collection changes, watches walking state, and executes at most one queued native command. |
-| Decoded server event | Observes supported updates after the client has handled them, including status, inventory, abilities, effects, objects, movement, and messages. It captures a correlated daRPC Who response before the client opens its panel. |
-| Outbound packet submission | Observes supported ability, item, gold, equipment, emote, pickup, turn, Who, and local slash-command requests before encryption. |
+| Decoded server event | Observes supported updates after the client has handled them, including status, inventory, abilities, effects, objects, movement, and messages. It captures correlated daRPC Who and player-inspection responses before the client opens their panels. |
+| Outbound packet submission | Observes supported ability, item, gold, equipment, emote, pickup, turn, Who, player-inspection, and local slash-command requests before encryption. |
 | Map size | Captures map identity, name, and dimensions so a map change can be committed atomically with the following position. |
 
 These four hooks have different jobs because no single client boundary provides
@@ -64,16 +64,16 @@ updates drive:
 - Player exchange state, offers, acceptance, completion, and cancellation
 
 Unknown, malformed, oversized, or unreadable events are ignored. The client's
-original result is preserved. The sole intentional exception is a valid Who
-response matched to a daRPC request. That response is copied for the waiting
-controller and is not passed to the stock panel-opening handler. Player-started
-Who responses still run normally.
+original result is preserved. The intentional exceptions are Who and
+other-player information responses matched to daRPC requests. Those responses
+are copied for the waiting controller and are not passed to their stock
+panel-opening handlers. Player-started requests still run normally.
 
-The pre-dispatch Who check is dormant unless daRPC has an outstanding Who
-request. The x86 detour checks both that pending marker and opcode `0x36` before
-entering Rust, and restores the registers it uses before continuing into the
-client. Ordinary server events therefore take the original dispatcher path
-without client-memory reads or Rust work before dispatch.
+The pre-dispatch checks are dormant unless daRPC has an outstanding Who or
+player-inspection request. The x86 detour checks the pending markers and opcode
+`0x36` or `0x34` before entering Rust, and restores the registers it uses before
+continuing into the client. Ordinary server events therefore take the original
+dispatcher path without client-memory reads or Rust work before dispatch.
 
 ## Outbound action observation
 
@@ -88,6 +88,7 @@ The outbound hook watches the common plaintext submission path for:
 - Gold tile drops and exchange requests
 - Ground-item pickup, equipment removal, emotes, and turning
 - Who requests, including whether daRPC or the player started each request
+- Object-information requests (`0x43` subtype 1), correlated by visible ID and order
 - Public-speech slash commands and escaped literal slashes
 
 NPC dialog responses use native main-thread methods and are observed through

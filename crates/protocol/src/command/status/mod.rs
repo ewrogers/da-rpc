@@ -3,7 +3,7 @@ use crate::{
     DecodeError, EncodeError,
     message::{PayloadReader, push_u16, push_u32},
 };
-use darpc_model::{CharacterClass, LegendMark, UserState, WhoList, WhoPlayer};
+use darpc_model::{CharacterClass, LegendMark, UserState, WhoList, WhoPlayer, WorldObject};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 // Submit carries the same bounded pointer-free command representation.
@@ -137,6 +137,10 @@ pub enum CommandResult {
         status: CommandStatus,
         marks: Vec<LegendMark>,
     },
+    Player {
+        status: CommandStatus,
+        player: Box<WorldObject>,
+    },
     Busy,
     NotFound,
     Unavailable,
@@ -245,6 +249,21 @@ pub(crate) fn encode_response(
             encode_status(output, *status);
             crate::legend::encode(output, marks)?;
         }
+        CommandResult::Player { status, player } => {
+            output.push(6);
+            encode_status(output, *status);
+            crate::snapshot::objects::encode_object(output, player)?;
+            let profile = match player.as_ref() {
+                WorldObject::Player {
+                    profile: Some(profile),
+                    ..
+                } => profile,
+                _ => {
+                    return Err(EncodeError::InvalidPlayerProfileTarget { id: player.id() });
+                }
+            };
+            crate::player::encode_profile(output, profile)?;
+        }
         CommandResult::Busy => output.push(1),
         CommandResult::NotFound => output.push(2),
         CommandResult::Unavailable => output.push(3),
@@ -269,6 +288,23 @@ pub(crate) fn decode_response(
             status: decode_status(reader)?,
             marks: crate::legend::decode(reader)?,
         },
+        6 => {
+            let status = decode_status(reader)?;
+            let mut player = crate::snapshot::objects::decode_object(reader)?;
+            let profile = Box::new(crate::player::decode_profile(reader)?);
+            match &mut player {
+                WorldObject::Player {
+                    profile: current, ..
+                } => *current = Some(profile),
+                _ => {
+                    return Err(DecodeError::InvalidPlayerProfileTarget { id: player.id() });
+                }
+            }
+            CommandResult::Player {
+                status,
+                player: Box::new(player),
+            }
+        }
         actual => return Err(DecodeError::InvalidCommandResult { actual }),
     };
     Ok(CommandResponse { request_id, result })

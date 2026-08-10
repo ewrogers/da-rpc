@@ -522,6 +522,7 @@ player.appeared             monster.appeared             mundane.appeared
 player.disappeared          monster.disappeared          mundane.disappeared
 player.moved                monster.moved                mundane.moved
 player.direction_changed    monster.direction_changed    mundane.direction_changed
+player.inspected
 ```
 
 Ground items publish:
@@ -548,7 +549,7 @@ ObjectChanged {
 
 ```text
 WorldObject =
-    Player { kind: "player", id, name?, x, y, direction }
+    Player { kind: "player", id, name?, x, y, direction, profile? }
   | Monster { kind: "monster", id, sprite?, x, y, direction }
   | Mundane { kind: "mundane", id, sprite?, name?, x, y, direction }
   | Item { kind: "item", id, sprite, x, y, z_index }
@@ -557,6 +558,23 @@ WorldObject =
 An appeared or changed event carries the object after the update. A disappeared
 event carries the last retained object. `objects.cleared` contains only the
 observation and marks a map or world boundary.
+
+`player.inspected` is one atomic completion event:
+
+```text
+PlayerInspected {
+    observation: EventObservation,
+    trigger: "appeared" | "manual" | "user",
+    player: WorldObject,
+    changes: ("info" | "equipment" | "legend")[],
+}
+```
+
+The player contains the complete current profile. The first inspection lists
+all three change domains. An identical refresh has an empty `changes` array,
+which makes manual completion observable without several independently ordered
+partial events. `character.profile_changed` similarly carries the previous
+optional local identity and complete current identity from self-look.
 
 ## Entity visual events
 
@@ -778,7 +796,7 @@ trying to infer state from only the changed field.
 | --- | --- | --- |
 | Stream | `stream.ready`, `stream.resync_required`, `stream.closed` | Reread every resource the consumer uses. |
 | Client lifecycle | `client.logged_in`, `client.disconnected` | `/status` |
-| Status | `stats.changed`, `vitals.changed`, `progression.changed`, `gold.changed`, `weight.changed`, `modifiers.changed`, `location.changed`, `blind.changed`, `action_restriction.changed` | `/status` |
+| Status | `stats.changed`, `vitals.changed`, `progression.changed`, `gold.changed`, `weight.changed`, `modifiers.changed`, `location.changed`, `blind.changed`, `action_restriction.changed`, `character.profile_changed` | `/status` |
 | Walking | `walking.started`, `walking.stopped`, `character.turned`, `character.emoted` | `/status` |
 | Inventory | `item.added`, `item.removed`, `item.changed`, `item.used`, `item.dropped`, `item.given`, `item.picked_up`, `gold.dropped`, `gold.given` | `/items`, then `/status` for gold |
 | Equipment | `equipment.unequipped` | `/equipment` |

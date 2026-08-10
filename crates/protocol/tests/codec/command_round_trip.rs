@@ -69,6 +69,39 @@ fn command_messages_round_trip() {
                 failure: Some(CommandFailure::NoPath),
             }),
         }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 234,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::InspectPlayer(std::num::NonZeroU32::new(77).unwrap()),
+                timeout_ms: 3_000,
+                wait_ms: 1_000,
+            },
+        }),
+        Message::CommandResponse(CommandResponse {
+            request_id: 235,
+            result: CommandResult::Player {
+                status: CommandStatus {
+                    command_id: 94,
+                    kind: CommandKind::InspectPlayer(std::num::NonZeroU32::new(77).unwrap()),
+                    state: CommandState::Executed,
+                    enqueued_tick_ms: 140,
+                    deadline_tick_ms: 3_140,
+                    started_tick_ms: Some(141),
+                    completed_tick_ms: Some(145),
+                    execution_us: Some(9),
+                    main_thread_id: Some(42),
+                    failure: None,
+                },
+                player: Box::new(WorldObject::Player {
+                    id: 77,
+                    name: Some("Eidolon".into()),
+                    x: 120,
+                    y: 85,
+                    direction: Direction::South,
+                    profile: Some(Box::new(player_profile())),
+                }),
+            },
+        }),
         Message::CommandResponse(CommandResponse {
             request_id: 22,
             result: CommandResult::Busy,

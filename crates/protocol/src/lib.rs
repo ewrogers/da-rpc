@@ -9,6 +9,7 @@ mod frame;
 mod group;
 mod legend;
 mod message;
+mod player;
 mod session;
 mod snapshot;
 
@@ -40,6 +41,7 @@ pub use message::{
     TickHealthResponse, VersionRange, protocol_version, protocol_version_major,
     protocol_version_minor,
 };
+pub use player::{MAX_PLAYER_EQUIPMENT_ITEMS, MAX_PLAYER_IDENTITY_TEXT_LEN};
 pub use session::{
     EndpointRole, Handshake, HandshakePhase, MessageDirection, SequenceCounter, SequenceError,
     SessionError, negotiate_version,

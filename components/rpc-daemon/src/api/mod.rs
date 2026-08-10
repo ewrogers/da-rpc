@@ -171,7 +171,7 @@ impl ApiState {
                         event: Box::new(state_event.clone()),
                         ability_name,
                         target_name,
-                        feedback,
+                        feedback: feedback.map(Box::new),
                         observed_at_utc,
                     });
                 }
@@ -380,6 +380,14 @@ fn router(state: ApiState) -> Router {
         )
         .route("/clients/{client}/who", get(crate::commands::who))
         .route("/clients/{client}/legend", get(crate::commands::legend))
+        .route(
+            "/clients/{client}/players/{player}",
+            get(crate::commands::cached_player),
+        )
+        .route(
+            "/clients/{client}/players/{player}/inspect",
+            post(crate::commands::inspect_player),
+        )
         .route(
             "/clients/{client}/group/invite",
             post(crate::commands::invite_group),
@@ -625,6 +633,8 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         client_exchange,
         crate::commands::who::who,
         crate::commands::legend::legend,
+        crate::commands::player::cached_player,
+        crate::commands::player::inspect_player,
         client_items,
         client_equipment,
         client_spells,

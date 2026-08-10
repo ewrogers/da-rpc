@@ -1,4 +1,5 @@
 use crate::output::json_string;
+use darpc_model::WorldObject;
 use darpc_protocol::{CommandFailure, CommandKind, CommandResult, CommandState, CommandStatus};
 
 pub(crate) fn render_human(
@@ -14,6 +15,43 @@ pub(crate) fn render_human(
         }
         CommandResult::Legend { status: _, marks } => {
             render_legend_human(pid, request_id, round_trip_ms, &marks)
+        }
+        CommandResult::Player { player, status: _ } => {
+            let WorldObject::Player {
+                id,
+                name,
+                x,
+                y,
+                profile: Some(profile),
+                ..
+            } = player.as_ref()
+            else {
+                unreachable!("the protocol validates inspected player results")
+            };
+            format!(
+                concat!(
+                    "player inspected: pid={} request_id={} round_trip_ms={} id={} name={:?} x={} y={} ",
+                    "nation={:?} title={:?} guild_rank={:?} display_class={:?} guild={:?} ",
+                    "user_state={:?} is_group_open={} equipment={} legend={} inspected_tick_ms={}"
+                ),
+                pid,
+                request_id,
+                round_trip_ms,
+                id,
+                name,
+                x,
+                y,
+                profile.identity.nation,
+                profile.identity.title,
+                profile.identity.guild_rank,
+                profile.identity.display_class,
+                profile.identity.guild,
+                profile.user_state,
+                profile.is_group_open,
+                profile.equipment.len(),
+                profile.legend.len(),
+                profile.inspected_tick_ms,
+            )
         }
         CommandResult::Status(status) => format!(
             concat!(
@@ -57,6 +95,17 @@ pub(crate) fn render_json(
         CommandResult::Legend { status, marks } => {
             render_legend_json(pid, request_id, round_trip_ms, status, &marks)
         }
+        CommandResult::Player { status, player } => {
+            let WorldObject::Player {
+                id,
+                profile: Some(profile),
+                ..
+            } = player.as_ref()
+            else {
+                unreachable!("the protocol validates inspected player results")
+            };
+            render_player_json(pid, request_id, round_trip_ms, status, *id, profile)
+        }
         CommandResult::Status(status) => {
             render_status_json(action, pid, request_id, round_trip_ms, status)
         }
@@ -72,6 +121,41 @@ pub(crate) fn render_json(
             json_string(result_name(result)),
         ),
     }
+}
+
+fn render_player_json(
+    pid: u32,
+    request_id: u32,
+    round_trip_ms: u32,
+    status: CommandStatus,
+    id: u32,
+    profile: &darpc_model::PlayerProfile,
+) -> String {
+    format!(
+        concat!(
+            "{{\"ok\":true,\"command\":\"inspect\",\"pid\":{},\"request_id\":{},",
+            "\"round_trip_ms\":{},\"command_id\":{},\"player\":{{\"id\":{},",
+            "\"identity\":{{\"nation\":{},\"title\":{},\"guild_rank\":{},",
+            "\"display_class\":{},\"guild\":{}}},\"user_state\":{},",
+            "\"is_group_open\":{},\"equipment_count\":{},\"legend_count\":{},",
+            "\"inspected_tick_ms\":{}}}}}"
+        ),
+        pid,
+        request_id,
+        round_trip_ms,
+        status.command_id,
+        id,
+        json_string(&format!("{:?}", profile.identity.nation).to_ascii_lowercase()),
+        json_string(&profile.identity.title),
+        json_string(&profile.identity.guild_rank),
+        json_string(&profile.identity.display_class),
+        json_string(&profile.identity.guild),
+        json_string(&format!("{:?}", profile.user_state).to_ascii_lowercase()),
+        profile.is_group_open,
+        profile.equipment.len(),
+        profile.legend.len(),
+        profile.inspected_tick_ms,
+    )
 }
 
 fn render_status_json(
@@ -133,6 +217,7 @@ fn kind(kind: CommandKind) -> &'static str {
         CommandKind::Legend => "legend",
         CommandKind::Raw(_) => "raw",
         CommandKind::Assail => "assail",
+        CommandKind::InspectPlayer(_) => "inspect_player",
     }
 }
 
@@ -172,6 +257,7 @@ fn result_name(result: CommandResult) -> &'static str {
         CommandResult::Busy => "busy",
         CommandResult::NotFound => "not_found",
         CommandResult::Unavailable => "unavailable",
+        CommandResult::Player { .. } => "player",
     }
 }
 

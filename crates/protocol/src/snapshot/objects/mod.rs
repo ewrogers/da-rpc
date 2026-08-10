@@ -44,6 +44,7 @@ pub(crate) fn encode_object(output: &mut Vec<u8>, object: &WorldObject) -> Resul
             x,
             y,
             direction,
+            ..
         } => {
             output.push(1);
             push_u32(output, *id);
@@ -140,6 +141,7 @@ pub(crate) fn decode_object(reader: &mut PayloadReader<'_>) -> Result<WorldObjec
                         actual: raw_direction,
                     },
                 )?,
+                profile: None,
             }
         }
         2 => {

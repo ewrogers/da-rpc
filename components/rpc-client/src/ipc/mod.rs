@@ -332,6 +332,7 @@ pub(crate) fn execute(pid: u32, operation: Operation) -> Result<CommandResult> {
         }
         Operation::Who => request_who(&mut session, pid),
         Operation::Legend => request_legend(&mut session, pid),
+        Operation::InspectPlayer(id) => request_player(&mut session, pid, id),
         Operation::CommandStatus(command_id) => request_command(
             &mut session,
             pid,
@@ -390,6 +391,9 @@ fn pending_who_command(response: &CommandResult, pid: u32) -> Result<Option<u32>
         darpc_protocol::CommandResult::Who { .. } => Ok(None),
         darpc_protocol::CommandResult::Legend { .. } => {
             Err(protocol_error(pid, "Who returned a Legend response"))
+        }
+        darpc_protocol::CommandResult::Player { .. } => {
+            Err(protocol_error(pid, "Who returned a player response"))
         }
         darpc_protocol::CommandResult::Status(status)
             if status.state == darpc_protocol::CommandState::Accepted =>
@@ -471,6 +475,9 @@ fn pending_legend_command(response: &CommandResult, pid: u32) -> Result<Option<u
         darpc_protocol::CommandResult::Who { .. } => {
             Err(protocol_error(pid, "Legend returned a Who response"))
         }
+        darpc_protocol::CommandResult::Player { .. } => {
+            Err(protocol_error(pid, "Legend returned a player response"))
+        }
         darpc_protocol::CommandResult::Status(status)
             if status.state == darpc_protocol::CommandState::Accepted =>
         {
@@ -503,6 +510,95 @@ fn legend_timeout(pid: u32) -> ClientError {
     ClientError::new(
         ErrorKind::Timeout,
         "the game server did not return the legend within three seconds",
+    )
+    .with_pid(pid)
+}
+
+fn request_player(
+    session: &mut ControllerSession,
+    pid: u32,
+    id: std::num::NonZeroU32,
+) -> Result<CommandResult> {
+    const INSPECT_TIMEOUT_MS: u16 = 3_000;
+    let deadline = Instant::now() + Duration::from_millis(u64::from(INSPECT_TIMEOUT_MS));
+    let mut response = request_command(
+        session,
+        pid,
+        "inspect",
+        CommandOperation::Submit {
+            kind: CommandKind::InspectPlayer(id),
+            timeout_ms: INSPECT_TIMEOUT_MS,
+            wait_ms: MAX_COMMAND_WAIT_MS,
+        },
+    )?;
+    loop {
+        let Some(command_id) = pending_player_command(&response, pid)? else {
+            return Ok(response);
+        };
+        if Instant::now() >= deadline {
+            return Err(player_timeout(pid));
+        }
+        response = request_command(
+            session,
+            pid,
+            "inspect",
+            CommandOperation::Query {
+                command_id,
+                wait_ms: MAX_COMMAND_WAIT_MS,
+            },
+        )?;
+    }
+}
+
+fn pending_player_command(response: &CommandResult, pid: u32) -> Result<Option<u32>> {
+    let CommandResult::Command { result, .. } = response else {
+        return Err(protocol_error(
+            pid,
+            "Inspect returned an unexpected response",
+        ));
+    };
+    match result {
+        darpc_protocol::CommandResult::Player { .. } => Ok(None),
+        darpc_protocol::CommandResult::Status(status)
+            if status.state == darpc_protocol::CommandState::Accepted =>
+        {
+            Ok(Some(status.command_id))
+        }
+        darpc_protocol::CommandResult::Status(status)
+            if status.state == darpc_protocol::CommandState::TimedOut =>
+        {
+            Err(player_timeout(pid))
+        }
+        darpc_protocol::CommandResult::Status(status) => Err(protocol_error(
+            pid,
+            format!(
+                "Inspect request ended in state {:?} with failure {:?}",
+                status.state, status.failure
+            ),
+        )),
+        darpc_protocol::CommandResult::Busy => Err(ClientError::new(
+            ErrorKind::Io,
+            "the bounded inspection command queue is full",
+        )
+        .with_pid(pid)),
+        darpc_protocol::CommandResult::NotFound => Err(player_timeout(pid)),
+        darpc_protocol::CommandResult::Unavailable => Err(ClientError::new(
+            ErrorKind::Io,
+            "the player inspection command path is unavailable",
+        )
+        .with_pid(pid)),
+        darpc_protocol::CommandResult::Who { .. }
+        | darpc_protocol::CommandResult::Legend { .. } => Err(protocol_error(
+            pid,
+            "Inspect returned an unrelated response",
+        )),
+    }
+}
+
+fn player_timeout(pid: u32) -> ClientError {
+    ClientError::new(
+        ErrorKind::Timeout,
+        "the game server did not return player object info within three seconds",
     )
     .with_pid(pid)
 }

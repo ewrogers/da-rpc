@@ -103,6 +103,7 @@ darpc exchange accept --pid <pid>
 darpc exchange cancel --pid <pid>
 darpc who --pid <pid>
 darpc legend --pid <pid>
+darpc inspect --pid <pid> <object-id>
 darpc command status --pid <pid> <command-id>
 darpc command cancel --pid <pid> <command-id>
 ```
@@ -192,6 +193,9 @@ and connection lifecycle. Their behavior is:
 - `legend` requests a fresh SelfLook from the server and prints every legend
   mark with its text, tag, color, and friendly icon name. Requests share the
   same one-second coalescing window as the REST endpoint.
+- `inspect` refreshes one visible player's profile by object ID, waits up to
+  three seconds, and suppresses only its correlated other-player information
+  pane. It returns identity, group-open state, equipment, and legend metadata.
 
 The commands share `darpc-protocol` with the DLL and daemon. Each requires an
 explicit nonzero process ID and cannot manage multiple clients in one command.
@@ -218,6 +222,7 @@ darpc --output json dialog select --pid <pid> 7 0
 darpc --output json group invite --pid <pid> ZiLo
 darpc --output json who --pid <pid>
 darpc --output json legend --pid <pid>
+darpc --output json inspect --pid <pid> <object-id>
 darpc --output json command status --pid <pid> <command-id>
 ```
 

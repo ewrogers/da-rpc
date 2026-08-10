@@ -252,6 +252,8 @@ unsafe extern "thiscall" fn event_dispatch_detour(
         "cmp dword ptr [{intercept_command_id}], 0",
         "jne 4f",
         "cmp byte ptr [{exchange_intercept_pending}], 0",
+        "jne 4f",
+        "cmp byte ptr [{player_intercept_pending}], 0",
         "je 3f",
         "4:",
         "push eax",
@@ -267,6 +269,8 @@ unsafe extern "thiscall" fn event_dispatch_detour(
         "cmp byte ptr [edx], {who_response_opcode}",
         "je 5f",
         "cmp byte ptr [edx], {exchange_opcode}",
+        "je 5f",
+        "cmp byte ptr [edx], {player_response_opcode}",
         "jne 1f",
         "5:",
         "push ecx",
@@ -305,11 +309,13 @@ unsafe extern "thiscall" fn event_dispatch_detour(
         intercept = sym intercept_event,
         intercept_command_id = sym crate::who::INTERCEPT_COMMAND_ID,
         exchange_intercept_pending = sym crate::exchange::INTERCEPT_PENDING,
+        player_intercept_pending = sym crate::player::INTERCEPT_PENDING,
         event_type_offset = const EVENT_TYPE_OFFSET,
         server_event_type = const SERVER_EVENT_TYPE,
         event_body_offset = const EVENT_BODY_OFFSET,
         who_response_opcode = const 0x36_u8,
         exchange_opcode = const 0x42_u8,
+        player_response_opcode = const 0x34_u8,
     );
 }
 
@@ -343,7 +349,8 @@ fn intercept_event_inner(event: *const core::ffi::c_void) -> bool {
         return false;
     }
     let mut opcode = [0];
-    if !read_memory(body_address as usize, &mut opcode) || !matches!(opcode[0], 0x36 | 0x42) {
+    if !read_memory(body_address as usize, &mut opcode) || !matches!(opcode[0], 0x34 | 0x36 | 0x42)
+    {
         return false;
     }
     if EVENT_SCRATCH_IN_USE
@@ -361,6 +368,7 @@ fn intercept_event_inner(event: *const core::ffi::c_void) -> bool {
     }
     let body = &scratch.body[..body_length];
     let suppressed = match opcode[0] {
+        0x34 => crate::player::intercept_response(body, sender_tick_ms()),
         0x36 => crate::who::intercept_response(body, sender_tick_ms()),
         0x42 => crate::exchange::intercept_quantity(body),
         _ => false,
@@ -419,6 +427,12 @@ extern "C" fn observe_event(event: *const core::ffi::c_void) {
             EVENT_READ_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed);
             return;
         }
+        let tick_ms = sender_tick_ms();
+        if scratch.body[0] == 0x34 {
+            crate::player::observe_user_response(&scratch.body[..body_length], tick_ms);
+            EVENT_COUNT.fetch_add(1, Ordering::Relaxed);
+            return;
+        }
         let update = match packet::update(&scratch.body[..body_length], &mut scratch.objects) {
             Ok(Some(update)) => update,
             Ok(None) => return,
@@ -437,7 +451,6 @@ extern "C" fn observe_event(event: *const core::ffi::c_void) {
             }
         };
         EVENT_COUNT.fetch_add(1, Ordering::Relaxed);
-        let tick_ms = sender_tick_ms();
         match update {
             packet::ServerUpdate::Audio(update) => {
                 state::observe_audio(update, tick_ms);
@@ -462,6 +475,11 @@ extern "C" fn observe_event(event: *const core::ffi::c_void) {
             }
             packet::ServerUpdate::World(update) => {
                 state::observe_world(update, &scratch.objects, tick_ms);
+                if scratch.body[0] == 0x33
+                    && let Some(player) = scratch.objects.entries[0]
+                {
+                    crate::player::appeared(player);
+                }
             }
             packet::ServerUpdate::Message(message) => {
                 state::observe_message(message, tick_ms);
@@ -479,6 +497,7 @@ extern "C" fn observe_event(event: *const core::ffi::c_void) {
                 state::observe_dialog(body, tick_ms);
             }
             packet::ServerUpdate::Group(body) => {
+                crate::player::observe_self_look(body, tick_ms);
                 crate::group::observe_packet(body, tick_ms);
             }
             packet::ServerUpdate::Exchange(body) => {

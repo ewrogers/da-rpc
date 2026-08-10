@@ -31,6 +31,7 @@ Status {
 The character data includes:
 
 - Character ID, name, gender, class, hairstyle, hair color, and body sprite
+- Nation, title, guild rank, display class, and guild from the latest self-look
 - Level, ability level, experience, ability points, and progress toward the
   next level and ability level
 - Strength, intelligence, wisdom, constitution, and dexterity
@@ -53,6 +54,7 @@ Character {
     hair_color: u8?,
     body_sprite: u16?,
     class: CharacterClass,
+    identity: PlayerIdentity?,
     is_action_restricted: bool,
     is_blinded: bool,
     is_casting: bool,
@@ -145,6 +147,7 @@ Listen on `GET /clients/{client}/events`. These events update status:
 | `modifiers.changed` | Combat modifiers or elements |
 | `blind.changed` | `is_blinded` |
 | `action_restriction.changed` | `is_action_restricted` |
+| `character.profile_changed` | Nation, title, guild rank, display class, or guild |
 | `location.changed` | Absolute x/y and, when applicable, an atomic map change |
 | `walking.started` | Native pathfinding began a queued route |
 | `walking.stopped` | The queued route ended or was interrupted |

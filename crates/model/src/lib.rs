@@ -9,6 +9,7 @@ mod group;
 mod legend;
 mod message;
 mod object;
+mod player;
 mod snapshot;
 mod who;
 
@@ -38,6 +39,10 @@ pub use exchange::{ExchangeItem, ExchangeOffer, ExchangeParty, ExchangeState, Ex
 pub use message::{ClientMessage, MessageKind};
 
 pub use object::{CreatureKind, Direction, ObjectUpdate, WorldObject};
+pub use player::{
+    CharacterProfileUpdate, Nation, PlayerEquipmentItem, PlayerIdentity, PlayerInspectionChanges,
+    PlayerInspectionTrigger, PlayerProfile, PlayerUpdate,
+};
 
 pub use snapshot::{
     CharacterAppearance, CharacterClass, CharacterModifiers, CharacterProgression,

@@ -1,16 +1,18 @@
 use darpc_model::{
     AbilityUpdate, ActionUpdate, AudioUpdate, CharacterAppearance, CharacterClass,
-    CharacterModifiers, CharacterProgression, CharacterSnapshot, CharacterStats, CharacterVitals,
-    ClientCommand, ClientLifecycle, ClientMessage, ClientSnapshot, CollectionChange,
-    CooldownStatus, CoreStatus, CreatureKind, CurrentVitals, DialogChoice, DialogInteraction,
-    DialogKind, DialogNavigation, DialogSpeaker, DialogSpriteType, DialogState, DialogTarget,
-    DialogUpdate, Direction, Effect, EffectDuration, EffectUpdate, Element, EntityUpdate,
-    EquipmentItem, EquipmentSlot, ExchangeItem, ExchangeOffer, ExchangeParty, ExchangeState,
-    ExchangeUpdate, Gender, GroupInvitation, GroupMember, GroupState, GroupUpdate, InventoryItem,
-    LegendIcon, LegendMark, LegendUpdate, LifecycleUpdate, LocationUpdate, MapChange, MapLocation,
-    MessageKind, MovementUpdate, ObjectUpdate, ProgressionStatus, Skill, SlotUpdate, Spell,
-    SpellCancellationSource, SpellCastArguments, SpellTargetType, StateEvent, StateUpdate,
-    StatusUpdate, TilePosition, UserState, WhoList, WhoPlayer, WorldObject,
+    CharacterModifiers, CharacterProfileUpdate, CharacterProgression, CharacterSnapshot,
+    CharacterStats, CharacterVitals, ClientCommand, ClientLifecycle, ClientMessage, ClientSnapshot,
+    CollectionChange, CooldownStatus, CoreStatus, CreatureKind, CurrentVitals, DialogChoice,
+    DialogInteraction, DialogKind, DialogNavigation, DialogSpeaker, DialogSpriteType, DialogState,
+    DialogTarget, DialogUpdate, Direction, Effect, EffectDuration, EffectUpdate, Element,
+    EntityUpdate, EquipmentItem, EquipmentSlot, ExchangeItem, ExchangeOffer, ExchangeParty,
+    ExchangeState, ExchangeUpdate, Gender, GroupInvitation, GroupMember, GroupState, GroupUpdate,
+    InventoryItem, LegendIcon, LegendMark, LegendUpdate, LifecycleUpdate, LocationUpdate,
+    MapChange, MapLocation, MessageKind, MovementUpdate, Nation, ObjectUpdate, PlayerEquipmentItem,
+    PlayerIdentity, PlayerInspectionChanges, PlayerInspectionTrigger, PlayerProfile, PlayerUpdate,
+    ProgressionStatus, Skill, SlotUpdate, Spell, SpellCancellationSource, SpellCastArguments,
+    SpellTargetType, StateEvent, StateUpdate, StatusUpdate, TilePosition, UserState, WhoList,
+    WhoPlayer, WorldObject,
 };
 use darpc_protocol::{
     Architecture, ChantText, CommandFailure, CommandKind, CommandOperation, CommandRequest,
@@ -60,6 +62,7 @@ fn snapshot() -> ClientSnapshot {
         character: Some(CharacterSnapshot {
             id: Some(0x1122_3344),
             name: Some("SiLo".into()),
+            identity: None,
             appearance: Some(CharacterAppearance {
                 gender: Gender::Male,
                 hair_style: 17,
@@ -166,6 +169,7 @@ fn snapshot() -> ClientSnapshot {
                 x: 40,
                 y: 30,
                 direction: Direction::East,
+                profile: None,
             },
             WorldObject::Creature {
                 id: 11,
@@ -193,6 +197,32 @@ fn snapshot() -> ClientSnapshot {
             color: 7,
             icon: LegendIcon::Wizard,
         }]),
+    }
+}
+
+fn player_profile() -> PlayerProfile {
+    PlayerProfile {
+        identity: PlayerIdentity {
+            nation: Nation::Mileth,
+            title: "Mentor".into(),
+            guild_rank: "Leader".into(),
+            display_class: "Summoner".into(),
+            guild: "Guild".into(),
+        },
+        user_state: UserState::Grouped,
+        is_group_open: true,
+        equipment: vec![PlayerEquipmentItem {
+            slot: EquipmentSlot::Necklace,
+            sprite: 0x4321,
+            dye_color: 4,
+        }],
+        legend: vec![LegendMark {
+            text: "Found the grove".into(),
+            tag: "Quest".into(),
+            color: 3,
+            icon: LegendIcon::Aisling,
+        }],
+        inspected_tick_ms: 145,
     }
 }
 

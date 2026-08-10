@@ -268,6 +268,7 @@ pub(crate) fn object_model(raw: RawWorldObject) -> WorldObject {
             x,
             y,
             direction: Direction::from_raw(direction).expect("observed player direction is valid"),
+            profile: None,
         },
         RawWorldObject::Creature {
             id,

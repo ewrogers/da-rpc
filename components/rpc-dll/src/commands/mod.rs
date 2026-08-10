@@ -7,6 +7,7 @@ use darpc_protocol::{
     SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkTarget,
 };
 use std::{
+    num::NonZeroU32,
     panic,
     sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicUsize, Ordering},
     thread,
@@ -279,8 +280,10 @@ pub(crate) fn cancel_pending() {
 
 fn submit(kind: CommandKind, timeout_ms: u16) -> Option<CommandStatus> {
     let now = now_tick_ms();
-    if matches!(kind, CommandKind::Who | CommandKind::Legend)
-        && let Some(status) = coalesced_response(kind, now)
+    if matches!(
+        kind,
+        CommandKind::Who | CommandKind::Legend | CommandKind::InspectPlayer(_)
+    ) && let Some(status) = coalesced_response(kind, now)
     {
         return Some(status);
     }
@@ -358,6 +361,15 @@ fn wait_for(command_id: u32, wait_ms: u16) -> CommandResult {
                 marks: crate::legend::current(),
             };
         }
+        if status.state == CommandState::Executed
+            && let CommandKind::InspectPlayer(id) = status.kind
+            && let Some(player) = crate::player::inspected_player(id.get())
+        {
+            return CommandResult::Player {
+                status,
+                player: Box::new(player),
+            };
+        }
         if status.state.is_terminal() || wait_ms == 0 || Instant::now() >= deadline {
             return CommandResult::Status(status);
         }
@@ -403,10 +415,15 @@ fn execute(slot_index: usize) {
     let started = Instant::now();
     let kind = slot.kind();
     let is_who = matches!(kind, CommandKind::Who);
-    let waits_for_response = matches!(kind, CommandKind::Who | CommandKind::Legend);
+    let waits_for_response = matches!(
+        kind,
+        CommandKind::Who | CommandKind::Legend | CommandKind::InspectPlayer(_)
+    );
     let result = panic::catch_unwind(|| {
         if is_who {
             execute_who(slot.command_id.load(Ordering::Relaxed))
+        } else if let CommandKind::InspectPlayer(id) = kind {
+            execute_player(slot.command_id.load(Ordering::Relaxed), id.get())
         } else {
             execute_command(kind)
         }
@@ -427,6 +444,16 @@ fn execute(slot_index: usize) {
         complete_execution(slot, result);
     }
     slot.queued.store(false, Ordering::Release);
+}
+
+#[cfg(all(windows, not(test)))]
+fn execute_player(command_id: u32, id: u32) -> Result<(), CommandFailure> {
+    crate::player::request(command_id, id)
+}
+
+#[cfg(test)]
+const fn execute_player(_command_id: u32, _id: u32) -> Result<(), CommandFailure> {
+    Ok(())
 }
 
 #[cfg(all(windows, not(test)))]
@@ -494,6 +521,36 @@ pub(crate) fn fail_who(command_id: u32) {
 
 #[cfg(windows)]
 fn complete_who_with(command_id: u32, result: Result<(), CommandFailure>) {
+    let Some(slot) = find_slot(command_id) else {
+        return;
+    };
+    if slot.state.load(Ordering::Acquire) != EXECUTING {
+        return;
+    }
+    slot.completed_tick_ms
+        .store(now_tick_ms(), Ordering::Relaxed);
+    slot.has_completed_tick_ms.store(true, Ordering::Relaxed);
+    complete_execution(slot, result);
+}
+
+#[cfg(windows)]
+pub(crate) fn complete_player(command_id: u32) {
+    complete_player_with(command_id, Ok(()));
+}
+
+#[cfg(windows)]
+pub(crate) fn fail_player(command_id: u32) {
+    complete_player_with(command_id, Err(CommandFailure::Internal));
+}
+
+#[cfg(not(windows))]
+pub(crate) const fn complete_player(_command_id: u32) {}
+
+#[cfg(not(windows))]
+pub(crate) const fn fail_player(_command_id: u32) {}
+
+#[cfg(windows)]
+fn complete_player_with(command_id: u32, result: Result<(), CommandFailure>) {
     let Some(slot) = find_slot(command_id) else {
         return;
     };
@@ -745,6 +802,7 @@ fn stored_kind(kind: CommandKind) -> (u8, u32, u32, u32, Option<StoredInput>) {
             Some(StoredInput::Raw(packet)),
         ),
         CommandKind::Assail => (42, 0, 0, 0, None),
+        CommandKind::InspectPlayer(id) => (43, id.get(), 0, 0, None),
     }
 }
 
@@ -967,6 +1025,9 @@ fn kind_from_value(
                 .unwrap_or(CommandKind::Diagnostic)
         }
         42 => CommandKind::Assail,
+        43 => NonZeroU32::new(argument_x)
+            .map(CommandKind::InspectPlayer)
+            .unwrap_or(CommandKind::Diagnostic),
         _ => CommandKind::Diagnostic,
     }
 }

@@ -152,6 +152,7 @@ Detailed references:
 
 - [Web API and Swagger UI](https://ewrogers.github.io/da-rpc/web-api.html)
 - [Live events](https://ewrogers.github.io/da-rpc/events.html)
+- [Raw packets and safety](https://ewrogers.github.io/da-rpc/raw.html)
 - [Executable components](https://ewrogers.github.io/da-rpc/executables.html)
 - [Game data](https://ewrogers.github.io/da-rpc/state.html)
 - [Architecture](https://ewrogers.github.io/da-rpc/architecture.html)

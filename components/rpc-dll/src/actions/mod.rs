@@ -40,6 +40,7 @@ pub(crate) fn execute(command: CommandKind) -> Result<(), CommandFailure> {
         CommandKind::Exchange(command) => exchange::submit(command),
         CommandKind::Chant(text) => chant::submit(text),
         CommandKind::Legend => network::submit(&[0x2D]),
+        CommandKind::Raw(packet) => network::raw(packet),
     }
 }
 

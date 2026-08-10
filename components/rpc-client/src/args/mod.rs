@@ -6,9 +6,10 @@ use darpc_model::{Direction, EquipmentSlot, emote_code, is_client_emote_code};
 use darpc_protocol::{
     ChantText, DialogAction, DialogCommand, DialogText, ExchangeCommand, GoldTransfer,
     GroupCommand, GroupInvitationAction, GroupText, ItemSlot, ItemTransfer, MAX_DIALOG_INPUT_LEN,
-    MAX_ECHO_TEXT_LEN, MAX_ITEM_SLOT, MAX_SKILL_SLOT, MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT,
-    SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget,
-    TilePosition, TransferTarget, WalkTarget,
+    MAX_ECHO_TEXT_LEN, MAX_ITEM_SLOT, MAX_RAW_PACKET_PAYLOAD_LEN, MAX_SKILL_SLOT,
+    MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT, RawPacket, RawPacketDirection, SkillSlot, SlotSwap,
+    SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition, TransferTarget,
+    WalkTarget,
 };
 use std::ffi::OsString;
 
@@ -20,6 +21,7 @@ usage:
     darpc [--output <table|json>] snapshot --pid <pid>
     darpc [--output <table|json>] echo --pid <pid> <text>
     darpc [--output <table|json>] diagnostic --pid <pid>
+    darpc [--output <table|json>] raw send --pid <pid> <client|server> <0xNN> [hex-payload]
     darpc [--output <table|json>] turn --pid <pid> <north|east|south|west>
     darpc [--output <table|json>] walk --pid <pid> <north|east|south|west>
     darpc [--output <table|json>] walk --pid <pid> <x> <y>
@@ -79,6 +81,7 @@ pub(crate) enum Operation {
     Snapshot,
     Echo(String),
     Diagnostic,
+    Raw(RawPacket),
     Turn(Direction),
     Walk(WalkTarget),
     UseSkill(SkillSlot),
@@ -140,6 +143,7 @@ impl Command {
             Operation::Snapshot => "snapshot",
             Operation::Echo(_) => "echo",
             Operation::Diagnostic => "diagnostic",
+            Operation::Raw(_) => "raw send",
             Operation::Turn(_) => "turn",
             Operation::Walk(_) => "walk",
             Operation::UseSkill(_) => "skill use",
@@ -241,6 +245,7 @@ pub(crate) fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
         "tick health" => Operation::TickHealth,
         "snapshot" => Operation::Snapshot,
         "diagnostic" => Operation::Diagnostic,
+        "raw send" => Operation::Raw(parse_raw_packet(&mut arguments)?),
         "turn" => Operation::Turn(parse_direction(arguments.next())?),
         "walk" => Operation::Walk(parse_walk_target(&mut arguments)?),
         "skill use" => Operation::UseSkill(parse_skill_slot(arguments.next())?),
@@ -390,6 +395,7 @@ fn parse_action(arguments: &mut impl Iterator<Item = OsString>) -> Result<String
         "group" => &["toggle", "invite", "accept", "decline"],
         "exchange" => &["item", "gold", "accept", "cancel"],
         "command" => &["status", "cancel"],
+        "raw" => &["send"],
         _ => return Ok(command),
     };
     let subcommand = arguments
@@ -415,6 +421,61 @@ fn parse_direction(argument: Option<OsString>) -> Result<Direction> {
             "direction must be north, east, south, or west",
         )),
     }
+}
+
+fn parse_raw_packet(arguments: &mut impl Iterator<Item = OsString>) -> Result<RawPacket> {
+    let direction = match arguments
+        .next()
+        .as_deref()
+        .and_then(std::ffi::OsStr::to_str)
+    {
+        Some("client") => RawPacketDirection::Client,
+        Some("server") => RawPacketDirection::Server,
+        _ => return Err(invalid_arguments("raw direction must be client or server")),
+    };
+    let command = arguments
+        .next()
+        .and_then(|value| value.into_string().ok())
+        .ok_or_else(|| invalid_arguments("raw command is required"))?;
+    let digits = command
+        .strip_prefix("0x")
+        .or_else(|| command.strip_prefix("0X"))
+        .ok_or_else(|| invalid_arguments("raw command must be 0x followed by two hex digits"))?;
+    if digits.len() != 2 || !digits.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err(invalid_arguments(
+            "raw command must be 0x followed by two hex digits",
+        ));
+    }
+    let command = u8::from_str_radix(digits, 16)
+        .map_err(|_| invalid_arguments("raw command is not a byte"))?;
+    let payload = arguments
+        .next()
+        .map(|value| {
+            value
+                .into_string()
+                .map_err(|_| invalid_arguments("raw payload must be valid Unicode"))
+        })
+        .transpose()?
+        .unwrap_or_default();
+    let mut bytes = Vec::new();
+    for token in payload.split_ascii_whitespace() {
+        if token.len() != 2 || !token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            return Err(invalid_arguments(format!(
+                "raw payload token `{token}` is not exactly two hex digits"
+            )));
+        }
+        if bytes.len() == MAX_RAW_PACKET_PAYLOAD_LEN {
+            return Err(invalid_arguments(format!(
+                "raw payload exceeds the {MAX_RAW_PACKET_PAYLOAD_LEN}-byte limit"
+            )));
+        }
+        bytes.push(
+            u8::from_str_radix(token, 16)
+                .map_err(|_| invalid_arguments("raw payload contains a non-hex byte"))?,
+        );
+    }
+    RawPacket::new(direction, command, &bytes)
+        .ok_or_else(|| invalid_arguments("raw payload is too large"))
 }
 
 fn parse_walk_target(arguments: &mut impl Iterator<Item = OsString>) -> Result<WalkTarget> {
@@ -733,8 +794,8 @@ mod tests {
     use darpc_model::Direction;
     use darpc_protocol::{
         ChantText, DialogAction, DialogCommand, DialogText, GroupCommand, GroupInvitationAction,
-        GroupText, ItemSlot, SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot,
-        SpellTarget, WalkTarget,
+        GroupText, ItemSlot, RawPacket, RawPacketDirection, SkillSlot, SlotSwap, SpellArguments,
+        SpellCast, SpellInput, SpellSlot, SpellTarget, WalkTarget,
     };
     use std::ffi::OsString;
 
@@ -951,6 +1012,33 @@ mod tests {
                     }),
                 }
             )
+        );
+    }
+
+    #[test]
+    fn parses_raw_packets_and_rejects_malformed_hex() {
+        assert_eq!(
+            parse(arguments(&[
+                "raw", "send", "--pid", "9", "client", "0x7E", "00 03 02",
+            ]))
+            .unwrap(),
+            (
+                OutputFormat::Table,
+                Command {
+                    pid: 9,
+                    operation: Operation::Raw(
+                        RawPacket::new(RawPacketDirection::Client, 0x7e, &[0x00, 0x03, 0x02],)
+                            .unwrap(),
+                    ),
+                },
+            )
+        );
+        assert!(parse(arguments(&["raw", "send", "--pid", "9", "server", "7E"])).is_err());
+        assert!(
+            parse(arguments(&[
+                "raw", "send", "--pid", "9", "client", "0x7E", "000302",
+            ]))
+            .is_err()
         );
     }
 

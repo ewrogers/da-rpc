@@ -59,6 +59,7 @@ darpc echo --pid <pid> "hello"
 darpc tick health --pid <pid>
 darpc snapshot --pid <pid>
 darpc diagnostic --pid <pid>
+darpc raw send --pid <pid> <client|server> <0xNN> [hex-payload]
 darpc turn --pid <pid> <north|east|south|west>
 darpc walk --pid <pid> <north|east|south|west>
 darpc walk --pid <pid> <x> <y>
@@ -104,6 +105,11 @@ darpc legend --pid <pid>
 darpc command status --pid <pid> <command-id>
 darpc command cancel --pid <pid> <command-id>
 ```
+
+For raw packets, quote a nonempty space-separated payload, for example `darpc
+raw send --pid 3780 client 0x7E "00 03 02"`. The command accepts at most 255
+payload bytes. See [Raw packets](raw.md) before using this low-level interface;
+malformed packets can disconnect sessions or crash the game client or server.
 
 `chant` sends its text through the client's spell-chant channel. The item
 convenience commands build the NPC phrases documented in [Inventory](inventory.md).

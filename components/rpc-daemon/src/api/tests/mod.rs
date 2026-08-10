@@ -35,8 +35,9 @@ use darpc_model::{
 use darpc_protocol::{
     Architecture, ChantText, CommandKind, CommandOperation, CommandResult, CommandState,
     CommandStatus, ComponentVersion, DialogAction, DialogCommand, ExchangeCommand, GoldTransfer,
-    Hello, ItemSlot, ItemTransfer, SUPPORTED_VERSIONS, SkillSlot, SlotSwap, SpellArguments,
-    SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkTarget,
+    Hello, ItemSlot, ItemTransfer, RawPacket, RawPacketDirection, SUPPORTED_VERSIONS, SkillSlot,
+    SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition,
+    TransferTarget, WalkTarget,
 };
 use serde_json::Value;
 use std::{
@@ -612,6 +613,18 @@ fn legend_route_returns_refreshed_marks_with_friendly_icons() {
 #[test]
 fn routes_typed_actions() {
     assert_routes_action(
+        "/clients/42/raw/send",
+        r#"{"direction":"client","command":"0x7E","payload":"00 03 02"}"#,
+        CommandKind::Raw(
+            RawPacket::new(RawPacketDirection::Client, 0x7e, &[0x00, 0x03, 0x02]).unwrap(),
+        ),
+    );
+    assert_routes_action(
+        "/clients/42/raw/send",
+        r#"{"direction":"server","command":"0x3A","payload":""}"#,
+        CommandKind::Raw(RawPacket::new(RawPacketDirection::Server, 0x3a, &[]).unwrap()),
+    );
+    assert_routes_action(
         "/clients/42/turn",
         r#"{"direction":"north"}"#,
         CommandKind::Turn(ModelDirection::North),
@@ -1033,6 +1046,16 @@ fn keeps_drop_give_and_swap_payloads_distinct() {
         .status(),
         StatusCode::NOT_FOUND
     );
+    for body in [
+        r#"{"direction":"outbound","command":"0x7E","payload":"00"}"#,
+        r#"{"direction":"client","command":"7E","payload":"00"}"#,
+        r#"{"direction":"client","command":"0x7E","payload":"0002"}"#,
+    ] {
+        assert_eq!(
+            post_json(state(), "/clients/42/raw/send", body).status(),
+            StatusCode::BAD_REQUEST
+        );
+    }
 }
 
 #[test]
@@ -1440,11 +1463,17 @@ fn serves_the_openapi_contract_and_vendored_swagger_ui() {
         "/clients/{client}/exchange/accept",
         "/clients/{client}/exchange/cancel",
         "/clients/{client}/emote",
+        "/clients/{client}/raw/send",
         "/clients/{client}/commands/diagnostic",
         "/clients/{client}/commands/{command_id}",
     ] {
         assert!(openapi["paths"][path].is_object(), "OpenAPI omitted {path}");
     }
+    assert!(
+        openapi["paths"]["/clients/{client}/raw/send"]["post"]["description"]
+            .as_str()
+            .is_some_and(|description| description.contains("crash"))
+    );
     let object_parameters = openapi["paths"]["/clients/{client}/objects"]["get"]["parameters"]
         .as_array()
         .unwrap();
@@ -1459,6 +1488,8 @@ fn serves_the_openapi_contract_and_vendored_swagger_ui() {
     for name in [
         "HealthState",
         "HealthStatus",
+        "RawDirection",
+        "RawSendOptions",
         "ClientList",
         "ClientState",
         "ClientStatus",

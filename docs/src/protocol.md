@@ -801,6 +801,12 @@ enum CommandKind: u8 {
     Exchange(ExchangeCommand) = 18,
     Chant { text: string8 } = 19,  // 1 through 255 ASCII bytes
     Legend = 20,
+    Raw {
+        direction: u8;  // 0 = client to server, 1 = server to client
+        command: u8;
+        payload_length: u8;
+        payload: [u8; payload_length];
+    } = 21,
 }
 
 enum ExchangeCommand: u8 {
@@ -813,6 +819,11 @@ enum ExchangeCommand: u8 {
 `Chant` becomes the client packet body `0x0E 0x02 string8`, where mode `2` is
 the spell-chant channel. Text bytes are preserved exactly. The convenience NPC
 actions are controller-side formatters and use this same typed command.
+
+`Raw` carries a bounded plaintext packet body split into a command byte and up
+to 255 payload bytes. It is an intentionally unsafe semantic escape hatch: the
+codec validates its direction and bounds, but it cannot validate arbitrary
+game packet contents.
 
 enum GroupCommand: u8 {
     Invite { target: string8 } = 1,

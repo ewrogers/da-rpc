@@ -131,6 +131,7 @@ fn kind(kind: CommandKind) -> &'static str {
         CommandKind::Exchange(_) => "exchange",
         CommandKind::Chant(_) => "chant",
         CommandKind::Legend => "legend",
+        CommandKind::Raw(_) => "raw",
     }
 }
 

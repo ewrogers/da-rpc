@@ -32,6 +32,7 @@ pub(crate) mod group;
 pub(crate) mod interaction;
 pub(crate) mod legend;
 pub(crate) mod movement;
+pub(crate) mod raw;
 pub(crate) mod who;
 
 pub(crate) use ability::{
@@ -290,6 +291,7 @@ pub(crate) enum CommandKind {
     Exchange,
     Chant,
     Legend,
+    Raw,
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
@@ -639,6 +641,7 @@ impl From<ProtocolKind> for CommandKind {
             ProtocolKind::Exchange(_) => Self::Exchange,
             ProtocolKind::Chant(_) => Self::Chant,
             ProtocolKind::Legend => Self::Legend,
+            ProtocolKind::Raw(_) => Self::Raw,
         }
     }
 }

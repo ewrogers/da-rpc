@@ -70,6 +70,12 @@ Remote web access requires an explicit security model. Listening beyond the
 local machine without authentication and transport protection should not be a
 default configuration.
 
+The [raw packet interface](raw.md) validates representation and size, not game
+protocol semantics. It can deliberately feed arbitrary bytes into native
+client packet paths. Malformed input can disconnect the session, corrupt client
+state, or crash the client or server, so raw sends must never be treated like
+ordinary validated API actions.
+
 ## Test data
 
 Do not commit copyrighted client binaries, game assets, secrets, personal

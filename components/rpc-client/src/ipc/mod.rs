@@ -192,6 +192,16 @@ pub(crate) fn execute(pid: u32, operation: Operation) -> Result<CommandResult> {
                 wait_ms: MAX_COMMAND_WAIT_MS,
             },
         ),
+        Operation::Raw(packet) => request_command(
+            &mut session,
+            pid,
+            "raw send",
+            CommandOperation::Submit {
+                kind: CommandKind::Raw(packet),
+                timeout_ms: DEFAULT_COMMAND_TIMEOUT_MS,
+                wait_ms: MAX_COMMAND_WAIT_MS,
+            },
+        ),
         Operation::Turn(direction) => request_command(
             &mut session,
             pid,

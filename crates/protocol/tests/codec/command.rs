@@ -42,3 +42,25 @@ fn command_limits_are_strictly_validated() {
         Err(EncodeError::InvalidCommandId)
     );
 }
+
+#[test]
+fn raw_packet_direction_is_strictly_validated() {
+    let message = Message::CommandRequest(CommandRequest {
+        request_id: 1,
+        operation: CommandOperation::Submit {
+            kind: CommandKind::Raw(
+                RawPacket::new(RawPacketDirection::Client, 0x7e, &[0x00, 0x03, 0x02]).unwrap(),
+            ),
+            timeout_ms: 1_000,
+            wait_ms: 0,
+        },
+    });
+    let mut bytes = encode_frame(&Frame::new(0, 0, message)).unwrap();
+    let direction_offset = FRAME_HEADER_LEN + 4 + 1 + 1;
+    bytes[direction_offset] = 2;
+
+    assert_eq!(
+        decode_frame(&bytes),
+        Err(DecodeError::InvalidRawPacketDirection { actual: 2 })
+    );
+}

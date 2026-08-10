@@ -4,6 +4,7 @@
 
 - [Using daRPC](web-api.md)
   - [Live events](events.md)
+  - [Raw packets](raw.md)
 - [Executable components](executables.md)
   - [`loader.exe` command-line interface](loader.md)
   - [`darpc.exe` command-line interface](cli.md)

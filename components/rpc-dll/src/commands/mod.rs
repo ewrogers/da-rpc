@@ -3,8 +3,8 @@ use darpc_protocol::{
     ChantText, CommandFailure, CommandKind, CommandOperation, CommandResult, CommandState,
     CommandStatus, DialogAction, DialogCommand, DialogText, ExchangeCommand, GoldTransfer,
     GroupCommand, GroupInvitationAction, GroupText, ItemSlot, ItemTransfer, MAX_DIALOG_INPUT_LEN,
-    SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget,
-    TilePosition, TransferTarget, WalkTarget,
+    RawPacket, RawPacketDirection, SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput,
+    SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkTarget,
 };
 use std::{
     panic,
@@ -600,6 +600,7 @@ enum StoredInput {
     Dialog(DialogText),
     Group(GroupText),
     Chant(ChantText),
+    Raw(RawPacket),
 }
 
 impl StoredInput {
@@ -609,6 +610,7 @@ impl StoredInput {
             Self::Dialog(value) => value.as_bytes(),
             Self::Group(value) => value.as_bytes(),
             Self::Chant(value) => value.as_bytes(),
+            Self::Raw(value) => value.payload(),
         }
     }
 }
@@ -732,6 +734,16 @@ fn stored_kind(kind: CommandKind) -> (u8, u32, u32, u32, Option<StoredInput>) {
         CommandKind::Exchange(ExchangeCommand::Cancel) => (38, 0, 0, 0, None),
         CommandKind::Chant(text) => (39, 0, 0, 0, Some(StoredInput::Chant(text))),
         CommandKind::Legend => (40, 0, 0, 0, None),
+        CommandKind::Raw(packet) => (
+            41,
+            match packet.direction() {
+                RawPacketDirection::Client => 0,
+                RawPacketDirection::Server => 1,
+            },
+            u32::from(packet.command()),
+            0,
+            Some(StoredInput::Raw(packet)),
+        ),
     }
 }
 
@@ -943,6 +955,16 @@ fn kind_from_value(
             .map(CommandKind::Chant)
             .unwrap_or(CommandKind::Diagnostic),
         40 => CommandKind::Legend,
+        41 => {
+            let direction = match argument_x {
+                0 => RawPacketDirection::Client,
+                1 => RawPacketDirection::Server,
+                _ => return CommandKind::Diagnostic,
+            };
+            RawPacket::new(direction, argument_y as u8, input)
+                .map(CommandKind::Raw)
+                .unwrap_or(CommandKind::Diagnostic)
+        }
         _ => CommandKind::Diagnostic,
     }
 }
@@ -1120,6 +1142,20 @@ mod tests {
             kind_from_value(value, argument_x, argument_y, argument_z, input),
             expected
         );
+    }
+
+    #[test]
+    fn raw_packets_survive_bounded_queue_storage_verbatim() {
+        for direction in [RawPacketDirection::Client, RawPacketDirection::Server] {
+            let expected =
+                CommandKind::Raw(RawPacket::new(direction, 0x7e, &[0x00, 0x03, 0x02]).unwrap());
+            let (value, argument_x, argument_y, argument_z, input) = stored_kind(expected);
+            let input = input.as_ref().map_or(&[][..], StoredInput::as_bytes);
+            assert_eq!(
+                kind_from_value(value, argument_x, argument_y, argument_z, input),
+                expected
+            );
+        }
     }
 
     #[test]

@@ -18,6 +18,51 @@ pub const MAX_GROUP_NAME_LEN: usize = 28;
 pub const MAX_WHO_PLAYERS: usize = 768;
 pub const MAX_WHO_NAME_LEN: usize = 24;
 pub const MAX_WHO_TITLE_LEN: usize = 48;
+pub const MAX_RAW_PACKET_PAYLOAD_LEN: usize = u8::MAX as usize;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RawPacketDirection {
+    Client,
+    Server,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RawPacket {
+    direction: RawPacketDirection,
+    command: u8,
+    payload_length: u8,
+    payload: [u8; MAX_RAW_PACKET_PAYLOAD_LEN],
+}
+
+impl RawPacket {
+    #[must_use]
+    pub fn new(direction: RawPacketDirection, command: u8, payload: &[u8]) -> Option<Self> {
+        let payload_length = u8::try_from(payload.len()).ok()?;
+        let mut stored = [0; MAX_RAW_PACKET_PAYLOAD_LEN];
+        stored[..payload.len()].copy_from_slice(payload);
+        Some(Self {
+            direction,
+            command,
+            payload_length,
+            payload: stored,
+        })
+    }
+
+    #[must_use]
+    pub const fn direction(self) -> RawPacketDirection {
+        self.direction
+    }
+
+    #[must_use]
+    pub const fn command(self) -> u8 {
+        self.command
+    }
+
+    #[must_use]
+    pub fn payload(&self) -> &[u8] {
+        &self.payload[..usize::from(self.payload_length)]
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CommandKind {
@@ -42,6 +87,7 @@ pub enum CommandKind {
     Exchange(ExchangeCommand),
     Chant(ChantText),
     Legend,
+    Raw(RawPacket),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -542,6 +588,16 @@ pub(super) fn encode_kind(output: &mut Vec<u8>, kind: CommandKind) {
             output.extend_from_slice(text.as_bytes());
         }
         CommandKind::Legend => output.push(20),
+        CommandKind::Raw(packet) => {
+            output.push(21);
+            output.push(match packet.direction {
+                RawPacketDirection::Client => 0,
+                RawPacketDirection::Server => 1,
+            });
+            output.push(packet.command);
+            output.push(packet.payload_length);
+            output.extend_from_slice(packet.payload());
+        }
     }
 }
 
@@ -702,6 +758,20 @@ pub(super) fn decode_kind(reader: &mut PayloadReader<'_>) -> Result<CommandKind,
             Ok(CommandKind::Chant(text))
         }
         20 => Ok(CommandKind::Legend),
+        21 => {
+            let direction = match reader.read_u8()? {
+                0 => RawPacketDirection::Client,
+                1 => RawPacketDirection::Server,
+                actual => return Err(DecodeError::InvalidRawPacketDirection { actual }),
+            };
+            let command = reader.read_u8()?;
+            let length = usize::from(reader.read_u8()?);
+            let payload = reader.take(length)?;
+            Ok(CommandKind::Raw(
+                RawPacket::new(direction, command, payload)
+                    .expect("a wire-sized raw packet payload always fits"),
+            ))
+        }
         actual => Err(DecodeError::InvalidCommandKind { actual }),
     }
 }
@@ -768,7 +838,10 @@ fn decode_direction(reader: &mut PayloadReader<'_>) -> Result<Direction, DecodeE
 
 #[cfg(test)]
 mod tests {
-    use super::{ChantText, CommandKind, ItemSlot, SkillSlot, SlotSwap, SpellSlot, encode_kind};
+    use super::{
+        ChantText, CommandKind, ItemSlot, MAX_RAW_PACKET_PAYLOAD_LEN, RawPacket,
+        RawPacketDirection, SkillSlot, SlotSwap, SpellSlot, encode_kind,
+    };
 
     #[test]
     fn npc_chants_preserve_verbatim_item_names() {
@@ -792,6 +865,22 @@ mod tests {
         let mut encoded = Vec::new();
         encode_kind(&mut encoded, command);
         assert_eq!(encoded, b"\x13\x15MiXeD, punctuation!  ");
+    }
+
+    #[test]
+    fn raw_packet_encoding_is_bounded_and_preserves_bytes() {
+        let packet = RawPacket::new(RawPacketDirection::Client, 0x7e, &[0x00, 0x03, 0x02]).unwrap();
+        let mut encoded = Vec::new();
+        encode_kind(&mut encoded, CommandKind::Raw(packet));
+        assert_eq!(encoded, [21, 0, 0x7e, 3, 0x00, 0x03, 0x02]);
+        assert!(
+            RawPacket::new(
+                RawPacketDirection::Server,
+                0,
+                &vec![0; MAX_RAW_PACKET_PAYLOAD_LEN + 1],
+            )
+            .is_none()
+        );
     }
 
     #[test]

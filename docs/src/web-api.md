@@ -116,6 +116,7 @@ the game and how they change.
 | `POST /clients/{client}/gold/give` | Give gold to a visible human, monster, or NPC. |
 | `POST /clients/{client}/equipment/unequip` | Unequip one readable equipment slot. |
 | `POST /clients/{client}/emote` | Perform an emote by confirmed name or client code. |
+| `POST /clients/{client}/raw/send` | Send a bounded custom client packet or dispatch a synthetic server packet. |
 | `POST /clients/{client}/interact` | Start a conversation with a visible Mundane. |
 | `POST /clients/{client}/dialog/select` | Select a row in the current NPC dialog. |
 | `POST /clients/{client}/dialog/input` | Answer the current text prompt. |
@@ -143,6 +144,7 @@ chapters. NPC interaction, revision checks, and dialog responses are documented
 in [NPC dialogs](dialogs.md). Group state, invitations, and roster confirmation
 are documented in [Groups](groups.md). Player offers, constraints, and exchange
 completion are documented in [Exchange](exchanges.md).
+Raw packet syntax and crash risks are documented in [Raw packets](raw.md).
 
 ### Native command results
 

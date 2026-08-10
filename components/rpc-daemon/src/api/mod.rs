@@ -483,6 +483,10 @@ fn router(state: ApiState) -> Router {
             post(crate::commands::give_gold),
         )
         .route("/clients/{client}/emote", post(crate::commands::emote))
+        .route(
+            "/clients/{client}/raw/send",
+            post(crate::commands::raw::send),
+        )
         .route("/clients/{client}/spells", get(client_spells))
         .route("/clients/{client}/skills", get(client_skills))
         .route("/clients/{client}/effects", get(client_effects))
@@ -572,6 +576,7 @@ async fn reject_request_body(request: Request<Body>, next: Next) -> Response {
             || request.uri().path().ends_with("/exchange/items")
             || request.uri().path().ends_with("/exchange/gold")
             || request.uri().path().ends_with("/emote")
+            || request.uri().path().ends_with("/raw/send")
             || request.uri().path().ends_with("/interact")
             || request.uri().path().ends_with("/dialog/select")
             || request.uri().path().ends_with("/dialog/input")
@@ -643,6 +648,7 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         crate::commands::interaction::pickup_item,
         crate::commands::interaction::unequip,
         crate::commands::interaction::emote,
+        crate::commands::raw::send,
         crate::commands::chant::chant,
         crate::commands::chant::sell,
         crate::commands::chant::sell_all,
@@ -766,6 +772,8 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         ErrorDetail,
         ClientEvent,
         crate::commands::DiagnosticOptions,
+        crate::commands::raw::RawDirection,
+        crate::commands::raw::RawSendOptions,
         crate::commands::GroupInviteOptions,
         crate::commands::AddExchangeItemOptions,
         crate::commands::SetExchangeGoldOptions,

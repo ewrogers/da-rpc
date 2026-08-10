@@ -384,6 +384,26 @@ fn command_messages_round_trip() {
                 wait_ms: 50,
             },
         }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 47,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::Raw(
+                    RawPacket::new(RawPacketDirection::Client, 0x7e, &[0x00, 0x03, 0x02]).unwrap(),
+                ),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 48,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::Raw(
+                    RawPacket::new(RawPacketDirection::Server, 0x3a, &[]).unwrap(),
+                ),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
     ];
 
     for message in messages {

@@ -307,6 +307,7 @@ pub(crate) fn appeared(player: RawWorldObject) {
     });
 }
 
+#[cfg(not(test))]
 pub(crate) fn request(command_id: u32, id: u32) -> Result<(), darpc_protocol::CommandFailure> {
     if crate::state::observed_player(id).is_none() {
         return Err(darpc_protocol::CommandFailure::InvalidTarget);

@@ -1,4 +1,5 @@
 use crate::{
+    commands::LegendMark,
     dialog::{DialogChanged, DialogClosed, DialogOpened, DialogSubmitted},
     exchange::{
         ExchangeAccepted, ExchangeCancelled, ExchangeCompleted, ExchangeGoldChanged,
@@ -38,7 +39,7 @@ mod state;
 use ability::*;
 use feedback::*;
 pub(crate) use feedback::{SpellFeedback, SpellFeedbackTrackers};
-use state::*;
+pub(crate) use state::*;
 
 pub(crate) const EVENT_CHANNEL_CAPACITY: usize = 4_096;
 
@@ -152,6 +153,9 @@ pub(crate) enum ClientEvent {
     ExchangeAccepted(ExchangeAccepted),
     ExchangeCompleted(ExchangeCompleted),
     ExchangeCancelled(ExchangeCancelled),
+    LegendMarkAdded(LegendMarkAdded),
+    LegendMarkChanged(LegendMarkChanged),
+    LegendMarkRemoved(LegendMarkRemoved),
     StreamResyncRequired(StreamResyncRequired),
     StreamClosed(StreamClosed),
 }
@@ -244,6 +248,9 @@ impl ClientEvent {
             Self::ExchangeAccepted(_) => "exchange.accepted",
             Self::ExchangeCompleted(_) => "exchange.completed",
             Self::ExchangeCancelled(_) => "exchange.cancelled",
+            Self::LegendMarkAdded(_) => "legend.mark_added",
+            Self::LegendMarkChanged(_) => "legend.mark_changed",
+            Self::LegendMarkRemoved(_) => "legend.mark_removed",
             Self::StreamResyncRequired(_) => "stream.resync_required",
             Self::StreamClosed(_) => "stream.closed",
         }
@@ -337,6 +344,9 @@ impl ClientEvent {
             Self::ExchangeAccepted(value) => value.observation.event_sequence,
             Self::ExchangeCompleted(value) => value.observation.event_sequence,
             Self::ExchangeCancelled(value) => value.observation.event_sequence,
+            Self::LegendMarkAdded(value) => value.observation.event_sequence,
+            Self::LegendMarkChanged(value) => value.observation.event_sequence,
+            Self::LegendMarkRemoved(value) => value.observation.event_sequence,
             Self::StreamResyncRequired(value) => value.last_event_sequence,
             Self::StreamClosed(value) => value.last_event_sequence,
         }

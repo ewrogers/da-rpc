@@ -127,6 +127,37 @@ fn command_messages_round_trip() {
             },
         }),
         Message::CommandRequest(CommandRequest {
+            request_id: 232,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::Legend,
+                timeout_ms: 3_000,
+                wait_ms: 1_000,
+            },
+        }),
+        Message::CommandResponse(CommandResponse {
+            request_id: 233,
+            result: CommandResult::Legend {
+                status: CommandStatus {
+                    command_id: 93,
+                    kind: CommandKind::Legend,
+                    state: CommandState::Executed,
+                    enqueued_tick_ms: 130,
+                    deadline_tick_ms: 3_130,
+                    started_tick_ms: Some(131),
+                    completed_tick_ms: Some(140),
+                    execution_us: Some(8),
+                    main_thread_id: Some(42),
+                    failure: None,
+                },
+                marks: vec![LegendMark {
+                    text: "Found the hidden grove".into(),
+                    tag: "Quest".into(),
+                    color: 7,
+                    icon: LegendIcon::Wizard,
+                }],
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
             request_id: 24,
             operation: CommandOperation::Submit {
                 kind: CommandKind::CastSpell(SpellCast {

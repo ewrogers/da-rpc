@@ -126,7 +126,10 @@ pub(crate) fn model_state(raw: &RawGroupState) -> GroupState {
 pub(crate) fn observe_packet(body: &[u8], tick_ms: u32) {
     match body.first().copied() {
         Some(0x63) => observe_invitation_packet(body, tick_ms),
-        Some(0x39) => observe_self_look(body, tick_ms),
+        Some(0x39) => {
+            crate::legend::observe_self_look(body, tick_ms);
+            observe_self_look(body, tick_ms);
+        }
         _ => {}
     }
 }

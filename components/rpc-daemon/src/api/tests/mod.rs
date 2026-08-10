@@ -26,7 +26,8 @@ use darpc_model::{
     EffectDuration as ModelEffectDuration, EquipmentItem as ModelEquipmentItem,
     EquipmentSlot as ModelEquipmentSlot, ExchangeItem as ModelExchangeItem,
     ExchangeOffer as ModelExchangeOffer, ExchangeState as ModelExchangeState, Gender,
-    InventoryItem as ModelInventoryItem, MapLocation, MessageKind as ModelMessageKind,
+    InventoryItem as ModelInventoryItem, LegendIcon as ModelLegendIcon,
+    LegendMark as ModelLegendMark, MapLocation, MessageKind as ModelMessageKind,
     Skill as ModelSkill, Spell as ModelSpell, SpellCastArguments as ModelSpellCastArguments,
     SpellTargetType as ModelSpellTargetType, StateEvent, StateUpdate,
     WorldObject as ModelWorldObject,
@@ -254,6 +255,7 @@ fn game_snapshot() -> ModelClientSnapshot {
         }),
         group: None,
         exchange: None,
+        legend: None,
     }
 }
 
@@ -348,6 +350,7 @@ fn json(path: &str) -> Value {
 
 fn json_with_state(state: ApiState, path: &str) -> Value {
     tokio::runtime::Builder::new_current_thread()
+        .enable_time()
         .build()
         .unwrap()
         .block_on(async {
@@ -540,6 +543,69 @@ fn routes_a_diagnostic_through_the_bounded_command_path() {
     assert_eq!(body["queue_delay_ms"], 4);
     assert_eq!(body["execution_us"], 2);
     assert_eq!(body["main_thread_id"], 77);
+    worker.join().unwrap();
+}
+
+#[test]
+fn legend_route_returns_refreshed_marks_with_friendly_icons() {
+    let mut registry = Registry::new();
+    let hello = hello();
+    let identity = RegistryClientIdentity::from_hello(hello);
+    registry.apply(&ConnectionEvent::Connected {
+        pid: 42,
+        hello,
+        selected_version: SUPPORTED_VERSIONS.max,
+    });
+    registry.apply(&ConnectionEvent::Snapshot {
+        pid: 42,
+        identity,
+        snapshot: Box::new(game_snapshot()),
+    });
+    let (events, _event_receiver) = mpsc::channel();
+    let (commands, command_receiver) = mpsc::sync_channel(ROUTER_CAPACITY);
+    let state = ApiState::new(registry.snapshot(), Arc::new(FakeLifecycle), events)
+        .with_command_sender(commands);
+    let worker = std::thread::spawn(move || {
+        let call = command_receiver.recv().unwrap();
+        assert!(matches!(
+            call.operation,
+            CommandOperation::Submit {
+                kind: CommandKind::Legend,
+                timeout_ms: 3_000,
+                wait_ms: 1_000,
+            }
+        ));
+        call.reply
+            .send(CommandReply::Result(CommandResult::Legend {
+                status: CommandStatus {
+                    command_id: 9,
+                    kind: CommandKind::Legend,
+                    state: CommandState::Executed,
+                    enqueued_tick_ms: 100,
+                    deadline_tick_ms: 3_100,
+                    started_tick_ms: Some(101),
+                    completed_tick_ms: Some(120),
+                    execution_us: Some(2),
+                    main_thread_id: Some(77),
+                    failure: None,
+                },
+                marks: vec![ModelLegendMark {
+                    text: "Found the hidden grove".into(),
+                    tag: "Quest".into(),
+                    color: 7,
+                    icon: ModelLegendIcon::Wizard,
+                }],
+            }))
+            .unwrap();
+    });
+
+    let response = json_with_state(state, "/clients/42/legend");
+    assert_eq!(response["pid"], 42);
+    assert_eq!(response["received_tick_ms"], 120);
+    assert_eq!(response["marks"][0]["text"], "Found the hidden grove");
+    assert_eq!(response["marks"][0]["tag"], "Quest");
+    assert_eq!(response["marks"][0]["color"], 7);
+    assert_eq!(response["marks"][0]["icon"], "wizard");
     worker.join().unwrap();
 }
 

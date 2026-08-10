@@ -22,6 +22,8 @@ mod hooks;
 mod identity;
 #[cfg(windows)]
 mod ipc;
+#[cfg(any(windows, test))]
+mod legend;
 #[cfg(windows)]
 mod lifecycle;
 #[cfg(windows)]

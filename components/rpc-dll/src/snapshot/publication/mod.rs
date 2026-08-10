@@ -2,6 +2,7 @@ use super::convert;
 
 use crate::dialog::RawDialog;
 use crate::exchange::RawExchange;
+use crate::legend::RawLegendState;
 use darpc_game_client::{RawObjects, RawStateSnapshot, StateReadError};
 use darpc_model::ClientSnapshot;
 use darpc_win32::pipe::sender_tick_ms;
@@ -46,6 +47,7 @@ pub(super) fn read() -> Option<Publication> {
                 reader.objects(),
                 reader.dialog(),
                 reader.exchange(),
+                reader.legend(),
             )
         }),
     })
@@ -58,6 +60,7 @@ struct PublicationSlot {
     objects: UnsafeCell<RawObjects>,
     dialog: UnsafeCell<RawDialog>,
     exchange: UnsafeCell<RawExchange>,
+    legend: UnsafeCell<RawLegendState>,
 }
 
 // SAFETY: access to `value` is exclusively transferred between the main-thread
@@ -73,6 +76,7 @@ impl PublicationSlot {
             objects: UnsafeCell::new(RawObjects::empty()),
             dialog: UnsafeCell::new(RawDialog::empty()),
             exchange: UnsafeCell::new(RawExchange::empty()),
+            legend: UnsafeCell::new(RawLegendState::empty()),
         }
     }
 
@@ -154,6 +158,9 @@ impl PublicationWriter<'_> {
         // SAFETY: publication runs on the main thread while this writer owns
         // the destination slot, so the exchange copy is stable.
         unsafe { crate::exchange::copy_current(&mut *self.slot.exchange.get()) };
+        // SAFETY: publication runs on the main thread while this writer owns
+        // the destination slot, so the legend copy is stable.
+        unsafe { crate::legend::copy_current(&mut *self.slot.legend.get()) };
         self.finish(StoredPublication {
             request_generation,
             result: Ok(ReadyPublication {
@@ -220,6 +227,11 @@ impl PublicationReader<'_> {
     fn exchange(&self) -> RawExchange {
         // SAFETY: READING excludes the writer and RawExchange is Copy.
         unsafe { *self.slot.exchange.get() }
+    }
+
+    fn legend(&self) -> &RawLegendState {
+        // SAFETY: READING excludes the writer for this reader's lifetime.
+        unsafe { &*self.slot.legend.get() }
     }
 }
 

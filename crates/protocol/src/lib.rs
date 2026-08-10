@@ -7,6 +7,7 @@ mod event;
 mod exchange;
 mod frame;
 mod group;
+mod legend;
 mod message;
 mod session;
 mod snapshot;
@@ -31,6 +32,7 @@ pub use frame::{
     FRAME_HEADER_LEN, FRAME_MAGIC, FRAME_VERSION, Frame, FrameHeader, MAX_FRAME_LEN,
     MAX_PAYLOAD_LEN, decode_frame, decode_header, encode_frame,
 };
+pub use legend::{MAX_LEGEND_MARKS, MAX_LEGEND_TAG_LEN, MAX_LEGEND_TEXT_LEN};
 pub use message::{
     Architecture, ComponentVersion, EchoRequest, EchoResponse, Hello, HelloAck, MAX_ECHO_TEXT_LEN,
     Message, MessageType, PROTOCOL_VERSION_1_0, Ping, Pong, SUPPORTED_VERSIONS, TickHealthRequest,

@@ -1,6 +1,25 @@
 use super::*;
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
+pub(crate) struct LegendMarkAdded {
+    pub(super) observation: EventObservation,
+    pub(super) mark: LegendMark,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub(crate) struct LegendMarkChanged {
+    pub(super) observation: EventObservation,
+    pub(super) previous: LegendMark,
+    pub(super) current: LegendMark,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub(crate) struct LegendMarkRemoved {
+    pub(super) observation: EventObservation,
+    pub(super) mark: LegendMark,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
 /// A spell-effect icon became active.
 pub(crate) struct EffectAdded {
     pub(super) observation: EventObservation,
@@ -558,6 +577,30 @@ pub(super) fn expand(
                         state,
                         message,
                     ))
+                }
+            });
+            return events;
+        }
+        StateUpdate::Legend(update) => {
+            events.push(match update {
+                darpc_model::LegendUpdate::MarkAdded { mark } => {
+                    ClientEvent::LegendMarkAdded(LegendMarkAdded {
+                        observation,
+                        mark: mark.into(),
+                    })
+                }
+                darpc_model::LegendUpdate::MarkChanged { previous, current } => {
+                    ClientEvent::LegendMarkChanged(LegendMarkChanged {
+                        observation,
+                        previous: previous.into(),
+                        current: current.into(),
+                    })
+                }
+                darpc_model::LegendUpdate::MarkRemoved { mark } => {
+                    ClientEvent::LegendMarkRemoved(LegendMarkRemoved {
+                        observation,
+                        mark: mark.into(),
+                    })
                 }
             });
             return events;

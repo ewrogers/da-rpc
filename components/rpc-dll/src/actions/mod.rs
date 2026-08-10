@@ -39,6 +39,7 @@ pub(crate) fn execute(command: CommandKind) -> Result<(), CommandFailure> {
         CommandKind::Who => Err(CommandFailure::Internal),
         CommandKind::Exchange(command) => exchange::submit(command),
         CommandKind::Chant(text) => chant::submit(text),
+        CommandKind::Legend => network::submit(&[0x2D]),
     }
 }
 

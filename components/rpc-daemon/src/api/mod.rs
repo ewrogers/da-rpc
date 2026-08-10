@@ -379,6 +379,7 @@ fn router(state: ApiState) -> Router {
             post(crate::commands::cancel_exchange),
         )
         .route("/clients/{client}/who", get(crate::commands::who))
+        .route("/clients/{client}/legend", get(crate::commands::legend))
         .route(
             "/clients/{client}/group/invite",
             post(crate::commands::invite_group),
@@ -614,6 +615,7 @@ fn openapi() -> utoipa::openapi::OpenApi {
         client_group,
         client_exchange,
         crate::commands::who::who,
+        crate::commands::legend::legend,
         client_items,
         client_equipment,
         client_spells,
@@ -745,10 +747,16 @@ fn openapi() -> utoipa::openapi::OpenApi {
         ExchangeAccepted,
         ExchangeCompleted,
         ExchangeCancelled,
+        crate::stream::LegendMarkAdded,
+        crate::stream::LegendMarkChanged,
+        crate::stream::LegendMarkRemoved,
         crate::commands::WhoList,
         crate::commands::WhoPlayer,
         crate::commands::WhoClass,
         crate::commands::WhoUserState,
+        crate::commands::LegendSnapshot,
+        crate::commands::LegendMark,
+        crate::commands::LegendIcon,
         LaunchOptions,
         LoadResult,
         UnloadResult,

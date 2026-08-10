@@ -56,6 +56,7 @@ fn snapshot() -> ClientSnapshot {
             },
             other: ExchangeOffer::default(),
         }),
+        legend: None,
     }
 }
 

@@ -217,6 +217,14 @@ struct ClientSnapshot {
     dialog: Option<DialogState>;
     group: Option<GroupState>;
     exchange: Option<ExchangeState>;
+    legend: Option<Vec<LegendMark>>;
+}
+
+struct LegendMark {
+    icon: u8;                              // 0 through 8 are named icons
+    color: u8;
+    tag: string16;                         // maximum 255 UTF-8 bytes
+    text: string16;                        // maximum 255 UTF-8 bytes
 }
 
 struct ExchangeState {
@@ -478,6 +486,13 @@ enum StateUpdate: u8 {
     Dialog(DialogUpdate) = 13,
     Group(GroupUpdate) = 14,
     Exchange(ExchangeUpdate) = 15,
+    Legend(LegendUpdate) = 16,
+}
+
+enum LegendUpdate: u8 {
+    MarkAdded { mark: LegendMark } = 1,
+    MarkChanged { previous: LegendMark, current: LegendMark } = 2,
+    MarkRemoved { mark: LegendMark } = 3,
 }
 
 enum ExchangeUpdate: u8 {
@@ -785,6 +800,7 @@ enum CommandKind: u8 {
     Who = 17,
     Exchange(ExchangeCommand) = 18,
     Chant { text: string8 } = 19,  // 1 through 255 ASCII bytes
+    Legend = 20,
 }
 
 enum ExchangeCommand: u8 {

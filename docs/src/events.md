@@ -742,6 +742,7 @@ trying to infer state from only the changed field.
 | NPC dialogs | `dialog.opened`, `dialog.changed`, `dialog.submitted`, `dialog.closed` | `/dialog` |
 | Groups | `group.settings_changed`, `group.invitation_sent`, `group.invitation_received`, `group.invitation_closed`, `group.joined`, `group.member_joined`, `group.member_left`, `group.disbanded` | `/group`, then `/status` for convenience fields |
 | Exchange | `exchange.opened`, `exchange.item_added`, `exchange.gold_changed`, `exchange.accepted`, `exchange.completed`, `exchange.cancelled` | `/exchange`, then `/status` for `is_in_exchange` |
+| Legend | `legend.mark_added`, `legend.mark_changed`, `legend.mark_removed` | `/legend` |
 
 The OpenAPI document at `/openapi.json` remains the exact machine-readable
 schema for these payloads. This chapter is the human-readable reference.

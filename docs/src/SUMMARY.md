@@ -19,6 +19,7 @@
   - [Groups](groups.md)
   - [Exchange](exchanges.md)
   - [Online players](online.md)
+  - [Legend](legend.md)
 - [Running daRPC](rpcd.md)
   - [`loader.exe`](loader.md)
   - [Discovery and recovery](discovery.md)

@@ -124,6 +124,7 @@ fn kind(kind: CommandKind) -> &'static str {
         CommandKind::Who => "who",
         CommandKind::Exchange(_) => "exchange",
         CommandKind::Chant(_) => "chant",
+        CommandKind::Legend => "legend",
     }
 }
 
@@ -159,6 +160,7 @@ fn result_name(result: CommandResult) -> &'static str {
     match result {
         CommandResult::Status(_) => "status",
         CommandResult::Who { .. } => "who",
+        CommandResult::Legend { .. } => "legend",
         CommandResult::Busy => "busy",
         CommandResult::NotFound => "not_found",
         CommandResult::Unavailable => "unavailable",

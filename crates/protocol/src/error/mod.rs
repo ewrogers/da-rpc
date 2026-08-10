@@ -275,6 +275,9 @@ pub enum DecodeError {
     InvalidExchangeField {
         actual: u8,
     },
+    InvalidLegendUpdateType {
+        actual: u8,
+    },
     InvalidDialogText,
     InvalidChantText,
     InvalidStatusFields {
@@ -530,6 +533,9 @@ impl fmt::Display for DecodeError {
             }
             Self::InvalidExchangeField { actual } => {
                 write!(formatter, "invalid exchange field value {actual}")
+            }
+            Self::InvalidLegendUpdateType { actual } => {
+                write!(formatter, "invalid legend update type {actual}")
             }
             Self::InvalidDialogText => formatter.write_str("dialog text is not valid UTF-8"),
             Self::InvalidChantText => formatter.write_str("chant text is invalid"),

@@ -138,6 +138,7 @@ pub struct ClientSnapshot {
     pub dialog: Option<crate::DialogState>,
     pub group: Option<crate::GroupState>,
     pub exchange: Option<crate::ExchangeState>,
+    pub legend: Option<Vec<crate::LegendMark>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

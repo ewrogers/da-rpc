@@ -345,6 +345,25 @@ fn event_messages_round_trip() {
                         item: exchange_state().local.items[0].clone(),
                     }),
                 },
+                StateEvent {
+                    sequence: 64,
+                    revision: 30,
+                    tick_ms: 145,
+                    update: StateUpdate::Legend(LegendUpdate::MarkChanged {
+                        previous: LegendMark {
+                            text: "Found the grove".into(),
+                            tag: "Quest".into(),
+                            color: 3,
+                            icon: LegendIcon::Aisling,
+                        },
+                        current: LegendMark {
+                            text: "Found the hidden grove".into(),
+                            tag: "Quest".into(),
+                            color: 7,
+                            icon: LegendIcon::Wizard,
+                        },
+                    }),
+                },
             ]),
         }),
         Message::EventPollResponse(EventPollResponse {

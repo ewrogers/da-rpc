@@ -22,7 +22,7 @@ pub(crate) const COMMAND_CAPACITY: usize = 64;
 pub(crate) const COMMANDS_PER_TICK: usize = 1;
 
 const TERMINAL_RETENTION_MS: u32 = 30_000;
-const WHO_COALESCE_MS: u32 = 1_000;
+const RESPONSE_COALESCE_MS: u32 = 1_000;
 const WAIT_POLL_INTERVAL: Duration = Duration::from_millis(1);
 
 const EMPTY: u8 = 0;
@@ -279,8 +279,8 @@ pub(crate) fn cancel_pending() {
 
 fn submit(kind: CommandKind, timeout_ms: u16) -> Option<CommandStatus> {
     let now = now_tick_ms();
-    if matches!(kind, CommandKind::Who)
-        && let Some(status) = coalesced_who(now)
+    if matches!(kind, CommandKind::Who | CommandKind::Legend)
+        && let Some(status) = coalesced_response(kind, now)
     {
         return Some(status);
     }
@@ -352,6 +352,12 @@ fn wait_for(command_id: u32, wait_ms: u16) -> CommandResult {
                 CommandResult::Who { status, list }
             });
         }
+        if status.state == CommandState::Executed && matches!(status.kind, CommandKind::Legend) {
+            return CommandResult::Legend {
+                status,
+                marks: crate::legend::current(),
+            };
+        }
         if status.state.is_terminal() || wait_ms == 0 || Instant::now() >= deadline {
             return CommandResult::Status(status);
         }
@@ -397,6 +403,7 @@ fn execute(slot_index: usize) {
     let started = Instant::now();
     let kind = slot.kind();
     let is_who = matches!(kind, CommandKind::Who);
+    let waits_for_response = matches!(kind, CommandKind::Who | CommandKind::Legend);
     let result = panic::catch_unwind(|| {
         if is_who {
             execute_who(slot.command_id.load(Ordering::Relaxed))
@@ -408,8 +415,8 @@ fn execute(slot_index: usize) {
     let execution_us = u32::try_from(started.elapsed().as_micros()).unwrap_or(u32::MAX);
     slot.execution_us.store(execution_us, Ordering::Relaxed);
     slot.has_execution_us.store(true, Ordering::Relaxed);
-    if is_who && result.is_ok() {
-        // The matching SShowUsers response completes this command.
+    if waits_for_response && result.is_ok() {
+        // The matching server response completes this command.
     } else {
         if is_who {
             cancel_who(slot.command_id.load(Ordering::Relaxed));
@@ -499,10 +506,10 @@ fn complete_who_with(command_id: u32, result: Result<(), CommandFailure>) {
     complete_execution(slot, result);
 }
 
-fn coalesced_who(now: u32) -> Option<CommandStatus> {
+fn coalesced_response(kind: CommandKind, now: u32) -> Option<CommandStatus> {
     SLOTS.iter().find_map(|slot| {
         let status = slot.status(slot.command_id.load(Ordering::Acquire))?;
-        if !matches!(status.kind, CommandKind::Who) {
+        if status.kind != kind {
             return None;
         }
         if status.state == CommandState::Accepted {
@@ -511,12 +518,25 @@ fn coalesced_who(now: u32) -> Option<CommandStatus> {
         if status.state == CommandState::Executed
             && status
                 .completed_tick_ms
-                .is_some_and(|completed| now.wrapping_sub(completed) <= WHO_COALESCE_MS)
+                .is_some_and(|completed| now.wrapping_sub(completed) <= RESPONSE_COALESCE_MS)
         {
             return Some(status);
         }
         None
     })
+}
+
+pub(crate) fn complete_legend() {
+    let Some(slot) = SLOTS.iter().find(|slot| {
+        slot.state.load(Ordering::Acquire) == EXECUTING
+            && matches!(slot.kind(), CommandKind::Legend)
+    }) else {
+        return;
+    };
+    slot.completed_tick_ms
+        .store(now_tick_ms(), Ordering::Relaxed);
+    slot.has_completed_tick_ms.store(true, Ordering::Relaxed);
+    complete_execution(slot, Ok(()));
 }
 
 fn cancel_state(slot: &CommandSlot, state: u8) -> bool {
@@ -711,6 +731,7 @@ fn stored_kind(kind: CommandKind) -> (u8, u32, u32, u32, Option<StoredInput>) {
         CommandKind::Exchange(ExchangeCommand::Accept) => (37, 0, 0, 0, None),
         CommandKind::Exchange(ExchangeCommand::Cancel) => (38, 0, 0, 0, None),
         CommandKind::Chant(text) => (39, 0, 0, 0, Some(StoredInput::Chant(text))),
+        CommandKind::Legend => (40, 0, 0, 0, None),
     }
 }
 
@@ -921,6 +942,7 @@ fn kind_from_value(
             .and_then(ChantText::new)
             .map(CommandKind::Chant)
             .unwrap_or(CommandKind::Diagnostic),
+        40 => CommandKind::Legend,
         _ => CommandKind::Diagnostic,
     }
 }
@@ -1176,6 +1198,55 @@ mod tests {
         assert_eq!(status(first).state, CommandState::TimedOut);
         #[cfg(windows)]
         assert_eq!(crate::who::INTERCEPT_COMMAND_ID.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
+    fn legend_requests_coalesce_for_one_second() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset();
+        crate::legend::reset();
+        TEST_TICK_MS.store(10, Ordering::Relaxed);
+        let first = submitted_id(handle(CommandOperation::Submit {
+            kind: CommandKind::Legend,
+            timeout_ms: 3_000,
+            wait_ms: 0,
+        }));
+        let pending = submitted_id(handle(CommandOperation::Submit {
+            kind: CommandKind::Legend,
+            timeout_ms: 3_000,
+            wait_ms: 0,
+        }));
+        assert_eq!(pending, first);
+        observe_tick();
+        complete_legend();
+        assert!(matches!(
+            handle(CommandOperation::Query {
+                command_id: first,
+                wait_ms: 0,
+            }),
+            CommandResult::Legend { .. }
+        ));
+
+        TEST_TICK_MS.store(1_010, Ordering::Relaxed);
+        let cached = match handle(CommandOperation::Submit {
+            kind: CommandKind::Legend,
+            timeout_ms: 3_000,
+            wait_ms: 0,
+        }) {
+            CommandResult::Legend { status, .. } => status.command_id,
+            result => panic!("expected cached legend, received {result:?}"),
+        };
+        assert_eq!(cached, first);
+
+        TEST_TICK_MS.store(1_011, Ordering::Relaxed);
+        let refreshed = submitted_id(handle(CommandOperation::Submit {
+            kind: CommandKind::Legend,
+            timeout_ms: 3_000,
+            wait_ms: 0,
+        }));
+        assert_ne!(refreshed, first);
     }
 
     #[test]

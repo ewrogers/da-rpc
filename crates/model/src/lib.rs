@@ -6,6 +6,7 @@ mod entity;
 mod event;
 mod exchange;
 mod group;
+mod legend;
 mod message;
 mod object;
 mod snapshot;
@@ -22,6 +23,7 @@ pub use event::{
 pub use group::{
     GroupInvitation, GroupInvitationCloseReason, GroupMember, GroupState, GroupUpdate,
 };
+pub use legend::{LegendIcon, LegendMark, LegendUpdate};
 
 pub use dialog::{
     DialogChoice, DialogCloseReason, DialogInput, DialogInteraction, DialogItem, DialogKind,

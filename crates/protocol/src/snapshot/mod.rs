@@ -70,6 +70,7 @@ pub(crate) fn encode(output: &mut Vec<u8>, snapshot: &ClientSnapshot) -> Result<
     crate::dialog::encode_optional_state(output, snapshot.dialog.as_ref())?;
     crate::group::encode_optional_state(output, snapshot.group.as_ref())?;
     crate::exchange::encode_optional_state(output, snapshot.exchange.as_ref())?;
+    crate::legend::encode_optional(output, snapshot.legend.as_deref())?;
     Ok(())
 }
 
@@ -102,6 +103,11 @@ pub(crate) fn decode(reader: &mut PayloadReader<'_>) -> Result<ClientSnapshot, D
     } else {
         crate::exchange::decode_optional_state(reader)?
     };
+    let legend = if reader.is_empty() {
+        None
+    } else {
+        crate::legend::decode_optional(reader)?
+    };
     Ok(ClientSnapshot {
         revision,
         event_sequence,
@@ -115,6 +121,7 @@ pub(crate) fn decode(reader: &mut PayloadReader<'_>) -> Result<ClientSnapshot, D
         dialog,
         group,
         exchange,
+        legend,
     })
 }
 

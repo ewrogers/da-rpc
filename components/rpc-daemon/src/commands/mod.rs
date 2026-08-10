@@ -30,6 +30,7 @@ pub(crate) mod dialog;
 pub(crate) mod exchange;
 pub(crate) mod group;
 pub(crate) mod interaction;
+pub(crate) mod legend;
 pub(crate) mod movement;
 pub(crate) mod who;
 
@@ -56,6 +57,7 @@ pub(crate) use interaction::{
     PickupItemOptions, UnequipOptions, UseItemOptions, drop_gold, drop_item, emote, give_gold,
     give_item, pickup_item, swap_items, unequip, use_item,
 };
+pub(crate) use legend::{LegendIcon, LegendMark, LegendSnapshot, legend};
 use movement::validate_destination;
 pub(crate) use movement::{
     ActionDirection, Destination, TurnOptions, WalkDestinationOptions, WalkDirectionOptions,
@@ -287,6 +289,7 @@ pub(crate) enum CommandKind {
     Who,
     Exchange,
     Chant,
+    Legend,
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
@@ -477,6 +480,12 @@ async fn route(
             "the command returned a Who list to a non-Who endpoint",
             Some(pid),
         )),
+        CommandReply::Result(ProtocolResult::Legend { .. }) => Err(ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected_command_result",
+            "the command returned legend marks to a non-legend endpoint",
+            Some(pid),
+        )),
     }
 }
 
@@ -629,6 +638,7 @@ impl From<ProtocolKind> for CommandKind {
             ProtocolKind::Who => Self::Who,
             ProtocolKind::Exchange(_) => Self::Exchange,
             ProtocolKind::Chant(_) => Self::Chant,
+            ProtocolKind::Legend => Self::Legend,
         }
     }
 }

@@ -98,6 +98,10 @@ pub(crate) fn observe_group(update: crate::group::QueuedGroup, tick_ms: u32) -> 
     push_event(QueuedStateUpdate::Group(update), tick_ms)
 }
 
+pub(crate) fn observe_legend(update: crate::legend::QueuedLegend, tick_ms: u32) -> bool {
+    push_event(QueuedStateUpdate::Legend(update), tick_ms)
+}
+
 pub(crate) fn observe_visual(update: VisualUpdate, tick_ms: u32) {
     match update {
         VisualUpdate::Motion {
@@ -239,6 +243,7 @@ pub(crate) fn reset() {
     unsafe { OBJECTS.clear() };
     // SAFETY: reset has the same exclusive lifecycle access described above.
     unsafe { COLLECTIONS.reset() };
+    crate::legend::reset();
 }
 
 #[must_use]

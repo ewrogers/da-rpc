@@ -3,7 +3,7 @@ use crate::{
     DecodeError, EncodeError,
     message::{PayloadReader, push_u16, push_u32},
 };
-use darpc_model::{CharacterClass, UserState, WhoList, WhoPlayer};
+use darpc_model::{CharacterClass, LegendMark, UserState, WhoList, WhoPlayer};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 // Submit carries the same bounded pointer-free command representation.
@@ -133,6 +133,10 @@ pub enum CommandResult {
         status: CommandStatus,
         list: WhoList,
     },
+    Legend {
+        status: CommandStatus,
+        marks: Vec<LegendMark>,
+    },
     Busy,
     NotFound,
     Unavailable,
@@ -236,6 +240,11 @@ pub(crate) fn encode_response(
             encode_status(output, *status);
             encode_who(output, list)?;
         }
+        CommandResult::Legend { status, marks } => {
+            output.push(5);
+            encode_status(output, *status);
+            crate::legend::encode(output, marks)?;
+        }
         CommandResult::Busy => output.push(1),
         CommandResult::NotFound => output.push(2),
         CommandResult::Unavailable => output.push(3),
@@ -255,6 +264,10 @@ pub(crate) fn decode_response(
         4 => CommandResult::Who {
             status: decode_status(reader)?,
             list: decode_who(reader)?,
+        },
+        5 => CommandResult::Legend {
+            status: decode_status(reader)?,
+            marks: crate::legend::decode(reader)?,
         },
         actual => return Err(DecodeError::InvalidCommandResult { actual }),
     };

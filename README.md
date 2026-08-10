@@ -238,6 +238,7 @@ GET  /clients/{client}/skills
 GET  /clients/{client}/spells
 GET  /clients/{client}/objects
 GET  /clients/{client}/who
+GET  /clients/{client}/legend
 GET  /clients/{client}/group
 GET  /clients/{client}/exchange
 GET  /clients/{client}/events

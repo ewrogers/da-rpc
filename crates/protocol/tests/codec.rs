@@ -6,9 +6,9 @@ use darpc_model::{
     DialogSpriteType, DialogState, DialogTarget, DialogUpdate, Direction, Effect, EffectDuration,
     EffectUpdate, Element, EntityUpdate, EquipmentItem, EquipmentSlot, ExchangeItem, ExchangeOffer,
     ExchangeParty, ExchangeState, ExchangeUpdate, Gender, GroupInvitation, GroupMember, GroupState,
-    GroupUpdate, InventoryItem, LocationUpdate, MapChange, MapLocation, MessageKind,
-    MovementUpdate, ObjectUpdate, ProgressionStatus, Skill, SlotUpdate, Spell,
-    SpellCancellationSource, SpellCastArguments, SpellTargetType, StateEvent, StateUpdate,
+    GroupUpdate, InventoryItem, LegendIcon, LegendMark, LegendUpdate, LocationUpdate, MapChange,
+    MapLocation, MessageKind, MovementUpdate, ObjectUpdate, ProgressionStatus, Skill, SlotUpdate,
+    Spell, SpellCancellationSource, SpellCastArguments, SpellTargetType, StateEvent, StateUpdate,
     StatusUpdate, TilePosition, UserState, WhoList, WhoPlayer, WorldObject,
 };
 use darpc_protocol::{
@@ -185,6 +185,12 @@ fn snapshot() -> ClientSnapshot {
         dialog: Some(dialog_state()),
         group: Some(group_state()),
         exchange: Some(exchange_state()),
+        legend: Some(vec![LegendMark {
+            text: "Found the hidden grove".into(),
+            tag: "Quest".into(),
+            color: 7,
+            icon: LegendIcon::Wizard,
+        }]),
     }
 }
 

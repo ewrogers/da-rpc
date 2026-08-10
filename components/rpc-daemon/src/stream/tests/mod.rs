@@ -4,8 +4,9 @@ use darpc_model::{
     CoreStatus, CurrentVitals, Effect, EffectDuration, EffectUpdate, EntityUpdate,
     ExchangeItem as ModelExchangeItem, ExchangeOffer as ModelExchangeOffer,
     ExchangeParty as ModelExchangeParty, ExchangeState as ModelExchangeState, ExchangeUpdate,
-    InventoryItem as ModelInventoryItem, LocationUpdate, MapChange, MessageKind, MovementUpdate,
-    Skill as ModelSkill, SlotUpdate, Spell as ModelSpell,
+    InventoryItem as ModelInventoryItem, LegendIcon as ModelLegendIcon,
+    LegendMark as ModelLegendMark, LegendUpdate, LocationUpdate, MapChange, MessageKind,
+    MovementUpdate, Skill as ModelSkill, SlotUpdate, Spell as ModelSpell,
     SpellCancellationSource as ModelSpellCancellationSource,
     SpellCastArguments as ModelSpellCastArguments, SpellTargetType, StateUpdate, StatusUpdate,
     TilePosition as ModelTilePosition,
@@ -13,6 +14,71 @@ use darpc_model::{
 
 fn observed_at() -> DateTime<Utc> {
     DateTime::from_timestamp(1_775_000_000, 0).unwrap()
+}
+
+#[test]
+fn expands_legend_diffs_with_previous_and_current_marks() {
+    let previous = ModelLegendMark {
+        text: "Found the grove".into(),
+        tag: "Quest".into(),
+        color: 3,
+        icon: ModelLegendIcon::Aisling,
+    };
+    let current = ModelLegendMark {
+        text: "Found the hidden grove".into(),
+        tag: "Quest".into(),
+        color: 7,
+        icon: ModelLegendIcon::Wizard,
+    };
+    let updates = [
+        (
+            LegendUpdate::MarkAdded {
+                mark: current.clone(),
+            },
+            "legend.mark_added",
+        ),
+        (
+            LegendUpdate::MarkChanged {
+                previous: previous.clone(),
+                current: current.clone(),
+            },
+            "legend.mark_changed",
+        ),
+        (
+            LegendUpdate::MarkRemoved {
+                mark: previous.clone(),
+            },
+            "legend.mark_removed",
+        ),
+    ];
+
+    for (sequence, (update, expected_name)) in updates.into_iter().enumerate() {
+        let events = expand(
+            42,
+            ClientIdentity {
+                pid: 42,
+                process_creation_time: 100,
+                dll_instance_id: [1; 16],
+            },
+            StateEvent {
+                sequence: sequence as u32 + 1,
+                revision: sequence as u32 + 1,
+                tick_ms: 500,
+                update: StateUpdate::Legend(update),
+            },
+            None,
+            None,
+            observed_at(),
+        );
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].name(), expected_name);
+        let event = serde_json::to_value(&events[0]).unwrap();
+        if expected_name == "legend.mark_changed" {
+            assert_eq!(event["data"]["previous"]["text"], "Found the grove");
+            assert_eq!(event["data"]["current"]["text"], "Found the hidden grove");
+            assert_eq!(event["data"]["current"]["icon"], "wizard");
+        }
+    }
 }
 
 fn exchange_state() -> ModelExchangeState {

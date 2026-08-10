@@ -41,6 +41,7 @@ pub enum CommandKind {
     Who,
     Exchange(ExchangeCommand),
     Chant(ChantText),
+    Legend,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -540,6 +541,7 @@ pub(super) fn encode_kind(output: &mut Vec<u8>, kind: CommandKind) {
             output.push(text.length);
             output.extend_from_slice(text.as_bytes());
         }
+        CommandKind::Legend => output.push(20),
     }
 }
 
@@ -699,6 +701,7 @@ pub(super) fn decode_kind(reader: &mut PayloadReader<'_>) -> Result<CommandKind,
                 .ok_or(DecodeError::InvalidChantText)?;
             Ok(CommandKind::Chant(text))
         }
+        20 => Ok(CommandKind::Legend),
         actual => Err(DecodeError::InvalidCommandKind { actual }),
     }
 }

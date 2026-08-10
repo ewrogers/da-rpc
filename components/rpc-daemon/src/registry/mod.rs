@@ -549,6 +549,7 @@ mod tests {
             dialog: None,
             group: None,
             exchange: None,
+            legend: None,
         }
     }
 

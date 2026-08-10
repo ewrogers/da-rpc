@@ -76,11 +76,14 @@ they need:
 | `GET /clients/{client}/group` | [Groups](groups.md) |
 | `GET /clients/{client}/exchange` | [Exchange](exchanges.md) |
 | `GET /clients/{client}/who` | [Online players](online.md) |
+| `GET /clients/{client}/legend` | [Legend](legend.md) |
 
 Most routes read the daemon's retained state and do not ask the DLL to scan the
-game client for every HTTP request. The Who route is a bounded request to the
-game server. See [Game data](state.md) for baseline capture, revisions, and
-unavailable values, and [Online players](online.md) for Who timing and filters.
+game client for every HTTP request. The Who and Legend routes are bounded
+requests to the game server; Legend coalesces refreshes for one second. See
+[Game data](state.md) for baseline capture, revisions, and unavailable values,
+[Online players](online.md) for Who timing and filters, and [Legend](legend.md)
+for self-look refresh behavior.
 
 The complete field list and JSON schema are generated from the Rust API models
 and are available in Swagger. The domain guides explain what the fields mean in

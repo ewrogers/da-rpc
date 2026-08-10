@@ -376,6 +376,9 @@ fn pending_who_command(response: &CommandResult, pid: u32) -> Result<Option<u32>
     };
     match result {
         darpc_protocol::CommandResult::Who { .. } => Ok(None),
+        darpc_protocol::CommandResult::Legend { .. } => {
+            Err(protocol_error(pid, "Who returned a Legend response"))
+        }
         darpc_protocol::CommandResult::Status(status)
             if status.state == darpc_protocol::CommandState::Accepted =>
         {

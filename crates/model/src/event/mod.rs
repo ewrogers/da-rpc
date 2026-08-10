@@ -1,7 +1,7 @@
 use crate::{
     CharacterModifiers, CharacterStats, ClientMessage, ClientSnapshot, DialogUpdate, Direction,
-    Effect, EntityUpdate, EquipmentSlot, ExchangeUpdate, GroupUpdate, InventoryItem, MapLocation,
-    ObjectUpdate, Skill, Spell,
+    Effect, EntityUpdate, EquipmentSlot, ExchangeUpdate, GroupUpdate, InventoryItem, LegendUpdate,
+    MapLocation, ObjectUpdate, Skill, Spell,
 };
 use std::{error::Error, fmt};
 
@@ -30,6 +30,7 @@ pub enum StateUpdate {
     Dialog(DialogUpdate),
     Group(GroupUpdate),
     Exchange(ExchangeUpdate),
+    Legend(LegendUpdate),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -510,6 +511,26 @@ impl ClientSnapshot {
                 }
                 update => self.exchange = Some(update.state().clone()),
             },
+            StateUpdate::Legend(update) => {
+                let legend = self.legend.get_or_insert_with(Vec::new);
+                match update {
+                    LegendUpdate::MarkAdded { mark } => legend.push(mark),
+                    LegendUpdate::MarkChanged { previous, current } => {
+                        let mark = legend
+                            .iter_mut()
+                            .find(|mark| **mark == previous)
+                            .ok_or(ApplyEventError::LegendMarkNotFound)?;
+                        *mark = current;
+                    }
+                    LegendUpdate::MarkRemoved { mark } => {
+                        let index = legend
+                            .iter()
+                            .position(|current| *current == mark)
+                            .ok_or(ApplyEventError::LegendMarkNotFound)?;
+                        legend.remove(index);
+                    }
+                }
+            }
         }
         self.revision = event.revision;
         self.event_sequence = event.sequence;
@@ -558,6 +579,7 @@ pub enum ApplyEventError {
         collection: CollectionKind,
         slot: u8,
     },
+    LegendMarkNotFound,
 }
 
 impl fmt::Display for ApplyEventError {
@@ -619,6 +641,9 @@ impl fmt::Display for ApplyEventError {
                 "{} slot {slot} did not match the event baseline",
                 collection.as_str()
             ),
+            Self::LegendMarkNotFound => {
+                formatter.write_str("legend mark did not match the retained legend state")
+            }
         }
     }
 }

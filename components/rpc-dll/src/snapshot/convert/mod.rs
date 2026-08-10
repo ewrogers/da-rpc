@@ -19,6 +19,7 @@ pub(super) fn snapshot(
     raw_objects: &RawObjects,
     raw_dialog: crate::dialog::RawDialog,
     raw_exchange: crate::exchange::RawExchange,
+    raw_legend: &crate::legend::RawLegendState,
 ) -> ClientSnapshot {
     ClientSnapshot {
         revision: ready.revision,
@@ -41,6 +42,7 @@ pub(super) fn snapshot(
             .group_available
             .then(|| crate::group::model_state(&raw.group)),
         exchange: crate::exchange::decode_current(raw_exchange),
+        legend: Some(crate::legend::model_state(raw_legend)),
     }
 }
 

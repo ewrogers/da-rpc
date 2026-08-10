@@ -4,12 +4,12 @@ use crate::{
     snapshot::{MAX_MAP_NAME_LEN, decode_optional_string, encode_optional_string},
 };
 use darpc_model::{
-    AbilityUpdate, ActionUpdate, AudioUpdate, CharacterModifiers, CharacterStats, ClientMessage,
-    CollectionChange, CoreStatus, CurrentVitals, Direction, Effect, EffectDuration, EffectUpdate,
-    Element, EntityUpdate, EquipmentSlot, InventoryItem, LifecycleUpdate, LocationUpdate,
-    MapChange, MessageKind, MovementUpdate, ObjectUpdate, ProgressionStatus, Skill, SlotUpdate,
-    Spell, SpellCancellationSource, SpellCastArguments, StateEvent, StateUpdate, StatusUpdate,
-    TilePosition,
+    AbilityUpdate, ActionUpdate, AudioUpdate, CharacterModifiers, CharacterStats, ClientCommand,
+    ClientMessage, CollectionChange, CoreStatus, CurrentVitals, Direction, Effect, EffectDuration,
+    EffectUpdate, Element, EntityUpdate, EquipmentSlot, InventoryItem, LifecycleUpdate,
+    LocationUpdate, MapChange, MessageKind, MovementUpdate, ObjectUpdate, ProgressionStatus, Skill,
+    SlotUpdate, Spell, SpellCancellationSource, SpellCastArguments, StateEvent, StateUpdate,
+    StatusUpdate, TilePosition,
 };
 
 mod action;
@@ -31,6 +31,7 @@ pub const MAX_EVENTS_PER_POLL: u16 = 192;
 pub const MAX_EVENT_POLL_WAIT_MS: u16 = 1_000;
 pub const MAX_MESSAGE_NAME_LEN: usize = 15;
 pub const MAX_MESSAGE_TEXT_LEN: usize = 4 * 1024;
+pub const MAX_CLIENT_COMMAND_PART_LEN: usize = u8::MAX as usize;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct EventPollRequest {
@@ -157,6 +158,14 @@ fn encode_event(output: &mut Vec<u8>, event: &StateEvent) -> Result<(), EncodeEr
                 AudioUpdate::MusicStopped => output.push(2),
             }
         }
+        StateUpdate::Command(command) => {
+            output.push(19);
+            encode_event_string(output, &command.command, MAX_CLIENT_COMMAND_PART_LEN)?;
+            output.push(u8::try_from(command.args.len()).map_err(|_| EncodeError::LengthOverflow)?);
+            for arg in &command.args {
+                encode_event_string(output, arg, MAX_CLIENT_COMMAND_PART_LEN)?;
+            }
+        }
         StateUpdate::Status(update) => {
             output.push(1);
             encode_status(output, *update);
@@ -248,6 +257,15 @@ fn decode_event(reader: &mut PayloadReader<'_>) -> Result<StateEvent, DecodeErro
             2 => AudioUpdate::MusicStopped,
             actual => return Err(DecodeError::InvalidStateUpdateType { actual }),
         }),
+        19 => {
+            let command = decode_event_string(reader, MAX_CLIENT_COMMAND_PART_LEN)?;
+            let arg_count = reader.read_u8()?;
+            let mut args = Vec::with_capacity(usize::from(arg_count));
+            for _ in 0..arg_count {
+                args.push(decode_event_string(reader, MAX_CLIENT_COMMAND_PART_LEN)?);
+            }
+            StateUpdate::Command(ClientCommand { command, args })
+        }
         1 => StateUpdate::Status(decode_status(reader)?),
         2 => StateUpdate::Location(decode_location(reader)?),
         3 => StateUpdate::Effect(decode_effect(reader)?),

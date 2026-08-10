@@ -1,8 +1,8 @@
 use super::*;
 use darpc_model::{
-    AbilityUpdate, ActionUpdate, AudioUpdate, CharacterStats, ClientLifecycle, ClientMessage,
-    CollectionChange, CooldownStatus, CoreStatus, CurrentVitals, Effect, EffectDuration,
-    EffectUpdate, EntityUpdate, ExchangeItem as ModelExchangeItem,
+    AbilityUpdate, ActionUpdate, AudioUpdate, CharacterStats, ClientCommand as ModelClientCommand,
+    ClientLifecycle, ClientMessage, CollectionChange, CooldownStatus, CoreStatus, CurrentVitals,
+    Effect, EffectDuration, EffectUpdate, EntityUpdate, ExchangeItem as ModelExchangeItem,
     ExchangeOffer as ModelExchangeOffer, ExchangeParty as ModelExchangeParty,
     ExchangeState as ModelExchangeState, ExchangeUpdate, InventoryItem as ModelInventoryItem,
     LegendIcon as ModelLegendIcon, LegendMark as ModelLegendMark, LegendUpdate, LifecycleUpdate,
@@ -14,6 +14,37 @@ use darpc_model::{
 
 fn observed_at() -> DateTime<Utc> {
     DateTime::from_timestamp(1_775_000_000, 0).unwrap()
+}
+
+#[test]
+fn client_commands_have_a_stable_public_event_shape() {
+    let events = expand(
+        42,
+        ClientIdentity {
+            pid: 42,
+            process_creation_time: 100,
+            dll_instance_id: [1; 16],
+        },
+        StateEvent {
+            sequence: 8,
+            revision: 9,
+            tick_ms: 10,
+            update: StateUpdate::Command(ModelClientCommand {
+                command: "walk".into(),
+                args: vec!["x".into(), "y".into()],
+            }),
+        },
+        None,
+        None,
+        observed_at(),
+    );
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].name(), "client.command");
+    let event = serde_json::to_value(&events[0]).unwrap();
+    assert_eq!(event["type"], "client_command");
+    assert_eq!(event["data"]["command"], "walk");
+    assert_eq!(event["data"]["args"], serde_json::json!(["x", "y"]));
 }
 
 #[test]

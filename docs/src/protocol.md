@@ -489,6 +489,13 @@ enum StateUpdate: u8 {
     Legend(LegendUpdate) = 16,
     Lifecycle(LifecycleUpdate) = 17,
     Audio(AudioUpdate) = 18,
+    Command(ClientCommand) = 19,
+}
+
+struct ClientCommand {
+    command: string16;
+    arg_count: u8;
+    args: [string16; arg_count];
 }
 
 struct LifecycleUpdate {
@@ -712,6 +719,10 @@ limited to 4 KiB at the protocol boundary. The DLL's observed game messages are
 smaller still: the game-thread event queue reserves a fixed 256-byte text field
 and ignores a longer displayed line. Invalid UTF-8, unknown message kinds, and
 oversized fields reject the containing frame.
+
+Client command names and individual arguments are limited to 255 UTF-8 bytes.
+The originating public-speech packet is smaller still because its complete text
+uses a one-byte length. The command argument count is encoded as `u8`.
 
 Every included group is an absolute replacement value, not a delta. Most
 decoded server packets produce one atomic `StateEvent`. Inventory and ability

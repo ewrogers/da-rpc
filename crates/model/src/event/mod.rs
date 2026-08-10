@@ -17,6 +17,7 @@ pub struct StateEvent {
 pub enum StateUpdate {
     Lifecycle(LifecycleUpdate),
     Audio(AudioUpdate),
+    Command(ClientCommand),
     Status(StatusUpdate),
     Movement(MovementUpdate),
     Location(LocationUpdate),
@@ -33,6 +34,33 @@ pub enum StateUpdate {
     Group(GroupUpdate),
     Exchange(ExchangeUpdate),
     Legend(LegendUpdate),
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ClientCommand {
+    pub command: String,
+    pub args: Vec<String>,
+}
+
+impl ClientCommand {
+    pub fn parse(value: &str) -> Option<Self> {
+        let value = value.trim();
+        let (command, args) = value
+            .split_once(char::is_whitespace)
+            .map_or((value, ""), |(command, args)| (command, args.trim()));
+        if command.is_empty() {
+            return None;
+        }
+        Some(Self {
+            command: command.to_owned(),
+            args: args
+                .split(',')
+                .map(str::trim)
+                .filter(|arg| !arg.is_empty())
+                .map(str::to_owned)
+                .collect(),
+        })
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -467,7 +495,7 @@ impl ClientSnapshot {
                 }
                 objects.sort_unstable_by_key(WorldObjectSortKey::of);
             }
-            StateUpdate::Message(_) => {}
+            StateUpdate::Command(_) | StateUpdate::Message(_) => {}
             StateUpdate::Inventory(update) => {
                 let inventory = self
                     .character
@@ -772,6 +800,25 @@ const fn next_nonzero(value: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn client_command_splits_trimmed_nonempty_arguments() {
+        assert_eq!(
+            ClientCommand::parse("walk  x, , y,  "),
+            Some(ClientCommand {
+                command: "walk".into(),
+                args: vec!["x".into(), "y".into()],
+            })
+        );
+        assert_eq!(
+            ClientCommand::parse("refresh"),
+            Some(ClientCommand {
+                command: "refresh".into(),
+                args: Vec::new(),
+            })
+        );
+        assert_eq!(ClientCommand::parse("   "), None);
+    }
 
     fn empty_snapshot(lifecycle: ClientLifecycle) -> ClientSnapshot {
         ClientSnapshot {

@@ -1,6 +1,13 @@
 use super::*;
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
+pub(crate) struct ClientCommand {
+    pub(super) observation: EventObservation,
+    pub(super) command: String,
+    pub(super) args: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
 pub(crate) struct ClientLifecycleChanged {
     pub(super) observation: EventObservation,
     pub(super) previous: crate::state::ClientLifecycle,
@@ -297,6 +304,14 @@ pub(super) fn expand(
     let observation = EventObservation::new(pid, identity, &event);
     let mut events = Vec::with_capacity(9);
     let update = match event.update {
+        StateUpdate::Command(command) => {
+            events.push(ClientEvent::ClientCommand(ClientCommand {
+                observation,
+                command: command.command,
+                args: command.args,
+            }));
+            return events;
+        }
         StateUpdate::Lifecycle(update) => {
             let payload = ClientLifecycleChanged {
                 observation,

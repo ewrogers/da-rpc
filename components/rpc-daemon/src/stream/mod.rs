@@ -69,6 +69,7 @@ pub(crate) enum PublishedEvent {
 /// The transport-level `event` and `id` fields are emitted separately.
 pub(crate) enum ClientEvent {
     StreamReady(StreamReady),
+    ClientCommand(ClientCommand),
     ClientLoggedIn(ClientLifecycleChanged),
     ClientDisconnected(ClientLifecycleChanged),
     SoundPlayed(SoundPlayed),
@@ -169,6 +170,7 @@ impl ClientEvent {
     const fn name(&self) -> &'static str {
         match self {
             Self::StreamReady(_) => "stream.ready",
+            Self::ClientCommand(_) => "client.command",
             Self::ClientLoggedIn(_) => "client.logged_in",
             Self::ClientDisconnected(_) => "client.disconnected",
             Self::SoundPlayed(_) => "sound.played",
@@ -269,6 +271,7 @@ impl ClientEvent {
     fn sequence(&self) -> u32 {
         match self {
             Self::StreamReady(value) => value.event_sequence,
+            Self::ClientCommand(value) => value.observation.event_sequence,
             Self::ClientLoggedIn(value) | Self::ClientDisconnected(value) => {
                 value.observation.event_sequence
             }

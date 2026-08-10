@@ -123,6 +123,11 @@ The release job uses `tools/package-release.ps1` to reject missing or
 wrong-architecture binaries before packaging. Test harnesses and debug builds
 are not release artifacts.
 
+Release binaries are currently unsigned. Microsoft Defender SmartScreen may
+show an unrecognized-app warning until a code-signing process is introduced. Users
+should verify the published SHA-256 checksum and must not be instructed to
+disable antivirus protection.
+
 ## Documentation
 
 The repository pins mdBook 0.5.4 for reproducible local and CI builds.

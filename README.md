@@ -55,6 +55,7 @@ like a second client trying to imitate it from the outside.
 - Observe and manage item, gold, acceptance, and cancellation state during an
   exchange.
 - Read the ordered online-player list without opening the client's Who panel.
+- Refresh and read legend marks without opening the client legend panel.
 - Manage several clients from one daemon.
 - Query state and submit actions through REST.
 - Subscribe to live events through Server-Sent Events (SSE).
@@ -115,6 +116,11 @@ SHA-256 checksums, and a separate checksum for the complete archive.
 
 Keep `darpc.dll`, `loader.exe`, `darpc.exe`, and `darpcd.exe` together unless
 you explicitly configure different loader or DLL paths.
+
+The release binaries are currently unsigned. Microsoft Defender SmartScreen
+may show an unrecognized-app warning when they are first run. Verify the published
+SHA-256 checksum and continue only when the archive came from this repository's
+GitHub Release. Do not disable antivirus protection to run daRPC.
 
 ### Build from source
 
@@ -276,7 +282,7 @@ the client before daRPC accepts it.
 The current implementation includes client lifecycle management, local state,
 event-driven updates, native movement, skill and spell actions, REST, SSE, and
 direct binary IPC. See the [roadmap](https://ewrogers.github.io/da-rpc/roadmap.html)
-for current work and planned features.
+for post-1.0 priorities.
 
 ## Development
 

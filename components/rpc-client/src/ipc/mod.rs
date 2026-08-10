@@ -316,6 +316,9 @@ pub(crate) fn execute(pid: u32, operation: Operation) -> Result<CommandResult> {
             };
             request_action(&mut session, pid, action, CommandKind::Exchange(command))
         }
+        Operation::Chant { action, text } => {
+            request_action(&mut session, pid, action.name(), CommandKind::Chant(text))
+        }
         Operation::Who => request_who(&mut session, pid),
         Operation::CommandStatus(command_id) => request_command(
             &mut session,

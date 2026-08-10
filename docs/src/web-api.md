@@ -101,6 +101,13 @@ the game and how they change.
 | `POST /clients/{client}/items/give` | Give an item to a visible human, monster, or NPC. |
 | `POST /clients/{client}/items/swap` | Swap inventory slots using slot-or-name selectors. |
 | `POST /clients/{client}/items/pickup` | Pick up the top ground item at a tile. |
+| `POST /clients/{client}/chant` | Send verbatim text as a spell chant. |
+| `POST /clients/{client}/items/sell` | Ask an NPC to buy one named item. |
+| `POST /clients/{client}/items/sell-all` | Ask an NPC to buy all matching named items. |
+| `POST /clients/{client}/items/deposit` | Deposit a named item with an NPC. |
+| `POST /clients/{client}/items/withdraw` | Withdraw a named item from an NPC. |
+| `POST /clients/{client}/items/repair` | Repair one named item through an NPC. |
+| `POST /clients/{client}/items/repair-all` | Ask an NPC to repair all items. |
 | `POST /clients/{client}/gold/drop` | Drop gold at a ground tile. |
 | `POST /clients/{client}/gold/give` | Give gold to a visible human, monster, or NPC. |
 | `POST /clients/{client}/equipment/unequip` | Unequip one readable equipment slot. |
@@ -125,7 +132,8 @@ the game and how they change.
 
 Movement request bodies are documented in
 [Movement and emotes](movement.md).
-Item, gold, and pickup bodies are documented in [Inventory](inventory.md).
+Item, gold, pickup, chant, and NPC item-action bodies are documented in
+[Inventory](inventory.md).
 Equipment, skill, and spell arguments are documented in their respective
 chapters. NPC interaction, revision checks, and dialog responses are documented
 in [NPC dialogs](dialogs.md). Group state, invitations, and roster confirmation

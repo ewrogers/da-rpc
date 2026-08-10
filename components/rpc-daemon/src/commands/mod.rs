@@ -25,6 +25,7 @@ use tokio::{sync::oneshot, time::timeout};
 use utoipa::ToSchema;
 
 pub(crate) mod ability;
+pub(crate) mod chant;
 pub(crate) mod dialog;
 pub(crate) mod exchange;
 pub(crate) mod group;
@@ -36,6 +37,7 @@ pub(crate) use ability::{
     CastSpellByName, CastSpellBySlot, CastSpellOptions, SkillNameOptions, SkillSlotOptions,
     SpellTargetOptions, UseSkillOptions, cast_spell, swap_skills, swap_spells, use_skill,
 };
+pub(crate) use chant::{ChantOptions, ItemChantOptions};
 pub(crate) use dialog::{
     DialogInputOptions, DialogRevisionOptions, DialogSelectOptions, InteractOptions,
     close as close_dialog, input as dialog_input, interact, next as dialog_next,
@@ -284,6 +286,7 @@ pub(crate) enum CommandKind {
     Group,
     Who,
     Exchange,
+    Chant,
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
@@ -625,6 +628,7 @@ impl From<ProtocolKind> for CommandKind {
             ProtocolKind::Group(_) => Self::Group,
             ProtocolKind::Who => Self::Who,
             ProtocolKind::Exchange(_) => Self::Exchange,
+            ProtocolKind::Chant(_) => Self::Chant,
         }
     }
 }

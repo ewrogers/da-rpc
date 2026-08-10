@@ -1,4 +1,5 @@
 mod ability;
+mod chant;
 pub(crate) mod dialog;
 pub(crate) mod exchange;
 pub(crate) mod group;
@@ -37,6 +38,7 @@ pub(crate) fn execute(command: CommandKind) -> Result<(), CommandFailure> {
         CommandKind::Group(command) => group::submit(command),
         CommandKind::Who => Err(CommandFailure::Internal),
         CommandKind::Exchange(command) => exchange::submit(command),
+        CommandKind::Chant(text) => chant::submit(text),
     }
 }
 

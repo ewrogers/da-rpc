@@ -1,10 +1,10 @@
 use darpc_model::{Direction, EquipmentSlot};
 use darpc_protocol::{
-    CommandFailure, CommandKind, CommandOperation, CommandResult, CommandState, CommandStatus,
-    DialogAction, DialogCommand, DialogText, ExchangeCommand, GoldTransfer, GroupCommand,
-    GroupInvitationAction, GroupText, ItemSlot, ItemTransfer, MAX_DIALOG_INPUT_LEN, SkillSlot,
-    SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition,
-    TransferTarget, WalkTarget,
+    ChantText, CommandFailure, CommandKind, CommandOperation, CommandResult, CommandState,
+    CommandStatus, DialogAction, DialogCommand, DialogText, ExchangeCommand, GoldTransfer,
+    GroupCommand, GroupInvitationAction, GroupText, ItemSlot, ItemTransfer, MAX_DIALOG_INPUT_LEN,
+    SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget,
+    TilePosition, TransferTarget, WalkTarget,
 };
 use std::{
     panic,
@@ -579,6 +579,7 @@ enum StoredInput {
     Spell(SpellInput),
     Dialog(DialogText),
     Group(GroupText),
+    Chant(ChantText),
 }
 
 impl StoredInput {
@@ -587,6 +588,7 @@ impl StoredInput {
             Self::Spell(value) => value.as_bytes(),
             Self::Dialog(value) => value.as_bytes(),
             Self::Group(value) => value.as_bytes(),
+            Self::Chant(value) => value.as_bytes(),
         }
     }
 }
@@ -708,6 +710,7 @@ fn stored_kind(kind: CommandKind) -> (u8, u32, u32, u32, Option<StoredInput>) {
         CommandKind::Exchange(ExchangeCommand::SetGold(amount)) => (36, amount, 0, 0, None),
         CommandKind::Exchange(ExchangeCommand::Accept) => (37, 0, 0, 0, None),
         CommandKind::Exchange(ExchangeCommand::Cancel) => (38, 0, 0, 0, None),
+        CommandKind::Chant(text) => (39, 0, 0, 0, Some(StoredInput::Chant(text))),
     }
 }
 
@@ -913,6 +916,11 @@ fn kind_from_value(
         36 => CommandKind::Exchange(ExchangeCommand::SetGold(argument_x)),
         37 => CommandKind::Exchange(ExchangeCommand::Accept),
         38 => CommandKind::Exchange(ExchangeCommand::Cancel),
+        39 => std::str::from_utf8(input)
+            .ok()
+            .and_then(ChantText::new)
+            .map(CommandKind::Chant)
+            .unwrap_or(CommandKind::Diagnostic),
         _ => CommandKind::Diagnostic,
     }
 }
@@ -1079,6 +1087,17 @@ mod tests {
             assert_eq!(status(id).kind, kind);
             assert_eq!(status(id).state, CommandState::Executed);
         }
+    }
+
+    #[test]
+    fn chant_text_survives_bounded_queue_storage_verbatim() {
+        let expected = CommandKind::Chant(ChantText::new("MiXeD, punctuation!  ").unwrap());
+        let (value, argument_x, argument_y, argument_z, input) = stored_kind(expected);
+        let input = input.as_ref().map_or(&[][..], StoredInput::as_bytes);
+        assert_eq!(
+            kind_from_value(value, argument_x, argument_y, argument_z, input),
+            expected
+        );
     }
 
     #[test]

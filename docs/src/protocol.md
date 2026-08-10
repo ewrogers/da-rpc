@@ -784,6 +784,7 @@ enum CommandKind: u8 {
     Group(GroupCommand) = 16,
     Who = 17,
     Exchange(ExchangeCommand) = 18,
+    Chant { text: string8 } = 19,  // 1 through 255 ASCII bytes
 }
 
 enum ExchangeCommand: u8 {
@@ -792,6 +793,10 @@ enum ExchangeCommand: u8 {
     Accept = 3,
     Cancel = 4,
 }
+
+`Chant` becomes the client packet body `0x0E 0x02 string8`, where mode `2` is
+the spell-chant channel. Text bytes are preserved exactly. The convenience NPC
+actions are controller-side formatters and use this same typed command.
 
 enum GroupCommand: u8 {
     Invite { target: string8 } = 1,

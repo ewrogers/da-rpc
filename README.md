@@ -248,6 +248,9 @@ POST /clients/{client}/spells/cast
 POST /clients/{client}/items/use
 POST /clients/{client}/items/drop
 POST /clients/{client}/items/pickup
+POST /clients/{client}/chant
+POST /clients/{client}/items/sell
+POST /clients/{client}/items/repair-all
 POST /clients/{client}/gold/drop
 POST /clients/{client}/equipment/unequip
 POST /clients/{client}/emote

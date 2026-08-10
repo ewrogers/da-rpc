@@ -13,6 +13,7 @@ pub const MAX_SPELL_SLOT: u8 = 90;
 pub const MAX_ITEM_SLOT: u8 = 59;
 pub const MAX_SPELL_INPUT_LEN: usize = 100;
 pub const MAX_DIALOG_INPUT_LEN: usize = u8::MAX as usize;
+pub const MAX_CHANT_TEXT_LEN: usize = u8::MAX as usize;
 pub const MAX_GROUP_NAME_LEN: usize = 28;
 pub const MAX_WHO_PLAYERS: usize = 768;
 pub const MAX_WHO_NAME_LEN: usize = 24;
@@ -39,6 +40,81 @@ pub enum CommandKind {
     Group(GroupCommand),
     Who,
     Exchange(ExchangeCommand),
+    Chant(ChantText),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ChantText {
+    length: u8,
+    bytes: [u8; MAX_CHANT_TEXT_LEN],
+}
+
+impl ChantText {
+    #[must_use]
+    pub fn new(value: &str) -> Option<Self> {
+        Self::from_parts(b"", value)
+    }
+
+    #[must_use]
+    pub fn sell(item_name: &str) -> Option<Self> {
+        Self::from_parts(b"buy my ", item_name)
+    }
+
+    #[must_use]
+    pub fn sell_all(item_name: &str) -> Option<Self> {
+        Self::from_parts(b"buy my all ", item_name)
+    }
+
+    #[must_use]
+    pub fn deposit(item_name: &str) -> Option<Self> {
+        Self::from_parts(b"i will deposit ", item_name)
+    }
+
+    #[must_use]
+    pub fn withdraw(item_name: &str) -> Option<Self> {
+        Self::from_parts(b"give my ", item_name).and_then(|text| text.with_suffix(b" back"))
+    }
+
+    #[must_use]
+    pub fn repair(item_name: &str) -> Option<Self> {
+        Self::from_parts(b"repair my ", item_name)
+    }
+
+    #[must_use]
+    pub fn repair_all() -> Self {
+        Self::new("repair all").expect("the fixed repair-all chant is valid")
+    }
+
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes[..usize::from(self.length)]
+    }
+
+    fn from_parts(prefix: &[u8], value: &str) -> Option<Self> {
+        let value = value.as_bytes();
+        let length = prefix.len().checked_add(value.len())?;
+        if value.is_empty() || length > MAX_CHANT_TEXT_LEN || !value.is_ascii() {
+            return None;
+        }
+        let mut bytes = [0; MAX_CHANT_TEXT_LEN];
+        bytes[..prefix.len()].copy_from_slice(prefix);
+        bytes[prefix.len()..length].copy_from_slice(value);
+        Some(Self {
+            length: length as u8,
+            bytes,
+        })
+    }
+
+    fn with_suffix(mut self, suffix: &[u8]) -> Option<Self> {
+        let start = usize::from(self.length);
+        let length = start.checked_add(suffix.len())?;
+        if length > MAX_CHANT_TEXT_LEN {
+            return None;
+        }
+        self.bytes[start..length].copy_from_slice(suffix);
+        self.length = length as u8;
+        Some(self)
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -459,6 +535,11 @@ pub(super) fn encode_kind(output: &mut Vec<u8>, kind: CommandKind) {
                 ExchangeCommand::Cancel => output.push(4),
             }
         }
+        CommandKind::Chant(text) => {
+            output.push(19);
+            output.push(text.length);
+            output.extend_from_slice(text.as_bytes());
+        }
     }
 }
 
@@ -610,6 +691,14 @@ pub(super) fn decode_kind(reader: &mut PayloadReader<'_>) -> Result<CommandKind,
             4 => ExchangeCommand::Cancel,
             actual => return Err(DecodeError::InvalidExchangeField { actual }),
         })),
+        19 => {
+            let length = usize::from(reader.read_u8()?);
+            let text = std::str::from_utf8(reader.take(length)?)
+                .ok()
+                .and_then(ChantText::new)
+                .ok_or(DecodeError::InvalidChantText)?;
+            Ok(CommandKind::Chant(text))
+        }
         actual => Err(DecodeError::InvalidCommandKind { actual }),
     }
 }
@@ -676,7 +765,31 @@ fn decode_direction(reader: &mut PayloadReader<'_>) -> Result<Direction, DecodeE
 
 #[cfg(test)]
 mod tests {
-    use super::{CommandKind, ItemSlot, SkillSlot, SlotSwap, SpellSlot, encode_kind};
+    use super::{ChantText, CommandKind, ItemSlot, SkillSlot, SlotSwap, SpellSlot, encode_kind};
+
+    #[test]
+    fn npc_chants_preserve_verbatim_item_names() {
+        let item = "Dark-Belt  (Fine)";
+        let cases = [
+            (ChantText::sell(item), "buy my Dark-Belt  (Fine)"),
+            (ChantText::sell_all(item), "buy my all Dark-Belt  (Fine)"),
+            (ChantText::deposit(item), "i will deposit Dark-Belt  (Fine)"),
+            (ChantText::withdraw(item), "give my Dark-Belt  (Fine) back"),
+            (ChantText::repair(item), "repair my Dark-Belt  (Fine)"),
+            (Some(ChantText::repair_all()), "repair all"),
+        ];
+        for (actual, expected) in cases {
+            assert_eq!(actual.unwrap().as_bytes(), expected.as_bytes());
+        }
+    }
+
+    #[test]
+    fn chant_command_encoding_preserves_exact_text() {
+        let command = CommandKind::Chant(ChantText::new("MiXeD, punctuation!  ").unwrap());
+        let mut encoded = Vec::new();
+        encode_kind(&mut encoded, command);
+        assert_eq!(encoded, b"\x13\x15MiXeD, punctuation!  ");
+    }
 
     #[test]
     fn slot_swap_command_encoding_preserves_native_panel_order() {

@@ -97,6 +97,12 @@ walking lifecycle events. Terminal results remain queryable for a bounded
 period; new work may evict the oldest completed result rather than allowing
 retained history to consume pending queue capacity.
 
+Chant commands submit a bounded `0x0E` message packet with spell-chant mode `2`
+through the confirmed client packet function. The packet carries one nonempty
+length-prefixed ASCII string and preserves every supplied byte. NPC sell,
+deposit, withdraw, and repair helpers format their phrases in the controller and
+use this same executor.
+
 Skill use resolves the live lower-tray root, skill inventory, pointer table,
 and one-based entry on the main thread, then calls the client's normal skill
 activation routine. These pane objects exist independently of the visible tab;

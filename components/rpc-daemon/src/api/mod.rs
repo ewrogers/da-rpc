@@ -440,6 +440,34 @@ fn router(state: ApiState) -> Router {
             "/clients/{client}/items/pickup",
             post(crate::commands::pickup_item),
         )
+        .route(
+            "/clients/{client}/chant",
+            post(crate::commands::chant::chant),
+        )
+        .route(
+            "/clients/{client}/items/sell",
+            post(crate::commands::chant::sell),
+        )
+        .route(
+            "/clients/{client}/items/sell-all",
+            post(crate::commands::chant::sell_all),
+        )
+        .route(
+            "/clients/{client}/items/deposit",
+            post(crate::commands::chant::deposit),
+        )
+        .route(
+            "/clients/{client}/items/withdraw",
+            post(crate::commands::chant::withdraw),
+        )
+        .route(
+            "/clients/{client}/items/repair",
+            post(crate::commands::chant::repair),
+        )
+        .route(
+            "/clients/{client}/items/repair-all",
+            post(crate::commands::chant::repair_all),
+        )
         .route("/clients/{client}/equipment", get(client_equipment))
         .route(
             "/clients/{client}/equipment/unequip",
@@ -523,6 +551,12 @@ async fn reject_request_body(request: Request<Body>, next: Next) -> Response {
             || request.uri().path().ends_with("/turn")
             || request.uri().path().ends_with("/walk")
             || request.uri().path().ends_with("/skills/use")
+            || request.uri().path().ends_with("/chant")
+            || request.uri().path().ends_with("/items/sell")
+            || request.uri().path().ends_with("/items/sell-all")
+            || request.uri().path().ends_with("/items/deposit")
+            || request.uri().path().ends_with("/items/withdraw")
+            || request.uri().path().ends_with("/items/repair")
             || request.uri().path().ends_with("/skills/swap")
             || request.uri().path().ends_with("/spells/cast")
             || request.uri().path().ends_with("/spells/swap")
@@ -607,6 +641,13 @@ fn openapi() -> utoipa::openapi::OpenApi {
         crate::commands::interaction::pickup_item,
         crate::commands::interaction::unequip,
         crate::commands::interaction::emote,
+        crate::commands::chant::chant,
+        crate::commands::chant::sell,
+        crate::commands::chant::sell_all,
+        crate::commands::chant::deposit,
+        crate::commands::chant::withdraw,
+        crate::commands::chant::repair,
+        crate::commands::chant::repair_all,
         crate::commands::dialog::interact,
         crate::commands::dialog::select,
         crate::commands::dialog::input,
@@ -743,6 +784,8 @@ fn openapi() -> utoipa::openapi::OpenApi {
         crate::commands::PickupItemOptions,
         crate::commands::UnequipOptions,
         crate::commands::EmoteOptions,
+        crate::commands::ChantOptions,
+        crate::commands::ItemChantOptions,
         crate::commands::InteractOptions,
         crate::commands::DialogSelectOptions,
         crate::commands::DialogInputOptions,

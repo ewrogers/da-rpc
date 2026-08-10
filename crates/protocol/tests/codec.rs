@@ -12,18 +12,18 @@ use darpc_model::{
     StatusUpdate, TilePosition, UserState, WhoList, WhoPlayer, WorldObject,
 };
 use darpc_protocol::{
-    Architecture, CommandFailure, CommandKind, CommandOperation, CommandRequest, CommandResponse,
-    CommandResult, CommandState, CommandStatus, ComponentVersion, DecodeError, DialogAction,
-    DialogCommand, DialogText, EchoRequest, EchoResponse, EncodeError, EventPollRequest,
-    EventPollResponse, EventPollResult, ExchangeCommand, FRAME_HEADER_LEN, FRAME_MAGIC,
-    FRAME_VERSION, Frame, FrameHeader, GoldTransfer, GroupCommand, GroupInvitationAction,
-    GroupText, Hello, HelloAck, ItemSlot, ItemTransfer, MAX_COMMAND_TIMEOUT_MS,
-    MAX_COMMAND_WAIT_MS, MAX_ECHO_TEXT_LEN, MAX_PAYLOAD_LEN, Message, MessageType,
-    PROTOCOL_VERSION_1_0, Ping, Pong, SkillSlot, SlotSwap, SnapshotRequest, SnapshotResponse,
-    SnapshotResult, SnapshotUnavailableReason, SpellArguments, SpellCast, SpellInput, SpellSlot,
-    SpellTarget, TickHealthRequest, TickHealthResponse, TilePosition as CommandTilePosition,
-    TransferTarget, VersionRange, WalkTarget, decode_frame, decode_header, encode_frame,
-    protocol_version, protocol_version_major, protocol_version_minor,
+    Architecture, ChantText, CommandFailure, CommandKind, CommandOperation, CommandRequest,
+    CommandResponse, CommandResult, CommandState, CommandStatus, ComponentVersion, DecodeError,
+    DialogAction, DialogCommand, DialogText, EchoRequest, EchoResponse, EncodeError,
+    EventPollRequest, EventPollResponse, EventPollResult, ExchangeCommand, FRAME_HEADER_LEN,
+    FRAME_MAGIC, FRAME_VERSION, Frame, FrameHeader, GoldTransfer, GroupCommand,
+    GroupInvitationAction, GroupText, Hello, HelloAck, ItemSlot, ItemTransfer,
+    MAX_COMMAND_TIMEOUT_MS, MAX_COMMAND_WAIT_MS, MAX_ECHO_TEXT_LEN, MAX_PAYLOAD_LEN, Message,
+    MessageType, PROTOCOL_VERSION_1_0, Ping, Pong, SkillSlot, SlotSwap, SnapshotRequest,
+    SnapshotResponse, SnapshotResult, SnapshotUnavailableReason, SpellArguments, SpellCast,
+    SpellInput, SpellSlot, SpellTarget, TickHealthRequest, TickHealthResponse,
+    TilePosition as CommandTilePosition, TransferTarget, VersionRange, WalkTarget, decode_frame,
+    decode_header, encode_frame, protocol_version, protocol_version_major, protocol_version_minor,
 };
 
 fn hello() -> Hello {

@@ -123,6 +123,7 @@ fn kind(kind: CommandKind) -> &'static str {
         CommandKind::Group(_) => "group",
         CommandKind::Who => "who",
         CommandKind::Exchange(_) => "exchange",
+        CommandKind::Chant(_) => "chant",
     }
 }
 

@@ -4,8 +4,8 @@ use crate::{
 };
 use darpc_model::{Direction, EquipmentSlot, emote_code, is_client_emote_code};
 use darpc_protocol::{
-    DialogAction, DialogCommand, DialogText, ExchangeCommand, GoldTransfer, GroupCommand,
-    GroupInvitationAction, GroupText, ItemSlot, ItemTransfer, MAX_DIALOG_INPUT_LEN,
+    ChantText, DialogAction, DialogCommand, DialogText, ExchangeCommand, GoldTransfer,
+    GroupCommand, GroupInvitationAction, GroupText, ItemSlot, ItemTransfer, MAX_DIALOG_INPUT_LEN,
     MAX_ECHO_TEXT_LEN, MAX_ITEM_SLOT, MAX_SKILL_SLOT, MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT,
     SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget,
     TilePosition, TransferTarget, WalkTarget,
@@ -39,6 +39,13 @@ usage:
     darpc [--output <table|json>] item pickup --pid <pid> <x> <y>
     darpc [--output <table|json>] unequip --pid <pid> <slot>
     darpc [--output <table|json>] emote --pid <pid> <name|code>
+    darpc [--output <table|json>] chant --pid <pid> <text>
+    darpc [--output <table|json>] item sell --pid <pid> <name>
+    darpc [--output <table|json>] item sell-all --pid <pid> <name>
+    darpc [--output <table|json>] item deposit --pid <pid> <name>
+    darpc [--output <table|json>] item withdraw --pid <pid> <name>
+    darpc [--output <table|json>] item repair --pid <pid> <name>
+    darpc [--output <table|json>] item repair-all --pid <pid>
     darpc [--output <table|json>] interact --pid <pid> <object-id>
     darpc [--output <table|json>] dialog select --pid <pid> <revision> <index> [quantity]
     darpc [--output <table|json>] dialog input --pid <pid> <revision> <text>
@@ -88,9 +95,38 @@ pub(crate) enum Operation {
     Dialog(DialogCommand),
     Group(GroupCommand),
     Exchange(ExchangeCommand),
+    Chant {
+        action: ChantAction,
+        text: ChantText,
+    },
     Who,
     CommandStatus(u32),
     CommandCancel(u32),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ChantAction {
+    Chant,
+    Sell,
+    SellAll,
+    Deposit,
+    Withdraw,
+    Repair,
+    RepairAll,
+}
+
+impl ChantAction {
+    pub(crate) const fn name(self) -> &'static str {
+        match self {
+            Self::Chant => "chant",
+            Self::Sell => "item sell",
+            Self::SellAll => "item sell-all",
+            Self::Deposit => "item deposit",
+            Self::Withdraw => "item withdraw",
+            Self::Repair => "item repair",
+            Self::RepairAll => "item repair-all",
+        }
+    }
 }
 
 impl Command {
@@ -152,6 +188,7 @@ impl Command {
             Operation::Exchange(ExchangeCommand::SetGold(_)) => "exchange gold",
             Operation::Exchange(ExchangeCommand::Accept) => "exchange accept",
             Operation::Exchange(ExchangeCommand::Cancel) => "exchange cancel",
+            Operation::Chant { action, .. } => action.name(),
             Operation::Who => "who",
             Operation::CommandStatus(_) => "command status",
             Operation::CommandCancel(_) => "command cancel",
@@ -228,6 +265,34 @@ pub(crate) fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
         }),
         "unequip" => Operation::Unequip(parse_equipment_slot(arguments.next())?),
         "emote" => Operation::Emote(parse_emote(arguments.next())?),
+        "chant" => Operation::Chant {
+            action: ChantAction::Chant,
+            text: parse_chant(arguments.next(), "chant text", ChantText::new)?,
+        },
+        "item sell" => Operation::Chant {
+            action: ChantAction::Sell,
+            text: parse_chant(arguments.next(), "item name", ChantText::sell)?,
+        },
+        "item sell-all" => Operation::Chant {
+            action: ChantAction::SellAll,
+            text: parse_chant(arguments.next(), "item name", ChantText::sell_all)?,
+        },
+        "item deposit" => Operation::Chant {
+            action: ChantAction::Deposit,
+            text: parse_chant(arguments.next(), "item name", ChantText::deposit)?,
+        },
+        "item withdraw" => Operation::Chant {
+            action: ChantAction::Withdraw,
+            text: parse_chant(arguments.next(), "item name", ChantText::withdraw)?,
+        },
+        "item repair" => Operation::Chant {
+            action: ChantAction::Repair,
+            text: parse_chant(arguments.next(), "item name", ChantText::repair)?,
+        },
+        "item repair-all" => Operation::Chant {
+            action: ChantAction::RepairAll,
+            text: ChantText::repair_all(),
+        },
         "interact" => Operation::Interact(parse_nonzero_u32(arguments.next(), "object ID")?),
         "dialog select" => Operation::Dialog(parse_dialog_select(&mut arguments)?),
         "dialog input" => Operation::Dialog(parse_dialog_input(&mut arguments)?),
@@ -303,7 +368,19 @@ fn parse_action(arguments: &mut impl Iterator<Item = OsString>) -> Result<String
         "tick" => &["health"],
         "skill" => &["use", "swap"],
         "spell" => &["cast", "swap"],
-        "item" => &["use", "drop", "give", "swap", "pickup"],
+        "item" => &[
+            "use",
+            "drop",
+            "give",
+            "swap",
+            "pickup",
+            "sell",
+            "sell-all",
+            "deposit",
+            "withdraw",
+            "repair",
+            "repair-all",
+        ],
         "gold" => &["drop", "give"],
         "dialog" => &["select", "input", "previous", "next", "close"],
         "group" => &["toggle", "invite", "accept", "decline"],
@@ -526,6 +603,21 @@ fn parse_skill_slot(argument: Option<OsString>) -> Result<SkillSlot> {
     })
 }
 
+fn parse_chant(
+    argument: Option<OsString>,
+    name: &str,
+    build: impl FnOnce(&str) -> Option<ChantText>,
+) -> Result<ChantText> {
+    let value = argument
+        .and_then(|value| value.into_string().ok())
+        .ok_or_else(|| invalid_arguments(format!("{name} must be valid Unicode")))?;
+    build(&value).ok_or_else(|| {
+        invalid_arguments(format!(
+            "{name} must be nonempty ASCII text that fits the chant packet"
+        ))
+    })
+}
+
 fn parse_spell_cast(arguments: &mut impl Iterator<Item = OsString>) -> Result<SpellCast> {
     let slot = parse_spell_slot(arguments.next())?;
     let arguments = match arguments.next() {
@@ -633,11 +725,11 @@ fn invalid_arguments(message: impl Into<String>) -> ClientError {
 
 #[cfg(test)]
 mod tests {
-    use super::{Command, Operation, OutputFormat, parse};
+    use super::{ChantAction, Command, Operation, OutputFormat, parse};
     use darpc_model::Direction;
     use darpc_protocol::{
-        DialogAction, DialogCommand, DialogText, GroupCommand, GroupInvitationAction, GroupText,
-        ItemSlot, SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot,
+        ChantText, DialogAction, DialogCommand, DialogText, GroupCommand, GroupInvitationAction,
+        GroupText, ItemSlot, SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot,
         SpellTarget, WalkTarget,
     };
     use std::ffi::OsString;
@@ -951,6 +1043,54 @@ mod tests {
                 action: GroupInvitationAction::Decline,
             })
         );
+    }
+
+    #[test]
+    fn parses_chant_and_item_chants_without_normalizing_text() {
+        let item = "Dark-Belt  (Fine)";
+        let cases = [
+            (
+                vec!["chant", "--pid", "10", item],
+                ChantAction::Chant,
+                ChantText::new(item).unwrap(),
+            ),
+            (
+                vec!["item", "sell", "--pid", "10", item],
+                ChantAction::Sell,
+                ChantText::sell(item).unwrap(),
+            ),
+            (
+                vec!["item", "sell-all", "--pid", "10", item],
+                ChantAction::SellAll,
+                ChantText::sell_all(item).unwrap(),
+            ),
+            (
+                vec!["item", "deposit", "--pid", "10", item],
+                ChantAction::Deposit,
+                ChantText::deposit(item).unwrap(),
+            ),
+            (
+                vec!["item", "withdraw", "--pid", "10", item],
+                ChantAction::Withdraw,
+                ChantText::withdraw(item).unwrap(),
+            ),
+            (
+                vec!["item", "repair", "--pid", "10", item],
+                ChantAction::Repair,
+                ChantText::repair(item).unwrap(),
+            ),
+            (
+                vec!["item", "repair-all", "--pid", "10"],
+                ChantAction::RepairAll,
+                ChantText::repair_all(),
+            ),
+        ];
+        for (argv, action, text) in cases {
+            assert_eq!(
+                parse(arguments(&argv)).unwrap().1.operation,
+                Operation::Chant { action, text }
+            );
+        }
     }
 
     #[test]

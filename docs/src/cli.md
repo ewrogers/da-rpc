@@ -55,6 +55,13 @@ darpc gold give --pid <pid> <amount> <object-id>
 darpc item pickup --pid <pid> <x> <y>
 darpc unequip --pid <pid> <slot-number>
 darpc emote --pid <pid> <name|code>
+darpc chant --pid <pid> <text>
+darpc item sell --pid <pid> <item-name>
+darpc item sell-all --pid <pid> <item-name>
+darpc item deposit --pid <pid> <item-name>
+darpc item withdraw --pid <pid> <item-name>
+darpc item repair --pid <pid> <item-name>
+darpc item repair-all --pid <pid>
 darpc interact --pid <pid> <object-id>
 darpc dialog select --pid <pid> <revision> <index> [quantity]
 darpc dialog input --pid <pid> <revision> <text>
@@ -73,6 +80,12 @@ darpc who --pid <pid>
 darpc command status --pid <pid> <command-id>
 darpc command cancel --pid <pid> <command-id>
 ```
+
+`chant` sends its text through the client's spell-chant channel. The item
+convenience commands build the NPC phrases documented in [Inventory](inventory.md).
+Item names are case-sensitive and are preserved verbatim, including punctuation,
+repeated spaces, and leading or trailing spaces. Quote names at the shell so the
+entire name reaches `darpc.exe` as one argument.
 
 Related operations use a domain and subcommand. Examples include `skill use`,
 `item swap`, and `dialog select`. These commands use the real PID-based named

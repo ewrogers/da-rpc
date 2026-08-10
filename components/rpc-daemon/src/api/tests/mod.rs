@@ -32,10 +32,10 @@ use darpc_model::{
     WorldObject as ModelWorldObject,
 };
 use darpc_protocol::{
-    Architecture, CommandKind, CommandOperation, CommandResult, CommandState, CommandStatus,
-    ComponentVersion, DialogAction, DialogCommand, ExchangeCommand, GoldTransfer, Hello, ItemSlot,
-    ItemTransfer, SUPPORTED_VERSIONS, SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput,
-    SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkTarget,
+    Architecture, ChantText, CommandKind, CommandOperation, CommandResult, CommandState,
+    CommandStatus, ComponentVersion, DialogAction, DialogCommand, ExchangeCommand, GoldTransfer,
+    Hello, ItemSlot, ItemTransfer, SUPPORTED_VERSIONS, SkillSlot, SlotSwap, SpellArguments,
+    SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkTarget,
 };
 use serde_json::Value;
 use std::{
@@ -405,6 +405,19 @@ fn post_json(state: ApiState, path: &str, body: &str) -> axum::response::Respons
         })
 }
 
+fn post_empty(state: ApiState, path: &str) -> axum::response::Response {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            router(state)
+                .oneshot(Request::post(path).body(Body::empty()).unwrap())
+                .await
+                .unwrap()
+        })
+}
+
 fn assert_routes_action(path: &str, body: &str, expected_kind: CommandKind) {
     assert_routes_action_with_snapshot(path, body, expected_kind, game_snapshot());
 }
@@ -460,7 +473,11 @@ fn assert_routes_action_with_snapshot(
             .unwrap();
     });
 
-    let response = post_json(state, path, body);
+    let response = if body.is_empty() {
+        post_empty(state, path)
+    } else {
+        post_json(state, path, body)
+    };
     assert_eq!(response.status(), StatusCode::OK, "route failed: {path}");
     let response = response_json(response);
     assert_eq!(response["command_id"], 9);
@@ -690,6 +707,42 @@ fn routes_typed_actions() {
         r#"{"name":"WaVe"}"#,
         CommandKind::Emote(13),
     );
+    let item = "Dark-Belt  (Fine)";
+    for (path, body, text) in [
+        (
+            "/clients/42/chant",
+            r#"{"text":"MiXeD, punctuation!  "}"#,
+            ChantText::new("MiXeD, punctuation!  ").unwrap(),
+        ),
+        (
+            "/clients/42/items/sell",
+            r#"{"name":"Dark-Belt  (Fine)"}"#,
+            ChantText::sell(item).unwrap(),
+        ),
+        (
+            "/clients/42/items/sell-all",
+            r#"{"name":"Dark-Belt  (Fine)"}"#,
+            ChantText::sell_all(item).unwrap(),
+        ),
+        (
+            "/clients/42/items/deposit",
+            r#"{"name":"Dark-Belt  (Fine)"}"#,
+            ChantText::deposit(item).unwrap(),
+        ),
+        (
+            "/clients/42/items/withdraw",
+            r#"{"name":"Dark-Belt  (Fine)"}"#,
+            ChantText::withdraw(item).unwrap(),
+        ),
+        (
+            "/clients/42/items/repair",
+            r#"{"name":"Dark-Belt  (Fine)"}"#,
+            ChantText::repair(item).unwrap(),
+        ),
+        ("/clients/42/items/repair-all", "", ChantText::repair_all()),
+    ] {
+        assert_routes_action(path, body, CommandKind::Chant(text));
+    }
     assert_routes_action(
         "/clients/42/interact",
         r#"{"target":"iNnKeEpEr"}"#,

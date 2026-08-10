@@ -9,6 +9,7 @@ present.
 | Read carried items | `GET /clients/{client}/items` |
 | Use, drop, give, or pick up an item | `POST /clients/{client}/items/...` |
 | Swap inventory slots | `POST /clients/{client}/items/swap` |
+| Sell, store, withdraw, or repair by exact name | `POST /clients/{client}/items/...` |
 | Drop gold | `POST /clients/{client}/gold/drop` |
 | Give gold | `POST /clients/{client}/gold/give` |
 | Watch changes and submitted actions | [Inventory events](events.md#inventory-and-equipment-events) |
@@ -116,6 +117,32 @@ Each selector contains exactly one of `slot` or `name`. Names are matched
 without case sensitivity. A destination selected by slot may be empty; a name
 always resolves to an occupied slot. The two selectors must resolve to
 different slots.
+
+## Chant and NPC item actions
+
+Send arbitrary nonempty ASCII text through the spell-chant channel with:
+
+```text
+POST /clients/{client}/chant
+{"text":"ard cradh"}
+```
+
+The convenience routes submit the NPC phrases shown below through that same
+channel:
+
+| Route | Request | Submitted chant |
+| --- | --- | --- |
+| `/items/sell` | `{"name":"Dark Belt"}` | `buy my Dark Belt` |
+| `/items/sell-all` | `{"name":"Dark Belt"}` | `buy my all Dark Belt` |
+| `/items/deposit` | `{"name":"Dark Belt"}` | `i will deposit Dark Belt` |
+| `/items/withdraw` | `{"name":"Dark Belt"}` | `give my Dark Belt back` |
+| `/items/repair` | `{"name":"Dark Belt"}` | `repair my Dark Belt` |
+| `/items/repair-all` | No body | `repair all` |
+
+Item names are case-sensitive and must be supplied verbatim. daRPC does not
+look them up in the current inventory or normalize their capitalization,
+punctuation, repeated spaces, or leading and trailing spaces. The complete
+formatted chant must contain at most 255 ASCII bytes.
 
 ## How inventory stays current
 

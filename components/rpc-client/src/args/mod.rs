@@ -61,6 +61,7 @@ usage:
     darpc [--output <table|json>] exchange accept --pid <pid>
     darpc [--output <table|json>] exchange cancel --pid <pid>
     darpc [--output <table|json>] who --pid <pid>
+    darpc [--output <table|json>] legend --pid <pid>
     darpc [--output <table|json>] command status --pid <pid> <command-id>
     darpc [--output <table|json>] command cancel --pid <pid> <command-id>";
 
@@ -100,6 +101,7 @@ pub(crate) enum Operation {
         text: ChantText,
     },
     Who,
+    Legend,
     CommandStatus(u32),
     CommandCancel(u32),
 }
@@ -190,6 +192,7 @@ impl Command {
             Operation::Exchange(ExchangeCommand::Cancel) => "exchange cancel",
             Operation::Chant { action, .. } => action.name(),
             Operation::Who => "who",
+            Operation::Legend => "legend",
             Operation::CommandStatus(_) => "command status",
             Operation::CommandCancel(_) => "command cancel",
         }
@@ -334,6 +337,7 @@ pub(crate) fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
         "exchange accept" => Operation::Exchange(ExchangeCommand::Accept),
         "exchange cancel" => Operation::Exchange(ExchangeCommand::Cancel),
         "who" => Operation::Who,
+        "legend" => Operation::Legend,
         "command status" => Operation::CommandStatus(parse_command_id(arguments.next())?),
         "command cancel" => Operation::CommandCancel(parse_command_id(arguments.next())?),
         "echo" => {
@@ -747,6 +751,16 @@ mod tests {
                 Command {
                     pid: 42,
                     operation: Operation::Hello,
+                }
+            )
+        );
+        assert_eq!(
+            parse(arguments(&["legend", "--pid", "42"])).unwrap(),
+            (
+                OutputFormat::Table,
+                Command {
+                    pid: 42,
+                    operation: Operation::Legend,
                 }
             )
         );

@@ -7,6 +7,13 @@ profile:
 GET /clients/{client}/legend
 ```
 
+The direct CLI exposes the same server refresh for one injected client:
+
+```text
+darpc legend --pid <pid>
+darpc --output json legend --pid <pid>
+```
+
 ```text
 LegendSnapshot {
     pid: u32,

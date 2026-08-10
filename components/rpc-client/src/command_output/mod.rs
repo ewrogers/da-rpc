@@ -12,6 +12,9 @@ pub(crate) fn render_human(
         CommandResult::Who { status: _, list } => {
             render_who_human(pid, request_id, round_trip_ms, &list)
         }
+        CommandResult::Legend { status: _, marks } => {
+            render_legend_human(pid, request_id, round_trip_ms, &marks)
+        }
         CommandResult::Status(status) => format!(
             concat!(
                 "{} succeeded: pid={} request_id={} round_trip_ms={} ",
@@ -50,6 +53,9 @@ pub(crate) fn render_json(
     match result {
         CommandResult::Who { status, list } => {
             render_who_json(pid, request_id, round_trip_ms, status, &list)
+        }
+        CommandResult::Legend { status, marks } => {
+            render_legend_json(pid, request_id, round_trip_ms, status, &marks)
         }
         CommandResult::Status(status) => {
             render_status_json(action, pid, request_id, round_trip_ms, status)
@@ -262,6 +268,75 @@ fn who_class(class: darpc_model::CharacterClass) -> &'static str {
     }
 }
 
+fn render_legend_human(
+    pid: u32,
+    request_id: u32,
+    round_trip_ms: u32,
+    marks: &[darpc_model::LegendMark],
+) -> String {
+    let mut output = format!(
+        "legend succeeded: pid={pid} request_id={request_id} round_trip_ms={round_trip_ms} count={}\nICON\tCOLOR\tTAG\tTEXT",
+        marks.len()
+    );
+    for mark in marks {
+        use std::fmt::Write as _;
+        let _ = write!(
+            output,
+            "\n{}\t{}\t{}\t{}",
+            legend_icon(mark.icon),
+            mark.color,
+            mark.tag,
+            mark.text
+        );
+    }
+    output
+}
+
+fn render_legend_json(
+    pid: u32,
+    request_id: u32,
+    round_trip_ms: u32,
+    status: CommandStatus,
+    marks: &[darpc_model::LegendMark],
+) -> String {
+    let marks = marks
+        .iter()
+        .map(|mark| {
+            format!(
+                "{{\"text\":{},\"tag\":{},\"color\":{},\"icon\":{}}}",
+                json_string(&mark.text),
+                json_string(&mark.tag),
+                mark.color,
+                json_string(legend_icon(mark.icon)),
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    format!(
+        concat!(
+            "{{\"ok\":true,\"command\":\"legend\",\"pid\":{},\"request_id\":{},",
+            "\"round_trip_ms\":{},\"result\":\"legend\",\"command_id\":{},",
+            "\"marks\":[{}]}}"
+        ),
+        pid, request_id, round_trip_ms, status.command_id, marks,
+    )
+}
+
+fn legend_icon(icon: darpc_model::LegendIcon) -> &'static str {
+    match icon {
+        darpc_model::LegendIcon::Aisling => "aisling",
+        darpc_model::LegendIcon::Warrior => "warrior",
+        darpc_model::LegendIcon::Rogue => "rogue",
+        darpc_model::LegendIcon::Wizard => "wizard",
+        darpc_model::LegendIcon::Priest => "priest",
+        darpc_model::LegendIcon::Monk => "monk",
+        darpc_model::LegendIcon::Heart => "heart",
+        darpc_model::LegendIcon::Victory => "victory",
+        darpc_model::LegendIcon::None => "none",
+        darpc_model::LegendIcon::Unknown(_) => "unknown",
+    }
+}
+
 fn optional(value: Option<u32>) -> String {
     value.map_or_else(|| "none".into(), |value| value.to_string())
 }
@@ -273,7 +348,7 @@ fn optional_json(value: Option<u32>) -> String {
 #[cfg(test)]
 mod tests {
     use super::render_json;
-    use darpc_model::{CharacterClass, UserState, WhoList, WhoPlayer};
+    use darpc_model::{CharacterClass, LegendIcon, LegendMark, UserState, WhoList, WhoPlayer};
     use darpc_protocol::{CommandKind, CommandResult, CommandState, CommandStatus};
 
     fn status(kind: CommandKind) -> CommandStatus {
@@ -349,6 +424,44 @@ mod tests {
                     "color": 4,
                     "is_master": true,
                     "is_guildmate": false,
+                }],
+            })
+        );
+    }
+
+    #[test]
+    fn legend_json_has_a_stable_shape_and_escaping() {
+        let output = render_json(
+            "legend",
+            42,
+            1,
+            3,
+            CommandResult::Legend {
+                status: status(CommandKind::Legend),
+                marks: vec![LegendMark {
+                    text: "Sgrios's \"scar\"".into(),
+                    tag: "D".into(),
+                    color: 53,
+                    icon: LegendIcon::Aisling,
+                }],
+            },
+        );
+        let value: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "ok": true,
+                "command": "legend",
+                "pid": 42,
+                "request_id": 1,
+                "round_trip_ms": 3,
+                "result": "legend",
+                "command_id": 9,
+                "marks": [{
+                    "text": "Sgrios's \"scar\"",
+                    "tag": "D",
+                    "color": 53,
+                    "icon": "aisling",
                 }],
             })
         );

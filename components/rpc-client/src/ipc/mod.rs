@@ -320,6 +320,7 @@ pub(crate) fn execute(pid: u32, operation: Operation) -> Result<CommandResult> {
             request_action(&mut session, pid, action.name(), CommandKind::Chant(text))
         }
         Operation::Who => request_who(&mut session, pid),
+        Operation::Legend => request_legend(&mut session, pid),
         Operation::CommandStatus(command_id) => request_command(
             &mut session,
             pid,
@@ -411,6 +412,86 @@ fn who_timeout(pid: u32) -> ClientError {
     ClientError::new(
         ErrorKind::Timeout,
         "the game server did not return the Who list within three seconds",
+    )
+    .with_pid(pid)
+}
+
+fn request_legend(session: &mut ControllerSession, pid: u32) -> Result<CommandResult> {
+    const LEGEND_TIMEOUT_MS: u16 = 3_000;
+    let deadline = Instant::now() + Duration::from_millis(u64::from(LEGEND_TIMEOUT_MS));
+    let mut response = request_command(
+        session,
+        pid,
+        "legend",
+        CommandOperation::Submit {
+            kind: CommandKind::Legend,
+            timeout_ms: LEGEND_TIMEOUT_MS,
+            wait_ms: MAX_COMMAND_WAIT_MS,
+        },
+    )?;
+    loop {
+        let Some(command_id) = pending_legend_command(&response, pid)? else {
+            return Ok(response);
+        };
+        if Instant::now() >= deadline {
+            return Err(legend_timeout(pid));
+        }
+        response = request_command(
+            session,
+            pid,
+            "legend",
+            CommandOperation::Query {
+                command_id,
+                wait_ms: MAX_COMMAND_WAIT_MS,
+            },
+        )?;
+    }
+}
+
+fn pending_legend_command(response: &CommandResult, pid: u32) -> Result<Option<u32>> {
+    let CommandResult::Command { result, .. } = response else {
+        return Err(protocol_error(
+            pid,
+            "Legend returned an unexpected response",
+        ));
+    };
+    match result {
+        darpc_protocol::CommandResult::Legend { .. } => Ok(None),
+        darpc_protocol::CommandResult::Who { .. } => {
+            Err(protocol_error(pid, "Legend returned a Who response"))
+        }
+        darpc_protocol::CommandResult::Status(status)
+            if status.state == darpc_protocol::CommandState::Accepted =>
+        {
+            Ok(Some(status.command_id))
+        }
+        darpc_protocol::CommandResult::Status(status)
+            if status.state == darpc_protocol::CommandState::TimedOut =>
+        {
+            Err(legend_timeout(pid))
+        }
+        darpc_protocol::CommandResult::Status(status) => Err(protocol_error(
+            pid,
+            format!("Legend request ended in state {:?}", status.state),
+        )),
+        darpc_protocol::CommandResult::Busy => Err(ClientError::new(
+            ErrorKind::Io,
+            "the bounded Legend command queue is full",
+        )
+        .with_pid(pid)),
+        darpc_protocol::CommandResult::NotFound => Err(legend_timeout(pid)),
+        darpc_protocol::CommandResult::Unavailable => Err(ClientError::new(
+            ErrorKind::Io,
+            "the Legend command path is unavailable",
+        )
+        .with_pid(pid)),
+    }
+}
+
+fn legend_timeout(pid: u32) -> ClientError {
+    ClientError::new(
+        ErrorKind::Timeout,
+        "the game server did not return the legend within three seconds",
     )
     .with_pid(pid)
 }
@@ -542,7 +623,7 @@ fn protocol_error(pid: u32, message: impl Into<String>) -> ClientError {
 
 #[cfg(test)]
 mod tests {
-    use super::pending_who_command;
+    use super::{pending_legend_command, pending_who_command};
     use crate::output::CommandResult;
     use darpc_model::WhoList;
     use darpc_protocol::{
@@ -553,6 +634,16 @@ mod tests {
         CommandResult::Command {
             pid: 42,
             action: "who",
+            request_id: 1,
+            result,
+            round_trip_ms: 1,
+        }
+    }
+
+    fn legend_response(result: ProtocolResult) -> CommandResult {
+        CommandResult::Command {
+            pid: 42,
+            action: "legend",
             request_id: 1,
             result,
             round_trip_ms: 1,
@@ -571,6 +662,13 @@ mod tests {
             execution_us: None,
             main_thread_id: None,
             failure: None,
+        }
+    }
+
+    fn legend_status(state: CommandState) -> CommandStatus {
+        CommandStatus {
+            kind: CommandKind::Legend,
+            ..status(state)
         }
     }
 
@@ -616,5 +714,47 @@ mod tests {
         }
         assert!(pending_who_command(&response(ProtocolResult::Busy), 42).is_err());
         assert!(pending_who_command(&response(ProtocolResult::Unavailable), 42).is_err());
+    }
+
+    #[test]
+    fn legend_polling_continues_only_while_accepted() {
+        assert_eq!(
+            pending_legend_command(
+                &legend_response(ProtocolResult::Status(legend_status(
+                    CommandState::Accepted,
+                ))),
+                42,
+            )
+            .unwrap(),
+            Some(7)
+        );
+        assert_eq!(
+            pending_legend_command(
+                &legend_response(ProtocolResult::Legend {
+                    status: legend_status(CommandState::Executed),
+                    marks: Vec::new(),
+                }),
+                42,
+            )
+            .unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn legend_polling_rejects_timeout_and_unavailable_results() {
+        for result in [
+            ProtocolResult::Status(legend_status(CommandState::TimedOut)),
+            ProtocolResult::NotFound,
+        ] {
+            assert_eq!(
+                pending_legend_command(&legend_response(result), 42)
+                    .unwrap_err()
+                    .kind(),
+                crate::error::ErrorKind::Timeout
+            );
+        }
+        assert!(pending_legend_command(&legend_response(ProtocolResult::Busy), 42).is_err());
+        assert!(pending_legend_command(&legend_response(ProtocolResult::Unavailable), 42).is_err());
     }
 }

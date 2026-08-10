@@ -77,6 +77,7 @@ darpc exchange gold --pid <pid> <amount>
 darpc exchange accept --pid <pid>
 darpc exchange cancel --pid <pid>
 darpc who --pid <pid>
+darpc legend --pid <pid>
 darpc command status --pid <pid> <command-id>
 darpc command cancel --pid <pid> <command-id>
 ```
@@ -155,6 +156,9 @@ and connection lifecycle. Their behavior is:
 - `command status` reads a retained command result by its nonzero ID.
 - `command cancel` atomically cancels a command that is still accepted. A
   command that already started retains its completed state.
+- `legend` requests a fresh SelfLook from the server and prints every legend
+  mark with its text, tag, color, and friendly icon name. Requests share the
+  same one-second coalescing window as the REST endpoint.
 
 The commands share `darpc-protocol` with the DLL and daemon. Each requires an
 explicit nonzero process ID and cannot manage multiple clients in one command.
@@ -180,6 +184,7 @@ darpc --output json item swap --pid <pid> 1 2
 darpc --output json dialog select --pid <pid> 7 0
 darpc --output json group invite --pid <pid> ZiLo
 darpc --output json who --pid <pid>
+darpc --output json legend --pid <pid>
 darpc --output json command status --pid <pid> <command-id>
 ```
 

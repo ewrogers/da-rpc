@@ -15,9 +15,9 @@ same data means in the game.
 
 ## Subscribe to a client
 
-```text
-GET /clients/{client}/events
-Accept: text/event-stream
+```console
+curl --no-buffer --header "Accept: text/event-stream" \
+  "http://127.0.0.1:2626/clients/ZiLo/events"
 ```
 
 `client` can be a process ID or the current character name, matched without
@@ -28,25 +28,10 @@ disconnect.
 The client must be connected to `darpcd.exe` and have current state. Otherwise,
 the endpoint returns the normal JSON API error instead of opening a stream.
 
-In a browser:
-
-```javascript
-const events = new EventSource("http://127.0.0.1:2626/clients/ZiLo/events");
-
-events.addEventListener("vitals.changed", (frame) => {
-    const event = JSON.parse(frame.data);
-    console.log(event.data.health, event.data.max_health);
-});
-
-events.addEventListener("stream.resync_required", () => {
-    events.close();
-    // Read the REST resources you use, then open a new EventSource.
-});
-```
-
 Swagger describes the JSON event models, but its Try it out interface is not an
-SSE viewer. Use `EventSource`, an SSE-capable API client, or another streaming
-HTTP library to watch the connection.
+SSE viewer. The `curl` command above displays the live stream directly. Browser
+applications can use `EventSource`, and other consumers need an SSE-capable
+HTTP library.
 
 ## Read an SSE frame
 

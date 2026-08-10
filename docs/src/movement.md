@@ -14,14 +14,11 @@ input can still replace or cancel a route.
 
 ## Turning
 
-```text
-POST /clients/{client}/turn
-```
-
-```json
-{
-  "direction": "north"
-}
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"direction":"north"}' \
+  "http://127.0.0.1:2626/clients/ZiLo/turn"
 ```
 
 The direction must be `north`, `east`, `south`, or `west`. daRPC calls the
@@ -30,9 +27,11 @@ request produces `character.turned` with the requested direction.
 
 ## Emotes
 
-```text
-POST /clients/{client}/emote
-{"name":"wave"}
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"name":"wave"}' \
+  "http://127.0.0.1:2626/clients/ZiLo/emote"
 ```
 
 Names are case-insensitive. The confirmed names are:
@@ -60,14 +59,11 @@ Alt-only expressions available. A code must be one exposed by the client UI:
 
 Use the same `/walk` route with a direction:
 
-```text
-POST /clients/{client}/walk
-```
-
-```json
-{
-  "direction": "south"
-}
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"direction":"south"}' \
+  "http://127.0.0.1:2626/clients/ZiLo/walk"
 ```
 
 This performs a native directional step. It does not create a queued route, so
@@ -76,13 +72,11 @@ This performs a native directional step. It does not create a queued route, so
 
 ## Walking to a tile
 
-```json
-{
-  "destination": {
-    "x": 20,
-    "y": 14
-  }
-}
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"destination":{"x":20,"y":14}}' \
+  "http://127.0.0.1:2626/clients/ZiLo/walk"
 ```
 
 Coordinates are zero-based and must satisfy `0 <= x < width` and

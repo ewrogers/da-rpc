@@ -8,12 +8,16 @@ complete or cancelled.
 
 Use the existing give routes with a visible player name or object ID:
 
-```text
-POST /clients/{client}/items/give
-{ "name": "Wine", "quantity": 3, "target": { "name": "ZiLo" } }
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"name":"Wine","quantity":3,"target":{"name":"OtherPlayer"}}' \
+  "http://127.0.0.1:2626/clients/ZiLo/items/give"
 
-POST /clients/{client}/gold/give
-{ "amount": 1000, "target": { "name": "ZiLo" } }
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"amount":1000,"target":{"name":"OtherPlayer"}}' \
+  "http://127.0.0.1:2626/clients/ZiLo/gold/give"
 ```
 
 These requests start the exchange. They do not mean ZiLo accepted it. Wait for
@@ -22,8 +26,8 @@ offer.
 
 ## Read the current exchange
 
-```text
-GET /clients/{client}/exchange
+```console
+curl "http://127.0.0.1:2626/clients/ZiLo/exchange"
 ```
 
 The response contains `exchange: null` when no tracked exchange is open.
@@ -63,12 +67,16 @@ check.
 
 Add an item by one-based inventory slot or case-insensitive name:
 
-```text
-POST /clients/{client}/exchange/items
-{ "slot": 4, "quantity": 3 }
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"slot":4,"quantity":3}' \
+  "http://127.0.0.1:2626/clients/ZiLo/exchange/items"
 
-POST /clients/{client}/exchange/items
-{ "name": "Wine" }
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"name":"Wine"}' \
+  "http://127.0.0.1:2626/clients/ZiLo/exchange/items"
 ```
 
 Quantity defaults to 1. It must fit the available stack and the exchange
@@ -78,9 +86,11 @@ count.
 
 Set gold once:
 
-```text
-POST /clients/{client}/exchange/gold
-{ "amount": 1000 }
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"amount":1000}' \
+  "http://127.0.0.1:2626/clients/ZiLo/exchange/gold"
 ```
 
 The amount must be nonzero and no greater than the character's current gold.
@@ -93,9 +103,12 @@ exchange.
 
 ## Accept or cancel
 
-```text
-POST /clients/{client}/exchange/accept
-POST /clients/{client}/exchange/cancel
+```console
+curl --request POST \
+  "http://127.0.0.1:2626/clients/ZiLo/exchange/accept"
+
+curl --request POST \
+  "http://127.0.0.1:2626/clients/ZiLo/exchange/cancel"
 ```
 
 These routes send a request and leave the window open until the server confirms

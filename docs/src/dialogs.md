@@ -10,8 +10,8 @@ the client's response-pending behavior.
 
 ## Read the current dialog
 
-```text
-GET /clients/{client}/dialog
+```console
+curl "http://127.0.0.1:2626/clients/ZiLo/dialog"
 ```
 
 The response contains normal observation metadata and either the current
@@ -90,18 +90,21 @@ always zero-based.
 
 ## Start a conversation
 
-```text
-POST /clients/{client}/interact
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"target":"Beggar"}' \
+  "http://127.0.0.1:2626/clients/ZiLo/interact"
 ```
 
-Use the visible Mundane's case-insensitive name or object ID:
+Use the visible Mundane's case-insensitive name or object ID. For example, the
+same request can select an object by ID:
 
-```json
-{ "target": "Beggar" }
-```
-
-```json
-{ "target": 4172 }
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"target":4172}' \
+  "http://127.0.0.1:2626/clients/ZiLo/interact"
 ```
 
 The target must be a Mundane in the current `/objects` state. This route does
@@ -116,12 +119,11 @@ server has replaced it.
 
 Select a choice, item, inventory entry, spell, or skill:
 
-```text
-POST /clients/{client}/dialog/select
-```
-
-```json
-{ "revision": 7, "index": 0, "quantity": 1 }
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"revision":7,"index":0,"quantity":1}' \
+  "http://127.0.0.1:2626/clients/ZiLo/dialog/select"
 ```
 
 `quantity` defaults to `1`. It is checked against the current row when the
@@ -129,31 +131,36 @@ server supplied a limit.
 
 Submit an input prompt:
 
-```text
-POST /clients/{client}/dialog/input
-```
-
-```json
-{ "revision": 8, "input": "ZiLo" }
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"revision":8,"input":"ZiLo"}' \
+  "http://127.0.0.1:2626/clients/ZiLo/dialog/input"
 ```
 
 Input must be nonempty ASCII text and must fit the current dialog's byte limit.
 
 Use the current navigation controls:
 
-```text
-POST /clients/{client}/dialog/previous
-POST /clients/{client}/dialog/next
-POST /clients/{client}/dialog/close
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"revision":8}' \
+  "http://127.0.0.1:2626/clients/ZiLo/dialog/previous"
+
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"revision":8}' \
+  "http://127.0.0.1:2626/clients/ZiLo/dialog/next"
+
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"revision":8}' \
+  "http://127.0.0.1:2626/clients/ZiLo/dialog/close"
 ```
 
-Each accepts the same small body:
-
-```json
-{ "revision": 8 }
-```
-
-The requested button must be available in `navigation`. A dialog waiting for
+Each accepts the same small revision body. The requested button must be
+available in `navigation`. A dialog waiting for
 the server has `response_pending: true`; further answers are rejected until a
 new page arrives. Close remains available when the client permits it.
 
@@ -174,8 +181,11 @@ A typical purchase works like this:
 
 For example, selecting one item from revision 12 looks like this:
 
-```json
-{ "revision": 12, "index": 1, "quantity": 1 }
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"revision":12,"index":1,"quantity":1}' \
+  "http://127.0.0.1:2626/clients/ZiLo/dialog/select"
 ```
 
 Selling commonly adds a confirmation page:

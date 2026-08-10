@@ -13,8 +13,8 @@ methods and report each stage of delayed casting.
 
 ## Reading the spellbook
 
-```text
-GET /clients/{client}/spells
+```console
+curl "http://127.0.0.1:2626/clients/ZiLo/spells"
 ```
 
 Each occupied slot includes:
@@ -51,31 +51,34 @@ Spell {
 
 ## Casting a spell
 
-```text
-POST /clients/{client}/spells/cast
-```
-
 Select the spell by one-based slot or case-insensitive name:
 
-```json
-{
-  "name": "Mist"
-}
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"name":"Mist"}' \
+  "http://127.0.0.1:2626/clients/ZiLo/spells/cast"
 ```
 
 Targeted spells accept a character or Mundane name, a visible object ID, or a
 map tile:
 
-```json
-{ "name": "Taunt", "target": "ZiLo" }
+```console
+curl --request POST --header "Content-Type: application/json" \
+  --data '{"name":"Taunt","target":"OtherPlayer"}' \
+  "http://127.0.0.1:2626/clients/ZiLo/spells/cast"
 ```
 
-```json
-{ "slot": 12, "target": 1843 }
+```console
+curl --request POST --header "Content-Type: application/json" \
+  --data '{"slot":12,"target":1843}' \
+  "http://127.0.0.1:2626/clients/ZiLo/spells/cast"
 ```
 
-```json
-{ "name": "Ground Spell", "target": { "x": 20, "y": 14 } }
+```console
+curl --request POST --header "Content-Type: application/json" \
+  --data '{"name":"Ground Spell","target":{"x":20,"y":14}}' \
+  "http://127.0.0.1:2626/clients/ZiLo/spells/cast"
 ```
 
 A targeted spell with no target defaults to the casting character. A name
@@ -86,11 +89,11 @@ For example, a named Mundane target could use `"target": "Beggar"`.
 
 Text-input spells use `input`:
 
-```json
-{
-  "name": "Learning Spell",
-  "input": "Elemental Bless 6"
-}
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"name":"Learning Spell","input":"Elemental Bless 6"}' \
+  "http://127.0.0.1:2626/clients/ZiLo/spells/cast"
 ```
 
 Text input must contain 1 through 100 ASCII bytes. Extra, conflicting, or
@@ -103,9 +106,11 @@ synthesize user input.
 
 ## Swapping spells
 
-```text
-POST /clients/{client}/spells/swap
-{"source":{"name":"Mist"},"destination":{"slot":12}}
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"source":{"name":"Mist"},"destination":{"slot":12}}' \
+  "http://127.0.0.1:2626/clients/ZiLo/spells/swap"
 ```
 
 Both selectors accept exactly one of `slot` or case-insensitive `name`, using

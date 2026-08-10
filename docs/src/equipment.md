@@ -11,8 +11,8 @@ character.
 
 ## Reading equipment
 
-```text
-GET /clients/{client}/equipment
+```console
+curl "http://127.0.0.1:2626/clients/ZiLo/equipment"
 ```
 
 Each entry includes:
@@ -54,9 +54,11 @@ accessory2, accessory3
 
 Use the same readable slot name to move equipped gear back to inventory:
 
-```text
-POST /clients/{client}/equipment/unequip
-{"slot":"armor"}
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"slot":"armor"}' \
+  "http://127.0.0.1:2626/clients/ZiLo/equipment/unequip"
 ```
 
 The action is submitted on the client main thread and produces an

@@ -14,8 +14,8 @@ map.
 
 The current map is part of:
 
-```text
-GET /clients/{client}/status
+```console
+curl "http://127.0.0.1:2626/clients/ZiLo/status"
 ```
 
 It includes the map ID, available name, zero-based x/y coordinates, width, and
@@ -33,8 +33,8 @@ left over from the previous map.
 
 ## Visible objects
 
-```text
-GET /clients/{client}/objects
+```console
+curl "http://127.0.0.1:2626/clients/ZiLo/objects"
 ```
 
 The response can contain four object kinds:
@@ -68,8 +68,8 @@ WorldObject =
 
 Filter the result with a comma-separated `types` query:
 
-```text
-GET /clients/ZiLo/objects?types=player,mundane,monster
+```console
+curl "http://127.0.0.1:2626/clients/ZiLo/objects?types=player,mundane,monster"
 ```
 
 Without `types`, the route returns every observed kind. An unknown type or

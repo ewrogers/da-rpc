@@ -16,8 +16,8 @@ present.
 
 ## Reading inventory
 
-```text
-GET /clients/{client}/items
+```console
+curl "http://127.0.0.1:2626/clients/ZiLo/items"
 ```
 
 Each occupied item includes:
@@ -57,23 +57,29 @@ The client's special gold slot is omitted. Use the top-level `gold` field from
 
 Use an item by one-based slot or case-insensitive name:
 
-```text
-POST /clients/{client}/items/use
-{"name":"Red Potion"}
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"name":"Red Potion"}' \
+  "http://127.0.0.1:2626/clients/ZiLo/items/use"
 ```
 
 Drop an item only at a zero-based map tile:
 
-```text
-POST /clients/{client}/items/drop
-{"slot":12,"destination":{"x":3,"y":6}}
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"slot":12,"destination":{"x":3,"y":6}}' \
+  "http://127.0.0.1:2626/clients/ZiLo/items/drop"
 ```
 
 Give an item only to a visible human, monster, or NPC:
 
-```text
-POST /clients/{client}/items/give
-{"name":"Red Potion","quantity":2,"target":"ZiLo"}
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"name":"Red Potion","quantity":2,"target":"OtherPlayer"}' \
+  "http://127.0.0.1:2626/clients/ZiLo/items/give"
 ```
 
 `quantity` defaults to 1. An empty slot, zero quantity, quantity larger than
@@ -83,9 +89,11 @@ thread before submitting the action.
 
 Pick up the top ground item at a tile with:
 
-```text
-POST /clients/{client}/items/pickup
-{"position":{"x":3,"y":6}}
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"position":{"x":3,"y":6}}' \
+  "http://127.0.0.1:2626/clients/ZiLo/items/pickup"
 ```
 
 The client protocol identifies the tile rather than a ground object ID. On a
@@ -93,12 +101,16 @@ stacked tile, the server decides which visible item is picked up.
 
 Gold uses the same distinct ground and entity routes:
 
-```text
-POST /clients/{client}/gold/drop
-{"amount":100,"destination":{"x":3,"y":6}}
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"amount":100,"destination":{"x":3,"y":6}}' \
+  "http://127.0.0.1:2626/clients/ZiLo/gold/drop"
 
-POST /clients/{client}/gold/give
-{"amount":100,"target":"ZiLo"}
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"amount":100,"target":"OtherPlayer"}' \
+  "http://127.0.0.1:2626/clients/ZiLo/gold/give"
 ```
 
 An object target may be a visible human or named creature, matched without case
@@ -108,9 +120,11 @@ transfer target.
 
 Rearrange inventory with the same swap payload used by skills and spells:
 
-```text
-POST /clients/{client}/items/swap
-{"source":{"name":"Red Potion"},"destination":{"slot":12}}
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"source":{"name":"Red Potion"},"destination":{"slot":12}}' \
+  "http://127.0.0.1:2626/clients/ZiLo/items/swap"
 ```
 
 Each selector contains exactly one of `slot` or `name`. Names are matched
@@ -122,9 +136,11 @@ different slots.
 
 Send arbitrary nonempty ASCII text through the spell-chant channel with:
 
-```text
-POST /clients/{client}/chant
-{"text":"ard cradh"}
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"text":"ard cradh"}' \
+  "http://127.0.0.1:2626/clients/ZiLo/chant"
 ```
 
 The convenience routes submit the NPC phrases shown below through that same

@@ -11,8 +11,8 @@ character values, and a few pieces of client-only action state.
 
 ## Reading status
 
-```text
-GET /clients/{client}/status
+```console
+curl "http://127.0.0.1:2626/clients/ZiLo/status"
 ```
 
 The response groups the data into a lifecycle, optional character, optional

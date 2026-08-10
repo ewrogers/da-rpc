@@ -6,8 +6,8 @@ character's point of view.
 
 ## Read the list
 
-```text
-GET /clients/{client}/who
+```console
+curl "http://127.0.0.1:2626/clients/ZiLo/who"
 ```
 
 The response keeps the server's original player order:
@@ -43,15 +43,15 @@ Player states are `awake`, `do_not_disturb`, `daydreaming`, `need_group`,
 
 Use a comma-separated, case-insensitive class filter:
 
-```text
-GET /clients/ZiLo/who?classes=warrior,rogue
+```console
+curl "http://127.0.0.1:2626/clients/ZiLo/who?classes=warrior,rogue"
 ```
 
 Supported class names are `peasant`, `warrior`, `rogue`, `wizard`, `priest`,
 and `monk`. Add `guild_only=true` to keep only players marked as guildmates:
 
-```text
-GET /clients/ZiLo/who?classes=priest,wizard&guild_only=true
+```console
+curl "http://127.0.0.1:2626/clients/ZiLo/who?classes=priest,wizard&guild_only=true"
 ```
 
 Filters never reorder the list. An unknown class returns `400 Bad Request`.

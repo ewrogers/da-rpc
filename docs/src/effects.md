@@ -11,8 +11,8 @@ number of seconds. daRPC exposes the same relative stages.
 
 ## Reading effects
 
-```text
-GET /clients/{client}/effects
+```console
+curl "http://127.0.0.1:2626/clients/ZiLo/effects"
 ```
 
 Each active effect contains:

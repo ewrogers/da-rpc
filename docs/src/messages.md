@@ -11,8 +11,8 @@ parse the punctuation the client uses for each channel.
 
 ## Reading recent messages
 
-```text
-GET /clients/{client}/messages
+```console
+curl "http://127.0.0.1:2626/clients/ZiLo/messages"
 ```
 
 Each message contains:
@@ -61,8 +61,8 @@ Messages are sorted newest first. The route returns 20 records by default.
 
 Example:
 
-```text
-GET /clients/ZiLo/messages?channels=say,shout&since=2026-08-02T15:00:00-04:00&skip=0&count=20
+```console
+curl "http://127.0.0.1:2626/clients/ZiLo/messages?channels=say,shout&since=2026-08-02T15:00:00-04:00&skip=0&count=20"
 ```
 
 `since` is optional. When it is omitted, the route searches the retained

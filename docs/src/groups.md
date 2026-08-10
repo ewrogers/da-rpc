@@ -14,8 +14,8 @@ as the game client and lets the server confirm every roster or setting change.
 
 ## Read the current group
 
-```text
-GET /clients/{client}/group
+```console
+curl "http://127.0.0.1:2626/clients/ZiLo/group"
 ```
 
 ```text
@@ -64,8 +64,8 @@ when the character is not grouped.
 
 ## Toggle grouping
 
-```text
-POST /clients/{client}/group/toggle
+```console
+curl --request POST "http://127.0.0.1:2626/clients/ZiLo/group/toggle"
 ```
 
 The request has no body. When the character is adventuring alone, it toggles
@@ -76,10 +76,11 @@ updated state or wait for a group event for the server-confirmed result.
 
 ## Invite a player
 
-```text
-POST /clients/{client}/group/invite
-
-{ "target": "ZiLo" }
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"target":"OtherPlayer"}' \
+  "http://127.0.0.1:2626/clients/ZiLo/group/invite"
 ```
 
 `target` may be a case-insensitive visible player name or a visible player
@@ -94,9 +95,12 @@ Membership changes remain authoritative.
 
 Pending invitations have a daRPC invitation ID:
 
-```text
-POST /clients/{client}/group/invitations/7/accept
-POST /clients/{client}/group/invitations/7/decline
+```console
+curl --request POST \
+  "http://127.0.0.1:2626/clients/ZiLo/group/invitations/7/accept"
+
+curl --request POST \
+  "http://127.0.0.1:2626/clients/ZiLo/group/invitations/7/decline"
 ```
 
 These requests have no body. They require the existing game invitation prompt,

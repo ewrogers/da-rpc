@@ -13,8 +13,8 @@ normal activation.
 
 ## Reading the skillbook
 
-```text
-GET /clients/{client}/skills
+```console
+curl "http://127.0.0.1:2626/clients/ZiLo/skills"
 ```
 
 Each occupied slot includes:
@@ -46,24 +46,22 @@ Skill {
 
 ## Using a skill
 
-```text
-POST /clients/{client}/skills/use
-```
-
 Select the skill by one-based slot:
 
-```json
-{
-  "slot": 5
-}
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"slot":5}' \
+  "http://127.0.0.1:2626/clients/ZiLo/skills/use"
 ```
 
 Or by case-insensitive name:
 
-```json
-{
-  "name": "Assail"
-}
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"name":"Assail"}' \
+  "http://127.0.0.1:2626/clients/ZiLo/skills/use"
 ```
 
 Use exactly one selector. Slots range from 1 through 90. An invalid body or
@@ -81,9 +79,11 @@ a promise that the game server accepted the action.
 
 ## Swapping skills
 
-```text
-POST /clients/{client}/skills/swap
-{"source":{"slot":5},"destination":{"name":"Assail"}}
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"source":{"slot":5},"destination":{"name":"Assail"}}' \
+  "http://127.0.0.1:2626/clients/ZiLo/skills/swap"
 ```
 
 Both selectors accept exactly one of `slot` or case-insensitive `name`, using

@@ -44,8 +44,8 @@ every tracked client.
 
 ## Client registry
 
-```text
-GET /clients
+```console
+curl "http://127.0.0.1:2626/clients"
 ```
 
 The registry reports each process ID, usable name, connection status, and any
@@ -177,8 +177,9 @@ game thread. See [Runtime hooks](hooks.md#main-thread-affinity) for the reason.
 
 ## Server-Sent Events
 
-```text
-GET /clients/{client}/events
+```console
+curl --no-buffer --header "Accept: text/event-stream" \
+  "http://127.0.0.1:2626/clients/ZiLo/events"
 ```
 
 SSE is a one-way live stream. Use it for changing vitals, inventory updates,
@@ -197,19 +198,16 @@ After `stream.ready`, read the REST resources needed by the consumer, then
 apply later events in their delivered order. The daemon begins listening before
 it reads the ready boundary, so a change cannot slip between those two steps.
 
-### Listening in a browser
+### Listening from the command line
 
-```javascript
-const events = new EventSource("/clients/ZiLo/events");
-
-events.addEventListener("vitals.changed", (event) => {
-    const message = JSON.parse(event.data);
-    console.log(message.data);
-});
+```console
+curl --no-buffer --header "Accept: text/event-stream" \
+  "http://127.0.0.1:2626/clients/ZiLo/events"
 ```
 
-Swagger UI shows the SSE response schemas but is not a live stream viewer. Use
-a browser `EventSource` or another client with streaming response support.
+Swagger UI shows the SSE response schemas but is not a live stream viewer.
+Browser applications can use `EventSource`; other clients need streaming
+response support.
 
 The [Live events](events.md) chapter contains the complete event catalog,
 payload structures, ordering rules, collection batching, browser examples, and
@@ -228,12 +226,13 @@ The daemon can launch a client or load and unload the DLL:
 Load and unload have no request body. The daemon's `--loader-path` and
 `--dll-path` settings choose the trusted tools.
 
-The smallest launch body is:
+The smallest launch request is:
 
-```json
-{
-  "client_path": "C:\\Games\\Dark Ages\\Darkages.exe"
-}
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"client_path":"C:\\Games\\Dark Ages\\Darkages.exe"}' \
+  "http://127.0.0.1:2626/clients/launch"
 ```
 
 Available launch options are:
@@ -261,8 +260,7 @@ DLL paths.
 Load reports whether it actually changed an unloaded client. Unload reports
 whether it actually changed a loaded client. Launch returns the new process ID
 after the loader initializes and resumes it. Daemon discovery is asynchronous,
-so watch `GET /clients` until the process becomes connected or reports an
-error.
+so poll `/clients` until the process becomes connected or reports an error.
 
 ## Errors
 

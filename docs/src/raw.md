@@ -2,8 +2,11 @@
 
 daRPC exposes a low-level escape hatch for protocol research and testing:
 
-```text
-POST /clients/{client}/raw/send
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"direction":"client","command":"0x7E","payload":"00 03 02"}' \
+  "http://127.0.0.1:2626/clients/ZiLo/raw/send"
 ```
 
 > **Warning:** Raw packets bypass daRPC's normal game-specific validation.
@@ -36,34 +39,20 @@ native body is `7E 00 03 02`.
 
 Send a custom client packet to the game server:
 
-```powershell
-$body = @{
-    direction = "client"
-    command = "0x7E"
-    payload = "00 03 02"
-} | ConvertTo-Json
-
-Invoke-RestMethod `
-    -Method Post `
-    -Uri "http://127.0.0.1:2626/clients/ZiLo/raw/send" `
-    -ContentType "application/json" `
-    -Body $body
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"direction":"client","command":"0x7E","payload":"00 03 02"}' \
+  "http://127.0.0.1:2626/clients/ZiLo/raw/send"
 ```
 
 Dispatch a custom server packet to the client:
 
-```powershell
-$body = @{
-    direction = "server"
-    command = "0x3A"
-    payload = ""
-} | ConvertTo-Json
-
-Invoke-RestMethod `
-    -Method Post `
-    -Uri "http://127.0.0.1:2626/clients/ZiLo/raw/send" `
-    -ContentType "application/json" `
-    -Body $body
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"direction":"server","command":"0x3A","payload":""}' \
+  "http://127.0.0.1:2626/clients/ZiLo/raw/send"
 ```
 
 Like other native actions, a raw send returns a command status. The action is

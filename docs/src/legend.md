@@ -3,8 +3,8 @@
 The legend resource returns every mark shown in the character's self-look
 profile:
 
-```text
-GET /clients/{client}/legend
+```console
+curl "http://127.0.0.1:2626/clients/ZiLo/legend"
 ```
 
 The direct CLI exposes the same server refresh for one injected client:

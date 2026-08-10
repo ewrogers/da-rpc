@@ -115,10 +115,8 @@ directly for discovery, aggregation, action status, and multi-client behavior.
 | M18 | Remote access | Added only with a defined security model. | Deferred |
 
 M2 through M15 are complete. M16 is the current increment.
-M1 has been exercised manually, but its separate evidence checklist remains
-open until the lifecycle-host Windows continuous-integration coverage is
-present. The working checklist is maintained in the [repository progress
-tracker](https://github.com/ewrogers/da-rpc/blob/main/PROGRESS.md).
+M1 has been exercised manually. Its separate evidence checklist remains open
+until lifecycle-host coverage is present in Windows continuous integration.
 
 ## Phase 1: prove the DLL and loader
 
@@ -737,7 +735,7 @@ Current implementation:
   group-open setting are retained and exposed through REST and ordered events.
   Native main-thread commands invite visible players, answer prompts, and use
   the client's group toggle to open grouping or leave an active group.
-- Player exchanges retain both offers, validate and submit items or gold on the
+- Exchange state retains both offers, validates and submits items or gold on the
   client main thread, and expose accept and cancel through direct IPC, REST,
   OpenAPI, and ordered events. Stack quantities are submitted without opening
   the native quantity prompt. An independent launch option replaces only the

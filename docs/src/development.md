@@ -107,6 +107,22 @@ instance, confirms the other client stays connected, and verifies occupied-port
 failure. Incompatible negotiation is exercised by the native Windows
 controller-session test.
 
+## Releases
+
+Push a `vMAJOR.MINOR.PATCH` tag, such as `v1.0.0`, to create a Windows release.
+The tag must match the shared Cargo workspace package version. The Windows
+integration job must pass before the release job builds and publishes the
+runtime artifacts. The versioned archive contains:
+
+- `darpc.dll` and `loader.exe` for `i686-pc-windows-msvc`
+- `darpc.exe` and `darpcd.exe` for `x86_64-pc-windows-msvc`
+- the README, license, and per-file SHA-256 checksums
+
+The GitHub Release also includes a SHA-256 checksum for the complete archive.
+The release job uses `tools/package-release.ps1` to reject missing or
+wrong-architecture binaries before packaging. Test harnesses and debug builds
+are not release artifacts.
+
 ## Documentation
 
 The repository pins mdBook 0.5.4 for reproducible local and CI builds.

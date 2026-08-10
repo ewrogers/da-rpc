@@ -999,14 +999,14 @@ The codec tests use this exact 95-byte frame: a 20-byte header followed by a
 44 52 50 43 01 00 01 00 34 12 00 00 12 34 56 78
 4b 00 00 00 00 01 00 01 00 01 02 03 04 05 06 07
 08 09 0a 0b 0c 0d 0e 0f 44 33 22 11 08 07 06 05
-04 03 02 01 01 00 00 01 00 00 00 a0 a1 a2 a3 a4
+04 03 02 01 01 01 00 00 00 00 00 a0 a1 a2 a3 a4
 a5 a6 a7 a8 a9 aa ab ac ad ae af b0 b1 b2 b3 b4
 b5 b6 b7 b8 b9 ba bb bc bd be bf e5 02 00 00
 ```
 
 The fixture uses protocol range 1.0 through 1.0, sequence `0x1234`, sender tick
 `0x78563412`, process ID `0x11223344`, process creation time
-`0x0102030405060708`, DLL version `0.1.0`, and client version code `741`. Tests both encode
+`0x0102030405060708`, DLL version `1.0.0`, and client version code `741`. Tests both encode
 to these bytes and decode them back to the expected values.
 
 ## Accepted design decisions
@@ -1031,7 +1031,7 @@ to these bytes and decode them back to the expected values.
   every string limit.
 
 The implementation maps directly to this chapter: framing is in
-`crates/protocol/src/frame.rs`, command messages are in `command.rs`, remaining
-message fields are in `message.rs`, handshake and sequence rules are in
-`session.rs`, and the exact fixture and malformed-input coverage are under
-`crates/protocol/tests/`.
+`crates/protocol/src/frame/mod.rs`, command messages are in `command/mod.rs`,
+remaining message fields are in `message/mod.rs`, handshake and sequence rules
+are in `session/mod.rs`, and the exact fixture and malformed-input coverage are
+under `crates/protocol/tests/`.

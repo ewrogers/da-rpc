@@ -56,6 +56,10 @@ struct RawGroupUpdate {
 }
 
 #[derive(Clone, Copy)]
+#[cfg_attr(
+    test,
+    expect(dead_code, reason = "called by the production-only actions module")
+)]
 enum RawGroupUpdateKind {
     SettingsChanged,
     InvitationSent(RawName),
@@ -161,6 +165,10 @@ pub(crate) fn observe_pending(name: &[u8], received_tick_ms: Option<u32>, tick_m
     );
 }
 
+#[cfg_attr(
+    test,
+    expect(dead_code, reason = "called by the production-only actions module")
+)]
 pub(crate) fn reconcile_invitations(mut is_open: impl FnMut(&[u8]) -> bool, tick_ms: u32) {
     loop {
         // SAFETY: UI observation runs on the sole producer thread.
@@ -178,6 +186,10 @@ pub(crate) fn reconcile_invitations(mut is_open: impl FnMut(&[u8]) -> bool, tick
     }
 }
 
+#[cfg_attr(
+    test,
+    expect(dead_code, reason = "called by the production-only actions module")
+)]
 pub(crate) fn observe_sent(target: &[u8], tick_ms: u32) {
     let Some(target) = raw_name(target) else {
         return;
@@ -193,6 +205,10 @@ pub(crate) fn observe_sent(target: &[u8], tick_ms: u32) {
     );
 }
 
+#[cfg_attr(
+    test,
+    expect(dead_code, reason = "called by the production-only actions module")
+)]
 pub(crate) fn invitation(id: u32) -> Option<RawGroupInvitation> {
     // SAFETY: command execution runs on the sole producer thread.
     let state = unsafe { &*TRACKER.0.get() };
@@ -204,11 +220,19 @@ pub(crate) fn invitation(id: u32) -> Option<RawGroupInvitation> {
         .find(|invitation| invitation.id == id)
 }
 
+#[cfg_attr(
+    test,
+    expect(dead_code, reason = "called by the production-only actions module")
+)]
 pub(crate) fn member_count() -> u8 {
     // SAFETY: roster refresh runs on the sole producer thread.
     unsafe { (*TRACKER.0.get()).member_count }
 }
 
+#[cfg_attr(
+    test,
+    expect(dead_code, reason = "called by the production-only actions module")
+)]
 pub(crate) fn close_invitation(id: u32, reason: GroupInvitationCloseReason, tick_ms: u32) -> bool {
     // SAFETY: command execution and packet observation run on the sole producer thread.
     let state = unsafe { &mut *TRACKER.0.get() };

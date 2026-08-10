@@ -49,6 +49,10 @@ pub(crate) fn observe_outgoing(body: &[u8], tick_ms: u32) {
     crate::exchange::observe_outgoing(body, tick_ms);
 }
 
+#[cfg_attr(
+    test,
+    expect(dead_code, reason = "called by the production-only actions module")
+)]
 pub(crate) fn current_gold() -> Option<u32> {
     // SAFETY: commands run on the client main thread, which owns the cache.
     unsafe { CACHE.gold() }
@@ -70,6 +74,10 @@ pub(crate) fn observe_dialog(body: &[u8], tick_ms: u32) {
     }
 }
 
+#[cfg_attr(
+    test,
+    expect(dead_code, reason = "called by the production-only actions module")
+)]
 pub(crate) fn observe_dialog_submission(submission: darpc_model::DialogSubmission, tick_ms: u32) {
     if let Some(dialog) = crate::dialog::submit(submission)
         && !push_event(QueuedStateUpdate::Dialog(dialog), tick_ms)

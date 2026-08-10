@@ -7,7 +7,7 @@ daemon rather than internal client memory.
 
 daRPC presents each game client as a set of familiar resources. Character
 status, items, equipment, skills, spells, effects, nearby objects, messages,
-dialogs, groups, and player exchanges each have their own REST route and
+dialogs, groups, and exchange state each have their own REST route and
 documentation chapter.
 
 This chapter explains the behavior they share. The individual chapters focus
@@ -27,7 +27,7 @@ on what a Dark Ages player or tool author can do with each kind of data.
 | [Movement and emotes](movement.md) | `/status` | Walking and character actions | `/turn`, `/walk`, and `/emote` |
 | [Messages](messages.md) | `/messages` | Chat and system messages by channel | None |
 | [Groups](groups.md) | `/group` | Invitations, settings, and roster changes | Group actions |
-| [Player exchanges](exchanges.md) | `/exchange` | Both offers and acceptance state | Offer, accept, and cancel actions |
+| [Exchange](exchanges.md) | `/exchange` | Both offers and acceptance state | Offer, accept, and cancel actions |
 
 All client routes begin with `/clients/{client}`. The `{client}` value may be a
 process ID or the current character name. See [Choosing a client](web-api.md#choosing-a-client)

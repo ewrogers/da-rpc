@@ -17,7 +17,7 @@
   - [Messages](messages.md)
   - [NPC dialogs](dialogs.md)
   - [Groups](groups.md)
-  - [Player exchanges](exchanges.md)
+  - [Exchange](exchanges.md)
   - [Online players](online.md)
 - [Running daRPC](rpcd.md)
   - [`loader.exe`](loader.md)

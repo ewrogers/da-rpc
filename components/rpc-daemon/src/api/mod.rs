@@ -77,8 +77,8 @@ pub(crate) use lifecycle::resolve_client;
 use lifecycle::{current_character_name, launch, load, resolve_game_snapshot, unload};
 pub(crate) use schema::*;
 
-const SWAGGER_INDEX: &str = include_str!("../assets/swagger.html");
-const SWAGGER_THEME: &str = include_str!("../assets/swagger-ayu.css");
+const SWAGGER_INDEX: &str = include_str!("../../assets/swagger.html");
+const SWAGGER_THEME: &str = include_str!("../../assets/swagger-ayu.css");
 const DEFAULT_SERVER_PORT: u16 = 2610;
 const MAX_REQUEST_BODY: usize = 4 * 1024;
 

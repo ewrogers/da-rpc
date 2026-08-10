@@ -74,7 +74,7 @@ they need:
 | `GET /clients/{client}/messages` | [Messages](messages.md) |
 | `GET /clients/{client}/dialog` | [NPC dialogs](dialogs.md) |
 | `GET /clients/{client}/group` | [Groups](groups.md) |
-| `GET /clients/{client}/exchange` | [Player exchanges](exchanges.md) |
+| `GET /clients/{client}/exchange` | [Exchange](exchanges.md) |
 | `GET /clients/{client}/who` | [Online players](online.md) |
 
 Most routes read the daemon's retained state and do not ask the DLL to scan the
@@ -130,7 +130,7 @@ Equipment, skill, and spell arguments are documented in their respective
 chapters. NPC interaction, revision checks, and dialog responses are documented
 in [NPC dialogs](dialogs.md). Group state, invitations, and roster confirmation
 are documented in [Groups](groups.md). Player offers, constraints, and exchange
-completion are documented in [Player exchanges](exchanges.md).
+completion are documented in [Exchange](exchanges.md).
 
 ### Native command results
 

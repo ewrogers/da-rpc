@@ -12,6 +12,8 @@ on:
   push:
     branches:
       - main
+    tags:
+      - "v*"
     paths:
       - ".github/workflows/windows.yml"
       - "Cargo.toml"
@@ -33,6 +35,17 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v7
+
+      - name: Restore Rust build cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: windows-cargo-${{ runner.arch }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', '**/*.rs') }}
+          restore-keys: |
+            windows-cargo-${{ runner.arch }}-
 
       - name: Install x86 Rust target
         run: rustup target add i686-pc-windows-msvc
@@ -70,6 +83,7 @@ jobs:
           -p darpc-game-client
           -p darpc-hook
           -p loader
+          -p rpc-dll
           -p injection-target
           -p hook-harness
           --target i686-pc-windows-msvc
@@ -127,3 +141,97 @@ jobs:
           ./tools/test-daemon.ps1
           -X86TargetDir ./target/i686-pc-windows-msvc/debug
           -X64TargetDir ./target/debug
+
+  release:
+    name: Windows release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: loader
+    runs-on: windows-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Restore Rust build cache
+        uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: windows-cargo-${{ runner.arch }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', '**/*.rs') }}
+          restore-keys: |
+            windows-cargo-${{ runner.arch }}-
+
+      - name: Install Windows Rust targets
+        run: rustup target add i686-pc-windows-msvc x86_64-pc-windows-msvc
+
+      - name: Verify release version
+        shell: pwsh
+        run: |
+          $tagVersion = "${{ github.ref_name }}".TrimStart("v")
+          $metadata = cargo metadata --no-deps --format-version 1 | ConvertFrom-Json
+          $packageVersions = @($metadata.packages.version | Sort-Object -Unique)
+          if ($packageVersions.Count -ne 1 -or $packageVersions[0] -ne $tagVersion) {
+            throw "release tag $tagVersion does not match every workspace package"
+          }
+
+      - name: Build x86 release artifacts
+        run: >
+          cargo build
+          -p loader
+          -p rpc-dll
+          --target i686-pc-windows-msvc
+          --release
+
+      - name: Build x64 release artifacts
+        run: >
+          cargo build
+          -p rpc-client
+          -p rpc-daemon
+          --target x86_64-pc-windows-msvc
+          --release
+
+      - name: Package release artifacts
+        id: package
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $archive = "dist/da-rpc-$tag-windows.zip"
+          $checksum = "$archive.sha256"
+          powershell.exe -NoProfile -ExecutionPolicy Bypass `
+            -File ./tools/package-release.ps1 `
+            -Tag $tag `
+            -X86TargetDir "target/i686-pc-windows-msvc/release" `
+            -X64TargetDir "target/x86_64-pc-windows-msvc/release" `
+            -OutputDir "dist"
+          if ($LASTEXITCODE -ne 0) {
+            throw "failed to package release artifacts"
+          }
+
+          "archive=$archive" >> $env:GITHUB_OUTPUT
+          "checksum=$checksum" >> $env:GITHUB_OUTPUT
+
+      - name: Publish GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $tag `
+              "${{ steps.package.outputs.archive }}" `
+              "${{ steps.package.outputs.checksum }}" `
+              --clobber
+          } else {
+            gh release create $tag `
+              "${{ steps.package.outputs.archive }}" `
+              "${{ steps.package.outputs.checksum }}" `
+              --verify-tag `
+              --title $tag `
+              --generate-notes
+          }

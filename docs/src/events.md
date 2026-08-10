@@ -679,7 +679,7 @@ the game does not send a direct response when the other player declines.
 ## Player exchange events
 
 Read the current offer from `GET /clients/{client}/exchange`. The
-[Player exchanges](exchanges.md) chapter explains initiation, quantity handling,
+[Exchange](exchanges.md) chapter explains initiation, quantity handling,
 one-time gold, acceptance, and cancellation.
 
 ```text
@@ -741,7 +741,7 @@ trying to infer state from only the changed field.
 | Messages | `message.say`, `message.shout`, `message.whisper`, `message.guild`, `message.group`, `message.system`, `message.world` | `/messages` |
 | NPC dialogs | `dialog.opened`, `dialog.changed`, `dialog.submitted`, `dialog.closed` | `/dialog` |
 | Groups | `group.settings_changed`, `group.invitation_sent`, `group.invitation_received`, `group.invitation_closed`, `group.joined`, `group.member_joined`, `group.member_left`, `group.disbanded` | `/group`, then `/status` for convenience fields |
-| Player exchanges | `exchange.opened`, `exchange.item_added`, `exchange.gold_changed`, `exchange.accepted`, `exchange.completed`, `exchange.cancelled` | `/exchange`, then `/status` for `is_in_exchange` |
+| Exchange | `exchange.opened`, `exchange.item_added`, `exchange.gold_changed`, `exchange.accepted`, `exchange.completed`, `exchange.cancelled` | `/exchange`, then `/status` for `is_in_exchange` |
 
 The OpenAPI document at `/openapi.json` remains the exact machine-readable
 schema for these payloads. This chapter is the human-readable reference.

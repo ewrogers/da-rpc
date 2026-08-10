@@ -1,17 +1,17 @@
 # daRPC
 
 [![Documentation](https://github.com/ewrogers/da-rpc/actions/workflows/docs.yml/badge.svg)](https://github.com/ewrogers/da-rpc/actions/workflows/docs.yml)
+[![Windows](https://github.com/ewrogers/da-rpc/actions/workflows/windows.yml/badge.svg)](https://github.com/ewrogers/da-rpc/actions/workflows/windows.yml)
 
-daRPC is a Rust toolkit for observing and controlling the 32-bit Windows client
-of *Dark Ages*. It attaches a small DLL to the client, reads the state the client
-already knows, and performs actions through the client's own code.
+daRPC is a Windows integration toolkit for observing and controlling the 32-bit
+*Dark Ages* client. It attaches a small Rust DLL to the client, reads the state
+the client already knows, and performs actions through the client's own code.
 
 Start with the [daRPC Book](https://ewrogers.github.io/da-rpc/) for the complete
 documentation, or continue below for a quick overview.
 
-> daRPC is in active development and currently supports one exact 7.41 client
-> build. It is intended for education, research, interoperability, and
-> user-controlled automation.
+> daRPC 1.0 supports one exact 7.41 client build. It validates that build before
+> using version-specific addresses or installing hooks.
 
 ## Why daRPC?
 
@@ -52,6 +52,8 @@ like a second client trying to imitate it from the outside.
 - Observe and answer merchant and pursuit dialogs through native client UI
   methods.
 - Read group rosters, invite visible players, and answer group invitations.
+- Observe and manage item, gold, acceptance, and cancellation state during an
+  exchange.
 - Read the ordered online-player list without opening the client's Who panel.
 - Manage several clients from one daemon.
 - Query state and submit actions through REST.
@@ -104,7 +106,19 @@ The command-line client and daemon are 64-bit x86-64 programs.
 
 ## Getting started
 
-### Requirements
+### Download a release
+
+Download the latest Windows archive from
+[GitHub Releases](https://github.com/ewrogers/da-rpc/releases/latest). Each
+release contains the four runtime files, the README and license, per-file
+SHA-256 checksums, and a separate checksum for the complete archive.
+
+Keep `darpc.dll`, `loader.exe`, `darpc.exe`, and `darpcd.exe` together unless
+you explicitly configure different loader or DLL paths.
+
+### Build from source
+
+Building daRPC requires:
 
 - Windows with the supported *Dark Ages* client
 - A current stable Rust toolchain
@@ -121,13 +135,13 @@ rustup target add i686-pc-windows-msvc x86_64-pc-windows-msvc
 Build the 32-bit client components from a Visual Studio x86 developer shell:
 
 ```text
-cargo build -p loader -p rpc-dll --target i686-pc-windows-msvc
+cargo build -p loader -p rpc-dll --target i686-pc-windows-msvc --release
 ```
 
 Build the 64-bit tools from a Visual Studio x64 developer shell:
 
 ```text
-cargo build -p rpc-client -p rpc-daemon --target x86_64-pc-windows-msvc
+cargo build -p rpc-client -p rpc-daemon --target x86_64-pc-windows-msvc --release
 ```
 
 See the book's [development guide](https://ewrogers.github.io/da-rpc/development.html)
@@ -224,6 +238,8 @@ GET  /clients/{client}/skills
 GET  /clients/{client}/spells
 GET  /clients/{client}/objects
 GET  /clients/{client}/who
+GET  /clients/{client}/group
+GET  /clients/{client}/exchange
 GET  /clients/{client}/events
 POST /clients/{client}/turn
 POST /clients/{client}/walk
@@ -235,6 +251,8 @@ POST /clients/{client}/items/pickup
 POST /clients/{client}/gold/drop
 POST /clients/{client}/equipment/unequip
 POST /clients/{client}/emote
+POST /clients/{client}/group/invite
+POST /clients/{client}/exchange/accept
 POST /clients/launch
 POST /clients/{client}/load
 POST /clients/{client}/unload
@@ -244,11 +262,12 @@ The [web API guide](https://ewrogers.github.io/da-rpc/web-api.html) explains
 routes, requests, and errors. The [live event reference](https://ewrogers.github.io/da-rpc/events.html)
 documents every SSE event, payload, ordering rule, and reconnect procedure.
 
-## Project status
+## Version support
 
-daRPC is not a general-purpose game injection framework. It is deliberately
-specific to one supported client build and validates that build before using
-version-specific addresses or hooks.
+daRPC 1.0 is not a general-purpose game injection framework. It is deliberately
+specific to one supported client build. A matching game window is only a
+discovery candidate; the loader and DLL must still validate and negotiate with
+the client before daRPC accepts it.
 
 The current implementation includes client lifecycle management, local state,
 event-driven updates, native movement, skill and spell actions, REST, SSE, and

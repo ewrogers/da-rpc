@@ -1,4 +1,4 @@
-# Player exchanges
+# Exchange
 
 daRPC can open and complete the game's normal player exchange without replacing
 the exchange window. The server still owns the offer and decides when it is

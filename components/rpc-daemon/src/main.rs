@@ -29,18 +29,26 @@ mod state;
 #[cfg(any(windows, test))]
 mod stream;
 
-use std::{collections::BTreeSet, env, ffi::OsString, path::PathBuf, process::ExitCode};
+use std::{
+    collections::BTreeSet,
+    env,
+    ffi::OsString,
+    net::{Ipv4Addr, SocketAddrV4},
+    path::PathBuf,
+    process::ExitCode,
+};
 
 const DEFAULT_PORT: u16 = 2626;
 const USAGE: &str = concat!(
-    "usage: darpcd [--pid <pid> ...] [--port <port>] [--auto-load] ",
+    "usage: darpcd [--pid <pid> ...] [--port <port> | --listen <ipv4[:port]>] ",
+    "[--auto-load] ",
     "[--loader-path <path>] [--dll-path <path>]\n       darpcd --print-openapi"
 );
 
 #[derive(Debug, Eq, PartialEq)]
 struct Options {
     pids: Vec<u32>,
-    port: u16,
+    listen: SocketAddrV4,
     auto_load: bool,
     loader_path: Option<PathBuf>,
     dll_path: Option<PathBuf>,
@@ -75,6 +83,7 @@ fn parse_options(arguments: impl IntoIterator<Item = OsString>) -> Result<Option
     let mut pids = Vec::new();
     let mut unique = BTreeSet::new();
     let mut port = None;
+    let mut listen = None;
     let mut auto_load = false;
     let mut loader_path = None;
     let mut dll_path = None;
@@ -115,6 +124,17 @@ fn parse_options(arguments: impl IntoIterator<Item = OsString>) -> Result<Option
                 return Err("port must be greater than zero".into());
             }
             port = Some(parsed);
+        } else if option == "--listen" {
+            if listen.is_some() {
+                return Err("--listen may be provided only once".into());
+            }
+            let value = arguments
+                .next()
+                .ok_or_else(|| "--listen requires a value".to_owned())?;
+            let value = value
+                .to_str()
+                .ok_or_else(|| "listen address must be valid Unicode".to_owned())?;
+            listen = Some(parse_listen_address(value)?);
         } else if option == "--auto-load" {
             if auto_load {
                 return Err("--auto-load may be provided only once".into());
@@ -137,21 +157,40 @@ fn parse_options(arguments: impl IntoIterator<Item = OsString>) -> Result<Option
     if print_openapi
         && (!pids.is_empty()
             || port.is_some()
+            || listen.is_some()
             || auto_load
             || loader_path.is_some()
             || dll_path.is_some())
     {
         return Err("--print-openapi cannot be combined with server options".into());
     }
+    if port.is_some() && listen.is_some() {
+        return Err("--port and --listen cannot be combined".into());
+    }
 
     Ok(Options {
         pids,
-        port: port.unwrap_or(DEFAULT_PORT),
+        listen: listen.unwrap_or_else(|| {
+            SocketAddrV4::new(Ipv4Addr::LOCALHOST, port.unwrap_or(DEFAULT_PORT))
+        }),
         auto_load,
         loader_path,
         dll_path,
         print_openapi,
     })
+}
+
+fn parse_listen_address(value: &str) -> Result<SocketAddrV4, String> {
+    if let Ok(address) = value.parse::<SocketAddrV4>() {
+        if address.port() == 0 {
+            return Err("listen port must be greater than zero".into());
+        }
+        return Ok(address);
+    }
+    value
+        .parse::<Ipv4Addr>()
+        .map(|address| SocketAddrV4::new(address, DEFAULT_PORT))
+        .map_err(|_| "listen address must be an IPv4 address with an optional port".to_owned())
 }
 
 #[cfg(windows)]
@@ -234,9 +273,15 @@ fn run(options: Options) -> Result<(), String> {
 
     let api_state = ApiState::new(registry.snapshot(), Arc::clone(&lifecycle), sender.clone())
         .with_command_sender(command_sender);
-    let _api_worker = api::start(options.port, api_state.clone())
-        .map_err(|error| format!("failed to listen on 127.0.0.1:{}: {error}", options.port))?;
-    println!("HTTP API listening on http://127.0.0.1:{}", options.port);
+    let _api_worker = api::start(options.listen, api_state.clone())
+        .map_err(|error| format!("failed to listen on {}: {error}", options.listen))?;
+    if !options.listen.ip().is_loopback() {
+        eprintln!(
+            "darpcd: warning: the HTTP API has no authentication or transport encryption; \
+             restrict non-loopback access with a trusted network and Windows Firewall"
+        );
+    }
+    println!("HTTP API listening on http://{}", options.listen);
     println!("loader path: {}", loader_path.display());
     println!("DLL path: {}", dll_path.display());
     println!(
@@ -466,7 +511,14 @@ fn run(_options: Options) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::{DEFAULT_PORT, Options, parse_options};
-    use std::ffi::OsString;
+    use std::{
+        ffi::OsString,
+        net::{Ipv4Addr, SocketAddrV4},
+    };
+
+    fn default_listen() -> SocketAddrV4 {
+        SocketAddrV4::new(Ipv4Addr::LOCALHOST, DEFAULT_PORT)
+    }
 
     fn arguments(values: &[&str]) -> Vec<OsString> {
         values.iter().map(OsString::from).collect()
@@ -478,7 +530,7 @@ mod tests {
             parse_options(arguments(&["--pid", "42", "--pid", "7"])).unwrap(),
             Options {
                 pids: vec![42, 7],
-                port: DEFAULT_PORT,
+                listen: default_listen(),
                 auto_load: false,
                 loader_path: None,
                 dll_path: None,
@@ -489,7 +541,7 @@ mod tests {
             parse_options(arguments(&["--port", "3000", "--pid", "42"])).unwrap(),
             Options {
                 pids: vec![42],
-                port: 3000,
+                listen: SocketAddrV4::new(Ipv4Addr::LOCALHOST, 3000),
                 auto_load: false,
                 loader_path: None,
                 dll_path: None,
@@ -510,7 +562,7 @@ mod tests {
             .unwrap(),
             Options {
                 pids: Vec::new(),
-                port: DEFAULT_PORT,
+                listen: default_listen(),
                 auto_load: false,
                 loader_path: Some("tools/loader.exe".into()),
                 dll_path: Some("tools/darpc.dll".into()),
@@ -531,6 +583,22 @@ mod tests {
     }
 
     #[test]
+    fn parses_explicit_listen_addresses() {
+        assert_eq!(
+            parse_options(arguments(&["--listen", "0.0.0.0:2620"]))
+                .unwrap()
+                .listen,
+            SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 2620)
+        );
+        assert_eq!(
+            parse_options(arguments(&["--listen", "192.168.1.5"]))
+                .unwrap()
+                .listen,
+            SocketAddrV4::new(Ipv4Addr::new(192, 168, 1, 5), DEFAULT_PORT)
+        );
+    }
+
+    #[test]
     fn rejects_invalid_targets_and_ports() {
         assert!(parse_options(arguments(&["--pid", "0"])).is_err());
         assert!(parse_options(arguments(&["--pid", "7", "--pid", "7"])).is_err());
@@ -542,6 +610,14 @@ mod tests {
         assert!(parse_options(arguments(&["--pid", "7", "--port"])).is_err());
         assert!(parse_options(arguments(&["--pid", "7", "--port", "0"])).is_err());
         assert!(parse_options(arguments(&["--pid", "7", "--port", "65536"])).is_err());
+        assert!(parse_options(arguments(&["--listen"])).is_err());
+        assert!(parse_options(arguments(&["--listen", "localhost:2626"])).is_err());
+        assert!(parse_options(arguments(&["--listen", "0.0.0.0:0"])).is_err());
+        assert!(parse_options(arguments(&["--listen", "0.0.0.0:2626", "--port", "2626"])).is_err());
+        assert!(
+            parse_options(arguments(&["--listen", "0.0.0.0", "--listen", "127.0.0.1"])).is_err()
+        );
+        assert!(parse_options(arguments(&["--print-openapi", "--listen", "127.0.0.1"])).is_err());
         assert!(
             parse_options(arguments(&[
                 "--pid", "7", "--port", "2626", "--port", "2627"

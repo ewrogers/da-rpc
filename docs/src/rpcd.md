@@ -22,8 +22,8 @@ Its current responsibilities are to:
 - Aggregate client identity, connection health, snapshots, and ordered state
   updates from each connected client.
 - Route bounded commands through each client's existing pipe session.
-- Expose loopback REST and Server-Sent Events APIs, an OpenAPI document, and
-  Swagger UI.
+- Expose default-loopback REST and Server-Sent Events APIs, an OpenAPI
+  document, and Swagger UI, with an explicit IPv4 bind for trusted networks.
 
 Additional game actions can build on this boundary later. REST provides bounded
 requests and responses for those actions, while Server-Sent Events provide the
@@ -33,7 +33,8 @@ client memory or local state.
 ## Command-line reference
 
 ```text
-darpcd.exe [--pid <pid> ...] [--port <port>] [--auto-load]
+darpcd.exe [--pid <pid> ...] [--port <port> | --listen <ipv4[:port]>]
+           [--auto-load]
            [--loader-path <path>] [--dll-path <path>]
 darpcd.exe --print-openapi
 ```
@@ -42,6 +43,7 @@ darpcd.exe --print-openapi
 |---|---|
 | `--pid <pid>` | Retain a specific process as a controlled target. Repeat the flag for multiple clients. Normal window discovery remains active. |
 | `--port <port>` | Listen on this TCP port instead of `2626`. The listener remains bound to `127.0.0.1`. |
+| `--listen <ipv4[:port]>` | Bind to an explicit IPv4 interface and optional port. An omitted port defaults to `2626`. This flag cannot be combined with `--port`. |
 | `--auto-load` | Use the configured loader and DLL once for each discovered, supported client that is not already loaded. |
 | `--loader-path <path>` | Use this `loader.exe` for managed load, unload, launch, and automatic loading. The default is `loader.exe` beside the daemon. |
 | `--dll-path <path>` | Use this `darpc.dll` for managed load, launch, and automatic loading. The default is `darpc.dll` beside the daemon. |
@@ -56,6 +58,17 @@ Start normal discovery and serve the API on the default loopback address:
 ```text
 darpcd.exe
 ```
+
+Allow a host or another virtual machine on a trusted network to reach the API:
+
+```text
+darpcd.exe --listen 0.0.0.0:2626
+```
+
+`0.0.0.0` binds every IPv4 interface. Prefer the VM's specific IPv4 address
+when practical, and restrict the port with Windows Firewall. The API has no
+authentication or Transport Layer Security (TLS), so every host that can reach
+the listener can read state and submit actions.
 
 Automatically load uninjected supported clients and select explicit runtime
 files:
@@ -178,11 +191,12 @@ per-client event stream from the same event boundary.
 
 ## Web interface
 
-The HTTP server binds to `127.0.0.1:2626` by default. A single
-`--port <port>` option overrides the port while retaining the loopback-only
-boundary. The generated OpenAPI document is served at `/openapi.json`, and the
-vendored Swagger UI is served at `/docs`. HTTP models remain separate from
-registry and binary protocol types.
+The HTTP server binds to `127.0.0.1:2626` by default. `--port <port>` overrides
+the port while retaining the loopback boundary. `--listen <ipv4[:port]>`
+explicitly selects another IPv4 interface for trusted VM or local-network use.
+The generated OpenAPI document is served at `/openapi.json`, and the vendored
+Swagger UI is served at `/docs`. HTTP models remain separate from registry and
+binary protocol types.
 
 Each connected client also exposes
 `GET /clients/{client}/events`. The daemon subscribes before reading the

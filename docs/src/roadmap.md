@@ -54,10 +54,11 @@ Potential capability work includes:
 
 ## Remote access
 
-The daemon remains loopback-only. Remote access is deferred until it has an
-explicit authentication, authorization, request-limiting, and transport
-security model. Exposing the current listener through a proxy or port forward
-is outside the supported 1.0 configuration.
+The daemon defaults to loopback and supports an explicit unauthenticated IPv4
+bind for trusted host-to-VM and local-network development. A general remote
+access mode remains deferred until it has authentication, authorization,
+request limiting, and transport security. The current listener must not be
+exposed to an untrusted network or the public internet.
 
 ## Prioritization
 

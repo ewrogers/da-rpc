@@ -57,7 +57,7 @@ use darpc_protocol::{Hello, protocol_version_major, protocol_version_minor};
 use serde::{Deserialize, Serialize};
 use std::{
     io,
-    net::{Ipv4Addr, SocketAddrV4, TcpListener},
+    net::{SocketAddrV4, TcpListener},
     sync::{
         Arc, Mutex, RwLock,
         mpsc::{self, Sender, SyncSender, TrySendError},
@@ -328,8 +328,8 @@ fn ability_context(
     (ability_name, target_name)
 }
 
-pub(crate) fn start(port: u16, state: ApiState) -> io::Result<JoinHandle<()>> {
-    let listener = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port))?;
+pub(crate) fn start(address: SocketAddrV4, state: ApiState) -> io::Result<JoinHandle<()>> {
+    let listener = TcpListener::bind(address)?;
     listener.set_nonblocking(true)?;
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_io()

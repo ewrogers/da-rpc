@@ -87,9 +87,9 @@ To build daRPC, also install:
 6. Open `http://127.0.0.1:2626/docs` to explore the API in Swagger UI.
 
 The daemon discovers supported client windows, loads `darpc.dll` when needed,
-and serves only on the local loopback interface. Use `loader.exe` when you want
-explicit process lifecycle control, or `darpc.exe` for one-off terminal and
-script commands.
+and serves on the local loopback interface by default. Use `loader.exe` when
+you want explicit process lifecycle control, or `darpc.exe` for one-off
+terminal and script commands.
 
 The release directory contains:
 
@@ -141,6 +141,12 @@ also be exported directly from the matching daemon binary:
 ```powershell
 .\darpcd.exe --print-openapi > openapi.json
 ```
+
+To access the API from a host or another virtual machine on a trusted network,
+bind an explicit IPv4 interface, for example `darpcd.exe --listen
+0.0.0.0:2626`. This exposes every API route, including Swagger UI. There is no
+authentication or TLS, so restrict the port with Windows Firewall and do not
+expose it to an untrusted network.
 
 Detailed references:
 

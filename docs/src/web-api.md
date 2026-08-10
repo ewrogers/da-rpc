@@ -12,9 +12,10 @@ under [Game data](state.md) explain the meaning of character and world fields.
 
 ## Starting the server
 
-The daemon listens on `127.0.0.1:2626` by default. Use `--port <port>` to choose
-another port from 1 through 65535. Startup fails if the address is already in
-use instead of silently selecting a different port.
+The daemon listens on `127.0.0.1:2626` by default. Use `--port <port>` to change
+only the loopback port, or `--listen <ipv4[:port]>` to select an explicit IPv4
+interface. Startup fails if the address is already in use instead of silently
+selecting a different port.
 
 With the default port:
 
@@ -305,10 +306,17 @@ chapter is the source of truth for those transport rules.
 
 ## Network access
 
-The implemented listener is loopback-only. It has no authentication because it
-is not exposed to the network. Any future remote-listening mode must add
-authentication, authorization, request limits, and transport security before
-it is considered safe for general use.
+The listener defaults to `127.0.0.1:2626`. `--listen <ipv4[:port]>` can bind a
+specific IPv4 interface or `0.0.0.0` for access from a host, another virtual
+machine, or a trusted local network. The option changes the entire API
+listener, not only Swagger UI.
+
+The API has no authentication, authorization, or TLS. Any host that can reach a
+non-loopback listener can read game state and submit actions. Prefer a specific
+interface over `0.0.0.0`, restrict the selected port with Windows Firewall, and
+do not expose the listener to an untrusted network or the public internet. A
+generally available remote mode still requires authentication, authorization,
+request limits, and transport security.
 
 WebSockets are intentionally unsupported. REST maps commands and state reads to
 bounded requests with ordinary HTTP status and error handling. SSE provides a

@@ -1810,6 +1810,6 @@ fn rejects_request_bodies() {
 fn refuses_an_occupied_port() {
     let held = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)).unwrap();
     let port = held.local_addr().unwrap().port();
-    let result = super::start(port, state());
+    let result = super::start(SocketAddrV4::new(Ipv4Addr::LOCALHOST, port), state());
     assert!(result.is_err());
 }

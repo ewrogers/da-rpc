@@ -98,11 +98,14 @@ later change blocks a daRPC-owned ground route, the stale queue is canceled and
 the retained destination is replanned on the next main-thread tick. If live
 occupants or a door leave no path at that instant, daRPC retains the destination
 for up to five seconds and retries with delays that increase from 250
-milliseconds to one second. A new movement request, map change, resumed native
-route, invalid client state, successful replan, or timeout cancels the retry. A
-failed route started directly in the game is canceled cleanly when daRPC does
-not know its destination. Native entity pursuit preserves its existing timed
-retry.
+milliseconds to one second. daRPC also detects a locally accepted step that
+receives no confirmed position progress for 1.2 seconds, cancels the stale
+native route, and replans from the last confirmed tile. Recovery remains bounded
+to five seconds even if the client repeatedly accepts a step that the server
+does not confirm. A new movement request, map change, resumed native route,
+invalid client state, confirmed progress, or timeout cancels recovery. A failed
+route started directly in the game is canceled cleanly when daRPC does not know
+its destination. Native entity pursuit preserves its existing timed retry.
 
 An in-bounds tile can still be unreachable. In that case, the command completes
 with `state: "failed"` and `failure: "no_path"`.

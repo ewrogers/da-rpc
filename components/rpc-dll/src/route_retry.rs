@@ -1,4 +1,5 @@
 const TIMEOUT_MS: u32 = 5_000;
+const STALL_TIMEOUT_MS: u32 = 1_200;
 const DELAYS_MS: [u32; 5] = [250, 350, 500, 750, 1_000];
 
 pub(crate) fn deadline(start_tick: u32) -> u32 {
@@ -17,9 +18,13 @@ pub(crate) fn tick_reached(now: u32, target: u32) -> bool {
     now.wrapping_sub(target) < (1 << 31)
 }
 
+pub(crate) fn stalled(now: u32, last_progress_tick: u32) -> bool {
+    tick_reached(now, last_progress_tick.wrapping_add(STALL_TIMEOUT_MS))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{deadline, delay_ms, tick_reached};
+    use super::{deadline, delay_ms, stalled, tick_reached};
 
     #[test]
     fn delay_increases_and_caps() {
@@ -42,5 +47,8 @@ mod tests {
         assert!(!tick_reached(u32::MAX - 100, wrapped_target));
         assert!(tick_reached(wrapped_target, wrapped_target));
         assert_eq!(deadline(u32::MAX - 2_000), 2_999);
+        assert!(!stalled(1_199, 0));
+        assert!(stalled(1_200, 0));
+        assert!(stalled(500, u32::MAX - 699));
     }
 }

@@ -8,6 +8,8 @@
   statics, and recover safely when a queued step becomes blocked.
 - Retained blocked ground-route destinations for bounded, progressively delayed
   retries when live occupants or doors temporarily leave no path.
+- Replanned locally accepted routes that receive no confirmed position progress
+  instead of leaving an empty native queue marked active indefinitely.
 
 ## 1.1.0 - 2026-08-10
 

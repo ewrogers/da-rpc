@@ -803,6 +803,7 @@ fn stored_kind(kind: CommandKind) -> (u8, u32, u32, u32, Option<StoredInput>) {
         ),
         CommandKind::Assail => (42, 0, 0, 0, None),
         CommandKind::InspectPlayer(id) => (43, id.get(), 0, 0, None),
+        CommandKind::Resync => (44, 0, 0, 0, None),
     }
 }
 
@@ -1028,6 +1029,7 @@ fn kind_from_value(
         43 => NonZeroU32::new(argument_x)
             .map(CommandKind::InspectPlayer)
             .unwrap_or(CommandKind::Diagnostic),
+        44 => CommandKind::Resync,
         _ => CommandKind::Diagnostic,
     }
 }
@@ -1182,6 +1184,7 @@ mod tests {
             CommandKind::Walk(WalkTarget::Destination { x: 120, y: 85 }),
             CommandKind::UseSkill(SkillSlot::new(7).unwrap()),
             CommandKind::Assail,
+            CommandKind::Resync,
         ];
 
         for kind in commands {

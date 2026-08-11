@@ -90,6 +90,7 @@ pub enum CommandKind {
     Raw(RawPacket),
     Assail,
     InspectPlayer(NonZeroU32),
+    Resync,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -605,6 +606,7 @@ pub(super) fn encode_kind(output: &mut Vec<u8>, kind: CommandKind) {
             output.push(23);
             push_u32(output, id.get());
         }
+        CommandKind::Resync => output.push(24),
     }
 }
 
@@ -783,6 +785,7 @@ pub(super) fn decode_kind(reader: &mut PayloadReader<'_>) -> Result<CommandKind,
         23 => NonZeroU32::new(reader.read_u32()?)
             .map(CommandKind::InspectPlayer)
             .ok_or(DecodeError::InvalidTransferTarget { actual: 1 }),
+        24 => Ok(CommandKind::Resync),
         actual => Err(DecodeError::InvalidCommandKind { actual }),
     }
 }
@@ -899,6 +902,13 @@ mod tests {
         let mut encoded = Vec::new();
         encode_kind(&mut encoded, CommandKind::Assail);
         assert_eq!(encoded, [22]);
+    }
+
+    #[test]
+    fn resync_command_has_a_stable_wire_discriminant() {
+        let mut encoded = Vec::new();
+        encode_kind(&mut encoded, CommandKind::Resync);
+        assert_eq!(encoded, [24]);
     }
 
     #[test]

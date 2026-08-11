@@ -1,8 +1,7 @@
-# Movement and emotes
+# Movement
 
-daRPC uses the client's normal main-thread actions for turning, movement, and
-emotes. Native pathfinding stays synchronized with the game and ordinary player
-input can still replace or cancel a route.
+daRPC uses the client's normal main-thread actions for turning and movement.
+Ordinary player input can still replace or cancel a route.
 
 | Use | Route or state |
 | --- | --- |
@@ -10,7 +9,7 @@ input can still replace or cancel a route.
 | Read the complete current planned route | `GET /clients/{client}/status` |
 | Turn | `POST /clients/{client}/turn` |
 | Step or walk to a tile | `POST /clients/{client}/walk` |
-| Play an emote | `POST /clients/{client}/emote` |
+| Request a server resynchronization | `POST /clients/{client}/resync` |
 | Watch movement changes | [Walking and character action events](events.md#walking-and-character-action-events) |
 
 ## Turning
@@ -25,36 +24,6 @@ curl --request POST \
 The direction must be `north`, `east`, `south`, or `west`. daRPC calls the
 client's native direction path on its main thread. An observed direction
 request produces `character.turned` with the requested direction.
-
-## Emotes
-
-```console
-curl --request POST \
-  --header "Content-Type: application/json" \
-  --data '{"name":"wave"}' \
-  "http://127.0.0.1:2626/clients/ZiLo/emote"
-```
-
-Names are case-insensitive. The confirmed names are:
-
-| Ctrl shortcut | Name | Code | Ctrl+Alt shortcut | Name | Code |
-| --- | --- | ---: | --- | --- | ---: |
-| Ctrl+1 | `smile` | 0 | Ctrl+Alt+1 | `rock` | 25 |
-| Ctrl+2 | `cry` | 1 | Ctrl+Alt+2 | `scissors` | 26 |
-| Ctrl+3 | `sad` | 2 | Ctrl+Alt+3 | `paper` | 27 |
-| Ctrl+4 | `wink` | 3 | Ctrl+Alt+4 | `oof` | 28 |
-| Ctrl+5 | `stunned` | 4 | Ctrl+Alt+5 | `speechless` | 29 |
-| Ctrl+6 | `raz` | 5 | Ctrl+Alt+6 | `blue` | 30 |
-| Ctrl+7 | `surprise` | 6 | Ctrl+Alt+7 | `blush` | 31 |
-| Ctrl+8 | `sleepy` | 7 | Ctrl+Alt+8 | `heart` | 32 |
-| Ctrl+9 | `yawn` | 8 | Ctrl+Alt+9 | `sweat` | 33 |
-| Ctrl+0 | `kiss` | 12 | Ctrl+Alt+0 | `sing` | 34 |
-| Ctrl+- | `wave` | 13 | Ctrl+Alt+- | `ack` | 35 |
-
-You may instead provide `{"code":13}`. Numeric codes also keep the unnamed
-Alt-only expressions available. A code must be one exposed by the client UI:
-0 through 8 or 12 through 35. An observed request produces
-`character.emoted` with the numeric code.
 
 ## Walking one step
 
@@ -85,30 +54,55 @@ Coordinates are zero-based and must satisfy `0 <= x < width` and
 tiles return `400 Bad Request`. A client that is not in game or has no current
 map returns `409 Conflict`.
 
-The client builds and follows its native ground route. Each planned edge must
-pass both the live collision view and the complete raw map view. This preserves
-current static changes and known dynamic occupants while preventing off-screen
-walls from being treated as empty merely because their rendered objects have
-not been created yet. daRPC does not select a living target, pursue it, or
-automatically attack. Ordinary player input can cancel or replace the route
-naturally.
+## Pathfinding
+
+For destination walks, daRPC asks the game client's own pathfinder to build the
+route. It does not choose a target, chase creatures, or attack automatically.
+The result is best effort because the world can change after a route is built
+and the server always has the final say about whether a step succeeds.
+
+The pathfinder checks two views of the map:
+
+- The complete map data prevents off-screen walls from being treated as open
+  space just because the client has not drawn them yet.
+- The live world view accounts for visible occupants, doors, and other current
+  changes.
+
+A route can therefore fail even when its destination is inside the map. When
+no route is available at command time, the command completes with
+`state: "failed"` and `failure: "no_path"`.
+
+### Recalculating a route
+
+daRPC keeps the requested destination while it is walking. It recalculates the
+route from the character's latest confirmed tile when a step is blocked, when
+an accepted step makes no confirmed progress for 1.2 seconds, or when the
+server sends an authoritative position correction.
 
 Every submitted step still passes the client's normal live safety check. If a
-later change blocks a daRPC-owned ground route, the stale queue is canceled and
-the retained destination is replanned on the next main-thread tick. If live
-occupants or a door leave no path at that instant, daRPC retains the destination
-for up to five seconds and retries with delays that increase from 250
-milliseconds to one second. daRPC also detects a locally accepted step that
-receives no confirmed position progress for 1.2 seconds, cancels the stale
-native route, and replans from the last confirmed tile. Recovery remains bounded
-to five seconds even if the client repeatedly accepts a step that the server
-does not confirm. A new movement request, map change, resumed native route,
-invalid client state, confirmed progress, or timeout cancels recovery. A failed
-route started directly in the game is canceled cleanly when daRPC does not know
-its destination. Native entity pursuit preserves its existing timed retry.
+new obstacle leaves no path at that moment, daRPC retries for up to five seconds.
+The delay grows from 250 milliseconds to one second so repeated attempts do not
+overload the client. A new movement request, a map change, invalid client state,
+confirmed progress, or the five-second limit ends that recovery attempt.
 
-An in-bounds tile can still be unreachable. In that case, the command completes
-with `state: "failed"` and `failure: "no_path"`.
+This recovery only applies to destination walks started by daRPC, because those
+have a known goal. Routes and creature pursuits started directly in the game
+keep their normal client behavior.
+
+## Resynchronizing position
+
+```console
+curl --request POST \
+  "http://127.0.0.1:2626/clients/ZiLo/resync"
+```
+
+This submits the same opcode-only refresh packet as the client's F5 key. The
+server normally responds by sending authoritative client state again. When an
+authoritative user-position packet arrives during a daRPC-owned walk, daRPC
+cancels the stale native route and rebuilds it from the corrected position to
+the retained destination on the next main-thread tick. This also applies when
+the server initiates the correction after rejecting a step or detecting a
+collision; calling `/resync` is not required for route recovery.
 
 ## Walking events
 

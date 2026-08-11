@@ -321,7 +321,7 @@ with another map.
 ## Walking and character action events
 
 Read the current flags and position from `GET /clients/{client}/status`. See
-[Movement and emotes](movement.md) for the action routes.
+[Movement](movement.md) and [Emotes](emotes.md) for the action routes.
 
 | SSE event | JSON type |
 | --- | --- |

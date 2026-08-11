@@ -35,6 +35,7 @@ pub(crate) mod legend;
 pub(crate) mod movement;
 pub(crate) mod player;
 pub(crate) mod raw;
+pub(crate) mod resync;
 pub(crate) mod who;
 
 pub(crate) use ability::{
@@ -297,6 +298,7 @@ pub(crate) enum CommandKind {
     InspectPlayer,
     Raw,
     Assail,
+    Resync,
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
@@ -655,6 +657,7 @@ impl From<ProtocolKind> for CommandKind {
             ProtocolKind::Raw(_) => Self::Raw,
             ProtocolKind::Assail => Self::Assail,
             ProtocolKind::InspectPlayer(_) => Self::InspectPlayer,
+            ProtocolKind::Resync => Self::Resync,
         }
     }
 }

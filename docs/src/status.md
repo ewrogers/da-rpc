@@ -89,7 +89,7 @@ PlannedRoute {
 
 `planned_route.tiles` contains the complete native plan from the current tile
 through the goal. It is replaced atomically after pathfinder rebuilds and as
-confirmed steps are consumed. See [Movement and emotes](movement.md#walking-events)
+confirmed steps are consumed. See [Movement](movement.md#walking-events)
 for generation and empty-route behavior.
 
 ## Client lifecycle
@@ -177,4 +177,4 @@ state. A closed process also closes its stream. Consumers should reread status
 after reconnecting.
 
 See [World](world.md) for map transitions and
-[Movement and emotes](movement.md) for route details.
+[Movement](movement.md) for route details.

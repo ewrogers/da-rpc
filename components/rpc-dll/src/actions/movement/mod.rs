@@ -1,4 +1,5 @@
 use super::{module_base, read};
+use crate::route_retry;
 use darpc_game_client::{
     ADVANCE_PATH_RVA, BUILD_PATH_RVA, RESET_MOVEMENT_RVA, SELF_OBJECT_RVA, TURN_RVA, WALK_RVA,
     WORLD_ENTITY_INTERACTION_RVA, WORLD_PANE_ADJUSTMENT, WORLD_PANE_POINTER_RVA,
@@ -10,7 +11,7 @@ use std::{
     ffi::c_void,
     mem,
     ptr::NonNull,
-    sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicUsize, Ordering},
 };
 
 const LOCAL_Y_OFFSET: usize = 0x40;
@@ -31,12 +32,17 @@ static ROUTE_DESTINATION_X: AtomicI32 = AtomicI32::new(0);
 static ROUTE_DESTINATION_Y: AtomicI32 = AtomicI32::new(0);
 static REPLAN_PENDING: AtomicBool = AtomicBool::new(false);
 static REPLAN_WORLD: AtomicUsize = AtomicUsize::new(0);
+static REPLAN_DUE_TICK: AtomicU32 = AtomicU32::new(0);
+static REPLAN_DEADLINE_TICK: AtomicU32 = AtomicU32::new(0);
+static REPLAN_ATTEMPT: AtomicU32 = AtomicU32::new(0);
 
 pub(super) fn turn(direction: Direction) -> Result<(), CommandFailure> {
+    clear_route_destination();
     Movement::resolve()?.turn(direction)
 }
 
 pub(super) fn walk(direction: Direction) -> Result<(), CommandFailure> {
+    clear_route_destination();
     Movement::resolve()?.walk(direction)
 }
 
@@ -101,8 +107,15 @@ pub(crate) fn route_destination() -> Option<TilePosition> {
 
 pub(crate) fn clear_route_destination() {
     HAS_ROUTE_DESTINATION.store(false, Ordering::Release);
+    clear_replan();
+}
+
+fn clear_replan() {
     REPLAN_PENDING.store(false, Ordering::Release);
     REPLAN_WORLD.store(0, Ordering::Release);
+    REPLAN_DUE_TICK.store(0, Ordering::Release);
+    REPLAN_DEADLINE_TICK.store(0, Ordering::Release);
+    REPLAN_ATTEMPT.store(0, Ordering::Release);
 }
 
 pub(crate) fn reset_tracking() {
@@ -110,22 +123,45 @@ pub(crate) fn reset_tracking() {
 }
 
 pub(crate) fn observe_tick() {
-    if !REPLAN_PENDING.swap(false, Ordering::AcqRel) {
+    if !REPLAN_PENDING.load(Ordering::Acquire) {
         return;
     }
-    let expected_world = REPLAN_WORLD.swap(0, Ordering::AcqRel);
+    let tick_ms = darpc_win32::pipe::sender_tick_ms();
+    if route_retry::tick_reached(tick_ms, REPLAN_DEADLINE_TICK.load(Ordering::Acquire)) {
+        clear_route_destination();
+        return;
+    }
+    let expected_world = REPLAN_WORLD.load(Ordering::Acquire);
     let Some(destination) = route_destination() else {
+        clear_replan();
         return;
     };
     let Ok(movement) = Movement::resolve() else {
         clear_route_destination();
         return;
     };
-    if movement.world.as_ptr() as usize != expected_world
-        || movement.walk_to(destination.x, destination.y).is_err()
-    {
+    if movement.world.as_ptr() as usize != expected_world {
         clear_route_destination();
+        return;
     }
+    if movement.route_active() == Some(true) {
+        clear_route_destination();
+        return;
+    }
+    if !route_retry::tick_reached(tick_ms, REPLAN_DUE_TICK.load(Ordering::Acquire)) {
+        return;
+    }
+
+    REPLAN_PENDING.store(false, Ordering::Release);
+    match movement.walk_to(destination.x, destination.y) {
+        Ok(()) => clear_replan(),
+        Err(CommandFailure::NoPath) => schedule_next_replan(tick_ms),
+        Err(_) => clear_route_destination(),
+    }
+}
+
+pub(crate) fn is_replan_pending() -> bool {
+    REPLAN_PENDING.load(Ordering::Acquire)
 }
 
 /// Records a queued-step result and returns the native reset mode to apply.
@@ -144,10 +180,26 @@ pub(crate) fn queued_step_reset_mode(world: *mut c_void, moved: bool) -> Option<
         return Some(1);
     }
     if HAS_ROUTE_DESTINATION.load(Ordering::Acquire) {
-        REPLAN_WORLD.store(world as usize, Ordering::Relaxed);
-        REPLAN_PENDING.store(true, Ordering::Release);
+        start_replan(world as usize, darpc_win32::pipe::sender_tick_ms());
     }
     Some(0)
+}
+
+fn start_replan(world: usize, tick_ms: u32) {
+    REPLAN_WORLD.store(world, Ordering::Relaxed);
+    REPLAN_DUE_TICK.store(tick_ms, Ordering::Relaxed);
+    REPLAN_DEADLINE_TICK.store(route_retry::deadline(tick_ms), Ordering::Relaxed);
+    REPLAN_ATTEMPT.store(0, Ordering::Relaxed);
+    REPLAN_PENDING.store(true, Ordering::Release);
+}
+
+fn schedule_next_replan(tick_ms: u32) {
+    let attempt = REPLAN_ATTEMPT.fetch_add(1, Ordering::AcqRel);
+    REPLAN_DUE_TICK.store(
+        tick_ms.wrapping_add(route_retry::delay_ms(attempt)),
+        Ordering::Relaxed,
+    );
+    REPLAN_PENDING.store(true, Ordering::Release);
 }
 
 struct Movement {

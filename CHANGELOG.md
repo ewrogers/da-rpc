@@ -6,6 +6,8 @@
 
 - Made long-range native routes combine live collision with complete raw map
   statics, and recover safely when a queued step becomes blocked.
+- Retained blocked ground-route destinations for bounded, progressively delayed
+  retries when live occupants or doors temporarily leave no path.
 
 ## 1.1.0 - 2026-08-10
 

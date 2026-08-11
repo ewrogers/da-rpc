@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.1.1 - 2026-08-11
+
 ### Fixed
 
 - Made long-range native routes combine live collision with complete raw map

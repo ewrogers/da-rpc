@@ -7,6 +7,7 @@ input can still replace or cancel a route.
 | Use | Route or state |
 | --- | --- |
 | Read position and walking state | `GET /clients/{client}/status` |
+| Read the complete current planned route | `GET /clients/{client}/status` |
 | Turn | `POST /clients/{client}/turn` |
 | Step or walk to a tile | `POST /clients/{client}/walk` |
 | Play an emote | `POST /clients/{client}/emote` |
@@ -93,6 +94,28 @@ with `state: "failed"` and `failure: "no_path"`.
 
 ## Walking events
 
+`planned_route` on character status retains the client's current native plan:
+
+```text
+planned_route: {
+    generation: u32,
+    tiles: [{ x: i32, y: i32 }, ...]
+}
+```
+
+`tiles` is absolute and ordered from the character's current tile through the
+goal. It is empty when no queued path remains. `planned_route` is null only
+before route telemetry is available, such as outside a supported in-game
+world.
+
+`walking.route_changed` carries the same `generation` and complete `tiles`
+array whenever the native plan changes. A new pathfinder build advances the
+generation even if it chooses the same tiles. Confirmed movement consumes the
+front step without changing the generation, so the next event has a shorter
+array beginning at the new current tile. Native pursuit can rebuild its plan
+repeatedly; each observed rebuild is therefore a separate revision. Consumers
+replace their saved route with the event payload rather than merging arrays.
+
 `walking.started` includes the current position and the requested destination
 when daRPC knows it.
 
@@ -102,7 +125,9 @@ position equals the requested tile. A route started directly through the game
 may not expose a reliable destination, so its destination and outcome can be
 null.
 
-Both route events update `is_walking` in [character status](status.md).
+The started and stopped events update `is_walking` in
+[character status](status.md). `walking.route_changed` updates
+`planned_route`; its empty array is the authoritative cleared plan.
 
 ## Command completion
 

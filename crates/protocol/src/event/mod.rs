@@ -197,6 +197,10 @@ fn encode_event(output: &mut Vec<u8>, event: &StateEvent) -> Result<(), EncodeEr
             crate::player::encode_optional_identity(output, update.previous.as_ref())?;
             crate::player::encode_identity(output, &update.current)?;
         }
+        StateUpdate::PlannedRoute(route) => {
+            output.push(22);
+            crate::snapshot::encode_planned_route(output, route)?;
+        }
         StateUpdate::Status(update) => {
             output.push(1);
             encode_status(output, *update);
@@ -334,6 +338,7 @@ fn decode_event(reader: &mut PayloadReader<'_>) -> Result<StateEvent, DecodeErro
             previous: crate::player::decode_optional_identity(reader)?,
             current: crate::player::decode_identity(reader)?,
         }),
+        22 => StateUpdate::PlannedRoute(crate::snapshot::decode_planned_route(reader)?),
         1 => StateUpdate::Status(decode_status(reader)?),
         2 => StateUpdate::Location(decode_location(reader)?),
         3 => StateUpdate::Effect(decode_effect(reader)?),

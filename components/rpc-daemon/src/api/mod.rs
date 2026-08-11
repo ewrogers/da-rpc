@@ -58,6 +58,7 @@ use serde::{Deserialize, Serialize};
 use std::{
     io,
     net::{SocketAddrV4, TcpListener},
+    path::PathBuf,
     sync::{
         Arc, Mutex, RwLock,
         mpsc::{self, Sender, SyncSender, TrySendError},
@@ -70,6 +71,7 @@ use utoipa_swagger_ui::SwaggerUi;
 
 mod clients;
 mod lifecycle;
+mod maps;
 mod schema;
 
 use clients::*;
@@ -91,6 +93,7 @@ pub(crate) struct ApiState {
     published_events: broadcast::Sender<PublishedEvent>,
     messages: Arc<RwLock<MessageStore>>,
     spell_feedback: Arc<Mutex<SpellFeedbackTrackers>>,
+    maps_directory: Arc<RwLock<Option<PathBuf>>>,
 }
 
 impl ApiState {
@@ -111,6 +114,7 @@ impl ApiState {
             published_events,
             messages: Arc::new(RwLock::new(MessageStore::default())),
             spell_feedback: Arc::new(Mutex::new(SpellFeedbackTrackers::default())),
+            maps_directory: Arc::new(RwLock::new(None)),
         }
     }
 
@@ -118,6 +122,34 @@ impl ApiState {
     pub(crate) fn with_command_sender(mut self, commands: SyncSender<CommandCall>) -> Self {
         self.commands = commands;
         self
+    }
+
+    #[must_use]
+    pub(crate) fn with_maps_directory(self, directory: Option<PathBuf>) -> Self {
+        *self
+            .maps_directory
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = directory;
+        self
+    }
+
+    pub(crate) fn set_maps_directory_if_unset(&self, directory: PathBuf) -> bool {
+        let mut current = self
+            .maps_directory
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if current.is_some() {
+            return false;
+        }
+        *current = Some(directory);
+        true
+    }
+
+    pub(crate) fn maps_directory(&self) -> Option<PathBuf> {
+        self.maps_directory
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
     }
 
     pub(crate) fn publish(&self, snapshot: RegistrySnapshot) {
@@ -357,6 +389,7 @@ pub(crate) fn start(address: SocketAddrV4, state: ApiState) -> io::Result<JoinHa
 fn router(state: ApiState) -> Router {
     Router::<ApiState>::new()
         .route("/health", get(health))
+        .route("/maps/{map_id}/download", get(maps::download))
         .route("/clients", get(clients))
         .route("/clients/{client}/status", get(client_status))
         .route("/clients/{client}/dialog", get(client_dialog))
@@ -626,6 +659,7 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
 #[openapi(
     paths(
         health,
+        maps::download,
         clients,
         client_status,
         client_dialog,

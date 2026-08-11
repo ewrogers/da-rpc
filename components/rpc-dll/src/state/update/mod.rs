@@ -44,6 +44,9 @@ impl QueuedStateEvent {
             QueuedStateUpdate::CharacterProfile(update) => {
                 StateUpdate::CharacterProfile(crate::player::take_identity(update)?)
             }
+            QueuedStateUpdate::PlannedRoute(update) => {
+                StateUpdate::PlannedRoute(crate::route::take(update)?)
+            }
         };
         Some(StateEvent {
             sequence: self.sequence,
@@ -71,6 +74,9 @@ impl QueuedStateEvent {
         }
         if let QueuedStateUpdate::CharacterProfile(update) = self.update {
             crate::player::release_identity(update);
+        }
+        if let QueuedStateUpdate::PlannedRoute(update) = self.update {
+            crate::route::release(update);
         }
     }
 }
@@ -101,6 +107,7 @@ pub(super) enum QueuedStateUpdate {
     Legend(crate::legend::QueuedLegend),
     Player(crate::player::QueuedPlayer),
     CharacterProfile(crate::player::QueuedCharacterProfile),
+    PlannedRoute(crate::route::QueuedRoute),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

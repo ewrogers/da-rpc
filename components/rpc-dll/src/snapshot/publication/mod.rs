@@ -3,6 +3,7 @@ use super::convert;
 use crate::dialog::RawDialog;
 use crate::exchange::RawExchange;
 use crate::legend::RawLegendState;
+use crate::route::RawRoute;
 use darpc_game_client::{RawObjects, RawStateSnapshot, StateReadError};
 use darpc_model::ClientSnapshot;
 use darpc_win32::pipe::sender_tick_ms;
@@ -48,6 +49,7 @@ pub(super) fn read() -> Option<Publication> {
                 reader.dialog(),
                 reader.exchange(),
                 reader.legend(),
+                reader.route(),
             )
         }),
     })
@@ -61,6 +63,7 @@ struct PublicationSlot {
     dialog: UnsafeCell<RawDialog>,
     exchange: UnsafeCell<RawExchange>,
     legend: UnsafeCell<RawLegendState>,
+    route: UnsafeCell<RawRoute>,
 }
 
 // SAFETY: access to `value` is exclusively transferred between the main-thread
@@ -77,6 +80,7 @@ impl PublicationSlot {
             dialog: UnsafeCell::new(RawDialog::empty()),
             exchange: UnsafeCell::new(RawExchange::empty()),
             legend: UnsafeCell::new(RawLegendState::empty()),
+            route: UnsafeCell::new(RawRoute::empty()),
         }
     }
 
@@ -161,6 +165,9 @@ impl PublicationWriter<'_> {
         // SAFETY: publication runs on the main thread while this writer owns
         // the destination slot, so the legend copy is stable.
         unsafe { crate::legend::copy_current(&mut *self.slot.legend.get()) };
+        // SAFETY: publication runs on the main thread while this writer owns
+        // the destination slot, so the route copy is stable.
+        unsafe { crate::route::copy_current(&mut *self.slot.route.get()) };
         self.finish(StoredPublication {
             request_generation,
             result: Ok(ReadyPublication {
@@ -232,6 +239,11 @@ impl PublicationReader<'_> {
     fn legend(&self) -> &RawLegendState {
         // SAFETY: READING excludes the writer for this reader's lifetime.
         unsafe { &*self.slot.legend.get() }
+    }
+
+    fn route(&self) -> &RawRoute {
+        // SAFETY: READING excludes the writer for this reader's lifetime.
+        unsafe { &*self.slot.route.get() }
     }
 }
 

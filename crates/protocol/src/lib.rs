@@ -47,8 +47,8 @@ pub use session::{
     SessionError, negotiate_version,
 };
 pub use snapshot::{
-    MAX_CHARACTER_NAME_LEN, MAX_MAP_NAME_LEN, SnapshotRequest, SnapshotResponse, SnapshotResult,
-    SnapshotUnavailableReason,
+    MAX_CHARACTER_NAME_LEN, MAX_MAP_NAME_LEN, MAX_PLANNED_ROUTE_TILES, SnapshotRequest,
+    SnapshotResponse, SnapshotResult, SnapshotUnavailableReason,
 };
 
 /// Returns the elapsed millisecond ticks using the same wrapping arithmetic as

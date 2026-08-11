@@ -25,6 +25,7 @@ Status {
     lifecycle: ClientLifecycle,
     character: Character?,
     map: MapLocation?,
+    planned_route: PlannedRoute?,
 }
 ```
 
@@ -79,7 +80,17 @@ MapLocation {
     width: i32,
     height: i32,
 }
+
+PlannedRoute {
+    generation: u32,
+    tiles: Vec<{ x: i32, y: i32 }>,
+}
 ```
+
+`planned_route.tiles` contains the complete native plan from the current tile
+through the goal. It is replaced atomically after pathfinder rebuilds and as
+confirmed steps are consumed. See [Movement and emotes](movement.md#walking-events)
+for generation and empty-route behavior.
 
 ## Client lifecycle
 
@@ -151,6 +162,7 @@ Listen on `GET /clients/{client}/events`. These events update status:
 | `location.changed` | Absolute x/y and, when applicable, an atomic map change |
 | `walking.started` | Native pathfinding began a queued route |
 | `walking.stopped` | The queued route ended or was interrupted |
+| `walking.route_changed` | The complete native planned route was rebuilt, consumed, or cleared |
 | `spell.begin` | A delayed cast began and `is_casting` became true |
 | `spell.cast` | A cast completed and `is_casting` became false |
 | `spell.cancelled` | A delayed cast ended without casting |

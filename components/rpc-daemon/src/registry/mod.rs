@@ -551,6 +551,7 @@ mod tests {
             group: None,
             exchange: None,
             legend: None,
+            planned_route: None,
         }
     }
 

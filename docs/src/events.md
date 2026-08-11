@@ -327,6 +327,7 @@ Read the current flags and position from `GET /clients/{client}/status`. See
 | --- | --- |
 | `walking.started` | `walking_started` |
 | `walking.stopped` | `walking_stopped` |
+| `walking.route_changed` | `walking_route_changed` |
 | `character.turned` | `turned` |
 | `character.emoted` | `emoted` |
 
@@ -342,6 +343,12 @@ walking.stopped {
     current: TilePosition,
     destination: TilePosition?,
     reached_destination: bool?,
+}
+
+walking.route_changed {
+    observation: EventObservation,
+    generation: u32,
+    tiles: Vec<TilePosition>,
 }
 
 character.turned {
@@ -797,7 +804,7 @@ trying to infer state from only the changed field.
 | Stream | `stream.ready`, `stream.resync_required`, `stream.closed` | Reread every resource the consumer uses. |
 | Client lifecycle | `client.logged_in`, `client.disconnected` | `/status` |
 | Status | `stats.changed`, `vitals.changed`, `progression.changed`, `gold.changed`, `weight.changed`, `modifiers.changed`, `location.changed`, `blind.changed`, `action_restriction.changed`, `character.profile_changed` | `/status` |
-| Walking | `walking.started`, `walking.stopped`, `character.turned`, `character.emoted` | `/status` |
+| Walking | `walking.started`, `walking.stopped`, `walking.route_changed`, `character.turned`, `character.emoted` | `/status` |
 | Inventory | `item.added`, `item.removed`, `item.changed`, `item.used`, `item.dropped`, `item.given`, `item.picked_up`, `gold.dropped`, `gold.given` | `/items`, then `/status` for gold |
 | Equipment | `equipment.unequipped` | `/equipment` |
 | Skills | `skill.added`, `skill.removed`, `skill.changed`, `skill.used` | `/skills` |

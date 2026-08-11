@@ -11,7 +11,7 @@ use crate::{
 };
 use axum::{
     body::{Body, to_bytes},
-    http::{Request, StatusCode},
+    http::{Request, StatusCode, header},
 };
 use chrono::DateTime;
 use darpc_model::{
@@ -28,11 +28,11 @@ use darpc_model::{
     ExchangeOffer as ModelExchangeOffer, ExchangeState as ModelExchangeState, Gender,
     InventoryItem as ModelInventoryItem, LegendIcon as ModelLegendIcon,
     LegendMark as ModelLegendMark, MapLocation, MessageKind as ModelMessageKind,
-    Nation as ModelNation, PlayerEquipmentItem as ModelPlayerEquipmentItem,
-    PlayerIdentity as ModelPlayerIdentity, PlayerProfile as ModelPlayerProfile,
-    Skill as ModelSkill, Spell as ModelSpell, SpellCastArguments as ModelSpellCastArguments,
-    SpellTargetType as ModelSpellTargetType, StateEvent, StateUpdate,
-    WorldObject as ModelWorldObject,
+    Nation as ModelNation, PlannedRoute as ModelPlannedRoute,
+    PlayerEquipmentItem as ModelPlayerEquipmentItem, PlayerIdentity as ModelPlayerIdentity,
+    PlayerProfile as ModelPlayerProfile, Skill as ModelSkill, Spell as ModelSpell,
+    SpellCastArguments as ModelSpellCastArguments, SpellTargetType as ModelSpellTargetType,
+    StateEvent, StateUpdate, TilePosition as ModelTilePosition, WorldObject as ModelWorldObject,
 };
 use darpc_protocol::{
     Architecture, ChantText, CommandKind, CommandOperation, CommandResult, CommandState,
@@ -43,8 +43,14 @@ use darpc_protocol::{
 };
 use serde_json::Value;
 use std::{
+    fs,
     net::{Ipv4Addr, SocketAddrV4, TcpListener},
-    sync::{Arc, mpsc},
+    path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+        mpsc,
+    },
 };
 use tower::ServiceExt as _;
 
@@ -261,6 +267,13 @@ fn game_snapshot() -> ModelClientSnapshot {
         group: None,
         exchange: None,
         legend: None,
+        planned_route: Some(ModelPlannedRoute {
+            generation: 17,
+            tiles: vec![
+                ModelTilePosition { x: 11, y: 22 },
+                ModelTilePosition { x: 12, y: 22 },
+            ],
+        }),
     }
 }
 
@@ -403,6 +416,72 @@ fn text(path: &str) -> String {
             let bytes = to_bytes(response.into_body(), 64 * 1024).await.unwrap();
             String::from_utf8(bytes.to_vec()).unwrap()
         })
+}
+
+static NEXT_MAP_DIRECTORY: AtomicU64 = AtomicU64::new(0);
+
+fn map_directory() -> PathBuf {
+    std::env::temp_dir().join(format!(
+        "darpc-map-download-{}-{}",
+        std::process::id(),
+        NEXT_MAP_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+    ))
+}
+
+#[test]
+fn downloads_configured_map_bytes_and_reports_missing_maps() {
+    let directory = map_directory();
+    fs::create_dir(&directory).unwrap();
+    fs::write(directory.join("lod3001.map"), [0x00, 0x7f, 0x80, 0xff]).unwrap();
+    let state = state().with_maps_directory(Some(directory.clone()));
+    assert!(!state.set_maps_directory_if_unset("ignored".into()));
+
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(async {
+            let response = router(state.clone())
+                .oneshot(
+                    Request::get("/maps/3001/download")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(
+                response.headers()[header::CONTENT_TYPE],
+                "application/octet-stream"
+            );
+            assert_eq!(
+                response.headers()[header::CONTENT_DISPOSITION],
+                "attachment; filename=\"lod3001.map\""
+            );
+            assert_eq!(
+                to_bytes(response.into_body(), 1024).await.unwrap().as_ref(),
+                [0x00, 0x7f, 0x80, 0xff]
+            );
+
+            let missing = router(state)
+                .oneshot(
+                    Request::get("/maps/3002/download")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+            let missing: Value =
+                serde_json::from_slice(&to_bytes(missing.into_body(), 1024).await.unwrap())
+                    .unwrap();
+            assert_eq!(missing["error"]["code"], "map_not_found");
+        });
+
+    fs::remove_dir_all(directory).unwrap();
+    assert_eq!(
+        response("/maps/3001/download").status(),
+        StatusCode::NOT_FOUND
+    );
 }
 
 fn state_with_status(event: ConnectionEvent) -> (ApiState, mpsc::Receiver<DaemonEvent>) {
@@ -1255,6 +1334,8 @@ fn serves_health_and_client_resources() {
     assert!(status["character"].get("skillbook").is_none());
     assert_eq!(status["character"]["progression"]["level"], 50);
     assert_eq!(status["map"]["x"], 11);
+    assert_eq!(status["planned_route"]["generation"], 17);
+    assert_eq!(status["planned_route"]["tiles"][1]["x"], 12);
 
     let inventory = json("/clients/silo/items");
     assert_eq!(inventory["observation"]["revision"], 3);
@@ -1557,6 +1638,12 @@ fn serves_the_openapi_contract_and_vendored_swagger_ui() {
     assert_eq!(openapi["info"]["title"], "daRPC API");
     assert!(openapi["paths"]["/health"].is_object());
     assert!(openapi["paths"]["/clients"].is_object());
+    assert!(openapi["paths"]["/maps/{map_id}/download"].is_object());
+    assert!(
+        openapi["paths"]["/maps/{map_id}/download"]["get"]["responses"]["200"]["content"]
+            ["application/octet-stream"]
+            .is_object()
+    );
     for path in [
         "/clients/{client}/status",
         "/clients/{client}/items",
@@ -1622,6 +1709,8 @@ fn serves_the_openapi_contract_and_vendored_swagger_ui() {
         "ConnectionMetadata",
         "ObservationMetadata",
         "GameStatus",
+        "PlannedRoute",
+        "RouteTile",
         "ClientLifecycle",
         "CharacterStatus",
         "CharacterGender",
@@ -1672,6 +1761,7 @@ fn serves_the_openapi_contract_and_vendored_swagger_ui() {
         "InventorySlotChanged",
         "SpellSlotChanged",
         "SkillSlotChanged",
+        "WalkingRouteChanged",
         "StreamResyncRequired",
         "StreamClosed",
         "DiagnosticOptions",

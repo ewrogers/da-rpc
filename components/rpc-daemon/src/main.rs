@@ -42,7 +42,8 @@ const DEFAULT_PORT: u16 = 2626;
 const USAGE: &str = concat!(
     "usage: darpcd [--pid <pid> ...] [--port <port> | --listen <ipv4[:port]>] ",
     "[--auto-load] ",
-    "[--loader-path <path>] [--dll-path <path>]\n       darpcd --print-openapi"
+    "[--loader-path <path>] [--dll-path <path>] [--maps-path <path>]\n       ",
+    "darpcd --print-openapi"
 );
 
 #[derive(Debug, Eq, PartialEq)]
@@ -52,6 +53,7 @@ struct Options {
     auto_load: bool,
     loader_path: Option<PathBuf>,
     dll_path: Option<PathBuf>,
+    maps_path: Option<PathBuf>,
     print_openapi: bool,
 }
 
@@ -87,6 +89,7 @@ fn parse_options(arguments: impl IntoIterator<Item = OsString>) -> Result<Option
     let mut auto_load = false;
     let mut loader_path = None;
     let mut dll_path = None;
+    let mut maps_path = None;
     let mut print_openapi = false;
 
     while let Some(option) = arguments.next() {
@@ -144,6 +147,8 @@ fn parse_options(arguments: impl IntoIterator<Item = OsString>) -> Result<Option
             parse_path_option(&mut arguments, &mut loader_path, "--loader-path")?;
         } else if option == "--dll-path" {
             parse_path_option(&mut arguments, &mut dll_path, "--dll-path")?;
+        } else if option == "--maps-path" {
+            parse_path_option(&mut arguments, &mut maps_path, "--maps-path")?;
         } else if option == "--print-openapi" {
             if print_openapi {
                 return Err("--print-openapi may be provided only once".into());
@@ -160,7 +165,8 @@ fn parse_options(arguments: impl IntoIterator<Item = OsString>) -> Result<Option
             || listen.is_some()
             || auto_load
             || loader_path.is_some()
-            || dll_path.is_some())
+            || dll_path.is_some()
+            || maps_path.is_some())
     {
         return Err("--print-openapi cannot be combined with server options".into());
     }
@@ -176,6 +182,7 @@ fn parse_options(arguments: impl IntoIterator<Item = OsString>) -> Result<Option
         auto_load,
         loader_path,
         dll_path,
+        maps_path,
         print_openapi,
     })
 }
@@ -248,6 +255,20 @@ fn run(options: Options) -> Result<(), String> {
         .parent()
         .ok_or_else(|| "darpcd.exe has no parent directory".to_owned())?
         .to_owned();
+    let maps_directory = options
+        .maps_path
+        .map(|path| {
+            std::fs::canonicalize(&path)
+                .map_err(|error| {
+                    format!("failed to resolve maps path `{}`: {error}", path.display())
+                })
+                .and_then(|resolved| {
+                    resolved.is_dir().then_some(resolved).ok_or_else(|| {
+                        format!("maps path is not a directory: `{}`", path.display())
+                    })
+                })
+        })
+        .transpose()?;
     let loader_path = options
         .loader_path
         .unwrap_or_else(|| component_directory.join("loader.exe"));
@@ -272,7 +293,11 @@ fn run(options: Options) -> Result<(), String> {
     }
 
     let api_state = ApiState::new(registry.snapshot(), Arc::clone(&lifecycle), sender.clone())
-        .with_command_sender(command_sender);
+        .with_command_sender(command_sender)
+        .with_maps_directory(maps_directory.clone());
+    for &pid in workers.keys() {
+        discover_maps_directory(&api_state, pid);
+    }
     let _api_worker = api::start(options.listen, api_state.clone())
         .map_err(|error| format!("failed to listen on {}: {error}", options.listen))?;
     if !options.listen.ip().is_loopback() {
@@ -284,6 +309,13 @@ fn run(options: Options) -> Result<(), String> {
     println!("HTTP API listening on http://{}", options.listen);
     println!("loader path: {}", loader_path.display());
     println!("DLL path: {}", dll_path.display());
+    println!(
+        "maps path: {}",
+        api_state.maps_directory().as_deref().map_or_else(
+            || "automatic discovery pending".into(),
+            |path| path.display().to_string()
+        )
+    );
     println!(
         "auto-load: {}",
         if options.auto_load {
@@ -401,6 +433,7 @@ fn run(options: Options) -> Result<(), String> {
                 auto_load.suppress(pid);
                 launch_grace.insert(pid, Instant::now() + LAUNCH_DISCOVERY_GRACE);
                 track_client(pid, &sender, &mut workers, &mut registry);
+                discover_maps_directory(&api_state, pid);
                 api_state.publish(registry.snapshot());
             }
             Ok(DaemonEvent::CommandsReady) => {
@@ -438,6 +471,7 @@ fn run(options: Options) -> Result<(), String> {
         let mut changed = false;
         for &pid in &desired {
             changed |= track_client(pid, &sender, &mut workers, &mut registry);
+            discover_maps_directory(&api_state, pid);
         }
 
         let removed = workers
@@ -457,6 +491,22 @@ fn run(options: Options) -> Result<(), String> {
             api_state.publish(registry.snapshot());
             let _ = std::io::stdout().flush();
         }
+    }
+}
+
+#[cfg(windows)]
+fn discover_maps_directory(state: &api::ApiState, pid: u32) {
+    if state.maps_directory().is_some() {
+        return;
+    }
+    let Ok(directory) = discovery::client_maps_directory(pid) else {
+        return;
+    };
+    let Ok(directory) = std::fs::canonicalize(directory) else {
+        return;
+    };
+    if directory.is_dir() && state.set_maps_directory_if_unset(directory.clone()) {
+        println!("maps path: auto-detected {}", directory.display());
     }
 }
 
@@ -534,6 +584,7 @@ mod tests {
                 auto_load: false,
                 loader_path: None,
                 dll_path: None,
+                maps_path: None,
                 print_openapi: false,
             }
         );
@@ -545,6 +596,7 @@ mod tests {
                 auto_load: false,
                 loader_path: None,
                 dll_path: None,
+                maps_path: None,
                 print_openapi: false,
             }
         );
@@ -558,6 +610,8 @@ mod tests {
                 "tools/loader.exe",
                 "--dll-path",
                 "tools/darpc.dll",
+                "--maps-path",
+                "C:\\Dark Ages\\Maps",
             ]))
             .unwrap(),
             Options {
@@ -566,6 +620,7 @@ mod tests {
                 auto_load: false,
                 loader_path: Some("tools/loader.exe".into()),
                 dll_path: Some("tools/darpc.dll".into()),
+                maps_path: Some("C:\\Dark Ages\\Maps".into()),
                 print_openapi: false,
             }
         );
@@ -604,6 +659,7 @@ mod tests {
         assert!(parse_options(arguments(&["--pid", "7", "--pid", "7"])).is_err());
         assert!(parse_options(arguments(&["--pids", "7,8"])).is_err());
         assert!(parse_options(arguments(&["--client-path", "Darkages.exe"])).is_err());
+        assert!(parse_options(arguments(&["--maps-path", ""])).is_err());
         assert!(parse_options(arguments(&["--auto-load", "--auto-load"])).is_err());
         assert!(parse_options(arguments(&["--print-openapi", "--port", "2626"])).is_err());
         assert!(parse_options(arguments(&["--print-openapi", "--print-openapi"])).is_err());
@@ -630,6 +686,15 @@ mod tests {
                 "first.exe",
                 "--loader-path",
                 "second.exe",
+            ]))
+            .is_err()
+        );
+        assert!(
+            parse_options(arguments(&[
+                "--maps-path",
+                "first",
+                "--maps-path",
+                "second",
             ]))
             .is_err()
         );

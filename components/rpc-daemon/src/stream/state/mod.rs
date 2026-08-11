@@ -261,6 +261,13 @@ pub(crate) struct WalkingStopped {
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
+pub(crate) struct WalkingRouteChanged {
+    pub(super) observation: EventObservation,
+    pub(super) generation: u32,
+    pub(super) tiles: Vec<TilePosition>,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
 pub(crate) struct ActionRestrictionChanged {
     pub(super) observation: EventObservation,
     pub(super) is_action_restricted: bool,
@@ -409,6 +416,14 @@ pub(super) fn expand(
                     reached_destination,
                 }),
             });
+            return events;
+        }
+        StateUpdate::PlannedRoute(route) => {
+            events.push(ClientEvent::WalkingRouteChanged(WalkingRouteChanged {
+                observation,
+                generation: route.generation,
+                tiles: route.tiles.into_iter().map(Into::into).collect(),
+            }));
             return events;
         }
         StateUpdate::Effect(update) => {

@@ -2,7 +2,7 @@ use super::{render_human, render_json};
 use darpc_model::{
     ClientLifecycle, ClientSnapshot, DialogChoice, DialogInteraction, DialogKind, DialogNavigation,
     DialogSpeaker, DialogSpriteType, DialogState, DialogTarget, ExchangeItem, ExchangeOffer,
-    ExchangeState,
+    ExchangeState, PlannedRoute, TilePosition,
 };
 
 fn snapshot() -> ClientSnapshot {
@@ -57,6 +57,10 @@ fn snapshot() -> ClientSnapshot {
             other: ExchangeOffer::default(),
         }),
         legend: None,
+        planned_route: Some(PlannedRoute {
+            generation: 8,
+            tiles: vec![TilePosition { x: 2, y: 3 }, TilePosition { x: 3, y: 3 }],
+        }),
     }
 }
 
@@ -68,6 +72,8 @@ fn snapshot_output_keeps_dialog_without_character_state() {
     assert!(human.contains("character: unavailable"));
     assert!(human.contains("dialog: revision=7"));
     assert!(human.contains("exchange: id=9 partner=ZiLo"));
+    assert!(human.contains("planned_route: generation=8 tiles=2"));
+    assert!(human.contains("planned_route_tile: index=1 x=3 y=3"));
     assert!(human.contains("exchange_item: party=local index=0 name=Red Potion quantity=2"));
     assert!(human.contains("0\t\"Ask\""));
 
@@ -76,6 +82,8 @@ fn snapshot_output_keeps_dialog_without_character_state() {
     assert_eq!(json["snapshot"]["updated_tick_ms"], 125);
     assert_eq!(json["snapshot"]["dialog"]["revision"], 7);
     assert_eq!(json["snapshot"]["exchange"]["partner"], "ZiLo");
+    assert_eq!(json["snapshot"]["planned_route"]["generation"], 8);
+    assert_eq!(json["snapshot"]["planned_route"]["tiles"][1]["x"], 3);
     assert_eq!(
         json["snapshot"]["exchange"]["local"]["items"][0]["quantity"],
         2

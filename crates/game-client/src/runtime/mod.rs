@@ -52,6 +52,13 @@ pub const ADVANCE_PATH_RVA: usize = 0x001F_4990;
 /// Module-relative address of the native exact-tile route builder.
 pub const BUILD_PATH_RVA: usize = 0x001F_4DE0;
 
+/// Module-relative address of the native breadth-first route builder.
+pub const BUILD_BREADTH_FIRST_PATH_RVA: usize = 0x001F_4E30;
+
+/// Complete entry instructions required before observing native route builds.
+pub const BUILD_BREADTH_FIRST_PATH_ENTRY: [u8; 9] =
+    [0x55, 0x8B, 0xEC, 0x81, 0xEC, 0xC0, 0x00, 0x00, 0x00];
+
 /// Module-relative address of the normal living-object interaction producer.
 pub const WORLD_ENTITY_INTERACTION_RVA: usize = 0x001F_4730;
 
@@ -107,7 +114,8 @@ pub const CLIENT_MAIN_THREAD_ID_RVA: usize = 0x0034_0400;
 #[cfg(test)]
 mod tests {
     use super::{
-        ADVANCE_PATH_RVA, BUILD_PATH_RVA, CLIENT_MAIN_THREAD_ID_RVA, CLIENT_PACKET_SUBMIT_ENTRY,
+        ADVANCE_PATH_RVA, BUILD_BREADTH_FIRST_PATH_ENTRY, BUILD_BREADTH_FIRST_PATH_RVA,
+        BUILD_PATH_RVA, CLIENT_MAIN_THREAD_ID_RVA, CLIENT_PACKET_SUBMIT_ENTRY,
         CLIENT_PACKET_SUBMIT_RVA, EVENT_DISPATCH_ENTRY, EVENT_DISPATCH_RVA,
         EVENT_DISPATCHER_TICK_ENTRY, EVENT_DISPATCHER_TICK_RVA, GUI_BACK_PANE_GET_RVA,
         MAP_SIZE_HANDLER_ENTRY, MAP_SIZE_HANDLER_RVA, RESET_MOVEMENT_RVA, SELF_OBJECT_RVA,
@@ -146,6 +154,11 @@ mod tests {
         assert_eq!(RESET_MOVEMENT_RVA, 0x001F_4900);
         assert_eq!(ADVANCE_PATH_RVA, 0x001F_4990);
         assert_eq!(BUILD_PATH_RVA, 0x001F_4DE0);
+        assert_eq!(BUILD_BREADTH_FIRST_PATH_RVA, 0x001F_4E30);
+        assert_eq!(
+            BUILD_BREADTH_FIRST_PATH_ENTRY,
+            [0x55, 0x8B, 0xEC, 0x81, 0xEC, 0xC0, 0x00, 0x00, 0x00]
+        );
     }
 
     #[test]

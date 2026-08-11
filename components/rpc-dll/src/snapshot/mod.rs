@@ -36,6 +36,7 @@ pub(crate) fn reset() {
     crate::dialog::reset();
     crate::group::reset();
     crate::exchange::reset();
+    crate::route::reset();
     #[cfg(all(windows, not(test)))]
     crate::actions::group::reset();
     map_name::reset();

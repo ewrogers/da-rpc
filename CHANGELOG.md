@@ -6,6 +6,12 @@
 
 ### Added
 
+- Added complete native planned-route snapshots to client status and
+  `walking.route_changed` events with pathfinder generations and absolute tile
+  arrays for rebuilds, confirmed-step consumption, and route clearing.
+- Added bounded raw map-file downloads through
+  `GET /maps/{map_id}/download`, with automatic local client map-directory
+  discovery and an optional `--maps-path` override.
 - Added automatic visible-player inspection caching, cache-only lookup by
   visible player name, local self-look identity, `player.inspected` and
   `character.profile_changed` events, and manual REST and direct CLI inspection

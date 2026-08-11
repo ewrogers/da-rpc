@@ -37,6 +37,7 @@ fn parse(body: &[u8]) -> Option<ActionUpdate> {
             amount: u32::from_be_bytes(body[1..5].try_into().ok()?),
             object_id: u32::from_be_bytes(body[5..9].try_into().ok()?),
         }),
+        0x38 if body.len() == 1 => Some(ActionUpdate::Resync),
         0x44 if body.len() == 2 => {
             EquipmentSlot::from_raw(body[1]).map(|slot| ActionUpdate::EquipmentUnequipped { slot })
         }
@@ -72,5 +73,11 @@ mod tests {
                 position: TilePosition { x: 2, y: 8 },
             })
         );
+    }
+
+    #[test]
+    fn parses_client_resync() {
+        assert_eq!(parse(&[0x38]), Some(ActionUpdate::Resync));
+        assert_eq!(parse(&[0x38, 0]), None);
     }
 }

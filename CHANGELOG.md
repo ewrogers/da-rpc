@@ -8,6 +8,7 @@
 
 - Added `POST /clients/{client}/resync` to request the same server refresh as
   the client's F5 key.
+- Added `client.resync` events when the client sends an F5 refresh request.
 - Split emotes into a dedicated documentation chapter and added an accessible
   pathfinding guide covering route rules, best-effort behavior, and recovery.
 

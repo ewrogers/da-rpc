@@ -46,6 +46,7 @@ pub(super) fn encode_action(output: &mut Vec<u8>, update: ActionUpdate) {
         }
         ActionUpdate::Emoted { code } => output.extend_from_slice(&[8, code]),
         ActionUpdate::Turned { direction } => output.extend_from_slice(&[9, direction.raw()]),
+        ActionUpdate::Resync => output.push(10),
     }
 }
 
@@ -100,6 +101,7 @@ pub(super) fn decode_action(reader: &mut PayloadReader<'_>) -> Result<ActionUpda
                 .map(|direction| ActionUpdate::Turned { direction })
                 .ok_or(DecodeError::InvalidDirection { actual })
         }
+        10 => Ok(ActionUpdate::Resync),
         actual => Err(DecodeError::InvalidStateUpdateType { actual }),
     }
 }

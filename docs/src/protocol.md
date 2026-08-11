@@ -681,6 +681,7 @@ enum ActionUpdate: u8 {
     EquipmentUnequipped { slot: u8 } = 7,
     Emoted { code: u8 } = 8,
     Turned(Direction) = 9,
+    Resync = 10,
 }
 
 enum SpellCastArguments: u8 {

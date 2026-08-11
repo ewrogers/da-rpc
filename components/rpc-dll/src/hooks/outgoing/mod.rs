@@ -278,6 +278,7 @@ extern "C" fn observe_packet(body: *const u8, length: i16) {
                 | 0x24
                 | 0x29
                 | 0x2A
+                | 0x38
                 | 0x3E
                 | 0x44
                 | 0x4D
@@ -289,7 +290,7 @@ extern "C" fn observe_packet(body: *const u8, length: i16) {
         }
         OUTGOING_OBSERVATION_COUNT.fetch_add(1, Ordering::Relaxed);
         let expected = match prefix[0] {
-            0x18 => 1,
+            0x18 | 0x38 => 1,
             0x43 => 6,
             0x07 => 6,
             0x08 | 0x29 => 10,

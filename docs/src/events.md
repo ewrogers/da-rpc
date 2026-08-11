@@ -152,6 +152,19 @@ remaining text is split on commas; surrounding whitespace and empty entries are
 removed. For example, `/walk x, , y` publishes `command: "walk"` and
 `args: ["x", "y"]`. Commands are transient and have no REST recovery route.
 
+The outgoing opcode-only refresh packet used by F5 and
+`POST /clients/{client}/resync` publishes `client.resync` with the JSON
+discriminator `client_resync`:
+
+```text
+ClientResync {
+    observation: EventObservation,
+}
+```
+
+This event means the client requested fresh server state. It does not mean the
+server has responded or that resynchronization has completed.
+
 Begin speech with `//` to escape interception. The DLL removes one slash before
 submission, so `//walk x,y` is spoken as `/walk x,y` and does not publish a
 command event. Other speech and chat channels continue normally.
@@ -803,6 +816,7 @@ trying to infer state from only the changed field.
 | --- | --- | --- |
 | Stream | `stream.ready`, `stream.resync_required`, `stream.closed` | Reread every resource the consumer uses. |
 | Client lifecycle | `client.logged_in`, `client.disconnected` | `/status` |
+| Client requests | `client.command`, `client.resync` | None; transient events are not replayed. |
 | Status | `stats.changed`, `vitals.changed`, `progression.changed`, `gold.changed`, `weight.changed`, `modifiers.changed`, `location.changed`, `blind.changed`, `action_restriction.changed`, `character.profile_changed` | `/status` |
 | Walking | `walking.started`, `walking.stopped`, `walking.route_changed`, `character.turned`, `character.emoted` | `/status` |
 | Inventory | `item.added`, `item.removed`, `item.changed`, `item.used`, `item.dropped`, `item.given`, `item.picked_up`, `gold.dropped`, `gold.given` | `/items`, then `/status` for gold |

@@ -219,6 +219,7 @@ fn kind(kind: CommandKind) -> &'static str {
         CommandKind::Assail => "assail",
         CommandKind::InspectPlayer(_) => "inspect_player",
         CommandKind::Resync => "resync",
+        CommandKind::Message(_) => "message",
     }
 }
 

@@ -871,6 +871,15 @@ enum CommandKind: u8 {
     Assail = 22,
     InspectPlayer { id: u32 } = 23, // nonzero visible player object ID
     Resync = 24,
+    Message(MessageCommand) = 25,
+}
+
+enum MessageCommand: u8 {
+    Say { content: string8 } = 0,
+    Shout { content: string8 } = 1,
+    Whisper { recipient: string8, content: string8 } = 2,
+    Guild { content: string8 } = 3,
+    Group { content: string8 } = 4,
 }
 
 enum ExchangeCommand: u8 {
@@ -883,6 +892,12 @@ enum ExchangeCommand: u8 {
 `Chant` becomes the client packet body `0x0E 0x02 string8`, where mode `2` is
 the spell-chant channel. Text bytes are preserved exactly. The convenience NPC
 actions are controller-side formatters and use this same typed command.
+
+`Message` accepts 1 through 100 ASCII content bytes. Whisper recipients accept
+1 through 15 non-whitespace ASCII bytes. Say and shout become `0x0E` packets
+with modes `0` and `1`. Whisper becomes `0x19 string8-recipient string8-content`.
+Guild and group use that same directed-message packet with fixed recipients `!`
+and `!!`.
 
 `Raw` carries a bounded plaintext packet body split into a command byte and up
 to 255 payload bytes. It is an intentionally unsafe semantic escape hatch: the

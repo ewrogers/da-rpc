@@ -26,7 +26,7 @@ on what a Dark Ages player or tool author can do with each kind of data.
 | [World](world.md) | `/objects` and `/status` | Location, visible objects, and entity visuals | None |
 | [Movement](movement.md) | `/status` | Walking and turning | `/turn`, `/walk`, and `/resync` |
 | [Emotes](emotes.md) | None | Character emotes | `/emote` |
-| [Messages](messages.md) | `/messages` | Chat and system messages by channel | None |
+| [Messages](messages.md) | `/messages` | Chat and system messages by channel | `/messages/send` |
 | [Groups](groups.md) | `/group` | Invitations, settings, and roster changes | Group actions |
 | [Exchange](exchanges.md) | `/exchange` | Both offers and acceptance state | Offer, accept, and cancel actions |
 

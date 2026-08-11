@@ -19,8 +19,9 @@ pub use command::{
     DialogCommand, DialogText, ExchangeCommand, GoldTransfer, GroupCommand, GroupInvitationAction,
     GroupText, ItemSlot, ItemTransfer, MAX_CHANT_TEXT_LEN, MAX_COMMAND_TIMEOUT_MS,
     MAX_COMMAND_WAIT_MS, MAX_DIALOG_INPUT_LEN, MAX_GROUP_NAME_LEN, MAX_ITEM_SLOT,
-    MAX_RAW_PACKET_PAYLOAD_LEN, MAX_SKILL_SLOT, MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT,
-    MAX_WHO_NAME_LEN, MAX_WHO_PLAYERS, MAX_WHO_TITLE_LEN, RawPacket, RawPacketDirection, SkillSlot,
+    MAX_MESSAGE_CONTENT_LEN, MAX_MESSAGE_RECIPIENT_LEN, MAX_RAW_PACKET_PAYLOAD_LEN, MAX_SKILL_SLOT,
+    MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT, MAX_WHO_NAME_LEN, MAX_WHO_PLAYERS, MAX_WHO_TITLE_LEN,
+    MessageCommand, MessageContent, MessageRecipient, RawPacket, RawPacketDirection, SkillSlot,
     SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition,
     TransferTarget, WalkTarget,
 };

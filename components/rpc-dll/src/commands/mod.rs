@@ -3,8 +3,9 @@ use darpc_protocol::{
     ChantText, CommandFailure, CommandKind, CommandOperation, CommandResult, CommandState,
     CommandStatus, DialogAction, DialogCommand, DialogText, ExchangeCommand, GoldTransfer,
     GroupCommand, GroupInvitationAction, GroupText, ItemSlot, ItemTransfer, MAX_DIALOG_INPUT_LEN,
-    RawPacket, RawPacketDirection, SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput,
-    SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkTarget,
+    MAX_MESSAGE_CONTENT_LEN, MAX_MESSAGE_RECIPIENT_LEN, MessageCommand, MessageContent,
+    MessageRecipient, RawPacket, RawPacketDirection, SkillSlot, SlotSwap, SpellArguments,
+    SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkTarget,
 };
 use std::{
     num::NonZeroU32,
@@ -658,6 +659,7 @@ enum StoredInput {
     Group(GroupText),
     Chant(ChantText),
     Raw(RawPacket),
+    Message(StoredMessage),
 }
 
 impl StoredInput {
@@ -668,7 +670,39 @@ impl StoredInput {
             Self::Group(value) => value.as_bytes(),
             Self::Chant(value) => value.as_bytes(),
             Self::Raw(value) => value.payload(),
+            Self::Message(value) => value.as_bytes(),
         }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct StoredMessage {
+    length: u8,
+    bytes: [u8; MAX_MESSAGE_RECIPIENT_LEN + MAX_MESSAGE_CONTENT_LEN + 1],
+}
+
+impl StoredMessage {
+    fn new(message: MessageCommand) -> Self {
+        let mut bytes = [0; MAX_MESSAGE_RECIPIENT_LEN + MAX_MESSAGE_CONTENT_LEN + 1];
+        let mut length = 0;
+        if let Some(recipient) = message.recipient() {
+            let recipient = recipient.as_bytes();
+            bytes[0] = u8::try_from(recipient.len()).expect("message recipient length fits u8");
+            bytes[1..1 + recipient.len()].copy_from_slice(recipient);
+            length = recipient.len() + 1;
+        }
+        let content = message.content();
+        let content = content.as_bytes();
+        bytes[length..length + content.len()].copy_from_slice(content);
+        length += content.len();
+        Self {
+            length: u8::try_from(length).expect("stored message input length fits u8"),
+            bytes,
+        }
+    }
+
+    fn as_bytes(&self) -> &[u8] {
+        &self.bytes[..usize::from(self.length)]
     }
 }
 
@@ -804,6 +838,19 @@ fn stored_kind(kind: CommandKind) -> (u8, u32, u32, u32, Option<StoredInput>) {
         CommandKind::Assail => (42, 0, 0, 0, None),
         CommandKind::InspectPlayer(id) => (43, id.get(), 0, 0, None),
         CommandKind::Resync => (44, 0, 0, 0, None),
+        CommandKind::Message(message) => (
+            45,
+            match message {
+                MessageCommand::Say(_) => 0,
+                MessageCommand::Shout(_) => 1,
+                MessageCommand::Whisper { .. } => 2,
+                MessageCommand::Guild(_) => 3,
+                MessageCommand::Group(_) => 4,
+            },
+            0,
+            0,
+            Some(StoredInput::Message(StoredMessage::new(message))),
+        ),
     }
 }
 
@@ -1030,8 +1077,36 @@ fn kind_from_value(
             .map(CommandKind::InspectPlayer)
             .unwrap_or(CommandKind::Diagnostic),
         44 => CommandKind::Resync,
+        45 => stored_message(argument_x, input).unwrap_or(CommandKind::Diagnostic),
         _ => CommandKind::Diagnostic,
     }
+}
+
+fn stored_message(channel: u32, input: &[u8]) -> Option<CommandKind> {
+    let (recipient, content) = if channel == 2 {
+        let recipient_length = usize::from(*input.first()?);
+        let recipient_end = recipient_length.checked_add(1)?;
+        let recipient = std::str::from_utf8(input.get(1..recipient_end)?).ok()?;
+        (
+            Some(MessageRecipient::new(recipient)?),
+            input.get(recipient_end..)?,
+        )
+    } else {
+        (None, input)
+    };
+    let content = MessageContent::new(std::str::from_utf8(content).ok()?)?;
+    let message = match channel {
+        0 => MessageCommand::Say(content),
+        1 => MessageCommand::Shout(content),
+        2 => MessageCommand::Whisper {
+            recipient: recipient?,
+            content,
+        },
+        3 => MessageCommand::Guild(content),
+        4 => MessageCommand::Group(content),
+        _ => return None,
+    };
+    Some(CommandKind::Message(message))
 }
 
 fn pack_tile(position: TilePosition) -> u32 {
@@ -1209,6 +1284,27 @@ mod tests {
             kind_from_value(value, argument_x, argument_y, argument_z, input),
             expected
         );
+    }
+
+    #[test]
+    fn messages_survive_bounded_queue_storage_verbatim() {
+        let content = MessageContent::new("MiXeD, punctuation!  ").unwrap();
+        let recipient = MessageRecipient::new("Eidolon").unwrap();
+        for message in [
+            MessageCommand::Say(content),
+            MessageCommand::Shout(content),
+            MessageCommand::Whisper { recipient, content },
+            MessageCommand::Guild(content),
+            MessageCommand::Group(content),
+        ] {
+            let expected = CommandKind::Message(message);
+            let (value, argument_x, argument_y, argument_z, input) = stored_kind(expected);
+            let input = input.as_ref().map_or(&[][..], StoredInput::as_bytes);
+            assert_eq!(
+                kind_from_value(value, argument_x, argument_y, argument_z, input),
+                expected
+            );
+        }
     }
 
     #[test]

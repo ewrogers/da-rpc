@@ -22,12 +22,12 @@ use darpc_protocol::{
     FRAME_MAGIC, FRAME_VERSION, Frame, FrameHeader, GoldTransfer, GroupCommand,
     GroupInvitationAction, GroupText, Hello, HelloAck, ItemSlot, ItemTransfer,
     MAX_COMMAND_TIMEOUT_MS, MAX_COMMAND_WAIT_MS, MAX_ECHO_TEXT_LEN, MAX_PAYLOAD_LEN, Message,
-    MessageType, PROTOCOL_VERSION_1_0, Ping, Pong, RawPacket, RawPacketDirection, SkillSlot,
-    SlotSwap, SnapshotRequest, SnapshotResponse, SnapshotResult, SnapshotUnavailableReason,
-    SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget, TickHealthRequest,
-    TickHealthResponse, TilePosition as CommandTilePosition, TransferTarget, VersionRange,
-    WalkTarget, decode_frame, decode_header, encode_frame, protocol_version,
-    protocol_version_major, protocol_version_minor,
+    MessageCommand, MessageContent, MessageRecipient, MessageType, PROTOCOL_VERSION_1_0, Ping,
+    Pong, RawPacket, RawPacketDirection, SkillSlot, SlotSwap, SnapshotRequest, SnapshotResponse,
+    SnapshotResult, SnapshotUnavailableReason, SpellArguments, SpellCast, SpellInput, SpellSlot,
+    SpellTarget, TickHealthRequest, TickHealthResponse, TilePosition as CommandTilePosition,
+    TransferTarget, VersionRange, WalkTarget, decode_frame, decode_header, encode_frame,
+    protocol_version, protocol_version_major, protocol_version_minor,
 };
 
 fn hello() -> Hello {

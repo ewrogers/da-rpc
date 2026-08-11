@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 1.1.2 - 2026-08-11
+
+### Added
+
+- Added `POST /clients/{client}/resync` to request the same server refresh as
+  the client's F5 key.
+- Split emotes into a dedicated documentation chapter and added an accessible
+  pathfinding guide covering route rules, best-effort behavior, and recovery.
+
+### Fixed
+
+- Replanned active destination walks from the corrected tile when the server
+  sends an authoritative user-position update.
+
 ## 1.1.1 - 2026-08-11
 
 ### Fixed

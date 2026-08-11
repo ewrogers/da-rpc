@@ -10,7 +10,7 @@ use std::{
     ffi::c_void,
     mem,
     ptr::NonNull,
-    sync::atomic::{AtomicBool, AtomicI32, Ordering},
+    sync::atomic::{AtomicBool, AtomicI32, AtomicUsize, Ordering},
 };
 
 const LOCAL_Y_OFFSET: usize = 0x40;
@@ -29,6 +29,8 @@ type InteractFn = unsafe extern "thiscall" fn(*mut c_void, u32) -> usize;
 static HAS_ROUTE_DESTINATION: AtomicBool = AtomicBool::new(false);
 static ROUTE_DESTINATION_X: AtomicI32 = AtomicI32::new(0);
 static ROUTE_DESTINATION_Y: AtomicI32 = AtomicI32::new(0);
+static REPLAN_PENDING: AtomicBool = AtomicBool::new(false);
+static REPLAN_WORLD: AtomicUsize = AtomicUsize::new(0);
 
 pub(super) fn turn(direction: Direction) -> Result<(), CommandFailure> {
     Movement::resolve()?.turn(direction)
@@ -39,7 +41,12 @@ pub(super) fn walk(direction: Direction) -> Result<(), CommandFailure> {
 }
 
 pub(super) fn walk_to(x: i32, y: i32) -> Result<(), CommandFailure> {
-    Movement::resolve()?.walk_to(x, y)
+    clear_route_destination();
+    let result = Movement::resolve()?.walk_to(x, y);
+    if result.is_ok() {
+        set_route_destination(x, y);
+    }
+    result
 }
 
 pub(super) fn interact(id: std::num::NonZeroU32) -> Result<(), CommandFailure> {
@@ -94,10 +101,53 @@ pub(crate) fn route_destination() -> Option<TilePosition> {
 
 pub(crate) fn clear_route_destination() {
     HAS_ROUTE_DESTINATION.store(false, Ordering::Release);
+    REPLAN_PENDING.store(false, Ordering::Release);
+    REPLAN_WORLD.store(0, Ordering::Release);
 }
 
 pub(crate) fn reset_tracking() {
     clear_route_destination();
+}
+
+pub(crate) fn observe_tick() {
+    if !REPLAN_PENDING.swap(false, Ordering::AcqRel) {
+        return;
+    }
+    let expected_world = REPLAN_WORLD.swap(0, Ordering::AcqRel);
+    let Some(destination) = route_destination() else {
+        return;
+    };
+    let Ok(movement) = Movement::resolve() else {
+        clear_route_destination();
+        return;
+    };
+    if movement.world.as_ptr() as usize != expected_world
+        || movement.walk_to(destination.x, destination.y).is_err()
+    {
+        clear_route_destination();
+    }
+}
+
+/// Records a queued-step result and returns the native reset mode to apply.
+///
+/// A successful step needs no reset. A failed pursuit step preserves its
+/// native retry timer with mode 1. A failed ground route uses a full reset;
+/// daRPC-owned routes also retain their goal for a next-tick replan.
+pub(crate) fn queued_step_reset_mode(world: *mut c_void, moved: bool) -> Option<u8> {
+    if moved || world.is_null() {
+        return None;
+    }
+    let pursuit_target =
+        read::<u32>(world as usize + darpc_game_client::WORLD_PANE_PURSUIT_TARGET_ID_OFFSET)
+            .unwrap_or(0);
+    if pursuit_target != 0 {
+        return Some(1);
+    }
+    if HAS_ROUTE_DESTINATION.load(Ordering::Acquire) {
+        REPLAN_WORLD.store(world as usize, Ordering::Relaxed);
+        REPLAN_PENDING.store(true, Ordering::Release);
+    }
+    Some(0)
 }
 
 struct Movement {
@@ -173,7 +223,6 @@ impl Movement {
         // route, and execution remains on the client main thread.
         let advanced = unsafe { self.advance_fn()(self.world.as_ptr()) } != 0;
         if advanced {
-            set_route_destination(x, y);
             Ok(())
         } else {
             self.reset();

@@ -224,10 +224,18 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
             Ok(mut hook) => {
                 let _ = writeln!(
                     log,
-                    "event=hook_installed hook={} rva=0x{:08X} relocated_bytes={}",
+                    concat!(
+                        "event=hook_installed hook={} rva=0x{:08X} relocated_bytes={} ",
+                        "collision_rva=0x{:08X} collision_relocated_bytes={} ",
+                        "step_rva=0x{:08X} step_relocated_bytes={}"
+                    ),
                     path::NAME,
                     darpc_game_client::BUILD_BREADTH_FIRST_PATH_RVA,
-                    hook.relocated_bytes()
+                    hook.relocated_bytes(),
+                    darpc_game_client::ROUTE_COLLISION_CALL_RVA,
+                    hook.collision_relocated_bytes(),
+                    darpc_game_client::QUEUED_STEP_CALL_RVA,
+                    hook.step_relocated_bytes()
                 );
                 if let Some(warning) = hook.take_install_warning() {
                     let _ = writeln!(

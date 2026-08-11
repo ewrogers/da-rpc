@@ -19,7 +19,7 @@ supported client build.
 | Decoded server event | Observes supported updates after the client has handled them, including status, inventory, abilities, effects, objects, movement, and messages. It captures correlated daRPC Who and player-inspection responses before the client opens their panels. |
 | Outbound packet submission | Observes supported ability, item, gold, equipment, emote, pickup, turn, Who, player-inspection, and local slash-command requests before encryption. |
 | Map size | Captures map identity, name, and dimensions so a map change can be committed atomically with the following position. |
-| Native path builder | Copies the complete retained step queue after a successful breadth-first path build, before movement can consume its first step. |
+| Native path control | Combines live and complete-map collision during breadth-first search, recovers failed queued steps, and copies the retained route before movement consumes its first step. |
 
 These five hooks have different jobs because no single client boundary provides
 all the information daRPC needs.
@@ -38,6 +38,7 @@ The tick also:
   settling window
 - Detects when native pathfinding starts and stops
 - Detects confirmed steps that shorten the retained planned route
+- Replans a retained daRPC ground destination after a queued step is rejected
 - Executes at most one queued action or diagnostic command
 - Publishes small health counters used by hook diagnostics
 
@@ -122,7 +123,20 @@ map and position.
 
 ## Planned route capture
 
-The path-builder hook runs after the client's breadth-first search succeeds.
+The path-control hook validates three exact version-741 code contracts. Its
+planning wrapper requires both native collision modes to accept each candidate
+edge. The live mode retains current static replacements, door states, and known
+dynamic occupants. The raw mode reads complete map storage, including statics
+outside the rendered viewport. The client's ordinary per-step live validator
+remains authoritative before any movement request is sent.
+
+The failed-step wrapper checks the result that the stock queued-route code
+ignores. It performs the native full reset for a ground route, preserves the
+timed retry generation for entity pursuit, and retains a daRPC-requested ground
+destination for a next-tick replan. Replanning is deferred so breadth-first
+search is never entered recursively from the movement validator.
+
+The path-builder entry hook runs after the client's breadth-first search succeeds.
 It reads the retained 12-byte step records, reverses their goal-to-start queue
 order, and expands direction values into absolute start-to-goal tile positions.
 The client tick compares the same remaining-step prefix after movement so

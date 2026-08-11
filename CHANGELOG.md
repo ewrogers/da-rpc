@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- Made long-range native routes combine live collision with complete raw map
+  statics, and recover safely when a queued step becomes blocked.
+
 ## 1.1.0 - 2026-08-10
 
 ### Added

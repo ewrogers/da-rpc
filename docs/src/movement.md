@@ -85,9 +85,27 @@ Coordinates are zero-based and must satisfy `0 <= x < width` and
 tiles return `400 Bad Request`. A client that is not in game or has no current
 map returns `409 Conflict`.
 
-The client builds and follows its native ground route. daRPC does not select a
-living target, pursue it, or automatically attack. Ordinary player input can
-cancel or replace the route naturally.
+The client builds and follows its native ground route. Each planned edge must
+pass both the live collision view and the complete raw map view. This preserves
+current static changes and known dynamic occupants while preventing off-screen
+walls from being treated as empty merely because their rendered objects have
+not been created yet. daRPC does not select a living target, pursue it, or
+automatically attack. Ordinary player input can cancel or replace the route
+naturally.
+
+Every submitted step still passes the client's normal live safety check. If a
+later change blocks a daRPC-owned ground route, the stale queue is canceled and
+the retained destination is replanned on the next main-thread tick. If live
+occupants or a door leave no path at that instant, daRPC retains the destination
+for up to five seconds and retries with delays that increase from 250
+milliseconds to one second. daRPC also detects a locally accepted step that
+receives no confirmed position progress for 1.2 seconds, cancels the stale
+native route, and replans from the last confirmed tile. Recovery remains bounded
+to five seconds even if the client repeatedly accepts a step that the server
+does not confirm. A new movement request, map change, resumed native route,
+invalid client state, confirmed progress, or timeout cancels recovery. A failed
+route started directly in the game is canceled cleanly when daRPC does not know
+its destination. Native entity pursuit preserves its existing timed retry.
 
 An in-bounds tile can still be unreachable. In that case, the command completes
 with `state: "failed"` and `failure: "no_path"`.
@@ -113,7 +131,8 @@ array whenever the native plan changes. A new pathfinder build advances the
 generation even if it chooses the same tiles. Confirmed movement consumes the
 front step without changing the generation, so the next event has a shorter
 array beginning at the new current tile. Native pursuit can rebuild its plan
-repeatedly; each observed rebuild is therefore a separate revision. Consumers
+repeatedly, and a blocked daRPC ground route can rebuild toward its retained
+destination. Each observed rebuild is therefore a separate revision. Consumers
 replace their saved route with the event payload rather than merging arrays.
 
 `walking.started` includes the current position and the requested destination

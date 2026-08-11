@@ -72,8 +72,8 @@ To build daRPC, also install:
 2. Verify the archive checksum:
 
    ```powershell
-   Get-FileHash .\da-rpc-v1.1.0-windows.zip -Algorithm SHA256
-   Get-Content .\da-rpc-v1.1.0-windows.zip.sha256
+   Get-FileHash .\da-rpc-v1.1.1-windows.zip -Algorithm SHA256
+   Get-Content .\da-rpc-v1.1.1-windows.zip.sha256
    ```
 
 3. Extract the archive to a directory you control.

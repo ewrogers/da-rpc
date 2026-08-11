@@ -36,6 +36,8 @@ mod packet;
 mod player;
 #[cfg(any(windows, test))]
 mod route;
+#[cfg(any(windows, test))]
+mod route_retry;
 #[cfg(windows)]
 mod snapshot;
 #[cfg(any(windows, test))]

@@ -180,6 +180,8 @@ unsafe extern "thiscall" fn event_dispatcher_tick_detour(_dispatcher: *mut core:
 extern "C" fn observe_tick() {
     let _ = panic::catch_unwind(|| {
         TICK_COUNT.fetch_add(1, Ordering::Relaxed);
+        #[cfg(not(test))]
+        crate::actions::movement::observe_tick();
         commands::observe_tick();
         crate::player::observe_tick(darpc_win32::pipe::sender_tick_ms());
         crate::state::observe_tick();

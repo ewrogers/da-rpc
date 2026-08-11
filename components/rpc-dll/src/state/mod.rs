@@ -386,7 +386,9 @@ pub(crate) fn observe_tick() {
     if let Some(is_walking) = crate::actions::movement::is_walking() {
         let destination = crate::actions::movement::route_destination();
         if let Some(update) = unsafe { CACHE.movement(is_walking, destination) } {
-            if matches!(update, MovementUpdate::Stopped { .. }) {
+            if matches!(update, MovementUpdate::Stopped { .. })
+                && !crate::actions::movement::is_replan_pending()
+            {
                 crate::actions::movement::clear_route_destination();
             }
             push_event(QueuedStateUpdate::Movement(update), tick_ms);

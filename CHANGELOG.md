@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 1.1.1 - 2026-08-11
+
+### Fixed
+
+- Made long-range native routes combine live collision with complete raw map
+  statics, and recover safely when a queued step becomes blocked.
+- Retained blocked ground-route destinations for bounded, progressively delayed
+  retries when live occupants or doors temporarily leave no path.
+- Replanned locally accepted routes that receive no confirmed position progress
+  instead of leaving an empty native queue marked active indefinitely.
+- Preserved a queued replan when the previous step is confirmed in the same
+  client tick that the following step becomes blocked.
+
 ## 1.1.0 - 2026-08-10
 
 ### Added

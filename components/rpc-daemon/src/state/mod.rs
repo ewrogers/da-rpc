@@ -44,6 +44,7 @@ pub(crate) struct GameStatus {
     lifecycle: ClientLifecycle,
     character: Option<CharacterStatus>,
     map: Option<MapLocation>,
+    planned_route: Option<PlannedRoute>,
 }
 
 impl GameStatus {
@@ -68,8 +69,37 @@ impl GameStatus {
                     height: location.height,
                 })
             }),
+            planned_route: snapshot.planned_route.as_ref().map(PlannedRoute::from),
         }
     }
+}
+
+#[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
+pub(crate) struct PlannedRoute {
+    generation: u32,
+    tiles: Vec<RouteTile>,
+}
+
+impl From<&darpc_model::PlannedRoute> for PlannedRoute {
+    fn from(value: &darpc_model::PlannedRoute) -> Self {
+        Self {
+            generation: value.generation,
+            tiles: value
+                .tiles
+                .iter()
+                .map(|tile| RouteTile {
+                    x: tile.x,
+                    y: tile.y,
+                })
+                .collect(),
+        }
+    }
+}
+
+#[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
+pub(crate) struct RouteTile {
+    x: i32,
+    y: i32,
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]

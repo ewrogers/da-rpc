@@ -444,6 +444,19 @@ fn event_messages_round_trip() {
                         current: player_profile().identity,
                     }),
                 },
+                StateEvent {
+                    sequence: 67,
+                    revision: 33,
+                    tick_ms: 148,
+                    update: StateUpdate::PlannedRoute(PlannedRoute {
+                        generation: 12,
+                        tiles: vec![
+                            TilePosition { x: 10, y: 20 },
+                            TilePosition { x: 11, y: 20 },
+                            TilePosition { x: 11, y: 21 },
+                        ],
+                    }),
+                },
             ]),
         }),
         Message::EventPollResponse(EventPollResponse {

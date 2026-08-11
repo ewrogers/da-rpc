@@ -20,6 +20,7 @@ pub(super) fn snapshot(
     raw_dialog: crate::dialog::RawDialog,
     raw_exchange: crate::exchange::RawExchange,
     raw_legend: &crate::legend::RawLegendState,
+    raw_route: &crate::route::RawRoute,
 ) -> ClientSnapshot {
     ClientSnapshot {
         revision: ready.revision,
@@ -43,6 +44,7 @@ pub(super) fn snapshot(
             .then(|| crate::group::model_state(&raw.group)),
         exchange: crate::exchange::decode_current(raw_exchange),
         legend: Some(crate::legend::model_state(raw_legend)),
+        planned_route: crate::route::model(raw_route),
     }
 }
 

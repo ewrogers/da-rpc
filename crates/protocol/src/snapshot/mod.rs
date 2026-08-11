@@ -5,11 +5,12 @@ use crate::{
 use darpc_model::{
     CharacterAppearance, CharacterClass, CharacterModifiers, CharacterProgression,
     CharacterSnapshot, CharacterStats, CharacterVitals, ClientLifecycle, ClientSnapshot, Element,
-    Gender, MapLocation,
+    Gender, MapLocation, PlannedRoute, TilePosition,
 };
 
 pub const MAX_CHARACTER_NAME_LEN: usize = 15;
 pub const MAX_MAP_NAME_LEN: usize = 255;
+pub const MAX_PLANNED_ROUTE_TILES: usize = 400 * 400 + 1;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SnapshotRequest {
@@ -79,6 +80,7 @@ pub(crate) fn encode(output: &mut Vec<u8>, snapshot: &ClientSnapshot) -> Result<
             .and_then(|character| character.identity.as_ref()),
     )?;
     encode_player_profiles(output, snapshot.objects.as_deref())?;
+    encode_optional_planned_route(output, snapshot.planned_route.as_ref())?;
     Ok(())
 }
 
@@ -125,6 +127,11 @@ pub(crate) fn decode(reader: &mut PayloadReader<'_>) -> Result<ClientSnapshot, D
     if !reader.is_empty() {
         decode_player_profiles(reader, objects.as_deref_mut())?;
     }
+    let planned_route = if reader.is_empty() {
+        None
+    } else {
+        decode_optional_planned_route(reader)?
+    };
     let mut snapshot = ClientSnapshot {
         revision,
         event_sequence,
@@ -139,11 +146,82 @@ pub(crate) fn decode(reader: &mut PayloadReader<'_>) -> Result<ClientSnapshot, D
         group,
         exchange,
         legend,
+        planned_route,
     };
     if let Some(character) = snapshot.character.as_mut() {
         character.identity = identity;
     }
     Ok(snapshot)
+}
+
+pub(crate) fn encode_planned_route(
+    output: &mut Vec<u8>,
+    route: &PlannedRoute,
+) -> Result<(), EncodeError> {
+    if route.tiles.len() > MAX_PLANNED_ROUTE_TILES {
+        return Err(EncodeError::SnapshotCollectionTooLong {
+            length: route.tiles.len(),
+            max: MAX_PLANNED_ROUTE_TILES,
+        });
+    }
+    push_u32(output, route.generation);
+    push_u32(
+        output,
+        u32::try_from(route.tiles.len()).map_err(|_| EncodeError::LengthOverflow)?,
+    );
+    for tile in &route.tiles {
+        push_u16(
+            output,
+            u16::try_from(tile.x).map_err(|_| EncodeError::LengthOverflow)?,
+        );
+        push_u16(
+            output,
+            u16::try_from(tile.y).map_err(|_| EncodeError::LengthOverflow)?,
+        );
+    }
+    Ok(())
+}
+
+pub(crate) fn decode_planned_route(
+    reader: &mut PayloadReader<'_>,
+) -> Result<PlannedRoute, DecodeError> {
+    let generation = reader.read_u32()?;
+    let length = usize::try_from(reader.read_u32()?).map_err(|_| DecodeError::LengthOverflow)?;
+    if length > MAX_PLANNED_ROUTE_TILES {
+        return Err(DecodeError::SnapshotCollectionTooLong {
+            length,
+            max: MAX_PLANNED_ROUTE_TILES,
+        });
+    }
+    let mut tiles = Vec::with_capacity(length);
+    for _ in 0..length {
+        tiles.push(TilePosition {
+            x: i32::from(reader.read_u16()?),
+            y: i32::from(reader.read_u16()?),
+        });
+    }
+    Ok(PlannedRoute { generation, tiles })
+}
+
+fn encode_optional_planned_route(
+    output: &mut Vec<u8>,
+    route: Option<&PlannedRoute>,
+) -> Result<(), EncodeError> {
+    push_bool(output, route.is_some());
+    if let Some(route) = route {
+        encode_planned_route(output, route)?;
+    }
+    Ok(())
+}
+
+fn decode_optional_planned_route(
+    reader: &mut PayloadReader<'_>,
+) -> Result<Option<PlannedRoute>, DecodeError> {
+    if reader.read_bool()? {
+        decode_planned_route(reader).map(Some)
+    } else {
+        Ok(None)
+    }
 }
 
 fn encode_character(

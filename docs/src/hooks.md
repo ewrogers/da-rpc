@@ -6,7 +6,7 @@ addresses and assembly details. API consumers do not need to manage these hooks.
 
 A hook gives daRPC a short callback at a useful point in the normal client
 flow. The original client function still runs. daRPC uses the callback to copy
-small pieces of state, observe an action, or execute one queued native command.
+bounded pieces of state, observe an action, or execute one queued native command.
 
 Hooks are installed only after the executable has been identified as the exact
 supported client build.
@@ -19,8 +19,9 @@ supported client build.
 | Decoded server event | Observes supported updates after the client has handled them, including status, inventory, abilities, effects, objects, movement, and messages. It captures correlated daRPC Who and player-inspection responses before the client opens their panels. |
 | Outbound packet submission | Observes supported ability, item, gold, equipment, emote, pickup, turn, Who, player-inspection, and local slash-command requests before encryption. |
 | Map size | Captures map identity, name, and dimensions so a map change can be committed atomically with the following position. |
+| Native path builder | Copies the complete retained step queue after a successful breadth-first path build, before movement can consume its first step. |
 
-These four hooks have different jobs because no single client boundary provides
+These five hooks have different jobs because no single client boundary provides
 all the information daRPC needs.
 
 ## Client tick
@@ -36,6 +37,7 @@ The tick also:
 - Reconciles inventory, spellbook, and skillbook slots after their short
   settling window
 - Detects when native pathfinding starts and stops
+- Detects confirmed steps that shorten the retained planned route
 - Executes at most one queued action or diagnostic command
 - Publishes small health counters used by hook diagnostics
 
@@ -118,6 +120,20 @@ Snapshots and ordinary movement publication pause across this short boundary.
 Consumers therefore see one `location.changed` event containing a consistent
 map and position.
 
+## Planned route capture
+
+The path-builder hook runs after the client's breadth-first search succeeds.
+It reads the retained 12-byte step records, reverses their goal-to-start queue
+order, and expands direction values into absolute start-to-goal tile positions.
+The client tick compares the same remaining-step prefix after movement so
+confirmed consumption also produces a route revision. Pathfinder generations
+distinguish rebuilds, including pursuit routes that happen to select identical
+tiles.
+
+The game-thread callback writes only to preallocated route buffers. Four event
+buffers bound pending revisions; exhaustion requests the normal snapshot
+resynchronization instead of blocking movement or allocating in the hook.
+
 ## Main-thread affinity
 
 Most game state is owned and changed by the client main thread. Native movement,
@@ -153,7 +169,7 @@ Detaching follows the reverse flow:
 
 1. Stop accepting new pipe work.
 2. Cancel commands that have not started.
-3. Remove the outbound, event, map, and tick hooks in safe reverse order.
+3. Remove the outbound, event, path-builder, map, and tick hooks in safe reverse order.
 4. Wait for any callback already in progress to finish.
 5. Release DLL-owned state and unload the library.
 

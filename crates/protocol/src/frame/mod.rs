@@ -3,7 +3,9 @@ use crate::{DecodeError, EncodeError, Message, MessageType};
 pub const FRAME_MAGIC: [u8; 4] = *b"DRPC";
 pub const FRAME_VERSION: u16 = 1;
 pub const FRAME_HEADER_LEN: usize = 20;
-pub const MAX_PAYLOAD_LEN: usize = 64 * 1024;
+/// Upper bound accommodates four maximum-size 400 by 400 route revisions in
+/// one bounded event poll, plus ordinary state metadata.
+pub const MAX_PAYLOAD_LEN: usize = 4 * 1024 * 1024;
 pub const MAX_FRAME_LEN: usize = FRAME_HEADER_LEN + MAX_PAYLOAD_LEN;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

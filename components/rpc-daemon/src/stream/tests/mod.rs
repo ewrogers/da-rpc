@@ -6,8 +6,8 @@ use darpc_model::{
     ExchangeOffer as ModelExchangeOffer, ExchangeParty as ModelExchangeParty,
     ExchangeState as ModelExchangeState, ExchangeUpdate, InventoryItem as ModelInventoryItem,
     LegendIcon as ModelLegendIcon, LegendMark as ModelLegendMark, LegendUpdate, LifecycleUpdate,
-    LocationUpdate, MapChange, MessageKind, MovementUpdate, Skill as ModelSkill, SlotUpdate,
-    Spell as ModelSpell, SpellCancellationSource as ModelSpellCancellationSource,
+    LocationUpdate, MapChange, MessageKind, MovementUpdate, PlannedRoute, Skill as ModelSkill,
+    SlotUpdate, Spell as ModelSpell, SpellCancellationSource as ModelSpellCancellationSource,
     SpellCastArguments as ModelSpellCastArguments, SpellTargetType, StateUpdate, StatusUpdate,
     TilePosition as ModelTilePosition,
 };
@@ -233,6 +233,40 @@ fn movement_updates_expose_route_lifecycle_context() {
     assert_eq!(stopped[0].name(), "walking.stopped");
     let stopped = serde_json::to_value(&stopped[0]).unwrap();
     assert_eq!(stopped["data"]["reached_destination"], true);
+}
+
+#[test]
+fn planned_route_updates_expose_generation_and_absolute_tiles() {
+    let events = expand(
+        42,
+        ClientIdentity {
+            pid: 42,
+            process_creation_time: 100,
+            dll_instance_id: [1; 16],
+        },
+        StateEvent {
+            sequence: 12,
+            revision: 15,
+            tick_ms: 503,
+            update: StateUpdate::PlannedRoute(PlannedRoute {
+                generation: 9,
+                tiles: vec![
+                    ModelTilePosition { x: 2, y: 8 },
+                    ModelTilePosition { x: 3, y: 8 },
+                    ModelTilePosition { x: 3, y: 9 },
+                ],
+            }),
+        },
+        None,
+        None,
+        observed_at(),
+    );
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].name(), "walking.route_changed");
+    let event = serde_json::to_value(&events[0]).unwrap();
+    assert_eq!(event["data"]["generation"], 9);
+    assert_eq!(event["data"]["tiles"][0]["x"], 2);
+    assert_eq!(event["data"]["tiles"][2]["y"], 9);
 }
 
 #[test]

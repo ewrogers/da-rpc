@@ -28,11 +28,11 @@ use darpc_model::{
     ExchangeOffer as ModelExchangeOffer, ExchangeState as ModelExchangeState, Gender,
     InventoryItem as ModelInventoryItem, LegendIcon as ModelLegendIcon,
     LegendMark as ModelLegendMark, MapLocation, MessageKind as ModelMessageKind,
-    Nation as ModelNation, PlayerEquipmentItem as ModelPlayerEquipmentItem,
-    PlayerIdentity as ModelPlayerIdentity, PlayerProfile as ModelPlayerProfile,
-    Skill as ModelSkill, Spell as ModelSpell, SpellCastArguments as ModelSpellCastArguments,
-    SpellTargetType as ModelSpellTargetType, StateEvent, StateUpdate,
-    WorldObject as ModelWorldObject,
+    Nation as ModelNation, PlannedRoute as ModelPlannedRoute,
+    PlayerEquipmentItem as ModelPlayerEquipmentItem, PlayerIdentity as ModelPlayerIdentity,
+    PlayerProfile as ModelPlayerProfile, Skill as ModelSkill, Spell as ModelSpell,
+    SpellCastArguments as ModelSpellCastArguments, SpellTargetType as ModelSpellTargetType,
+    StateEvent, StateUpdate, TilePosition as ModelTilePosition, WorldObject as ModelWorldObject,
 };
 use darpc_protocol::{
     Architecture, ChantText, CommandKind, CommandOperation, CommandResult, CommandState,
@@ -267,6 +267,13 @@ fn game_snapshot() -> ModelClientSnapshot {
         group: None,
         exchange: None,
         legend: None,
+        planned_route: Some(ModelPlannedRoute {
+            generation: 17,
+            tiles: vec![
+                ModelTilePosition { x: 11, y: 22 },
+                ModelTilePosition { x: 12, y: 22 },
+            ],
+        }),
     }
 }
 
@@ -1327,6 +1334,8 @@ fn serves_health_and_client_resources() {
     assert!(status["character"].get("skillbook").is_none());
     assert_eq!(status["character"]["progression"]["level"], 50);
     assert_eq!(status["map"]["x"], 11);
+    assert_eq!(status["planned_route"]["generation"], 17);
+    assert_eq!(status["planned_route"]["tiles"][1]["x"], 12);
 
     let inventory = json("/clients/silo/items");
     assert_eq!(inventory["observation"]["revision"], 3);
@@ -1700,6 +1709,8 @@ fn serves_the_openapi_contract_and_vendored_swagger_ui() {
         "ConnectionMetadata",
         "ObservationMetadata",
         "GameStatus",
+        "PlannedRoute",
+        "RouteTile",
         "ClientLifecycle",
         "CharacterStatus",
         "CharacterGender",
@@ -1750,6 +1761,7 @@ fn serves_the_openapi_contract_and_vendored_swagger_ui() {
         "InventorySlotChanged",
         "SpellSlotChanged",
         "SkillSlotChanged",
+        "WalkingRouteChanged",
         "StreamResyncRequired",
         "StreamClosed",
         "DiagnosticOptions",

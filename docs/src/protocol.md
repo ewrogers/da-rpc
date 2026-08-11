@@ -29,7 +29,7 @@ struct FrameHeader {
 }
 ```
 
-Payloads are limited to 65,536 bytes, making the largest complete frame 65,556
+Payloads are limited to 4 MiB, making the largest complete frame 4 MiB plus 20
 bytes. A receiver reads the header into a fixed-size buffer, validates it, and
 only then reads the declared payload. A frame must contain exactly that payload
 length. Truncation and trailing bytes are errors.
@@ -218,6 +218,12 @@ struct ClientSnapshot {
     group: Option<GroupState>;
     exchange: Option<ExchangeState>;
     legend: Option<Vec<LegendMark>>;
+    planned_route: Option<PlannedRoute>;
+}
+
+struct PlannedRoute {
+    generation: u32;
+    tiles: Vec<TilePosition>;              // u32 count, maximum 160,001
 }
 
 struct LegendMark {
@@ -436,7 +442,7 @@ entries. Collection names are limited to 127 bytes, character names to 15 bytes,
 world-object names to 63 bytes, and map names to 255 bytes. Slots are one-based,
 unique within a slotted collection, and strictly range checked. World-object IDs
 are unique. Directions accept only 0 through 3, effect icons are unique, and
-duration values outside 1 through 6 are rejected. The overall 64 KiB frame
+duration values outside 1 through 6 are rejected. The overall 4 MiB frame
 payload cap still applies even when every individual collection count is valid.
 
 Snapshot scalars use explicit little-endian integer widths. Collection entries
@@ -512,6 +518,7 @@ enum StateUpdate: u8 {
     Command(ClientCommand) = 19,
     Player(PlayerUpdate) = 20,
     CharacterProfile(CharacterProfileUpdate) = 21,
+    PlannedRoute(PlannedRoute) = 22,
 }
 
 struct ClientCommand {
@@ -730,6 +737,12 @@ struct MapChange {
     height: i32;
 }
 ```
+
+`PlannedRoute` encodes its generation and tile count as little-endian `u32`
+values. Each tile uses two little-endian `u16` coordinates on the wire and is
+expanded to the public signed coordinate type after validation. The maximum
+160,001 tiles matches the supported client's 400 by 400 pathfinder grid plus
+the starting tile.
 
 Within an ability update, fields specific to its discriminant are encoded
 before the final one-byte slot. Ability slots are strict one-based values from
@@ -1107,9 +1120,9 @@ to these bytes and decode them back to the expected values.
 
 - The 20-byte header is intentionally fixed. No current field justifies making
   it variable or larger.
-- The 64 KiB payload cap is conservative and sufficient for known messages. It
-  should be measured in real use and revisited only when a legitimate payload
-  approaches it.
+- The 4 MiB payload cap is bounded but large enough for four maximum native
+  route revisions in one event poll. Route coordinates use compact `u16` wire
+  values; public API coordinates remain signed integers for consistency.
 - Hello identity is sufficient for stale and accidental pipe connections. It is
   not treated as security authentication.
 - The `u16` sequence supports ordering diagnostics now and can support a future

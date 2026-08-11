@@ -39,6 +39,7 @@ pub(crate) fn render_human(
         snapshot.world_generation,
         lifecycle(snapshot.lifecycle),
     );
+    render_planned_route(&mut output, snapshot.planned_route.as_ref());
     let Some(character) = &snapshot.character else {
         output.push_str("\ncharacter: unavailable");
         render_group(&mut output, snapshot.group.as_ref());
@@ -172,7 +173,34 @@ fn snapshot_value(snapshot: &ClientSnapshot) -> serde_json::Value {
         "dialog": snapshot.dialog.as_ref().map(dialog_value),
         "group": snapshot.group.as_ref().map(group_value),
         "exchange": snapshot.exchange.as_ref().map(exchange_value),
+        "planned_route": snapshot.planned_route.as_ref().map(|route| json!({
+            "generation": route.generation,
+            "tiles": route.tiles.iter().map(|tile| json!({
+                "x": tile.x,
+                "y": tile.y,
+            })).collect::<Vec<_>>(),
+        })),
     })
+}
+
+fn render_planned_route(output: &mut String, route: Option<&darpc_model::PlannedRoute>) {
+    let Some(route) = route else {
+        output.push_str("\nplanned_route: unavailable");
+        return;
+    };
+    let _ = write!(
+        output,
+        "\nplanned_route: generation={} tiles={}",
+        route.generation,
+        route.tiles.len()
+    );
+    for (index, tile) in route.tiles.iter().enumerate() {
+        let _ = write!(
+            output,
+            "\nplanned_route_tile: index={} x={} y={}",
+            index, tile.x, tile.y
+        );
+    }
 }
 
 fn group_value(group: &GroupState) -> serde_json::Value {

@@ -21,6 +21,7 @@ pub enum StateUpdate {
     Command(ClientCommand),
     Status(StatusUpdate),
     Movement(MovementUpdate),
+    PlannedRoute(PlannedRoute),
     Location(LocationUpdate),
     Effect(EffectUpdate),
     Object(ObjectUpdate),
@@ -259,6 +260,12 @@ pub enum MovementUpdate {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct PlannedRoute {
+    pub generation: u32,
+    pub tiles: Vec<TilePosition>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct MapChange {
     pub id: u32,
     pub name: Option<String>,
@@ -403,6 +410,7 @@ impl ClientSnapshot {
                 location.x = Some(current.x);
                 location.y = Some(current.y);
             }
+            StateUpdate::PlannedRoute(route) => self.planned_route = Some(route),
             StateUpdate::Location(update) => {
                 let character = self
                     .character
@@ -869,6 +877,7 @@ mod tests {
             group: None,
             exchange: None,
             legend: None,
+            planned_route: None,
         }
     }
 

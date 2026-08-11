@@ -8,11 +8,11 @@ use darpc_model::{
     EntityUpdate, EquipmentItem, EquipmentSlot, ExchangeItem, ExchangeOffer, ExchangeParty,
     ExchangeState, ExchangeUpdate, Gender, GroupInvitation, GroupMember, GroupState, GroupUpdate,
     InventoryItem, LegendIcon, LegendMark, LegendUpdate, LifecycleUpdate, LocationUpdate,
-    MapChange, MapLocation, MessageKind, MovementUpdate, Nation, ObjectUpdate, PlayerEquipmentItem,
-    PlayerIdentity, PlayerInspectionChanges, PlayerInspectionTrigger, PlayerProfile, PlayerUpdate,
-    ProgressionStatus, Skill, SlotUpdate, Spell, SpellCancellationSource, SpellCastArguments,
-    SpellTargetType, StateEvent, StateUpdate, StatusUpdate, TilePosition, UserState, WhoList,
-    WhoPlayer, WorldObject,
+    MapChange, MapLocation, MessageKind, MovementUpdate, Nation, ObjectUpdate, PlannedRoute,
+    PlayerEquipmentItem, PlayerIdentity, PlayerInspectionChanges, PlayerInspectionTrigger,
+    PlayerProfile, PlayerUpdate, ProgressionStatus, Skill, SlotUpdate, Spell,
+    SpellCancellationSource, SpellCastArguments, SpellTargetType, StateEvent, StateUpdate,
+    StatusUpdate, TilePosition, UserState, WhoList, WhoPlayer, WorldObject,
 };
 use darpc_protocol::{
     Architecture, ChantText, CommandFailure, CommandKind, CommandOperation, CommandRequest,
@@ -197,6 +197,14 @@ fn snapshot() -> ClientSnapshot {
             color: 7,
             icon: LegendIcon::Wizard,
         }]),
+        planned_route: Some(PlannedRoute {
+            generation: 42,
+            tiles: vec![
+                TilePosition { x: 11, y: 22 },
+                TilePosition { x: 12, y: 22 },
+                TilePosition { x: 12, y: 23 },
+            ],
+        }),
     }
 }
 

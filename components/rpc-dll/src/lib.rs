@@ -34,6 +34,8 @@ mod objects;
 mod packet;
 #[cfg(any(windows, test))]
 mod player;
+#[cfg(any(windows, test))]
+mod route;
 #[cfg(windows)]
 mod snapshot;
 #[cfg(any(windows, test))]

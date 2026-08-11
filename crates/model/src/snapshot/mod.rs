@@ -139,6 +139,9 @@ pub struct ClientSnapshot {
     pub group: Option<crate::GroupState>,
     pub exchange: Option<crate::ExchangeState>,
     pub legend: Option<Vec<crate::LegendMark>>,
+    /// Current native walking plan, from the character's current tile through
+    /// the goal. `None` means route telemetry is unavailable.
+    pub planned_route: Option<crate::PlannedRoute>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

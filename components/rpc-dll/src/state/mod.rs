@@ -118,6 +118,10 @@ pub(crate) fn observe_character_profile(
     push_event(QueuedStateUpdate::CharacterProfile(update), tick_ms)
 }
 
+pub(crate) fn observe_route(update: crate::route::QueuedRoute, tick_ms: u32) -> bool {
+    push_event(QueuedStateUpdate::PlannedRoute(update), tick_ms)
+}
+
 pub(crate) fn observe_visual(update: VisualUpdate, tick_ms: u32) {
     match update {
         VisualUpdate::Motion {
@@ -363,6 +367,8 @@ pub(crate) fn observe_tick() {
     let tick_ms = 0;
     #[cfg(all(windows, not(test)))]
     observe_lifecycle(tick_ms);
+    #[cfg(all(windows, not(test)))]
+    crate::route::observe_current(tick_ms);
     #[cfg(all(windows, not(test)))]
     if crate::dialog::is_active() && !crate::actions::dialog::is_open() {
         observe_dialog_closed(darpc_model::DialogCloseReason::Client, tick_ms);

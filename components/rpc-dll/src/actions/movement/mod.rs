@@ -150,7 +150,14 @@ pub(crate) fn observe_tick() {
         || position.y != ROUTE_PROGRESS_Y.load(Ordering::Relaxed)
     {
         record_route_progress(position, tick_ms);
-        clear_replan();
+        if let Some(deadline) =
+            route_retry::deadline_after_progress(REPLAN_PENDING.load(Ordering::Acquire), tick_ms)
+        {
+            REPLAN_DEADLINE_TICK.store(deadline, Ordering::Relaxed);
+            REPLAN_ATTEMPT.store(0, Ordering::Relaxed);
+        } else {
+            clear_replan();
+        }
     }
     if position == destination {
         clear_replan();

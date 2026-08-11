@@ -10,6 +10,8 @@
   retries when live occupants or doors temporarily leave no path.
 - Replanned locally accepted routes that receive no confirmed position progress
   instead of leaving an empty native queue marked active indefinitely.
+- Preserved a queued replan when the previous step is confirmed in the same
+  client tick that the following step becomes blocked.
 
 ## 1.1.0 - 2026-08-10
 

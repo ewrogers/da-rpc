@@ -6,6 +6,10 @@ pub(crate) fn deadline(start_tick: u32) -> u32 {
     start_tick.wrapping_add(TIMEOUT_MS)
 }
 
+pub(crate) fn deadline_after_progress(replan_pending: bool, tick: u32) -> Option<u32> {
+    replan_pending.then(|| deadline(tick))
+}
+
 pub(crate) fn delay_ms(attempt: u32) -> u32 {
     usize::try_from(attempt)
         .ok()
@@ -24,7 +28,7 @@ pub(crate) fn stalled(now: u32, last_progress_tick: u32) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{deadline, delay_ms, stalled, tick_reached};
+    use super::{deadline, deadline_after_progress, delay_ms, stalled, tick_reached};
 
     #[test]
     fn delay_increases_and_caps() {
@@ -50,5 +54,7 @@ mod tests {
         assert!(!stalled(1_199, 0));
         assert!(stalled(1_200, 0));
         assert!(stalled(500, u32::MAX - 699));
+        assert_eq!(deadline_after_progress(true, 100), Some(5_100));
+        assert_eq!(deadline_after_progress(false, 100), None);
     }
 }

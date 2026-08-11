@@ -43,6 +43,12 @@ fn event_messages_round_trip() {
                     }),
                 },
                 StateEvent {
+                    sequence: 401,
+                    revision: 91,
+                    tick_ms: 122,
+                    update: StateUpdate::Action(ActionUpdate::Resync),
+                },
+                StateEvent {
                     sequence: 41,
                     revision: 10,
                     tick_ms: 123,

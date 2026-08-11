@@ -532,6 +532,10 @@ fn router(state: ApiState) -> Router {
             "/clients/{client}/assail",
             post(crate::commands::assail::assail),
         )
+        .route(
+            "/clients/{client}/resync",
+            post(crate::commands::resync::resync),
+        )
         .route("/clients/{client}/spells", get(client_spells))
         .route("/clients/{client}/skills", get(client_skills))
         .route("/clients/{client}/effects", get(client_effects))
@@ -698,6 +702,7 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         crate::commands::interaction::emote,
         crate::commands::raw::send,
         crate::commands::assail::assail,
+        crate::commands::resync::resync,
         crate::commands::chant::chant,
         crate::commands::chant::sell,
         crate::commands::chant::sell_all,

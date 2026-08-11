@@ -65,6 +65,11 @@ pub(crate) struct Turned {
     direction: Direction,
 }
 
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub(crate) struct ClientResync {
+    pub(super) observation: EventObservation,
+}
+
 pub(super) fn expand_action(observation: EventObservation, update: ActionUpdate) -> ClientEvent {
     match update {
         ActionUpdate::ItemUsed { slot } => ClientEvent::ItemUsed(ItemUsed { observation, slot }),
@@ -117,5 +122,6 @@ pub(super) fn expand_action(observation: EventObservation, update: ActionUpdate)
             observation,
             direction: direction.into(),
         }),
+        ActionUpdate::Resync => ClientEvent::ClientResync(ClientResync { observation }),
     }
 }

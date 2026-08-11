@@ -461,6 +461,11 @@ pub(crate) fn observe_user_position(x: i32, y: i32, tick_ms: u32) {
     }
 }
 
+pub(crate) fn schedule_position_sync_replan() {
+    #[cfg(not(test))]
+    crate::actions::movement::schedule_position_sync_replan();
+}
+
 pub(crate) fn observe_move(x: i32, y: i32, tick_ms: u32) {
     // SAFETY: the event hook runs on the client main thread, which is the sole
     // cache producer.

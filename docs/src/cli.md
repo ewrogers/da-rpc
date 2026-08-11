@@ -168,7 +168,7 @@ and connection lifecycle. Their behavior is:
   and uses the first empty inventory slot available at execution time.
 - `unequip` accepts the client's one-based equipment slot number from 1 through
   18. `emote` accepts a confirmed case-insensitive name such as `wave`, or a
-  normal client UI emote code. See [Movement and emotes](movement.md#emotes) for
+  normal client UI emote code. See [Emotes](emotes.md) for
   the named list.
 - `interact` starts a conversation with one visible Mundane object ID.
   `dialog select` submits a zero-based displayed row and optional nonzero

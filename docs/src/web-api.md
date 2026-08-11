@@ -117,6 +117,7 @@ request cannot select another file in or outside the configured directory.
 | --- | --- |
 | `POST /clients/{client}/turn` | Face a cardinal direction. |
 | `POST /clients/{client}/walk` | Take one step or pathfind to a tile. |
+| `POST /clients/{client}/resync` | Request the same server refresh as the F5 key. |
 | `POST /clients/{client}/skills/use` | Use a skill by slot or name. |
 | `POST /clients/{client}/skills/swap` | Swap skills using slot-or-name selectors. |
 | `POST /clients/{client}/spells/cast` | Cast a spell by slot or name. |
@@ -158,8 +159,8 @@ request cannot select another file in or outside the configured directory.
 | `GET /clients/{client}/commands/{command_id}` | Read retained command status. |
 | `DELETE /clients/{client}/commands/{command_id}` | Cancel a command that has not started. |
 
-Movement request bodies are documented in
-[Movement and emotes](movement.md).
+Movement request bodies are documented in [Movement](movement.md). Emote names
+and codes are documented in [Emotes](emotes.md).
 Item, gold, pickup, chant, and NPC item-action bodies are documented in
 [Inventory](inventory.md).
 Equipment, skill, and spell arguments are documented in their respective

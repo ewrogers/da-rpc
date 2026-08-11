@@ -681,6 +681,7 @@ enum ActionUpdate: u8 {
     EquipmentUnequipped { slot: u8 } = 7,
     Emoted { code: u8 } = 8,
     Turned(Direction) = 9,
+    Resync = 10,
 }
 
 enum SpellCastArguments: u8 {
@@ -869,6 +870,7 @@ enum CommandKind: u8 {
     } = 21,
     Assail = 22,
     InspectPlayer { id: u32 } = 23, // nonzero visible player object ID
+    Resync = 24,
 }
 
 enum ExchangeCommand: u8 {
@@ -889,6 +891,9 @@ game packet contents.
 
 `Assail` submits the one-byte client packet body `0x13` through the confirmed
 client packet function.
+
+`Resync` submits the opcode-only client refresh packet `0x38`, matching the F5
+key behavior.
 
 enum GroupCommand: u8 {
     Invite { target: string8 } = 1,

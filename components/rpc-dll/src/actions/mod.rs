@@ -42,6 +42,7 @@ pub(crate) fn execute(command: CommandKind) -> Result<(), CommandFailure> {
         CommandKind::Legend => network::submit(&[0x2D]),
         CommandKind::Raw(packet) => network::raw(packet),
         CommandKind::Assail => network::submit(&[0x13]),
+        CommandKind::Resync => network::submit(&[0x38]),
     }
 }
 

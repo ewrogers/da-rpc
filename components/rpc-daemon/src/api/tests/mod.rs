@@ -815,6 +815,7 @@ fn player_inspection_route_resolves_visible_name_and_returns_profile() {
 #[test]
 fn routes_typed_actions() {
     assert_routes_action("/clients/42/assail", "", CommandKind::Assail);
+    assert_routes_action("/clients/42/resync", "", CommandKind::Resync);
     assert_routes_action(
         "/clients/42/raw/send",
         r#"{"direction":"client","command":"7E","payload":"00 03 02"}"#,

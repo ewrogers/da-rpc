@@ -48,6 +48,33 @@ fn client_commands_have_a_stable_public_event_shape() {
 }
 
 #[test]
+fn client_resync_has_a_stable_public_event_shape() {
+    let events = expand(
+        42,
+        ClientIdentity {
+            pid: 42,
+            process_creation_time: 100,
+            dll_instance_id: [1; 16],
+        },
+        StateEvent {
+            sequence: 10,
+            revision: 11,
+            tick_ms: 12,
+            update: StateUpdate::Action(ActionUpdate::Resync),
+        },
+        None,
+        None,
+        observed_at(),
+    );
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].name(), "client.resync");
+    let event = serde_json::to_value(&events[0]).unwrap();
+    assert_eq!(event["type"], "client_resync");
+    assert_eq!(event["data"]["observation"]["event_sequence"], 10);
+}
+
+#[test]
 fn expands_legend_diffs_with_previous_and_current_marks() {
     let previous = ModelLegendMark {
         text: "Found the grove".into(),

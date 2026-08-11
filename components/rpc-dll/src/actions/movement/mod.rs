@@ -39,6 +39,7 @@ static ROUTE_PROGRESS_VALID: AtomicBool = AtomicBool::new(false);
 static ROUTE_PROGRESS_X: AtomicI32 = AtomicI32::new(0);
 static ROUTE_PROGRESS_Y: AtomicI32 = AtomicI32::new(0);
 static ROUTE_PROGRESS_TICK: AtomicU32 = AtomicU32::new(0);
+static POSITION_SYNC_REPLAN: AtomicBool = AtomicBool::new(false);
 
 pub(super) fn turn(direction: Direction) -> Result<(), CommandFailure> {
     clear_route_destination();
@@ -111,6 +112,7 @@ pub(crate) fn route_destination() -> Option<TilePosition> {
 
 pub(crate) fn clear_route_destination() {
     HAS_ROUTE_DESTINATION.store(false, Ordering::Release);
+    POSITION_SYNC_REPLAN.store(false, Ordering::Release);
     ROUTE_PROGRESS_VALID.store(false, Ordering::Release);
     ROUTE_PROGRESS_TICK.store(0, Ordering::Release);
     clear_replan();
@@ -132,6 +134,12 @@ pub(crate) fn reset_tracking() {
     clear_route_destination();
 }
 
+pub(crate) fn schedule_position_sync_replan() {
+    if HAS_ROUTE_DESTINATION.load(Ordering::Acquire) {
+        POSITION_SYNC_REPLAN.store(true, Ordering::Release);
+    }
+}
+
 pub(crate) fn observe_tick() {
     let Some(destination) = route_destination() else {
         return;
@@ -145,6 +153,16 @@ pub(crate) fn observe_tick() {
         clear_route_destination();
         return;
     };
+    if POSITION_SYNC_REPLAN.swap(false, Ordering::AcqRel) {
+        if position == destination {
+            movement.reset();
+            clear_route_destination();
+            return;
+        }
+        movement.reset();
+        record_route_progress(position, tick_ms);
+        start_replan(movement.world.as_ptr() as usize, tick_ms);
+    }
     if !ROUTE_PROGRESS_VALID.load(Ordering::Acquire)
         || position.x != ROUTE_PROGRESS_X.load(Ordering::Relaxed)
         || position.y != ROUTE_PROGRESS_Y.load(Ordering::Relaxed)

@@ -116,6 +116,7 @@ pub enum ActionUpdate {
     Turned {
         direction: Direction,
     },
+    Resync,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

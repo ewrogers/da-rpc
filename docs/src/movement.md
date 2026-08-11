@@ -104,6 +104,11 @@ the retained destination on the next main-thread tick. This also applies when
 the server initiates the correction after rejecting a step or detecting a
 collision; calling `/resync` is not required for route recovery.
 
+Every observed F5 refresh, including one sent by this endpoint, publishes the
+transient [`client.resync`](events.md#client-command-events) event. The event
+means the client sent the request. It does not mean the server has answered or
+that resynchronization is complete.
+
 ## Walking events
 
 `planned_route` on character status retains the client's current native plan:

@@ -117,7 +117,7 @@ request cannot select another file in or outside the configured directory.
 | --- | --- |
 | `POST /clients/{client}/turn` | Face a cardinal direction. |
 | `POST /clients/{client}/walk` | Take one step or pathfind to a tile. |
-| `POST /clients/{client}/resync` | Request the same server refresh as the F5 key. |
+| `POST /clients/{client}/resync` | [Request the same server refresh as the F5 key.](#resynchronizing-a-client) |
 | `POST /clients/{client}/skills/use` | Use a skill by slot or name. |
 | `POST /clients/{client}/skills/swap` | Swap skills using slot-or-name selectors. |
 | `POST /clients/{client}/spells/cast` | Cast a spell by slot or name. |
@@ -169,6 +169,22 @@ in [NPC dialogs](dialogs.md). Group state, invitations, and roster confirmation
 are documented in [Groups](groups.md). Player offers, constraints, and exchange
 completion are documented in [Exchange](exchanges.md).
 Raw packet syntax and crash risks are documented in [Raw packets](raw.md).
+
+### Resynchronizing a client
+
+`POST /clients/{client}/resync` takes no request body. It sends the same
+opcode-only refresh packet as pressing F5 in the game client. Use it when the
+client appears out of sync with the server, such as after movement is rejected
+or the character appears stuck against a wall.
+
+Sending the packet publishes the transient [`client.resync`](events.md#client-command-events)
+event. That event confirms that daRPC observed the outgoing request. It does
+not confirm that the server responded or completed the refresh.
+
+If the server replies with a corrected position while a daRPC destination walk
+is active, daRPC keeps the destination and recalculates the route from the
+corrected tile. See [Resynchronizing position](movement.md#resynchronizing-position)
+for the complete movement behavior.
 
 Basic attacks require no request body:
 

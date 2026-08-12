@@ -126,6 +126,22 @@ pub const CLIENT_SOCKET_POINTER_RVA: usize = 0x0033_D958;
 pub const CLIENT_PACKET_SUBMIT_ENTRY: [u8; 9] =
     [0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x38, 0x89, 0x4D, 0xC8];
 
+/// Module-relative address of the transport queue submission routine.
+#[cfg(any(windows, test))]
+pub const CLIENT_TRANSPORT_SUBMIT_RVA: usize = 0x0018_6210;
+
+/// Complete entry instructions required before prioritizing transport packets.
+#[cfg(any(windows, test))]
+pub const CLIENT_TRANSPORT_SUBMIT_ENTRY: [u8; 6] = [0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x1C];
+
+/// Module-relative address of the transport queue front-pop routine.
+#[cfg(any(windows, test))]
+pub const CLIENT_TRANSPORT_POP_RVA: usize = 0x0014_EBB0;
+
+/// Complete entry instructions required before prioritizing transport packets.
+#[cfg(any(windows, test))]
+pub const CLIENT_TRANSPORT_POP_ENTRY: [u8; 7] = [0x55, 0x8B, 0xEC, 0x51, 0x89, 0x4D, 0xFC];
+
 /// Module-relative address of the client main thread identifier.
 pub const CLIENT_MAIN_THREAD_ID_RVA: usize = 0x0034_0400;
 
@@ -134,15 +150,16 @@ mod tests {
     use super::{
         ADVANCE_PATH_RVA, BUILD_BREADTH_FIRST_PATH_ENTRY, BUILD_BREADTH_FIRST_PATH_RVA,
         BUILD_PATH_RVA, CLIENT_MAIN_THREAD_ID_RVA, CLIENT_PACKET_SUBMIT_ENTRY,
-        CLIENT_PACKET_SUBMIT_RVA, EVENT_DISPATCH_ENTRY, EVENT_DISPATCH_RVA,
-        EVENT_DISPATCHER_TICK_ENTRY, EVENT_DISPATCHER_TICK_RVA, GUI_BACK_PANE_GET_RVA,
-        MAP_CAN_MOVE_DIRECTION_RVA, MAP_SIZE_HANDLER_ENTRY, MAP_SIZE_HANDLER_RVA, QUEUED_STEP_CALL,
-        QUEUED_STEP_CALL_RVA, RESET_MOVEMENT_RVA, ROUTE_COLLISION_CALL, ROUTE_COLLISION_CALL_RVA,
-        SELF_OBJECT_RVA, SKILL_ACTIVATE_RVA, SPELL_DELAY_ACTIVE_OFFSET,
-        SPELL_DELAY_CONTROL_PANE_GET_RVA, SPELL_DELAY_CONTROL_PANE_POINTER_RVA, SPELL_DENIED_RVA,
-        SPELL_NO_ARGS_RVA, SPELL_START_RVA, SPELL_TARGET_RVA, TURN_RVA, WALK_RVA,
-        WORLD_PANE_ADJUSTMENT, WORLD_PANE_POINTER_RVA, WORLD_PANE_PURSUIT_TARGET_ID_OFFSET,
-        WORLD_PANE_ROUTE_ACTIVE_OFFSET,
+        CLIENT_PACKET_SUBMIT_RVA, CLIENT_TRANSPORT_POP_ENTRY, CLIENT_TRANSPORT_POP_RVA,
+        CLIENT_TRANSPORT_SUBMIT_ENTRY, CLIENT_TRANSPORT_SUBMIT_RVA, EVENT_DISPATCH_ENTRY,
+        EVENT_DISPATCH_RVA, EVENT_DISPATCHER_TICK_ENTRY, EVENT_DISPATCHER_TICK_RVA,
+        GUI_BACK_PANE_GET_RVA, MAP_CAN_MOVE_DIRECTION_RVA, MAP_SIZE_HANDLER_ENTRY,
+        MAP_SIZE_HANDLER_RVA, QUEUED_STEP_CALL, QUEUED_STEP_CALL_RVA, RESET_MOVEMENT_RVA,
+        ROUTE_COLLISION_CALL, ROUTE_COLLISION_CALL_RVA, SELF_OBJECT_RVA, SKILL_ACTIVATE_RVA,
+        SPELL_DELAY_ACTIVE_OFFSET, SPELL_DELAY_CONTROL_PANE_GET_RVA,
+        SPELL_DELAY_CONTROL_PANE_POINTER_RVA, SPELL_DENIED_RVA, SPELL_NO_ARGS_RVA, SPELL_START_RVA,
+        SPELL_TARGET_RVA, TURN_RVA, WALK_RVA, WORLD_PANE_ADJUSTMENT, WORLD_PANE_POINTER_RVA,
+        WORLD_PANE_PURSUIT_TARGET_ID_OFFSET, WORLD_PANE_ROUTE_ACTIVE_OFFSET,
     };
 
     #[test]
@@ -161,6 +178,20 @@ mod tests {
     fn event_dispatch_target_contract_is_stable() {
         assert_eq!(EVENT_DISPATCH_RVA, 0x0006_47C0);
         assert_eq!(EVENT_DISPATCH_ENTRY, [0x55, 0x8B, 0xEC, 0x6A, 0xFF]);
+    }
+
+    #[test]
+    fn transport_priority_contract_is_stable() {
+        assert_eq!(CLIENT_TRANSPORT_SUBMIT_RVA, 0x0018_6210);
+        assert_eq!(
+            CLIENT_TRANSPORT_SUBMIT_ENTRY,
+            [0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x1C]
+        );
+        assert_eq!(CLIENT_TRANSPORT_POP_RVA, 0x0014_EBB0);
+        assert_eq!(
+            CLIENT_TRANSPORT_POP_ENTRY,
+            [0x55, 0x8B, 0xEC, 0x51, 0x89, 0x4D, 0xFC]
+        );
     }
 
     #[test]

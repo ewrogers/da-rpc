@@ -20,6 +20,8 @@ use windows_sys::Win32::System::{
     Threading::{GetCurrentProcess, GetCurrentThreadId},
 };
 
+use super::heartbeat_priority::{self, HeartbeatPriorityHook};
+
 pub(crate) const NAME: &str = "client_packet_submit";
 
 const DETOUR_RANGE_LEN: usize = 128;
@@ -40,6 +42,7 @@ static OUTGOING_READ_FAILURE_COUNT: AtomicU32 = AtomicU32::new(0);
 
 pub(crate) struct OutgoingHook {
     detour: InstalledDetour,
+    heartbeat_priority: HeartbeatPriorityHook,
     relocated_bytes: u8,
     install_warning: Option<io::Error>,
 }
@@ -48,6 +51,8 @@ pub(crate) struct OutgoingHook {
 pub(crate) struct OutgoingHealth {
     pub(crate) observation_count: u32,
     pub(crate) read_failure_count: u32,
+    pub(crate) prioritized_heartbeat_count: u32,
+    pub(crate) heartbeat_fallback_count: u32,
 }
 
 impl OutgoingHook {
@@ -90,9 +95,29 @@ impl OutgoingHook {
             }
         };
         let install_warning = detour.take_resume_warning().map(detour_error);
+        let mut heartbeat_priority = match HeartbeatPriorityHook::install() {
+            Ok(hook) => hook,
+            Err(error) => {
+                let deadline = Instant::now() + UNINSTALL_TIMEOUT;
+                loop {
+                    match detour.uninstall() {
+                        Ok(_) => break,
+                        Err(rollback) if rollback.is_transient() && Instant::now() < deadline => {
+                            thread::sleep(COMMIT_RETRY_INTERVAL);
+                        }
+                        Err(rollback) => return Err(InstallError::from(rollback)),
+                    }
+                }
+                OUTGOING_TRAMPOLINE.store(0, Ordering::Release);
+                OUTGOING_RELOCATED_BYTES.store(0, Ordering::Release);
+                return Err(error);
+            }
+        };
+        let install_warning = install_warning.or(heartbeat_priority.take_install_warning());
         OUTGOING_HOOK_INSTALLED.store(true, Ordering::Release);
         Ok(Self {
             detour,
+            heartbeat_priority,
             relocated_bytes,
             install_warning,
         })
@@ -107,6 +132,7 @@ impl OutgoingHook {
     }
 
     pub(crate) fn uninstall(&mut self) -> io::Result<bool> {
+        let heartbeat_changed = self.heartbeat_priority.uninstall()?;
         let deadline = Instant::now() + UNINSTALL_TIMEOUT;
         loop {
             match self.detour.uninstall() {
@@ -114,7 +140,7 @@ impl OutgoingHook {
                     OUTGOING_HOOK_INSTALLED.store(false, Ordering::Release);
                     OUTGOING_TRAMPOLINE.store(0, Ordering::Release);
                     OUTGOING_RELOCATED_BYTES.store(0, Ordering::Release);
-                    return Ok(changed);
+                    return Ok(heartbeat_changed || changed);
                 }
                 Err(error) if error.is_transient() && Instant::now() < deadline => {
                     thread::sleep(COMMIT_RETRY_INTERVAL);
@@ -126,9 +152,12 @@ impl OutgoingHook {
 }
 
 pub(crate) fn health() -> OutgoingHealth {
+    let heartbeat = heartbeat_priority::health();
     OutgoingHealth {
         observation_count: OUTGOING_OBSERVATION_COUNT.load(Ordering::Acquire),
         read_failure_count: OUTGOING_READ_FAILURE_COUNT.load(Ordering::Acquire),
+        prioritized_heartbeat_count: heartbeat.prioritized_count,
+        heartbeat_fallback_count: heartbeat.fallback_count,
     }
 }
 

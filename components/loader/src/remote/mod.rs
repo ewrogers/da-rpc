@@ -188,8 +188,29 @@ impl<'a> RemoteAllocation<'a> {
         write(self.process, self.address as usize, bytes)
     }
 
+    pub(crate) fn write_bytes(&self, bytes: &[u8]) -> Result<()> {
+        if bytes.len() > self.size {
+            return Err(LoaderError::new(
+                ErrorKind::Internal,
+                format!(
+                    "remote write exceeds allocation: write={} allocation={}",
+                    bytes.len(),
+                    self.size
+                ),
+            ));
+        }
+
+        write(self.process, self.address as usize, bytes)
+    }
+
     pub(crate) fn address(&self) -> *mut c_void {
         self.address
+    }
+
+    pub(crate) fn persist(self) -> usize {
+        let address = self.address as usize;
+        std::mem::forget(self);
+        address
     }
 }
 

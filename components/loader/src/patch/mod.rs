@@ -3,6 +3,8 @@ use darpc_game_client::{
     ALLOW_MULTIPLE_PATCHES, COMMAND_LINE_ENDPOINT_PATCHES, DISABLE_ENDPOINT_FALLBACK_PATCHES,
     LaunchPatch, SKIP_EXCHANGE_ALERTS_PATCHES, SKIP_INTRO_PATCHES, SKIP_NOTICE_PATCHES,
 };
+#[cfg(windows)]
+use darpc_game_client::{BOOTSTRAP_SEQUENCE_PATCH, BootstrapSequencePatch};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct LaunchPatches {
@@ -67,7 +69,9 @@ mod platform {
         Wdk::System::Threading::{NtQueryInformationProcess, ProcessBasicInformation},
         Win32::System::{
             Diagnostics::Debug::FlushInstructionCache,
-            Memory::{PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS, VirtualProtectEx},
+            Memory::{
+                PAGE_EXECUTE_READ, PAGE_EXECUTE_READWRITE, PAGE_PROTECTION_FLAGS, VirtualProtectEx,
+            },
             Threading::{PEB, PROCESS_BASIC_INFORMATION},
         },
     };
@@ -77,14 +81,42 @@ mod platform {
         address: usize,
     }
 
-    pub(crate) fn apply(process: &TargetProcess, selection: LaunchPatches) -> Result<()> {
-        if selection.is_empty() {
+    struct ResolvedBootstrapPatch {
+        hello_submit_call: usize,
+        late_reset_call: usize,
+        reset_sequence: usize,
+        submit_packet: usize,
+    }
+
+    pub(crate) fn apply(
+        process: &TargetProcess,
+        selection: LaunchPatches,
+        apply_bootstrap_sequence_patch: bool,
+    ) -> Result<()> {
+        if selection.is_empty() && !apply_bootstrap_sequence_patch {
             return Ok(());
         }
 
         let image_base = main_image_base(process)?;
         let selected = selection.selected();
-        apply_at_base(process, image_base, &selected)
+        let resolved = resolve_at_base(process, image_base, &selected)?;
+        let bootstrap = apply_bootstrap_sequence_patch
+            .then(|| resolve_bootstrap(process, image_base, BOOTSTRAP_SEQUENCE_PATCH))
+            .transpose()?;
+
+        for patch in resolved {
+            write_patch(process, &patch)?;
+            eprintln!(
+                "Applied {} at RVA 0x{:08X}",
+                patch.definition.name, patch.definition.rva
+            );
+        }
+
+        if let Some(bootstrap) = bootstrap {
+            install_bootstrap_sequence_patch(process, &bootstrap)?;
+        }
+
+        Ok(())
     }
 
     fn main_image_base(process: &TargetProcess) -> Result<usize> {
@@ -147,11 +179,30 @@ mod platform {
         Ok(image_base)
     }
 
+    #[cfg(test)]
     fn apply_at_base(
         process: &TargetProcess,
         image_base: usize,
         definitions: &[&LaunchPatch],
     ) -> Result<()> {
+        let resolved = resolve_at_base(process, image_base, definitions)?;
+
+        for patch in resolved {
+            write_patch(process, &patch)?;
+            eprintln!(
+                "Applied {} at RVA 0x{:08X}",
+                patch.definition.name, patch.definition.rva
+            );
+        }
+
+        Ok(())
+    }
+
+    fn resolve_at_base<'a>(
+        process: &TargetProcess,
+        image_base: usize,
+        definitions: &[&'a LaunchPatch],
+    ) -> Result<Vec<ResolvedPatch<'a>>> {
         let mut resolved = Vec::with_capacity(definitions.len());
 
         for definition in definitions {
@@ -177,15 +228,129 @@ mod platform {
             });
         }
 
-        for patch in resolved {
-            write_patch(process, &patch)?;
-            eprintln!(
-                "Applied {} at RVA 0x{:08X}",
-                patch.definition.name, patch.definition.rva
-            );
-        }
+        Ok(resolved)
+    }
 
+    fn resolve_bootstrap(
+        process: &TargetProcess,
+        image_base: usize,
+        definition: BootstrapSequencePatch,
+    ) -> Result<ResolvedBootstrapPatch> {
+        let hello_submit_call = checked_address(image_base, definition.hello_submit_call_rva)?;
+        let late_reset_call = checked_address(image_base, definition.late_reset_call_rva)?;
+        validate_bytes(
+            process,
+            hello_submit_call,
+            definition.hello_submit_call_expected,
+            "bootstrap CHello submit call",
+        )?;
+        validate_bytes(
+            process,
+            late_reset_call,
+            definition.late_reset_call_expected,
+            "bootstrap late sequence reset call",
+        )?;
+
+        Ok(ResolvedBootstrapPatch {
+            hello_submit_call,
+            late_reset_call,
+            reset_sequence: checked_address(image_base, definition.reset_sequence_rva)?,
+            submit_packet: checked_address(image_base, definition.submit_packet_rva)?,
+        })
+    }
+
+    fn checked_address(image_base: usize, rva: u32) -> Result<usize> {
+        image_base
+            .checked_add(rva as usize)
+            .ok_or_else(|| LoaderError::new(ErrorKind::Internal, "patch address overflow"))
+    }
+
+    fn validate_bytes(
+        process: &TargetProcess,
+        address: usize,
+        expected: &[u8],
+        name: &str,
+    ) -> Result<()> {
+        let actual = remote::read(process, address, expected.len())?;
+        if actual != expected {
+            return Err(LoaderError::new(
+                ErrorKind::RemoteOperationFailed,
+                format!(
+                    "{name} bytes differ at 0x{address:08X}: expected={expected:02X?} actual={actual:02X?}"
+                ),
+            ));
+        }
         Ok(())
+    }
+
+    fn install_bootstrap_sequence_patch(
+        process: &TargetProcess,
+        patch: &ResolvedBootstrapPatch,
+    ) -> Result<()> {
+        const STUB_LENGTH: usize = 12;
+        let allocation = remote::RemoteAllocation::new(process, STUB_LENGTH)?;
+        let stub_address = allocation.address() as usize;
+        let mut stub = [0_u8; STUB_LENGTH];
+        stub[0] = 0x51;
+        stub[1] = 0xE8;
+        stub[2..6].copy_from_slice(&rel32(stub_address + 6, patch.reset_sequence)?);
+        stub[6] = 0x59;
+        stub[7] = 0xE9;
+        stub[8..12].copy_from_slice(&rel32(stub_address + 12, patch.submit_packet)?);
+
+        allocation.write_bytes(&stub)?;
+        validate_bytes(process, stub_address, &stub, "bootstrap sequence stub")?;
+        protect(process, stub_address, STUB_LENGTH, PAGE_EXECUTE_READ)?;
+        flush(process, stub_address, STUB_LENGTH)?;
+
+        let mut hello_replacement = [0_u8; 5];
+        hello_replacement[0] = 0xE8;
+        let hello_return = patch
+            .hello_submit_call
+            .checked_add(hello_replacement.len())
+            .ok_or_else(|| LoaderError::new(ErrorKind::Internal, "patch address overflow"))?;
+        hello_replacement[1..].copy_from_slice(&rel32(hello_return, stub_address)?);
+        write_code(
+            process,
+            patch.hello_submit_call,
+            &hello_replacement,
+            "bootstrap CHello submit call",
+        )?;
+        write_code(
+            process,
+            patch.late_reset_call,
+            &[0x90; 5],
+            "bootstrap late sequence reset call",
+        )?;
+
+        let _ = allocation.persist();
+        eprintln!("Applied default bootstrap sequence patch with stub at 0x{stub_address:08X}");
+        Ok(())
+    }
+
+    fn rel32(next_instruction: usize, target: usize) -> Result<[u8; 4]> {
+        let next_instruction = i64::try_from(next_instruction).map_err(|_| {
+            LoaderError::new(
+                ErrorKind::Internal,
+                "relative branch source does not fit i64",
+            )
+        })?;
+        let target = i64::try_from(target).map_err(|_| {
+            LoaderError::new(
+                ErrorKind::Internal,
+                "relative branch target does not fit i64",
+            )
+        })?;
+        let displacement = target.checked_sub(next_instruction).ok_or_else(|| {
+            LoaderError::new(ErrorKind::Internal, "relative branch displacement overflow")
+        })?;
+        let displacement = i32::try_from(displacement).map_err(|_| {
+            LoaderError::new(
+                ErrorKind::RemoteOperationFailed,
+                "bootstrap sequence stub is outside rel32 reach",
+            )
+        })?;
+        Ok(displacement.to_le_bytes())
     }
 
     fn validate_definition(definition: &LaunchPatch) -> Result<()> {
@@ -202,38 +367,38 @@ mod platform {
     }
 
     fn write_patch(process: &TargetProcess, patch: &ResolvedPatch<'_>) -> Result<()> {
-        let old_protection = protect(
+        write_code(
             process,
             patch.address,
-            patch.definition.replacement.len(),
-            PAGE_EXECUTE_READWRITE,
-        )?;
+            patch.definition.replacement,
+            patch.definition.name,
+        )
+    }
+
+    fn write_code(
+        process: &TargetProcess,
+        address: usize,
+        replacement: &[u8],
+        name: &str,
+    ) -> Result<()> {
+        let old_protection = protect(process, address, replacement.len(), PAGE_EXECUTE_READWRITE)?;
 
         let operation = (|| {
-            remote::write(process, patch.address, patch.definition.replacement)?;
-            flush(process, patch.address, patch.definition.replacement.len())?;
+            remote::write(process, address, replacement)?;
+            flush(process, address, replacement.len())?;
 
-            let actual = remote::read(process, patch.address, patch.definition.replacement.len())?;
-            if actual != patch.definition.replacement {
+            let actual = remote::read(process, address, replacement.len())?;
+            if actual != replacement {
                 return Err(LoaderError::new(
                     ErrorKind::RemoteOperationFailed,
-                    format!(
-                        "{} replacement did not persist at 0x{:08X}",
-                        patch.definition.name, patch.address
-                    ),
+                    format!("{name} replacement did not persist at 0x{address:08X}"),
                 ));
             }
 
             Ok(())
         })();
 
-        let restore = protect(
-            process,
-            patch.address,
-            patch.definition.replacement.len(),
-            old_protection,
-        )
-        .map(|_| ());
+        let restore = protect(process, address, replacement.len(), old_protection).map(|_| ());
 
         match (operation, restore) {
             (Ok(()), Ok(())) => Ok(()),
@@ -302,7 +467,7 @@ mod platform {
 
     #[cfg(all(test, target_arch = "x86"))]
     mod tests {
-        use super::{LaunchPatch, apply_at_base};
+        use super::{LaunchPatch, apply_at_base, rel32};
         use crate::process::TargetProcess;
         use std::{ptr, slice};
         use windows_sys::Win32::System::Memory::{
@@ -371,6 +536,12 @@ mod platform {
             // SAFETY: `address` is the base of the live allocation and has not
             // previously been released.
             assert_ne!(unsafe { VirtualFree(address, 0, MEM_RELEASE) }, 0);
+        }
+
+        #[test]
+        fn encodes_forward_and_backward_relative_branches() {
+            assert_eq!(rel32(0x1000, 0x1234).unwrap(), 0x234_i32.to_le_bytes());
+            assert_eq!(rel32(0x1234, 0x1000).unwrap(), (-0x234_i32).to_le_bytes());
         }
     }
 }

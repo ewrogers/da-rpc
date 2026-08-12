@@ -26,6 +26,11 @@ use std::{env, ffi::OsString, path::PathBuf, process::ExitCode};
 #[cfg(debug_assertions)]
 use std::fs;
 
+struct ValidatedClient {
+    path: PathBuf,
+    apply_default_patches: bool,
+}
+
 const USAGE: &str = "\
 usage:
     loader [--json] inspect <pid>
@@ -253,7 +258,7 @@ fn execute(command: Command) -> Result<CommandResult> {
         Command::Attach { pid, dll_path } => {
             let dll = validate_dll(dll_path)?;
             let process = TargetProcess::open(pid)?;
-            validate_client(process.executable_path()?)?;
+            let _ = validate_client(process.executable_path()?)?;
             let outcome = lifecycle::attach(&process, &dll)?;
 
             Ok(command_result(
@@ -283,12 +288,18 @@ fn execute(command: Command) -> Result<CommandResult> {
             server,
         } => {
             let dll = validate_dll(dll_path)?;
-            let executable_path = validate_client(executable_path)?;
+            let client = validate_client(executable_path)?;
             let arguments = match server {
-                Some(server) => server.prepend_to(&executable_path, arguments)?,
+                Some(server) => server.prepend_to(&client.path, arguments)?,
                 None => arguments,
             };
-            let outcome = launch::launch(&executable_path, &arguments, &dll, patches)?;
+            let outcome = launch::launch(
+                &client.path,
+                &arguments,
+                &dll,
+                patches,
+                client.apply_default_patches,
+            )?;
 
             Ok(command_result(
                 "launch",
@@ -300,7 +311,7 @@ fn execute(command: Command) -> Result<CommandResult> {
     }
 }
 
-fn validate_client(executable_path: PathBuf) -> Result<PathBuf> {
+fn validate_client(executable_path: PathBuf) -> Result<ValidatedClient> {
     #[cfg(debug_assertions)]
     if env::var_os(DEBUG_UNSUPPORTED_CLIENT_BYPASS_ENVIRONMENT_VARIABLE).as_deref()
         == Some(std::ffi::OsStr::new("1"))
@@ -319,7 +330,10 @@ fn validate_client(executable_path: PathBuf) -> Result<PathBuf> {
             "WARNING: debug-only unsupported-client test bypass enabled for {}",
             executable_path.display()
         );
-        return Ok(executable_path);
+        return Ok(ValidatedClient {
+            path: executable_path,
+            apply_default_patches: false,
+        });
     }
 
     let executable = ClientExecutable::validate(&executable_path)
@@ -331,7 +345,10 @@ fn validate_client(executable_path: PathBuf) -> Result<PathBuf> {
         executable_sha256()
     );
 
-    Ok(executable.path().to_owned())
+    Ok(ValidatedClient {
+        path: executable.path().to_owned(),
+        apply_default_patches: true,
+    })
 }
 
 fn validate_dll(dll_path: PathBuf) -> Result<DarpcDll> {

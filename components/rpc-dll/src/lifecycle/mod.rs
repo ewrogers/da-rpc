@@ -361,12 +361,13 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
             Ok(mut hook) => {
                 let _ = writeln!(
                     log,
-                    "event=hook_installed hook={} rva=0x{:08X} relocated_bytes={} heartbeat_submit_rva=0x{:08X} heartbeat_pop_rva=0x{:08X}",
+                    "event=hook_installed hook={} rva=0x{:08X} relocated_bytes={} heartbeat_submit_rva=0x{:08X} heartbeat_pop_rva=0x{:08X} heartbeat_empty_rva=0x{:08X}",
                     outgoing::NAME,
                     darpc_game_client::CLIENT_PACKET_SUBMIT_RVA,
                     hook.relocated_bytes(),
                     darpc_game_client::CLIENT_TRANSPORT_SUBMIT_RVA,
-                    darpc_game_client::CLIENT_TRANSPORT_POP_RVA
+                    darpc_game_client::CLIENT_TRANSPORT_POP_RVA,
+                    darpc_game_client::CLIENT_TRANSPORT_EMPTY_RVA
                 );
                 if let Some(warning) = hook.take_install_warning() {
                     let _ = writeln!(
@@ -477,25 +478,32 @@ pub(crate) fn shutdown() -> io::Result<()> {
     commands::cancel_pending();
 
     if let Some(hook) = active.outgoing_hook.as_mut() {
-        let final_health = outgoing::health();
         match hook.uninstall() {
             Ok(true) => {
+                let final_health = outgoing::health();
                 writeln!(
                     active.log,
-                    "event=hook_removed hook={} observations={} read_failures={} prioritized_heartbeats={} heartbeat_fallbacks={}",
+                    "event=hook_removed hook={} observations={} read_failures={} heartbeat_enqueued={} heartbeat_delivered={} heartbeat_fallbacks={} heartbeat_pending={}",
                     outgoing::NAME,
                     final_health.observation_count,
                     final_health.read_failure_count,
                     final_health.prioritized_heartbeat_count,
-                    final_health.heartbeat_fallback_count
+                    final_health.delivered_heartbeat_count,
+                    final_health.heartbeat_fallback_count,
+                    final_health.pending_heartbeat_count
                 )?;
             }
             Ok(false) => {}
             Err(error) => {
+                let failed_health = outgoing::health();
                 let _ = writeln!(
                     active.log,
-                    "event=hook_remove_failed hook={} error={error}",
-                    outgoing::NAME
+                    "event=hook_remove_failed hook={} error={error} heartbeat_enqueued={} heartbeat_delivered={} heartbeat_fallbacks={} heartbeat_pending={}",
+                    outgoing::NAME,
+                    failed_health.prioritized_heartbeat_count,
+                    failed_health.delivered_heartbeat_count,
+                    failed_health.heartbeat_fallback_count,
+                    failed_health.pending_heartbeat_count
                 );
                 return Err(error);
             }

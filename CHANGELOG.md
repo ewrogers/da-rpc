@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- Made initial location tracking independent of whether the authoritative
+  position or map-size event arrives first after login.
+
 ## 1.2.0 - 2026-08-11
 
 ### Added

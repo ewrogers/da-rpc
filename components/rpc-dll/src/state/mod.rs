@@ -279,19 +279,24 @@ pub(crate) fn map_transition_pending() -> bool {
     unsafe { CACHE.map_transition_pending() }
 }
 
-pub(crate) fn stage_map_transition(map_id: u32, width: i32, height: i32, name: &[u8]) {
+pub(crate) fn stage_map_transition(
+    map_id: u32,
+    width: i32,
+    height: i32,
+    name: &[u8],
+    tick_ms: u32,
+) {
     #[cfg(all(windows, not(test)))]
     crate::actions::movement::clear_route_destination();
     #[cfg(windows)]
     if crate::dialog::is_active() {
-        observe_dialog_closed(
-            darpc_model::DialogCloseReason::WorldChanged,
-            sender_tick_ms(),
-        );
+        observe_dialog_closed(darpc_model::DialogCloseReason::WorldChanged, tick_ms);
     }
     // SAFETY: the map-size hook runs on the client main thread, which is the
     // sole cache producer.
-    unsafe { CACHE.stage_map_transition(map_id, width, height, name) };
+    if let Some(update) = unsafe { CACHE.stage_map_transition(map_id, width, height, name) } {
+        publish_location_update(update, true, tick_ms);
+    }
 }
 
 pub(crate) fn snapshot_boundary(
@@ -312,6 +317,14 @@ pub(crate) fn snapshot_boundary(
         revision: next_nonzero(&REVISION),
         event_sequence: EVENT_SEQUENCE.load(Ordering::Acquire),
         tick_ms,
+    }
+}
+
+pub(crate) fn merge_snapshot_position(raw: &mut RawStateSnapshot) {
+    if raw.character_available {
+        // SAFETY: snapshot capture runs on the client main thread, which is the
+        // sole cache producer.
+        unsafe { CACHE.merge_position(&mut raw.character) };
     }
 }
 
@@ -450,6 +463,10 @@ pub(crate) fn observe_user_position(x: i32, y: i32, tick_ms: u32) {
     let Some((update, map_changed)) = (unsafe { CACHE.user_position(x, y) }) else {
         return;
     };
+    publish_location_update(update, map_changed, tick_ms);
+}
+
+fn publish_location_update(update: QueuedLocationUpdate, map_changed: bool, tick_ms: u32) {
     push_event(QueuedStateUpdate::Location(update), tick_ms);
     if map_changed {
         crate::player::cleared();
@@ -457,7 +474,7 @@ pub(crate) fn observe_user_position(x: i32, y: i32, tick_ms: u32) {
             push_event(QueuedStateUpdate::Object(update), tick_ms);
         }
     } else {
-        observe_self_position(x, y, tick_ms);
+        observe_self_position(update.x, update.y, tick_ms);
     }
 }
 
@@ -818,10 +835,15 @@ mod tests {
     #[test]
     fn map_transition_commits_with_authoritative_position() {
         let mut cache = StateCache {
+            map: Some(CachedMap {
+                id: 3000,
+                width: 90,
+                height: 70,
+            }),
             position: Some((10, 20)),
             ..StateCache::default()
         };
-        cache.stage_map_transition(3001, 100, 80, b"Mileth");
+        assert_eq!(cache.stage_map_transition(3001, 100, 80, b"Mileth"), None);
         assert_eq!(cache.move_position(11, 20), None);
 
         let (update, map_changed) = cache.user_position(43, 40).unwrap();
@@ -843,6 +865,70 @@ mod tests {
     }
 
     #[test]
+    fn initial_map_commits_when_position_arrives_first() {
+        let mut cache = StateCache::default();
+        let (position, map_changed) = cache.user_position(43, 40).unwrap();
+        assert!(!map_changed);
+        assert_eq!(position.map, None);
+
+        let update = cache
+            .stage_map_transition(3001, 100, 80, b"Mileth")
+            .unwrap()
+            .into_model();
+        assert_eq!((update.x, update.y), (43, 40));
+        assert_eq!(
+            update.map,
+            Some(MapChange {
+                id: 3001,
+                name: Some("Mileth".into()),
+                width: 100,
+                height: 80,
+            })
+        );
+        assert_eq!(
+            cache.map,
+            Some(CachedMap {
+                id: 3001,
+                width: 100,
+                height: 80,
+            })
+        );
+        assert!(cache.pending_map.is_none());
+    }
+
+    #[test]
+    fn snapshot_uses_matching_authoritative_position() {
+        let cache = StateCache {
+            map: Some(CachedMap {
+                id: 3001,
+                width: 100,
+                height: 80,
+            }),
+            position: Some((43, 40)),
+            ..StateCache::default()
+        };
+        let mut raw = RawCharacter::empty();
+        raw.location = Some(darpc_game_client::RawLocation {
+            map_id: 3000,
+            name: None,
+            x: None,
+            y: None,
+            width: 100,
+            height: 80,
+        });
+
+        cache.merge_position(&mut raw);
+        assert_eq!(raw.location.unwrap().x.zip(raw.location.unwrap().y), None);
+
+        raw.location.as_mut().unwrap().map_id = 3001;
+        cache.merge_position(&mut raw);
+        assert_eq!(
+            raw.location.unwrap().x.zip(raw.location.unwrap().y),
+            Some((43, 40))
+        );
+    }
+
+    #[test]
     fn same_map_refresh_does_not_stage_a_transition() {
         let mut cache = StateCache {
             map: Some(CachedMap {
@@ -854,7 +940,10 @@ mod tests {
             ..StateCache::default()
         };
 
-        cache.stage_map_transition(498, 20, 15, b"Rucesion Inn");
+        assert_eq!(
+            cache.stage_map_transition(498, 20, 15, b"Rucesion Inn"),
+            None
+        );
         assert!(cache.pending_map.is_none());
 
         let (update, map_changed) = cache.user_position(2, 8).unwrap();

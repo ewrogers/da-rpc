@@ -2,7 +2,8 @@ use super::*;
 
 const PENDING_CAPACITY: usize = 64;
 const ORIGIN_CAPACITY: usize = 16;
-pub(super) const ORIGIN_TTL_MS: u32 = 5_000;
+pub(super) const IN_FLIGHT_TIMEOUT_MS: u32 = 5_000;
+pub(super) const ORIGIN_TTL_MS: u32 = 30_000;
 pub(super) const ORIGIN_USER: u8 = 1;
 pub(super) const ORIGIN_DARPC: u8 = 2;
 
@@ -140,7 +141,7 @@ pub(super) fn ready_for_next(tick_ms: u32) -> bool {
     if in_flight == 0 {
         return true;
     }
-    if tick_ms.wrapping_sub(IN_FLIGHT_TICK.load(Ordering::Acquire)) <= ORIGIN_TTL_MS {
+    if tick_ms.wrapping_sub(IN_FLIGHT_TICK.load(Ordering::Acquire)) <= IN_FLIGHT_TIMEOUT_MS {
         return false;
     }
     IN_FLIGHT_ID.store(0, Ordering::Release);

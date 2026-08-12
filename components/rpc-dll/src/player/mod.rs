@@ -21,7 +21,7 @@ use crate::{inline_bytes::InlineBytes, transfer_slot::TransferSlot};
 use parse::{Sections, parse_profile, parse_self_identity, scan};
 use profile_cache::{clear_profile, copy_profile, previous_body, publish_profile};
 #[cfg(test)]
-use request_tracking::ORIGIN_TTL_MS;
+use request_tracking::{IN_FLIGHT_TIMEOUT_MS, ORIGIN_TTL_MS};
 use request_tracking::{
     ORIGIN_DARPC, ORIGIN_USER, Origin, Pending, enqueue, pop_pending, prune_origins, push_origin,
     take_origin,
@@ -604,6 +604,28 @@ mod tests {
             tick_ms: 10,
         });
         assert!(!intercept_response(&object_info(), 10 + ORIGIN_TTL_MS + 1));
+        assert!(!INTERCEPT_PENDING.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn delayed_internal_response_stays_suppressed_after_queue_timeout() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset();
+        push_origin(Origin {
+            kind: ORIGIN_DARPC,
+            id: 7,
+            trigger: PlayerInspectionTrigger::Appeared,
+            command_id: 0,
+            tick_ms: 10,
+        });
+        request_tracking::mark_in_flight(7, 10);
+
+        let delayed_tick = 10 + IN_FLIGHT_TIMEOUT_MS + 1;
+        assert!(request_tracking::ready_for_next(delayed_tick));
+        assert!(INTERCEPT_PENDING.load(Ordering::Acquire));
+        assert!(intercept_response(&object_info(), delayed_tick));
         assert!(!INTERCEPT_PENDING.load(Ordering::Acquire));
     }
 

@@ -223,6 +223,8 @@ unsafe extern "thiscall" fn event_dispatch_detour(
         "cmp byte ptr [edx], {exchange_opcode}",
         "je 5f",
         "cmp byte ptr [edx], {player_response_opcode}",
+        "je 5f",
+        "cmp byte ptr [edx], {self_response_opcode}",
         "jne 1f",
         "5:",
         "push ecx",
@@ -268,6 +270,7 @@ unsafe extern "thiscall" fn event_dispatch_detour(
         who_response_opcode = const 0x36_u8,
         exchange_opcode = const 0x42_u8,
         player_response_opcode = const 0x34_u8,
+        self_response_opcode = const 0x39_u8,
     );
 }
 
@@ -301,7 +304,9 @@ fn intercept_event_inner(event: *const core::ffi::c_void) -> bool {
         return false;
     }
     let mut opcode = [0];
-    if !read_exact(body_address as usize, &mut opcode) || !matches!(opcode[0], 0x34 | 0x36 | 0x42) {
+    if !read_exact(body_address as usize, &mut opcode)
+        || !matches!(opcode[0], 0x34 | 0x36 | 0x39 | 0x42)
+    {
         return false;
     }
     if EVENT_SCRATCH_IN_USE
@@ -321,6 +326,7 @@ fn intercept_event_inner(event: *const core::ffi::c_void) -> bool {
     let suppressed = match opcode[0] {
         0x34 => crate::player::intercept_response(body, sender_tick_ms()),
         0x36 => crate::who::intercept_response(body, sender_tick_ms()),
+        0x39 => crate::player::intercept_self_response(body, sender_tick_ms()),
         0x42 => crate::exchange::intercept_quantity(body),
         _ => false,
     };

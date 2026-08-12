@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 1.2.4 - 2026-08-12
+
+### Fixed
+
+- Suppressed the client self-look window when daRPC automatically inspects the
+  local player after login, while preserving user-requested self-look windows.
+
 ## 1.2.3 - 2026-08-12
 
 ### Fixed

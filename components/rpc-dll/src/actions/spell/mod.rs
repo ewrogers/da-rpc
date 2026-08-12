@@ -2,6 +2,7 @@ use super::{
     ability::{self, AbilityEntry, AbilityKind},
     module_base, read,
 };
+use crate::process_memory::ProcessValue;
 use darpc_game_client::{
     SPELL_DELAY_ACTIVE_OFFSET, SPELL_DELAY_CONTROL_PANE_GET_RVA, SPELL_DENIED_RVA,
     SPELL_NO_ARGS_RVA, SPELL_START_RVA, SPELL_TARGET_RVA,
@@ -156,7 +157,7 @@ fn control(module: usize) -> Result<NonNull<c_void>, CommandFailure> {
     NonNull::new(unsafe { get_control_fn(module)() }).ok_or(CommandFailure::InvalidState)
 }
 
-fn read_field<T: Copy>(base: NonNull<c_void>, offset: usize) -> Result<T, CommandFailure> {
+fn read_field<T: ProcessValue>(base: NonNull<c_void>, offset: usize) -> Result<T, CommandFailure> {
     let address = (base.as_ptr() as usize)
         .checked_add(offset)
         .ok_or(CommandFailure::Internal)?;

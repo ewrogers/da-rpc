@@ -1,5 +1,6 @@
 use super::convert;
 
+use crate::atomic_sequence::next_nonzero;
 use crate::dialog::RawDialog;
 use crate::exchange::RawExchange;
 use crate::legend::RawLegendState;
@@ -150,9 +151,7 @@ impl PublicationWriter<'_> {
         let world_generation = if previous == raw.world_token {
             WORLD_GENERATION.load(Ordering::Acquire)
         } else {
-            WORLD_GENERATION
-                .fetch_add(1, Ordering::AcqRel)
-                .wrapping_add(1)
+            next_nonzero(&WORLD_GENERATION)
         };
         let captured_tick_ms = sender_tick_ms();
         let boundary = crate::state::snapshot_boundary(raw, objects, captured_tick_ms);

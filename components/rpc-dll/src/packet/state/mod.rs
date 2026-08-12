@@ -1,4 +1,4 @@
-use crate::packet::ParseError;
+use crate::packet::{PacketReader as Reader, ParseError};
 use darpc_model::{
     CharacterModifiers, CharacterStats, CollectionKind, CoreStatus, CurrentVitals, EffectDuration,
     Element, ProgressionStatus, StatusUpdate,
@@ -308,69 +308,14 @@ fn parse_user_appearance(body: &[u8]) -> Result<UserAppearance, ParseError> {
     })
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct Reader<'a> {
-    bytes: &'a [u8],
-    offset: usize,
-}
-
-impl<'a> Reader<'a> {
-    const fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, offset: 0 }
-    }
-
-    fn expect(&mut self, expected: u8) -> Result<(), ParseError> {
-        let actual = self.u8()?;
-        debug_assert_eq!(actual, expected);
-        Ok(())
-    }
-
-    fn u8(&mut self) -> Result<u8, ParseError> {
-        Ok(self.take(1)?[0])
-    }
-
-    fn u32_be(&mut self) -> Result<u32, ParseError> {
-        let bytes: [u8; 4] = self.take(4)?.try_into().expect("four-byte slice");
-        Ok(u32::from_be_bytes(bytes))
-    }
-
-    fn u16_be(&mut self) -> Result<u16, ParseError> {
-        let bytes: [u8; 2] = self.take(2)?.try_into().expect("two-byte slice");
-        Ok(u16::from_be_bytes(bytes))
-    }
-
-    fn i16_be(&mut self) -> Result<i16, ParseError> {
-        let bytes: [u8; 2] = self.take(2)?.try_into().expect("two-byte slice");
-        Ok(i16::from_be_bytes(bytes))
-    }
-
-    fn skip(&mut self, length: usize) -> Result<(), ParseError> {
-        self.take(length).map(|_| ())
-    }
-
-    fn string8(&mut self) -> Result<(), ParseError> {
-        let length = usize::from(self.u8()?);
-        self.skip(length)
-    }
-
+impl Reader<'_> {
     fn slot(&mut self, max: u8) -> Result<u8, ParseError> {
-        let offset = self.offset;
+        let offset = self.offset();
         let slot = self.u8()?;
         if slot == 0 || slot > max {
             return Err(ParseError::invalid(offset, u32::from(slot)));
         }
         Ok(slot)
-    }
-
-    fn take(&mut self, length: usize) -> Result<&'a [u8], ParseError> {
-        let remaining = self.bytes.len().saturating_sub(self.offset);
-        if length > remaining {
-            return Err(ParseError::truncated(self.offset, length, remaining));
-        }
-        let end = self.offset + length;
-        let bytes = &self.bytes[self.offset..end];
-        self.offset = end;
-        Ok(bytes)
     }
 }
 

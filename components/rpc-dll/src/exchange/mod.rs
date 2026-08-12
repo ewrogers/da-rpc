@@ -3,9 +3,10 @@
 use darpc_model::{ExchangeItem, ExchangeOffer, ExchangeParty, ExchangeState, ExchangeUpdate};
 use std::{
     cell::UnsafeCell,
-    mem::MaybeUninit,
     sync::atomic::{AtomicU8, Ordering},
 };
+
+use crate::{inline_bytes::InlineBytes, transfer_slot::TransferSlot};
 
 const ITEM_CAPACITY: usize = darpc_protocol::MAX_EXCHANGE_ITEMS;
 const TEXT_CAPACITY: usize = darpc_protocol::MAX_EXCHANGE_NAME_LEN;
@@ -13,40 +14,32 @@ const TEXT_CAPACITY: usize = darpc_protocol::MAX_EXCHANGE_NAME_LEN;
 // acceptance updates. Keep enough retained slots for a complete transaction
 // even when the pipe worker briefly falls behind the client thread.
 const EVENT_SLOT_COUNT: usize = 32;
-const EMPTY: u8 = 0;
-const WRITING: u8 = 1;
-const READY: u8 = 2;
-const READING: u8 = 3;
 const SPRITE_ID_MASK: u16 = 0x3FFF;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 struct RawText {
-    length: u8,
-    bytes: [u8; TEXT_CAPACITY],
+    value: InlineBytes<TEXT_CAPACITY>,
 }
 
 impl RawText {
     const fn empty() -> Self {
         Self {
-            length: 0,
-            bytes: [0; TEXT_CAPACITY],
+            value: InlineBytes::empty(),
         }
     }
 
     fn from_bytes(value: &[u8]) -> Self {
-        let length = value.len().min(TEXT_CAPACITY);
-        let mut text = Self::empty();
-        text.bytes[..length].copy_from_slice(&value[..length]);
-        text.length = length as u8;
-        text
+        Self {
+            value: InlineBytes::from_truncated(value),
+        }
     }
 
     fn model(self) -> String {
-        decode_text(&self.bytes[..usize::from(self.length)])
+        decode_text(self.value.as_bytes())
     }
 
     fn as_bytes(&self) -> &[u8] {
-        &self.bytes[..usize::from(self.length)]
+        self.value.as_bytes()
     }
 }
 
@@ -168,25 +161,9 @@ struct TrackerCell(UnsafeCell<Tracker>);
 // SAFETY: the client main thread is the only tracker reader and writer.
 unsafe impl Sync for TrackerCell {}
 
-struct EventSlot {
-    state: AtomicU8,
-    value: UnsafeCell<MaybeUninit<RawUpdate>>,
-}
-
-impl EventSlot {
-    const fn new() -> Self {
-        Self {
-            state: AtomicU8::new(EMPTY),
-            value: UnsafeCell::new(MaybeUninit::uninit()),
-        }
-    }
-}
-
-// SAFETY: event ownership moves through the slot state machine.
-unsafe impl Sync for EventSlot {}
-
 static TRACKER: TrackerCell = TrackerCell(UnsafeCell::new(Tracker::new()));
-static EVENTS: [EventSlot; EVENT_SLOT_COUNT] = [const { EventSlot::new() }; EVENT_SLOT_COUNT];
+static EVENTS: [TransferSlot<RawUpdate>; EVENT_SLOT_COUNT] =
+    [const { TransferSlot::new() }; EVENT_SLOT_COUNT];
 pub(crate) static INTERCEPT_PENDING: AtomicU8 = AtomicU8::new(0);
 
 pub(crate) fn reset() {
@@ -194,7 +171,7 @@ pub(crate) fn reset() {
     unsafe { *TRACKER.0.get() = Tracker::new() };
     INTERCEPT_PENDING.store(0, Ordering::Release);
     for slot in &EVENTS {
-        slot.state.store(EMPTY, Ordering::Release);
+        slot.reset();
     }
 }
 
@@ -528,17 +505,14 @@ fn offer_mut(state: &mut RawExchange, party: ExchangeParty) -> &mut RawOffer {
 }
 
 fn queue(update: RawUpdate, tick_ms: u32) {
-    let Some((index, slot)) = EVENTS.iter().enumerate().find(|(_, slot)| {
-        slot.state
-            .compare_exchange(EMPTY, WRITING, Ordering::AcqRel, Ordering::Acquire)
-            .is_ok()
-    }) else {
+    let Some((index, _)) = EVENTS
+        .iter()
+        .enumerate()
+        .find(|(_, slot)| slot.try_write(update))
+    else {
         crate::state::mark_resync_required();
         return;
     };
-    // SAFETY: WRITING gives the producer exclusive ownership.
-    unsafe { (*slot.value.get()).write(update) };
-    slot.state.store(READY, Ordering::Release);
     let queued = QueuedExchange(index as u8);
     if !crate::state::observe_exchange(queued, tick_ms) {
         release(queued);
@@ -547,12 +521,7 @@ fn queue(update: RawUpdate, tick_ms: u32) {
 
 pub(crate) fn take(queued: QueuedExchange) -> Option<ExchangeUpdate> {
     let slot = EVENTS.get(usize::from(queued.0))?;
-    slot.state
-        .compare_exchange(READY, READING, Ordering::AcqRel, Ordering::Acquire)
-        .ok()?;
-    // SAFETY: READING gives this consumer exclusive ownership.
-    let raw = unsafe { (*slot.value.get()).assume_init_read() };
-    slot.state.store(EMPTY, Ordering::Release);
+    let raw = slot.try_take()?;
     let state = model_state(raw.state);
     Some(match raw.kind {
         RawUpdateKind::Opened => ExchangeUpdate::Opened(state),
@@ -582,9 +551,7 @@ pub(crate) fn take(queued: QueuedExchange) -> Option<ExchangeUpdate> {
 
 pub(crate) fn release(queued: QueuedExchange) {
     if let Some(slot) = EVENTS.get(usize::from(queued.0)) {
-        let _ = slot
-            .state
-            .compare_exchange(READY, EMPTY, Ordering::AcqRel, Ordering::Acquire);
+        slot.discard();
     }
 }
 

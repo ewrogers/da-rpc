@@ -74,6 +74,82 @@ impl ParseError {
     }
 }
 
+pub(crate) struct PacketReader<'a> {
+    bytes: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> PacketReader<'a> {
+    pub(crate) const fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, offset: 0 }
+    }
+
+    pub(crate) const fn offset(&self) -> usize {
+        self.offset
+    }
+
+    pub(crate) fn expect(&mut self, expected: u8) -> Result<(), ParseError> {
+        let offset = self.offset;
+        let actual = self.u8()?;
+        if actual != expected {
+            return Err(ParseError::invalid(offset, u32::from(actual)));
+        }
+        Ok(())
+    }
+
+    pub(crate) fn u8(&mut self) -> Result<u8, ParseError> {
+        Ok(self.take(1)?[0])
+    }
+
+    pub(crate) fn u16_be(&mut self) -> Result<u16, ParseError> {
+        let bytes: [u8; 2] = self.take(2)?.try_into().expect("two-byte slice");
+        Ok(u16::from_be_bytes(bytes))
+    }
+
+    pub(crate) fn i16_be(&mut self) -> Result<i16, ParseError> {
+        let bytes: [u8; 2] = self.take(2)?.try_into().expect("two-byte slice");
+        Ok(i16::from_be_bytes(bytes))
+    }
+
+    pub(crate) fn u32_be(&mut self) -> Result<u32, ParseError> {
+        let bytes: [u8; 4] = self.take(4)?.try_into().expect("four-byte slice");
+        Ok(u32::from_be_bytes(bytes))
+    }
+
+    pub(crate) fn string8(&mut self) -> Result<&'a [u8], ParseError> {
+        let length = usize::from(self.u8()?);
+        self.take(length)
+    }
+
+    pub(crate) fn string16(&mut self) -> Result<&'a [u8], ParseError> {
+        let length = usize::from(self.u16_be()?);
+        self.take(length)
+    }
+
+    pub(crate) fn skip(&mut self, length: usize) -> Result<(), ParseError> {
+        self.take(length).map(|_| ())
+    }
+
+    pub(crate) fn take(&mut self, length: usize) -> Result<&'a [u8], ParseError> {
+        let remaining = self.bytes.len().saturating_sub(self.offset);
+        if length > remaining {
+            return Err(ParseError::truncated(self.offset, length, remaining));
+        }
+        let end = self.offset + length;
+        let bytes = &self.bytes[self.offset..end];
+        self.offset = end;
+        Ok(bytes)
+    }
+
+    pub(crate) fn invalid_u8(&self, value: u8) -> ParseError {
+        ParseError::invalid(self.offset.saturating_sub(1), u32::from(value))
+    }
+
+    pub(crate) fn invalid_usize(&self, value: usize) -> ParseError {
+        ParseError::invalid(self.offset, u32::try_from(value).unwrap_or(u32::MAX))
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ServerUpdate<'a> {
     Audio(AudioUpdate),
@@ -148,5 +224,18 @@ mod tests {
     fn ignores_unknown_packets() {
         let mut objects = RawObjects::empty();
         assert!(update(&[0xFF], &mut objects).unwrap().is_none());
+    }
+
+    #[test]
+    fn packet_reader_reports_truncation_at_the_cursor() {
+        let mut reader = PacketReader::new(&[1, 2, 3]);
+        assert_eq!(reader.u8(), Ok(1));
+        assert_eq!(reader.u32_be(), Err(ParseError::truncated(1, 4, 2)));
+    }
+
+    #[test]
+    fn packet_reader_validates_expected_bytes() {
+        let mut reader = PacketReader::new(&[4]);
+        assert_eq!(reader.expect(5), Err(ParseError::invalid(0, 4)));
     }
 }

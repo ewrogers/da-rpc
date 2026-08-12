@@ -1,6 +1,6 @@
 #![cfg_attr(not(windows), allow(dead_code))]
 
-use crate::packet::ParseError;
+use crate::packet::{PacketReader as Reader, ParseError};
 use darpc_model::MessageKind;
 
 const MESSAGE_OPCODE: u8 = 0x0A;
@@ -181,60 +181,6 @@ fn trim_ascii(mut bytes: &[u8]) -> &[u8] {
 
 fn is_history_message(message_type: u8) -> bool {
     matches!(message_type, 0x00..=0x06 | 0x0B | 0x0C)
-}
-
-struct Reader<'a> {
-    bytes: &'a [u8],
-    offset: usize,
-}
-
-impl<'a> Reader<'a> {
-    const fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, offset: 0 }
-    }
-
-    fn expect(&mut self, expected: u8) -> Result<(), ParseError> {
-        let offset = self.offset;
-        let actual = self.u8()?;
-        if actual != expected {
-            return Err(ParseError::invalid(offset, u32::from(actual)));
-        }
-        Ok(())
-    }
-
-    fn u8(&mut self) -> Result<u8, ParseError> {
-        Ok(self.take(1)?[0])
-    }
-
-    fn u16_be(&mut self) -> Result<u16, ParseError> {
-        let bytes = self.take(2)?;
-        Ok(u16::from_be_bytes([bytes[0], bytes[1]]))
-    }
-
-    fn u32_be(&mut self) -> Result<u32, ParseError> {
-        let bytes = self.take(4)?;
-        Ok(u32::from_be_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]))
-    }
-
-    fn string8(&mut self) -> Result<&'a [u8], ParseError> {
-        let length = usize::from(self.u8()?);
-        self.take(length)
-    }
-
-    fn string16(&mut self) -> Result<&'a [u8], ParseError> {
-        let length = usize::from(self.u16_be()?);
-        self.take(length)
-    }
-
-    fn take(&mut self, length: usize) -> Result<&'a [u8], ParseError> {
-        let remaining = self.bytes.len().saturating_sub(self.offset);
-        if remaining < length {
-            return Err(ParseError::truncated(self.offset, length, remaining));
-        }
-        let start = self.offset;
-        self.offset += length;
-        Ok(&self.bytes[start..self.offset])
-    }
 }
 
 #[cfg(test)]

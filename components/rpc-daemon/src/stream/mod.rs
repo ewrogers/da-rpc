@@ -20,8 +20,8 @@ use axum::response::{
 };
 use chrono::{DateTime, Utc};
 use darpc_model::{
-    CollectionChange, CreatureKind, Effect, MovementUpdate, ObjectUpdate, StateEvent, StateUpdate,
-    TilePosition as ModelTilePosition,
+    CollectionChange, CreatureKind, Effect, MovementUpdate, ObjectUpdate, SequenceNumber,
+    StateEvent, StateUpdate, TilePosition as ModelTilePosition,
 };
 use serde::Serialize;
 use std::{convert::Infallible, sync::Arc, time::Duration};
@@ -490,7 +490,9 @@ pub(crate) fn response(
                     feedback,
                     observed_at_utc,
                 }) if event_pid == pid && event_identity == identity => {
-                    if !sequence_after(event.sequence, last_sequence) {
+                    if !SequenceNumber::new(event.sequence)
+                        .is_after(SequenceNumber::new(last_sequence))
+                    {
                         continue;
                     }
                     if event.sequence != next_nonzero(last_sequence) {
@@ -558,13 +560,7 @@ pub(crate) fn response(
 }
 
 pub(crate) const fn next_nonzero(value: u32) -> u32 {
-    let next = value.wrapping_add(1);
-    if next == 0 { 1 } else { next }
-}
-
-fn sequence_after(candidate: u32, baseline: u32) -> bool {
-    let distance = candidate.wrapping_sub(baseline);
-    distance != 0 && distance < 0x8000_0000
+    SequenceNumber::new(value).next().get()
 }
 
 #[cfg(test)]

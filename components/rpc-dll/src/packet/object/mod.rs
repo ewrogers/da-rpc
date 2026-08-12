@@ -1,4 +1,4 @@
-use crate::packet::ParseError;
+use crate::packet::{PacketReader as Reader, ParseError};
 use darpc_game_client::{MAX_OBJECT_NAME_BYTES, RawObjects, RawWorldObject};
 
 const DRAW_OBJECTS_OPCODE: u8 = 0x07;
@@ -172,38 +172,7 @@ const fn direction_delta(direction: u8) -> (i32, i32) {
     }
 }
 
-struct Reader<'a> {
-    bytes: &'a [u8],
-    offset: usize,
-}
-
-impl<'a> Reader<'a> {
-    const fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, offset: 0 }
-    }
-
-    fn expect(&mut self, expected: u8) -> Result<(), ParseError> {
-        let actual = self.u8()?;
-        debug_assert_eq!(actual, expected);
-        Ok(())
-    }
-
-    fn u8(&mut self) -> Result<u8, ParseError> {
-        Ok(self.take(1)?[0])
-    }
-
-    fn u16_be(&mut self) -> Result<u16, ParseError> {
-        Ok(u16::from_be_bytes(
-            self.take(2)?.try_into().expect("two-byte slice"),
-        ))
-    }
-
-    fn u32_be(&mut self) -> Result<u32, ParseError> {
-        Ok(u32::from_be_bytes(
-            self.take(4)?.try_into().expect("four-byte slice"),
-        ))
-    }
-
+impl Reader<'_> {
     fn direction(&mut self) -> Result<u8, ParseError> {
         let direction = self.u8()?;
         if direction > 3 {
@@ -225,31 +194,7 @@ impl<'a> Reader<'a> {
     }
 
     fn skip_string8(&mut self) -> Result<(), ParseError> {
-        let length = usize::from(self.u8()?);
-        self.skip(length)
-    }
-
-    fn skip(&mut self, length: usize) -> Result<(), ParseError> {
-        self.take(length).map(|_| ())
-    }
-
-    fn take(&mut self, length: usize) -> Result<&'a [u8], ParseError> {
-        let remaining = self.bytes.len().saturating_sub(self.offset);
-        if length > remaining {
-            return Err(ParseError::truncated(self.offset, length, remaining));
-        }
-        let end = self.offset + length;
-        let bytes = &self.bytes[self.offset..end];
-        self.offset = end;
-        Ok(bytes)
-    }
-
-    fn invalid_u8(&self, value: u8) -> ParseError {
-        ParseError::invalid(self.offset.saturating_sub(1), u32::from(value))
-    }
-
-    fn invalid_usize(&self, value: usize) -> ParseError {
-        ParseError::invalid(self.offset, u32::try_from(value).unwrap_or(u32::MAX))
+        self.string8().map(|_| ())
     }
 }
 

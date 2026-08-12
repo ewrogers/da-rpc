@@ -6,16 +6,15 @@ use darpc_model::{DialogCloseReason, DialogState, DialogSubmission, DialogUpdate
 use decode::{decode, decode_text};
 use std::{
     cell::UnsafeCell,
-    mem::MaybeUninit,
-    sync::atomic::{AtomicU8, AtomicU32, Ordering},
+    sync::atomic::{AtomicU32, Ordering},
+};
+
+use crate::{
+    atomic_sequence::next_nonzero, inline_bytes::InlineBytes, transfer_slot::TransferSlot,
 };
 
 pub(crate) const MAX_DIALOG_PACKET_BYTES: usize = 8 * 1024;
 const EVENT_SLOTS: usize = 32;
-const EMPTY: u8 = 0;
-const WRITING: u8 = 1;
-const READY: u8 = 2;
-const READING: u8 = 3;
 
 static CURRENT: CurrentDialog = CurrentDialog(UnsafeCell::new(RawDialog::empty()));
 static EVENTS: DialogEvents = DialogEvents::new();
@@ -85,94 +84,55 @@ enum RawSubmission {
 
 #[derive(Clone, Copy)]
 struct DialogText {
-    length: u8,
-    bytes: [u8; u8::MAX as usize],
+    value: InlineBytes<{ u8::MAX as usize }>,
 }
 
 impl DialogText {
     fn new(value: &[u8]) -> Option<Self> {
-        if value.is_empty() || value.len() > u8::MAX as usize {
-            return None;
-        }
-        let mut bytes = [0; u8::MAX as usize];
-        bytes[..value.len()].copy_from_slice(value);
         Some(Self {
-            length: value.len() as u8,
-            bytes,
+            value: InlineBytes::try_nonempty(value)?,
         })
     }
 
     fn model(self) -> String {
-        decode_text(&self.bytes[..usize::from(self.length)])
-    }
-}
-
-struct DialogEventSlot {
-    state: AtomicU8,
-    value: UnsafeCell<MaybeUninit<RawDialogEvent>>,
-}
-
-// SAFETY: the main thread owns WRITING slots and the IPC thread owns READING
-// slots. State transitions publish initialized bytes before ownership moves.
-unsafe impl Sync for DialogEventSlot {}
-
-impl DialogEventSlot {
-    const fn new() -> Self {
-        Self {
-            state: AtomicU8::new(EMPTY),
-            value: UnsafeCell::new(MaybeUninit::uninit()),
-        }
+        decode_text(self.value.as_bytes())
     }
 }
 
 struct DialogEvents {
-    slots: [DialogEventSlot; EVENT_SLOTS],
+    slots: [TransferSlot<RawDialogEvent>; EVENT_SLOTS],
 }
 
 impl DialogEvents {
     const fn new() -> Self {
         Self {
-            slots: [const { DialogEventSlot::new() }; EVENT_SLOTS],
+            slots: [const { TransferSlot::new() }; EVENT_SLOTS],
         }
     }
 
     fn push(&self, event: RawDialogEvent) -> Option<QueuedDialog> {
         for (index, slot) in self.slots.iter().enumerate() {
-            if slot
-                .state
-                .compare_exchange(EMPTY, WRITING, Ordering::Acquire, Ordering::Relaxed)
-                .is_err()
-            {
+            if !slot.try_write(event) {
                 continue;
             }
-            // SAFETY: this producer owns WRITING until the release store.
-            unsafe { (*slot.value.get()).write(event) };
-            slot.state.store(READY, Ordering::Release);
             return Some(QueuedDialog(index as u8));
         }
         None
     }
 
     fn take(&self, queued: QueuedDialog) -> Option<RawDialogEvent> {
-        let slot = self.slots.get(usize::from(queued.0))?;
-        slot.state
-            .compare_exchange(READY, READING, Ordering::AcqRel, Ordering::Acquire)
-            .ok()?;
-        // SAFETY: this consumer owns READING and READY publishes a complete Copy value.
-        let event = unsafe { *(*slot.value.get()).assume_init_ref() };
-        slot.state.store(EMPTY, Ordering::Release);
-        Some(event)
+        self.slots.get(usize::from(queued.0))?.try_take()
     }
 
     fn release(&self, queued: QueuedDialog) {
         if let Some(slot) = self.slots.get(usize::from(queued.0)) {
-            slot.state.store(EMPTY, Ordering::Release);
+            slot.discard();
         }
     }
 
     fn reset(&self) {
         for slot in &self.slots {
-            slot.state.store(EMPTY, Ordering::Release);
+            slot.reset();
         }
     }
 }
@@ -324,14 +284,7 @@ impl RawSubmission {
 }
 
 fn next_revision() -> u32 {
-    let previous = REVISION.fetch_add(1, Ordering::AcqRel);
-    let next = previous.wrapping_add(1);
-    if next == 0 {
-        REVISION.store(1, Ordering::Release);
-        1
-    } else {
-        next
-    }
+    next_nonzero(&REVISION)
 }
 
 #[cfg(test)]

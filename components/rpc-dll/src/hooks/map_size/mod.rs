@@ -1,19 +1,13 @@
 use darpc_game_client::{MAP_SIZE_HANDLER_ENTRY, MAP_SIZE_HANDLER_RVA};
-use darpc_hook::{
-    CodeRange, DetourActivity, DetourError, DetourSpec, InstallError, InstalledDetour,
-    PreparedDetour,
-};
+use darpc_hook::{DetourActivity, InstallError, InstalledDetour};
 use darpc_win32::pipe::sender_tick_ms;
 use std::{
-    io, panic,
-    ptr::{self, NonNull},
-    slice,
+    io, panic, slice,
     sync::atomic::{AtomicUsize, Ordering},
-    thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
-use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 
+use super::support;
 use crate::{map_name, state};
 
 pub(crate) const NAME: &str = "map_size_handler";
@@ -40,40 +34,47 @@ pub(crate) struct MapSizeHook {
 
 impl MapSizeHook {
     pub(crate) fn install() -> Result<Self, InstallError> {
-        let target = target_address()?;
-        validate_entry(target)?;
-        let detour = NonNull::new(map_size_handler_detour as *mut u8)
-            .ok_or_else(|| io::Error::other("map-size detour address is null"))?;
-        let detour_range = CodeRange::new(detour.as_ptr() as usize, DETOUR_RANGE_LEN)
-            .map_err(InstallError::from)?;
-        let spec = DetourSpec::new(target, detour, detour_range, &MAP_SIZE_HOOK_ACTIVITY)
-            .map_err(InstallError::from)?;
+        let target = support::target_address(
+            support::module_base()?,
+            MAP_SIZE_HANDLER_RVA,
+            "map-size target",
+        )?;
+        // SAFETY: supported executable validation establishes that the fixed
+        // map-size entry is readable for its complete byte contract.
+        unsafe {
+            support::validate_bytes(target, &MAP_SIZE_HANDLER_ENTRY, "map-size handler entry")
+        }?;
 
         // SAFETY: client fingerprint and exact target entry bytes were
         // validated. The detour preserves the handler's thiscall ABI and owns
         // no client pointers after the callback returns.
-        let mut prepared = unsafe { PreparedDetour::prepare(spec) }.map_err(InstallError::from)?;
-        let relocated_bytes = u8::try_from(prepared.relocated_len())
-            .map_err(|_| io::Error::other("map-size relocated length does not fit in u8"))?;
+        let mut prepared = unsafe {
+            support::prepare_detour(
+                target,
+                map_size_handler_detour as *mut u8,
+                DETOUR_RANGE_LEN,
+                &MAP_SIZE_HOOK_ACTIVITY,
+                "map-size detour",
+            )
+        }?;
+        let relocated_bytes = support::relocated_bytes(&prepared, "map-size prologue")?;
         MAP_SIZE_TRAMPOLINE.store(
             prepared.trampoline_address().map_err(InstallError::from)?,
             Ordering::Release,
         );
 
-        let deadline = Instant::now() + INSTALL_TIMEOUT;
-        let mut detour = loop {
-            match prepared.install() {
-                Ok(detour) => break detour,
-                Err(error) if error.is_transient() && Instant::now() < deadline => {
-                    thread::sleep(COMMIT_RETRY_INTERVAL);
-                }
-                Err(error) => {
-                    MAP_SIZE_TRAMPOLINE.store(0, Ordering::Release);
-                    return Err(InstallError::from(error));
-                }
+        let mut detour = match support::install_prepared(
+            &mut prepared,
+            INSTALL_TIMEOUT,
+            COMMIT_RETRY_INTERVAL,
+        ) {
+            Ok(detour) => detour,
+            Err(error) => {
+                MAP_SIZE_TRAMPOLINE.store(0, Ordering::Release);
+                return Err(InstallError::from(error));
             }
         };
-        let install_warning = detour.take_resume_warning().map(detour_error);
+        let install_warning = detour.take_resume_warning().map(support::detour_error);
 
         Ok(Self {
             detour,
@@ -91,49 +92,12 @@ impl MapSizeHook {
     }
 
     pub(crate) fn uninstall(&mut self) -> io::Result<bool> {
-        let deadline = Instant::now() + UNINSTALL_TIMEOUT;
-        loop {
-            match self.detour.uninstall() {
-                Ok(changed) => {
-                    MAP_SIZE_TRAMPOLINE.store(0, Ordering::Release);
-                    return Ok(changed);
-                }
-                Err(error) if error.is_transient() && Instant::now() < deadline => {
-                    thread::sleep(COMMIT_RETRY_INTERVAL);
-                }
-                Err(error) => return Err(detour_error(error)),
-            }
-        }
+        let changed =
+            support::uninstall_detour(&mut self.detour, UNINSTALL_TIMEOUT, COMMIT_RETRY_INTERVAL)
+                .map_err(support::detour_error)?;
+        MAP_SIZE_TRAMPOLINE.store(0, Ordering::Release);
+        Ok(changed)
     }
-}
-
-fn target_address() -> io::Result<NonNull<u8>> {
-    // SAFETY: a null module name requests the executable module for the current
-    // process and has no lifetime transfer.
-    let module = unsafe { GetModuleHandleW(ptr::null()) };
-    let module = NonNull::new(module.cast::<u8>()).ok_or_else(io::Error::last_os_error)?;
-    let address = (module.as_ptr() as usize)
-        .checked_add(MAP_SIZE_HANDLER_RVA)
-        .ok_or_else(|| io::Error::other("map-size target address overflow"))?;
-    NonNull::new(address as *mut u8)
-        .ok_or_else(|| io::Error::other("map-size target address is null"))
-}
-
-fn validate_entry(target: NonNull<u8>) -> io::Result<()> {
-    // SAFETY: the supported executable fingerprint establishes that this RVA
-    // names readable executable memory spanning the fixed entry contract.
-    let actual = unsafe { slice::from_raw_parts(target.as_ptr(), MAP_SIZE_HANDLER_ENTRY.len()) };
-    if actual == MAP_SIZE_HANDLER_ENTRY {
-        Ok(())
-    } else {
-        Err(io::Error::other(
-            "map-size handler entry bytes do not match",
-        ))
-    }
-}
-
-fn detour_error(error: DetourError) -> io::Error {
-    io::Error::other(error)
 }
 
 #[unsafe(naked)]

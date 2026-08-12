@@ -1,26 +1,24 @@
 use darpc_game_client::{
     CLIENT_MAIN_THREAD_ID_RVA, CLIENT_PACKET_SUBMIT_ENTRY, CLIENT_PACKET_SUBMIT_RVA,
 };
-use darpc_hook::{
-    CodeRange, DetourActivity, DetourError, DetourSpec, InstallError, InstalledDetour,
-    PreparedDetour,
-};
+use darpc_hook::{DetourActivity, InstallError, InstalledDetour};
 use darpc_win32::pipe::sender_tick_ms;
 use std::{
-    io, panic,
-    ptr::{self, NonNull},
-    slice,
+    io, panic, ptr,
     sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
-    thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
 use windows_sys::Win32::System::{
-    Diagnostics::Debug::{ReadProcessMemory, WriteProcessMemory},
+    Diagnostics::Debug::WriteProcessMemory,
     LibraryLoader::GetModuleHandleW,
     Threading::{GetCurrentProcess, GetCurrentThreadId},
 };
 
-use super::heartbeat_priority::{self, HeartbeatPriorityHook};
+use super::{
+    heartbeat_priority::{self, HeartbeatPriorityHook},
+    support,
+};
+use crate::process_memory::read_exact;
 
 pub(crate) const NAME: &str = "client_packet_submit";
 
@@ -57,21 +55,30 @@ pub(crate) struct OutgoingHealth {
 
 impl OutgoingHook {
     pub(crate) fn install() -> Result<Self, InstallError> {
-        let target = target_address()?;
-        validate_entry(target)?;
-        let detour = NonNull::new(client_packet_submit_detour as *mut u8)
-            .ok_or_else(|| io::Error::other("outgoing packet detour address is null"))?;
-        let detour_range = CodeRange::new(detour.as_ptr() as usize, DETOUR_RANGE_LEN)
-            .map_err(InstallError::from)?;
-        let spec = DetourSpec::new(target, detour, detour_range, &OUTGOING_HOOK_ACTIVITY)
-            .map_err(InstallError::from)?;
+        let target = support::target_address(
+            support::module_base()?,
+            CLIENT_PACKET_SUBMIT_RVA,
+            "outgoing packet target",
+        )?;
+        // SAFETY: supported executable validation establishes that the fixed
+        // outgoing entry is readable for its complete byte contract.
+        unsafe {
+            support::validate_bytes(target, &CLIENT_PACKET_SUBMIT_ENTRY, "outgoing packet entry")
+        }?;
 
         // SAFETY: exact executable identity and entry bytes are validated. The
         // detour preserves the two-argument thiscall ABI and copies bounded
         // packet bytes only after the original submission routine returns.
-        let mut prepared = unsafe { PreparedDetour::prepare(spec) }.map_err(InstallError::from)?;
-        let relocated_bytes = u8::try_from(prepared.relocated_len())
-            .map_err(|_| io::Error::other("relocated outgoing prologue exceeds u8"))?;
+        let mut prepared = unsafe {
+            support::prepare_detour(
+                target,
+                client_packet_submit_detour as *mut u8,
+                DETOUR_RANGE_LEN,
+                &OUTGOING_HOOK_ACTIVITY,
+                "outgoing packet detour",
+            )
+        }?;
+        let relocated_bytes = support::relocated_bytes(&prepared, "outgoing prologue")?;
         OUTGOING_OBSERVATION_COUNT.store(0, Ordering::Release);
         OUTGOING_READ_FAILURE_COUNT.store(0, Ordering::Release);
         OUTGOING_RELOCATED_BYTES.store(u32::from(relocated_bytes), Ordering::Release);
@@ -80,34 +87,24 @@ impl OutgoingHook {
             Ordering::Release,
         );
 
-        let deadline = Instant::now() + INSTALL_TIMEOUT;
-        let mut detour = loop {
-            match prepared.install() {
-                Ok(detour) => break detour,
-                Err(error) if error.is_transient() && Instant::now() < deadline => {
-                    thread::sleep(COMMIT_RETRY_INTERVAL);
-                }
-                Err(error) => {
-                    OUTGOING_TRAMPOLINE.store(0, Ordering::Release);
-                    OUTGOING_RELOCATED_BYTES.store(0, Ordering::Release);
-                    return Err(InstallError::from(error));
-                }
+        let mut detour = match support::install_prepared(
+            &mut prepared,
+            INSTALL_TIMEOUT,
+            COMMIT_RETRY_INTERVAL,
+        ) {
+            Ok(detour) => detour,
+            Err(error) => {
+                OUTGOING_TRAMPOLINE.store(0, Ordering::Release);
+                OUTGOING_RELOCATED_BYTES.store(0, Ordering::Release);
+                return Err(InstallError::from(error));
             }
         };
-        let install_warning = detour.take_resume_warning().map(detour_error);
+        let install_warning = detour.take_resume_warning().map(support::detour_error);
         let mut heartbeat_priority = match HeartbeatPriorityHook::install() {
             Ok(hook) => hook,
             Err(error) => {
-                let deadline = Instant::now() + UNINSTALL_TIMEOUT;
-                loop {
-                    match detour.uninstall() {
-                        Ok(_) => break,
-                        Err(rollback) if rollback.is_transient() && Instant::now() < deadline => {
-                            thread::sleep(COMMIT_RETRY_INTERVAL);
-                        }
-                        Err(rollback) => return Err(InstallError::from(rollback)),
-                    }
-                }
+                support::uninstall_detour(&mut detour, UNINSTALL_TIMEOUT, COMMIT_RETRY_INTERVAL)
+                    .map_err(InstallError::from)?;
                 OUTGOING_TRAMPOLINE.store(0, Ordering::Release);
                 OUTGOING_RELOCATED_BYTES.store(0, Ordering::Release);
                 return Err(error);
@@ -133,21 +130,13 @@ impl OutgoingHook {
 
     pub(crate) fn uninstall(&mut self) -> io::Result<bool> {
         let heartbeat_changed = self.heartbeat_priority.uninstall()?;
-        let deadline = Instant::now() + UNINSTALL_TIMEOUT;
-        loop {
-            match self.detour.uninstall() {
-                Ok(changed) => {
-                    OUTGOING_HOOK_INSTALLED.store(false, Ordering::Release);
-                    OUTGOING_TRAMPOLINE.store(0, Ordering::Release);
-                    OUTGOING_RELOCATED_BYTES.store(0, Ordering::Release);
-                    return Ok(heartbeat_changed || changed);
-                }
-                Err(error) if error.is_transient() && Instant::now() < deadline => {
-                    thread::sleep(COMMIT_RETRY_INTERVAL);
-                }
-                Err(error) => return Err(detour_error(error)),
-            }
-        }
+        let changed =
+            support::uninstall_detour(&mut self.detour, UNINSTALL_TIMEOUT, COMMIT_RETRY_INTERVAL)
+                .map_err(support::detour_error)?;
+        OUTGOING_HOOK_INSTALLED.store(false, Ordering::Release);
+        OUTGOING_TRAMPOLINE.store(0, Ordering::Release);
+        OUTGOING_RELOCATED_BYTES.store(0, Ordering::Release);
+        Ok(heartbeat_changed || changed)
     }
 }
 
@@ -159,37 +148,6 @@ pub(crate) fn health() -> OutgoingHealth {
         prioritized_heartbeat_count: heartbeat.prioritized_count,
         heartbeat_fallback_count: heartbeat.fallback_count,
     }
-}
-
-fn target_address() -> io::Result<NonNull<u8>> {
-    // SAFETY: a null module name requests the current executable module.
-    let module = unsafe { GetModuleHandleW(ptr::null()) };
-    let module = NonNull::new(module.cast::<u8>()).ok_or_else(io::Error::last_os_error)?;
-    let address = (module.as_ptr() as usize)
-        .checked_add(CLIENT_PACKET_SUBMIT_RVA)
-        .ok_or_else(|| io::Error::other("outgoing packet target address overflow"))?;
-    NonNull::new(address as *mut u8)
-        .ok_or_else(|| io::Error::other("outgoing packet target address is null"))
-}
-
-fn validate_entry(target: NonNull<u8>) -> io::Result<()> {
-    // SAFETY: supported executable validation establishes a readable target.
-    let actual =
-        unsafe { slice::from_raw_parts(target.as_ptr(), CLIENT_PACKET_SUBMIT_ENTRY.len()) };
-    if actual != CLIENT_PACKET_SUBMIT_ENTRY {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!(
-                "{NAME} entry mismatch at RVA 0x{CLIENT_PACKET_SUBMIT_RVA:08X}: expected={:02X?} actual={actual:02X?}",
-                CLIENT_PACKET_SUBMIT_ENTRY
-            ),
-        ));
-    }
-    Ok(())
-}
-
-fn detour_error(error: DetourError) -> io::Error {
-    io::Error::other(error)
 }
 
 #[unsafe(naked)]
@@ -247,7 +205,7 @@ extern "C" fn intercept_packet(body: *mut u8, length: i16) -> i32 {
         }
         let mut prefix = [0; 3];
         let prefix_length = length.min(prefix.len());
-        if !read_memory(body as usize, &mut prefix[..prefix_length]) {
+        if !read_exact(body as usize, &mut prefix[..prefix_length]) {
             OUTGOING_READ_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed);
             return original_length;
         }
@@ -257,7 +215,7 @@ extern "C" fn intercept_packet(body: *mut u8, length: i16) -> i32 {
                 return original_length;
             }
             let mut packet = [0; MAX_OUTGOING_BODY];
-            if !read_memory(body as usize, &mut packet[..length]) {
+            if !read_exact(body as usize, &mut packet[..length]) {
                 OUTGOING_READ_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed);
                 return original_length;
             }
@@ -293,7 +251,7 @@ extern "C" fn observe_packet(body: *const u8, length: i16) {
         }
         let mut prefix = [0; 2];
         let prefix_length = length.min(prefix.len());
-        if !read_memory(body as usize, &mut prefix[..prefix_length]) {
+        if !read_exact(body as usize, &mut prefix[..prefix_length]) {
             OUTGOING_READ_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed);
             return;
         }
@@ -339,7 +297,7 @@ extern "C" fn observe_packet(body: *const u8, length: i16) {
             return;
         }
         let mut packet = [0; MAX_OUTGOING_BODY];
-        if !read_memory(body as usize, &mut packet[..length]) {
+        if !read_exact(body as usize, &mut packet[..length]) {
             OUTGOING_READ_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed);
             return;
         }
@@ -397,27 +355,12 @@ fn is_client_main_thread() -> bool {
         return false;
     };
     let mut bytes = [0; 4];
-    if module == 0 || !read_memory(address, &mut bytes) {
+    if module == 0 || !read_exact(address, &mut bytes) {
         return false;
     }
     let expected = u32::from_le_bytes(bytes);
     // SAFETY: GetCurrentThreadId has no preconditions.
     expected != 0 && expected == unsafe { GetCurrentThreadId() }
-}
-
-fn read_memory(address: usize, output: &mut [u8]) -> bool {
-    let mut read = 0_usize;
-    // SAFETY: output is valid and ReadProcessMemory validates the source range.
-    let succeeded = unsafe {
-        ReadProcessMemory(
-            GetCurrentProcess(),
-            address as *const core::ffi::c_void,
-            output.as_mut_ptr().cast(),
-            output.len(),
-            &mut read,
-        )
-    };
-    succeeded != 0 && read == output.len()
 }
 
 fn write_memory(address: usize, input: &[u8]) -> bool {
@@ -438,19 +381,34 @@ fn write_memory(address: usize, input: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{SayAction, escape_say, say_action, validate_entry};
+    use super::{SayAction, escape_say, say_action, support};
     use darpc_game_client::CLIENT_PACKET_SUBMIT_ENTRY;
     use std::ptr::NonNull;
 
     #[test]
     fn validates_the_exact_outgoing_entry() {
         let mut entry = CLIENT_PACKET_SUBMIT_ENTRY;
-        validate_entry(NonNull::new(entry.as_mut_ptr()).unwrap()).unwrap();
+        // SAFETY: target points at the complete local entry array.
+        unsafe {
+            support::validate_bytes(
+                NonNull::new(entry.as_mut_ptr()).unwrap(),
+                &CLIENT_PACKET_SUBMIT_ENTRY,
+                "outgoing entry",
+            )
+        }
+        .unwrap();
         entry[0] ^= 0xFF;
         assert_eq!(
-            validate_entry(NonNull::new(entry.as_mut_ptr()).unwrap())
-                .unwrap_err()
-                .kind(),
+            unsafe {
+                // SAFETY: target still points at the complete local entry array.
+                support::validate_bytes(
+                    NonNull::new(entry.as_mut_ptr()).unwrap(),
+                    &CLIENT_PACKET_SUBMIT_ENTRY,
+                    "outgoing entry",
+                )
+            }
+            .unwrap_err()
+            .kind(),
             std::io::ErrorKind::InvalidData
         );
     }

@@ -13,6 +13,8 @@ use std::{
     sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicUsize, Ordering},
 };
 
+use crate::{inline_bytes::InlineBytes, transfer_slot::TransferSlot};
+
 const RESPONSE_OPCODE: u8 = 0x34;
 const REQUEST_OPCODE: u8 = 0x43;
 const REQUEST_SUBTYPE: u8 = 1;
@@ -167,31 +169,7 @@ static EVENTS: [EventSlot; EVENT_CAPACITY] = [const { EventSlot::new() }; EVENT_
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct QueuedPlayer(u8);
 
-#[derive(Clone, Copy, Eq, PartialEq)]
-struct RawText {
-    bytes: [u8; u8::MAX as usize],
-    length: u8,
-}
-
-impl RawText {
-    const fn empty() -> Self {
-        Self {
-            bytes: [0; u8::MAX as usize],
-            length: 0,
-        }
-    }
-
-    fn from_bytes(value: &[u8]) -> Option<Self> {
-        let mut text = Self::empty();
-        text.length = u8::try_from(value.len()).ok()?;
-        text.bytes[..value.len()].copy_from_slice(value);
-        Some(text)
-    }
-
-    fn as_bytes(&self) -> &[u8] {
-        &self.bytes[..usize::from(self.length)]
-    }
-}
+type RawText = InlineBytes<{ u8::MAX as usize }>;
 
 #[derive(Clone, Copy, Eq, PartialEq)]
 struct RawIdentity {
@@ -235,24 +213,7 @@ struct RawIdentityEvent {
     current: RawIdentity,
 }
 
-struct IdentityEventSlot {
-    state: AtomicU8,
-    value: UnsafeCell<MaybeUninit<RawIdentityEvent>>,
-}
-
-// SAFETY: state transfers exclusive ownership between producer and consumer.
-unsafe impl Sync for IdentityEventSlot {}
-
-impl IdentityEventSlot {
-    const fn new() -> Self {
-        Self {
-            state: AtomicU8::new(EMPTY),
-            value: UnsafeCell::new(MaybeUninit::uninit()),
-        }
-    }
-}
-
-static IDENTITY_EVENTS: [IdentityEventSlot; 4] = [const { IdentityEventSlot::new() }; 4];
+static IDENTITY_EVENTS: [TransferSlot<RawIdentityEvent>; 4] = [const { TransferSlot::new() }; 4];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct QueuedCharacterProfile(u8);
@@ -291,7 +252,7 @@ pub(crate) fn reset() {
     IDENTITY.available.store(false, Ordering::Release);
     IDENTITY.sequence.store(0, Ordering::Release);
     for slot in &IDENTITY_EVENTS {
-        slot.state.store(EMPTY, Ordering::Release);
+        slot.reset();
     }
 }
 
@@ -526,12 +487,7 @@ pub(crate) fn self_identity() -> Option<PlayerIdentity> {
 
 pub(crate) fn take_identity(queued: QueuedCharacterProfile) -> Option<CharacterProfileUpdate> {
     let slot = IDENTITY_EVENTS.get(usize::from(queued.0))?;
-    slot.state
-        .compare_exchange(READY, READING, Ordering::AcqRel, Ordering::Acquire)
-        .ok()?;
-    // SAFETY: READING gives this consumer exclusive ownership.
-    let raw = unsafe { (*slot.value.get()).assume_init_read() };
-    slot.state.store(EMPTY, Ordering::Release);
+    let raw = slot.try_take()?;
     Some(CharacterProfileUpdate {
         previous: raw.previous.and_then(identity_model),
         current: identity_model(raw.current)?,
@@ -540,7 +496,7 @@ pub(crate) fn take_identity(queued: QueuedCharacterProfile) -> Option<CharacterP
 
 pub(crate) fn release_identity(queued: QueuedCharacterProfile) {
     if let Some(slot) = IDENTITY_EVENTS.get(usize::from(queued.0)) {
-        slot.state.store(EMPTY, Ordering::Release);
+        slot.discard();
     }
 }
 
@@ -607,17 +563,14 @@ fn queue_player(
 }
 
 fn queue_identity(update: RawIdentityEvent, tick_ms: u32) {
-    let Some((index, slot)) = IDENTITY_EVENTS.iter().enumerate().find(|(_, slot)| {
-        slot.state
-            .compare_exchange(EMPTY, WRITING, Ordering::AcqRel, Ordering::Acquire)
-            .is_ok()
-    }) else {
+    let Some((index, _)) = IDENTITY_EVENTS
+        .iter()
+        .enumerate()
+        .find(|(_, slot)| slot.try_write(update))
+    else {
         crate::state::mark_resync_required();
         return;
     };
-    // SAFETY: WRITING gives the producer exclusive slot ownership.
-    unsafe { (*slot.value.get()).write(update) };
-    slot.state.store(READY, Ordering::Release);
     let queued = QueuedCharacterProfile(u8::try_from(index).expect("identity event index fits u8"));
     if !crate::state::observe_character_profile(queued, tick_ms) {
         release_identity(queued);
@@ -886,8 +839,8 @@ fn parse_self_identity(body: &[u8]) -> Option<RawIdentity> {
     reader.expect(0x39)?;
     let nation = reader.u8()?;
     Nation::from_raw(nation)?;
-    let guild_rank = RawText::from_bytes(reader.string8()?)?;
-    let title = RawText::from_bytes(reader.string8()?)?;
+    let guild_rank = RawText::try_from_bytes(reader.string8()?)?;
+    let title = RawText::try_from_bytes(reader.string8()?)?;
     reader.string8()?;
     reader.take(1)?;
     let recruiting = reader.u8()?;
@@ -898,8 +851,8 @@ fn parse_self_identity(body: &[u8]) -> Option<RawIdentity> {
         reader.take(12)?;
     }
     reader.take(3)?;
-    let display_class = RawText::from_bytes(reader.string8()?)?;
-    let guild = RawText::from_bytes(reader.string8()?)?;
+    let display_class = RawText::try_from_bytes(reader.string8()?)?;
+    let guild = RawText::try_from_bytes(reader.string8()?)?;
     Some(RawIdentity {
         nation,
         title,

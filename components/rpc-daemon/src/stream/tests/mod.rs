@@ -299,8 +299,8 @@ fn planned_route_updates_expose_generation_and_absolute_tiles() {
 #[test]
 fn sequence_ordering_handles_nonzero_wrap() {
     assert_eq!(next_nonzero(u32::MAX), 1);
-    assert!(sequence_after(1, u32::MAX));
-    assert!(!sequence_after(u32::MAX, 1));
+    assert!(SequenceNumber::new(1).is_after(SequenceNumber::new(u32::MAX)));
+    assert!(!SequenceNumber::new(u32::MAX).is_after(SequenceNumber::new(1)));
 }
 
 #[test]

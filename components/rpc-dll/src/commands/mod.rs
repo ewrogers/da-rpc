@@ -499,7 +499,7 @@ const fn who_result(_command_id: u32) -> Option<darpc_model::WhoList> {
 }
 
 fn expire_if_due(slot: &CommandSlot, now: u32) {
-    if !has_reached(now, slot.deadline_tick_ms.load(Ordering::Relaxed)) {
+    if !crate::wrapping_time::deadline_reached(now, slot.deadline_tick_ms.load(Ordering::Relaxed)) {
         return;
     }
     slot.completed_tick_ms.store(now, Ordering::Relaxed);
@@ -1182,10 +1182,6 @@ const fn failure_value(failure: CommandFailure) -> u8 {
         CommandFailure::InvalidArguments => 8,
         CommandFailure::InvalidTarget => 9,
     }
-}
-
-const fn has_reached(now: u32, deadline: u32) -> bool {
-    now.wrapping_sub(deadline) < 0x8000_0000
 }
 
 #[cfg(all(windows, not(test)))]

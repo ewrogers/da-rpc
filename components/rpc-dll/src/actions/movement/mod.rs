@@ -1,4 +1,5 @@
 use super::{module_base, read};
+use crate::process_memory::ProcessValue;
 use crate::route_retry;
 use darpc_game_client::{
     ADVANCE_PATH_RVA, BUILD_PATH_RVA, RESET_MOVEMENT_RVA, SELF_OBJECT_RVA, TURN_RVA, WALK_RVA,
@@ -375,7 +376,7 @@ impl Movement {
         unsafe { self.reset_fn()(self.world.as_ptr(), 0) };
     }
 
-    fn read_world<T: Copy>(&self, offset: usize) -> Result<T, CommandFailure> {
+    fn read_world<T: ProcessValue>(&self, offset: usize) -> Result<T, CommandFailure> {
         read(self.world.as_ptr() as usize + offset).ok_or(CommandFailure::InvalidState)
     }
 

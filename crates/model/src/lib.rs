@@ -10,6 +10,7 @@ mod legend;
 mod message;
 mod object;
 mod player;
+mod sequence;
 mod snapshot;
 mod who;
 
@@ -43,6 +44,7 @@ pub use player::{
     CharacterProfileUpdate, Nation, PlayerEquipmentItem, PlayerIdentity, PlayerInspectionChanges,
     PlayerInspectionTrigger, PlayerProfile, PlayerUpdate,
 };
+pub use sequence::SequenceNumber;
 
 pub use snapshot::{
     CharacterAppearance, CharacterClass, CharacterModifiers, CharacterProgression,

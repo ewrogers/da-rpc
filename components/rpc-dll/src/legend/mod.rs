@@ -4,47 +4,17 @@ use darpc_model::{LegendIcon, LegendMark, LegendUpdate};
 use darpc_protocol::{MAX_LEGEND_MARKS, MAX_LEGEND_TEXT_LEN};
 use std::{
     cell::UnsafeCell,
-    mem::MaybeUninit,
     sync::atomic::{AtomicU8, Ordering},
 };
 
-const EMPTY: u8 = 0;
-const WRITING: u8 = 1;
-const READY: u8 = 2;
-const READING: u8 = 3;
+use crate::{inline_bytes::InlineBytes, transfer_slot::TransferSlot};
+
 const TRACKER_EMPTY: u8 = 0;
 const TRACKER_ACTIVE: u8 = 1;
 const TRACKER_READING: u8 = 2;
 const TRACKER_WRITING: u8 = 3;
 
-#[derive(Clone, Copy)]
-struct RawLegendText {
-    bytes: [u8; MAX_LEGEND_TEXT_LEN],
-    length: u8,
-}
-
-impl RawLegendText {
-    const fn empty() -> Self {
-        Self {
-            bytes: [0; MAX_LEGEND_TEXT_LEN],
-            length: 0,
-        }
-    }
-
-    fn from_bytes(value: &[u8]) -> Option<Self> {
-        if value.len() > MAX_LEGEND_TEXT_LEN {
-            return None;
-        }
-        let mut text = Self::empty();
-        text.bytes[..value.len()].copy_from_slice(value);
-        text.length = u8::try_from(value.len()).ok()?;
-        Some(text)
-    }
-
-    fn as_bytes(&self) -> &[u8] {
-        &self.bytes[..usize::from(self.length)]
-    }
-}
+type RawLegendText = InlineBytes<MAX_LEGEND_TEXT_LEN>;
 
 #[derive(Clone, Copy)]
 pub(crate) struct RawLegendMark {
@@ -121,25 +91,8 @@ enum RawLegendUpdate {
     Removed(RawLegendMark),
 }
 
-struct EventSlot {
-    state: AtomicU8,
-    value: UnsafeCell<MaybeUninit<RawLegendUpdate>>,
-}
-
-// SAFETY: the atomic state transfers exclusive slot ownership between the
-// client main-thread producer and IPC consumer.
-unsafe impl Sync for EventSlot {}
-
-impl EventSlot {
-    const fn new() -> Self {
-        Self {
-            state: AtomicU8::new(EMPTY),
-            value: UnsafeCell::new(MaybeUninit::uninit()),
-        }
-    }
-}
-
-static EVENTS: [EventSlot; MAX_LEGEND_MARKS] = [const { EventSlot::new() }; MAX_LEGEND_MARKS];
+static EVENTS: [TransferSlot<RawLegendUpdate>; MAX_LEGEND_MARKS] =
+    [const { TransferSlot::new() }; MAX_LEGEND_MARKS];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct QueuedLegend(u8);
@@ -156,7 +109,7 @@ pub(crate) fn reset() {
     TRACKER_STATES[1].store(TRACKER_EMPTY, Ordering::Release);
     TRACKER_STATES[2].store(TRACKER_EMPTY, Ordering::Release);
     for slot in &EVENTS {
-        slot.state.store(EMPTY, Ordering::Release);
+        slot.reset();
     }
 }
 
@@ -279,12 +232,7 @@ pub(crate) fn model_state(raw: &RawLegendState) -> Vec<LegendMark> {
 
 pub(crate) fn take(queued: QueuedLegend) -> Option<LegendUpdate> {
     let slot = EVENTS.get(usize::from(queued.0))?;
-    slot.state
-        .compare_exchange(READY, READING, Ordering::AcqRel, Ordering::Acquire)
-        .ok()?;
-    // SAFETY: READING gives this consumer exclusive ownership of the value.
-    let raw = unsafe { (*slot.value.get()).assume_init_read() };
-    slot.state.store(EMPTY, Ordering::Release);
+    let raw = slot.try_take()?;
     Some(match raw {
         RawLegendUpdate::Added(mark) => LegendUpdate::MarkAdded {
             mark: mark_model(mark)?,
@@ -301,22 +249,19 @@ pub(crate) fn take(queued: QueuedLegend) -> Option<LegendUpdate> {
 
 pub(crate) fn release(queued: QueuedLegend) {
     if let Some(slot) = EVENTS.get(usize::from(queued.0)) {
-        slot.state.store(EMPTY, Ordering::Release);
+        slot.discard();
     }
 }
 
 fn queue(update: RawLegendUpdate, tick_ms: u32) {
-    let Some((index, slot)) = EVENTS.iter().enumerate().find(|(_, slot)| {
-        slot.state
-            .compare_exchange(EMPTY, WRITING, Ordering::AcqRel, Ordering::Acquire)
-            .is_ok()
-    }) else {
+    let Some((index, _)) = EVENTS
+        .iter()
+        .enumerate()
+        .find(|(_, slot)| slot.try_write(update))
+    else {
         crate::state::mark_resync_required();
         return;
     };
-    // SAFETY: WRITING gives this producer exclusive ownership of the slot.
-    unsafe { (*slot.value.get()).write(update) };
-    slot.state.store(READY, Ordering::Release);
     let queued = QueuedLegend(u8::try_from(index).expect("legend event index fits u8"));
     if !crate::state::observe_legend(queued, tick_ms) {
         release(queued);
@@ -371,10 +316,12 @@ fn parse(body: &[u8], output: &mut RawLegendState) -> bool {
             return false;
         };
         offset += 2;
-        let Some(tag) = take_string(body, &mut offset).and_then(RawLegendText::from_bytes) else {
+        let Some(tag) = take_string(body, &mut offset).and_then(RawLegendText::try_from_bytes)
+        else {
             return false;
         };
-        let Some(text) = take_string(body, &mut offset).and_then(RawLegendText::from_bytes) else {
+        let Some(text) = take_string(body, &mut offset).and_then(RawLegendText::try_from_bytes)
+        else {
             return false;
         };
         output.marks[index] = RawLegendMark {

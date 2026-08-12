@@ -1,4 +1,5 @@
 use super::{module_base, read};
+use crate::process_memory::ProcessValue;
 use darpc_game_client::{ABILITY_SLOT_COUNT, GUI_BACK_PANE_GET_RVA};
 use darpc_protocol::CommandFailure;
 use std::{ffi::c_void, mem, ptr::NonNull};
@@ -48,7 +49,7 @@ impl AbilityEntry {
         self.0.as_ptr()
     }
 
-    pub(super) fn read<T: Copy>(self, offset: usize) -> Result<T, CommandFailure> {
+    pub(super) fn read<T: ProcessValue>(self, offset: usize) -> Result<T, CommandFailure> {
         read(add(self.0.as_ptr() as usize, offset)?).ok_or(CommandFailure::InvalidState)
     }
 

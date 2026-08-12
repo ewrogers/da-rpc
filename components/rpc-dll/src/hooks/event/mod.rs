@@ -1,24 +1,15 @@
 use darpc_game_client::{EVENT_DISPATCH_ENTRY, EVENT_DISPATCH_RVA, RawObjects};
-use darpc_hook::{
-    CodeRange, DetourActivity, DetourError, DetourSpec, InstallError, InstalledDetour,
-    PreparedDetour,
-};
+use darpc_hook::{DetourActivity, InstallError, InstalledDetour};
 use darpc_win32::pipe::sender_tick_ms;
 use std::{
     cell::UnsafeCell,
     io, panic,
-    ptr::{self, NonNull},
-    slice,
     sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
-    thread,
-    time::{Duration, Instant},
-};
-use windows_sys::Win32::System::{
-    Diagnostics::Debug::ReadProcessMemory, LibraryLoader::GetModuleHandleW,
-    Threading::GetCurrentProcess,
+    time::Duration,
 };
 
-use crate::{packet, state};
+use super::support;
+use crate::{packet, process_memory::read_exact, state};
 
 pub(crate) const NAME: &str = "event_dispatch";
 
@@ -107,22 +98,26 @@ pub(crate) struct EventHealth {
 
 impl EventHook {
     pub(crate) fn install() -> Result<Self, InstallError> {
-        let target = target_address()?;
-        validate_entry(target)?;
-        let detour = NonNull::new(event_dispatch_detour as *mut u8)
-            .ok_or_else(|| io::Error::other("event detour address is null"))?;
-        let detour_range = CodeRange::new(detour.as_ptr() as usize, DETOUR_RANGE_LEN)
-            .map_err(InstallError::from)?;
-        let spec = DetourSpec::new(target, detour, detour_range, &EVENT_HOOK_ACTIVITY)
-            .map_err(InstallError::from)?;
+        let target =
+            support::target_address(support::module_base()?, EVENT_DISPATCH_RVA, "event target")?;
+        // SAFETY: supported executable validation establishes that the fixed
+        // event entry is readable for its complete byte contract.
+        unsafe { support::validate_bytes(target, &EVENT_DISPATCH_ENTRY, "event dispatch entry") }?;
 
         // SAFETY: the supported executable fingerprint and exact target entry
         // bytes were validated. The detour preserves the target's thiscall ABI,
         // suppresses only a correlated daRPC Who response, and otherwise calls
         // the original before observing bounded copied bytes.
-        let mut prepared = unsafe { PreparedDetour::prepare(spec) }.map_err(InstallError::from)?;
-        let relocated_bytes = u8::try_from(prepared.relocated_len())
-            .map_err(|_| io::Error::other("relocated event prologue exceeds u8"))?;
+        let mut prepared = unsafe {
+            support::prepare_detour(
+                target,
+                event_dispatch_detour as *mut u8,
+                DETOUR_RANGE_LEN,
+                &EVENT_HOOK_ACTIVITY,
+                "event detour",
+            )
+        }?;
+        let relocated_bytes = support::relocated_bytes(&prepared, "event prologue")?;
         EVENT_OBSERVATION_COUNT.store(0, Ordering::Release);
         SERVER_EVENT_COUNT.store(0, Ordering::Release);
         EVENT_COUNT.store(0, Ordering::Release);
@@ -141,21 +136,19 @@ impl EventHook {
             Ordering::Release,
         );
 
-        let deadline = Instant::now() + INSTALL_TIMEOUT;
-        let mut detour = loop {
-            match prepared.install() {
-                Ok(detour) => break detour,
-                Err(error) if error.is_transient() && Instant::now() < deadline => {
-                    thread::sleep(COMMIT_RETRY_INTERVAL);
-                }
-                Err(error) => {
-                    EVENT_TRAMPOLINE.store(0, Ordering::Release);
-                    EVENT_RELOCATED_BYTES.store(0, Ordering::Release);
-                    return Err(InstallError::from(error));
-                }
+        let mut detour = match support::install_prepared(
+            &mut prepared,
+            INSTALL_TIMEOUT,
+            COMMIT_RETRY_INTERVAL,
+        ) {
+            Ok(detour) => detour,
+            Err(error) => {
+                EVENT_TRAMPOLINE.store(0, Ordering::Release);
+                EVENT_RELOCATED_BYTES.store(0, Ordering::Release);
+                return Err(InstallError::from(error));
             }
         };
-        let install_warning = detour.take_resume_warning().map(detour_error);
+        let install_warning = detour.take_resume_warning().map(support::detour_error);
         EVENT_HOOK_INSTALLED.store(true, Ordering::Release);
         Ok(Self {
             detour,
@@ -173,21 +166,13 @@ impl EventHook {
     }
 
     pub(crate) fn uninstall(&mut self) -> io::Result<bool> {
-        let deadline = Instant::now() + UNINSTALL_TIMEOUT;
-        loop {
-            match self.detour.uninstall() {
-                Ok(changed) => {
-                    EVENT_HOOK_INSTALLED.store(false, Ordering::Release);
-                    EVENT_TRAMPOLINE.store(0, Ordering::Release);
-                    EVENT_RELOCATED_BYTES.store(0, Ordering::Release);
-                    return Ok(changed);
-                }
-                Err(error) if error.is_transient() && Instant::now() < deadline => {
-                    thread::sleep(COMMIT_RETRY_INTERVAL);
-                }
-                Err(error) => return Err(detour_error(error)),
-            }
-        }
+        let changed =
+            support::uninstall_detour(&mut self.detour, UNINSTALL_TIMEOUT, COMMIT_RETRY_INTERVAL)
+                .map_err(support::detour_error)?;
+        EVENT_HOOK_INSTALLED.store(false, Ordering::Release);
+        EVENT_TRAMPOLINE.store(0, Ordering::Release);
+        EVENT_RELOCATED_BYTES.store(0, Ordering::Release);
+        Ok(changed)
     }
 }
 
@@ -208,37 +193,6 @@ pub(crate) fn health() -> EventHealth {
         last_parse_needed: LAST_PARSE_NEEDED.load(Ordering::Acquire),
         last_parse_remaining: LAST_PARSE_REMAINING.load(Ordering::Acquire),
     }
-}
-
-fn target_address() -> io::Result<NonNull<u8>> {
-    // SAFETY: a null module name requests the executable module for the current
-    // process and has no lifetime transfer.
-    let module = unsafe { GetModuleHandleW(ptr::null()) };
-    let module = NonNull::new(module.cast::<u8>()).ok_or_else(io::Error::last_os_error)?;
-    let address = (module.as_ptr() as usize)
-        .checked_add(EVENT_DISPATCH_RVA)
-        .ok_or_else(|| io::Error::other("event target address overflow"))?;
-    NonNull::new(address as *mut u8).ok_or_else(|| io::Error::other("event target address is null"))
-}
-
-fn validate_entry(target: NonNull<u8>) -> io::Result<()> {
-    // SAFETY: the supported executable fingerprint establishes that the target
-    // RVA names readable executable memory spanning this fixed entry contract.
-    let actual = unsafe { slice::from_raw_parts(target.as_ptr(), EVENT_DISPATCH_ENTRY.len()) };
-    if actual != EVENT_DISPATCH_ENTRY {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!(
-                "{NAME} entry mismatch at RVA 0x{EVENT_DISPATCH_RVA:08X}: expected={:02X?} actual={actual:02X?}",
-                EVENT_DISPATCH_ENTRY
-            ),
-        ));
-    }
-    Ok(())
-}
-
-fn detour_error(error: DetourError) -> io::Error {
-    io::Error::other(error)
 }
 
 #[unsafe(naked)]
@@ -331,7 +285,7 @@ fn intercept_event_inner(event: *const core::ffi::c_void) -> bool {
     let Some(address) = (event as usize).checked_add(EVENT_TYPE_OFFSET) else {
         return false;
     };
-    if !read_memory(address, &mut view) || view[0] != SERVER_EVENT_TYPE {
+    if !read_exact(address, &mut view) || view[0] != SERVER_EVENT_TYPE {
         return false;
     }
     let body_address = u32::from_le_bytes(
@@ -349,8 +303,7 @@ fn intercept_event_inner(event: *const core::ffi::c_void) -> bool {
         return false;
     }
     let mut opcode = [0];
-    if !read_memory(body_address as usize, &mut opcode) || !matches!(opcode[0], 0x34 | 0x36 | 0x42)
-    {
+    if !read_exact(body_address as usize, &mut opcode) || !matches!(opcode[0], 0x34 | 0x36 | 0x42) {
         return false;
     }
     if EVENT_SCRATCH_IN_USE
@@ -362,7 +315,7 @@ fn intercept_event_inner(event: *const core::ffi::c_void) -> bool {
     let _scratch_guard = EventScratchGuard;
     // SAFETY: the scratch guard owns exclusive access for this bounded copy.
     let scratch = unsafe { &mut *EVENT_SCRATCH.0.get() };
-    if !read_memory(body_address as usize, &mut scratch.body[..body_length]) {
+    if !read_exact(body_address as usize, &mut scratch.body[..body_length]) {
         EVENT_READ_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed);
         return false;
     }
@@ -390,7 +343,7 @@ extern "C" fn observe_event(event: *const core::ffi::c_void) {
         let Some(address) = (event as usize).checked_add(EVENT_TYPE_OFFSET) else {
             return;
         };
-        if !read_memory(address, &mut view) {
+        if !read_exact(address, &mut view) {
             EVENT_READ_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed);
             return;
         }
@@ -423,7 +376,7 @@ extern "C" fn observe_event(event: *const core::ffi::c_void) {
         // SAFETY: the successful compare_exchange above gives this invocation
         // exclusive access until _scratch_guard releases the flag.
         let scratch = unsafe { &mut *EVENT_SCRATCH.0.get() };
-        if !read_memory(body_address as usize, &mut scratch.body[..body_length]) {
+        if !read_exact(body_address as usize, &mut scratch.body[..body_length]) {
             EVENT_READ_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed);
             return;
         }
@@ -508,26 +461,9 @@ extern "C" fn observe_event(event: *const core::ffi::c_void) {
     });
 }
 
-fn read_memory(address: usize, output: &mut [u8]) -> bool {
-    let mut read = 0_usize;
-    // SAFETY: output is valid for its length. ReadProcessMemory validates the
-    // current-process source range and reports failure without dereferencing it
-    // through a Rust reference.
-    let succeeded = unsafe {
-        ReadProcessMemory(
-            GetCurrentProcess(),
-            address as *const core::ffi::c_void,
-            output.as_mut_ptr().cast(),
-            output.len(),
-            &mut read,
-        )
-    };
-    succeeded != 0 && read == output.len()
-}
-
 #[cfg(test)]
 mod tests {
-    use super::validate_entry;
+    use super::support;
     use darpc_game_client::EVENT_DISPATCH_ENTRY;
     use std::ptr::NonNull;
 
@@ -535,13 +471,19 @@ mod tests {
     fn validates_the_exact_event_entry() {
         let mut entry = EVENT_DISPATCH_ENTRY;
         let target = NonNull::new(entry.as_mut_ptr()).unwrap();
-        validate_entry(target).unwrap();
+        // SAFETY: target points at the complete local entry array.
+        unsafe { support::validate_bytes(target, &EVENT_DISPATCH_ENTRY, "event entry") }.unwrap();
 
         let mut wrong_entry = EVENT_DISPATCH_ENTRY;
         wrong_entry[0] ^= 0xFF;
         let wrong_target = NonNull::new(wrong_entry.as_mut_ptr()).unwrap();
         assert_eq!(
-            validate_entry(wrong_target).unwrap_err().kind(),
+            unsafe {
+                // SAFETY: wrong_target still points at a complete local entry array.
+                support::validate_bytes(wrong_target, &EVENT_DISPATCH_ENTRY, "event entry")
+            }
+            .unwrap_err()
+            .kind(),
             std::io::ErrorKind::InvalidData
         );
     }

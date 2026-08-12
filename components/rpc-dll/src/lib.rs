@@ -2,6 +2,8 @@
 
 #[cfg(all(windows, not(test)))]
 mod actions;
+#[cfg(any(windows, test))]
+mod atomic_sequence;
 #[cfg(windows)]
 mod client_text;
 #[cfg(any(windows, test))]
@@ -22,6 +24,8 @@ mod heartbeat_priority;
 mod hooks;
 #[cfg(windows)]
 mod identity;
+#[cfg(any(windows, test))]
+mod inline_bytes;
 #[cfg(windows)]
 mod ipc;
 #[cfg(any(windows, test))]
@@ -36,6 +40,8 @@ mod objects;
 mod packet;
 #[cfg(any(windows, test))]
 mod player;
+#[cfg(windows)]
+mod process_memory;
 #[cfg(any(windows, test))]
 mod route;
 #[cfg(any(windows, test))]
@@ -44,8 +50,12 @@ mod route_retry;
 mod snapshot;
 #[cfg(any(windows, test))]
 mod state;
+#[cfg(any(windows, test))]
+mod transfer_slot;
 #[cfg(windows)]
 mod who;
+#[cfg(any(windows, test))]
+mod wrapping_time;
 
 #[cfg(windows)]
 use windows_sys::{

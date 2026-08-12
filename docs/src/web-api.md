@@ -129,6 +129,7 @@ request cannot select another file in or outside the configured directory.
 | `POST /clients/{client}/items/pickup` | Pick up the top ground item at a tile. |
 | `POST /clients/{client}/chant` | Send verbatim text as a spell chant. |
 | `POST /clients/{client}/messages/send` | Send say, shout, guild, group, or whisper chat. |
+| `POST /messages/send` | Send a daemon-only internal payload to one named client or all connected clients. |
 | `POST /clients/{client}/items/sell` | Ask an NPC to buy one named item. |
 | `POST /clients/{client}/items/sell-all` | Ask an NPC to buy all matching named items. |
 | `POST /clients/{client}/items/deposit` | Deposit a named item with an NPC. |
@@ -164,7 +165,8 @@ Movement request bodies are documented in [Movement](movement.md). Emote names
 and codes are documented in [Emotes](emotes.md).
 Item, gold, pickup, chant, and NPC item-action bodies are documented in
 [Inventory](inventory.md).
-Outbound chat fields and limits are documented in [Messages](messages.md).
+Outbound chat and internal inter-client message fields are documented in
+[Messages](messages.md).
 Equipment, skill, and spell arguments are documented in their respective
 chapters. NPC interaction, revision checks, and dialog responses are documented
 in [NPC dialogs](dialogs.md). Group state, invitations, and roster confirmation

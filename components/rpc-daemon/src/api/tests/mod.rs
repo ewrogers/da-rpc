@@ -339,6 +339,11 @@ fn state_with_snapshot(snapshot: ModelClientSnapshot) -> ApiState {
     ApiState::new(registry.snapshot(), Arc::new(FakeLifecycle), events)
 }
 
+fn empty_state() -> ApiState {
+    let (events, _receiver) = mpsc::channel();
+    ApiState::new(Registry::new().snapshot(), Arc::new(FakeLifecycle), events)
+}
+
 struct FakeLifecycle;
 
 impl LifecycleControl for FakeLifecycle {
@@ -1109,6 +1114,133 @@ fn validates_outbound_message_fields_before_routing() {
 }
 
 #[test]
+fn sends_internal_content_to_a_named_client_without_the_game_limit() {
+    let state = state();
+    let mut events = state.subscribe();
+    let content = "x".repeat(101);
+    let response = post_json(
+        state.clone(),
+        "/messages/send",
+        &format!(r#"{{"channel":"internal","recipient":"silo","content":"{content}"}}"#),
+    );
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response_json(response)["delivered"], 1);
+
+    let history = json_with_state(state, "/clients/42/messages?channels=internal");
+    let message = &history["messages"][0];
+    assert_eq!(message["channel"], "internal");
+    assert_eq!(message["recipient"], "SiLo");
+    assert_eq!(message["payload"]["content"], content);
+    assert!(message.get("text").is_none());
+    assert!(message.get("tick_ms").is_none());
+
+    let PublishedEvent::Internal {
+        recipients,
+        message,
+    } = events.try_recv().unwrap()
+    else {
+        panic!("expected an internal message event");
+    };
+    assert_eq!(recipients.len(), 1);
+    assert_eq!(recipients[0].pid, 42);
+    assert_eq!(message.recipient.as_deref(), Some("SiLo"));
+}
+
+#[test]
+fn validates_internal_message_shape_and_recipient() {
+    for body in [
+        r#"{"channel":"internal"}"#,
+        r#"{"channel":"internal","content":"","payload":{}}"#,
+        r#"{"channel":"internal","content":""}"#,
+        r#"{"channel":"internal","payload":[]}"#,
+        r#"{"channel":"say","content":"hello"}"#,
+    ] {
+        let response = post_json(state(), "/messages/send", body);
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "body: {body}");
+    }
+
+    let response = post_json(
+        state(),
+        "/messages/send",
+        r#"{"channel":"internal","recipient":"Missing","payload":{"ready":true}}"#,
+    );
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(
+        response_json(response)["error"]["code"],
+        "recipient_not_found"
+    );
+}
+
+#[test]
+fn internal_broadcast_with_no_clients_succeeds() {
+    let response = post_json(
+        empty_state(),
+        "/messages/send",
+        r#"{"channel":"internal","payload":{"ready":true}}"#,
+    );
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response_json(response)["delivered"], 0);
+}
+
+#[test]
+fn internal_broadcast_accepts_an_object_payload() {
+    let state = state();
+    let response = post_json(
+        state.clone(),
+        "/messages/send",
+        r#"{"channel":"internal","payload":{"ready":true,"count":2}}"#,
+    );
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response_json(response)["delivered"], 1);
+
+    let history = json_with_state(state, "/clients/42/messages?channels=internal");
+    assert_eq!(history["messages"][0]["payload"]["ready"], true);
+    assert_eq!(history["messages"][0]["payload"]["count"], 2);
+    assert!(history["messages"][0].get("recipient").is_none());
+}
+
+#[test]
+fn internal_messages_are_emitted_over_sse() {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .unwrap()
+        .block_on(async {
+            let state = state();
+            let events = router(state.clone())
+                .oneshot(
+                    Request::get("/clients/42/events")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(events.status(), StatusCode::OK);
+
+            let body = r#"{"channel":"internal","payload":{"ready":true}}"#;
+            let response = router(state.clone())
+                .oneshot(
+                    Request::post("/messages/send")
+                        .header("content-type", "application/json")
+                        .header("content-length", body.len())
+                        .body(Body::from(body))
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+
+            drop(state);
+            let bytes = to_bytes(events.into_body(), 64 * 1024).await.unwrap();
+            let stream = String::from_utf8(bytes.to_vec()).unwrap();
+            assert!(stream.contains("event: message.internal\n"));
+            assert!(stream.contains("id: internal-1\n"));
+            assert!(stream.contains(r#""channel":"internal""#));
+            assert!(stream.contains(r#""payload":{"ready":true}"#));
+        });
+}
+
+#[test]
 fn serves_dialog_state_and_rejects_stale_actions() {
     let body = json("/clients/42/dialog");
     assert_eq!(body["dialog"]["revision"], 7);
@@ -1702,6 +1834,7 @@ fn serves_the_openapi_contract_and_vendored_swagger_ui() {
         "/clients/{client}/effects",
         "/clients/{client}/objects",
         "/clients/{client}/messages",
+        "/messages/send",
         "/clients/{client}/events",
         "/clients/{client}/turn",
         "/clients/{client}/walk",
@@ -1856,6 +1989,9 @@ fn serves_the_openapi_contract_and_vendored_swagger_ui() {
         "CommandFailure",
         "SendMessageChannel",
         "SendMessageOptions",
+        "InternalMessageChannel",
+        "InternalMessageOptions",
+        "InternalMessageResult",
     ] {
         assert!(schemas.contains_key(name), "OpenAPI omitted {name}");
     }

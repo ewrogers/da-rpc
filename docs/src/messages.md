@@ -7,6 +7,7 @@ parse the punctuation the client uses for each channel.
 | --- | --- |
 | Read recent messages | `GET /clients/{client}/messages` |
 | Send a message | `POST /clients/{client}/messages/send` |
+| Send an internal message | `POST /messages/send` |
 | Filter retained history | `channels`, `since`, `skip`, and `count` |
 | Watch new messages | [Message events](events.md#message-events) |
 
@@ -19,10 +20,10 @@ curl "http://127.0.0.1:2626/clients/ZiLo/messages"
 Each message contains:
 
 - `timestamp`, formatted as ISO 8601 in the daemon's local time and UTC offset
-- `tick_ms`, the client's wrapping Windows millisecond tick
+- Optional `tick_ms`, the client's wrapping Windows millisecond tick
 - `channel`
 - Optional `sender` and `recipient`
-- Cleaned message `text`
+- Cleaned game message `text`, or an internal message `payload` object
 
 ```text
 Messages {
@@ -31,23 +32,28 @@ Messages {
 
 Message {
     timestamp: string,
-    tick_ms: u32,
+    tick_ms: u32?,
     channel: MessageChannel,
     sender: string?,
     recipient: string?,
-    text: string,
+    text: string?,
+    payload: object?,
 }
 ```
 
 Retained history uses one of these channels:
 
 ```text
-say, shout, whisper, guild, group, system, world
+say, shout, whisper, guild, group, system, world, internal
 ```
 
 Spell chants are transient `message.chant` SSE events and are intentionally not
 stored by `/messages`. This keeps spell and NPC command chants from crowding
 ordinary conversation history.
+
+Whisper packet type is authoritative when the server returns an error without
+the usual `name>` or `name"` formatting. Such records remain `whisper`; sender
+and recipient are absent when no participant can be extracted.
 
 Channel markers and participant punctuation shown by the game are removed from
 the text. Empty messages are ignored. A world shout is stored once as `world`,
@@ -73,6 +79,29 @@ through 15 ASCII characters without whitespace.
 Guild and group messages use the game's directed-message packet with the
 special recipients `!` and `!!`, respectively. Callers select `guild` or
 `group`; they do not supply those markers as whisper recipients.
+
+### Internal messages
+
+Internal messages travel only inside `darpcd.exe`. They are not sent to the
+game client, DLL, or game server. Send one to a connected in-game character by
+name:
+
+```console
+curl -X POST "http://127.0.0.1:2626/messages/send" \
+  -H "content-type: application/json" \
+  -d '{"channel":"internal","recipient":"Eidolon","payload":{"action":"ready"}}'
+```
+
+Omit `recipient` to deliver to every connected daRPC client. A broadcast with
+no connected clients succeeds with `{"delivered":0}`. A named recipient that
+does not exist returns `404`; duplicate active names return `409`.
+
+Provide exactly one of `content` or `payload`. `payload` must be a JSON object.
+`content` accepts nonempty Unicode text without the game's 100-character limit
+and is delivered as `{"content":"..."}` inside `payload`. The API's bounded
+4 KiB request-body limit still applies. Internal records omit `tick_ms` and
+`text`, use `channel: "internal"`, and appear only in daRPC REST history and
+SSE streams.
 
 ## Filtering and paging
 
@@ -110,9 +139,10 @@ message.guild
 message.group
 message.system
 message.world
+message.internal
 ```
 
-All eight routes use the JSON discriminator `type: "message"`. The channel is
+All nine routes use the JSON discriminator `type: "message"`. The channel is
 inside `data.channel`. Separate SSE names let a browser subscribe only to the
 channels it cares about.
 
@@ -128,9 +158,10 @@ and debugging. See [Spells](spells.md#cast-results) for correlation behavior.
 
 ## Retention
 
-The daemon keeps at most 4,096 messages and 1 MiB of message text per DLL
-instance. It removes the oldest messages first. History is held in memory and
-is cleared when the daemon restarts or a new DLL instance replaces the old one.
+The daemon keeps at most 4,096 messages and 1 MiB of message text and payload
+per DLL instance. It removes the oldest messages first. History is held in
+memory and is cleared when the daemon restarts or a new DLL instance replaces
+the old one.
 
 If an SSE connection is interrupted, read `/messages` with a suitable `since`
 value to recover recent conversation context. Chants and state events from

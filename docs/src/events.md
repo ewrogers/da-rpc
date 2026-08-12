@@ -115,7 +115,8 @@ EventObservation {
 
 Message events use their normalized message record instead of an
 `observation`. Their SSE ID still supplies stream order, and the subscription
-path identifies the client.
+path identifies the client. Internal message IDs use `internal-N`; they do not
+advance or interrupt the DLL state-event sequence.
 
 A field followed by `?` in the structures below is optional and can be absent
 or `null`. Collection types use `T[]`. The examples describe JSON values rather
@@ -667,6 +668,7 @@ privacy.
 | `message.group` | Group chat |
 | `message.system` | Client or server system text |
 | `message.world` | World shout |
+| `message.internal` | Daemon-only inter-client payload |
 
 All message routes use the JSON discriminator `type: "message"`. The channel
 inside the payload distinguishes them:
@@ -674,11 +676,12 @@ inside the payload distinguishes them:
 ```text
 Message {
     timestamp: string,
-    tick_ms: u32,
+    tick_ms: u32?,
     channel: MessageChannel,
     sender: string?,
     recipient: string?,
-    text: string,
+    text: string?,
+    payload: object?,
 }
 ```
 
@@ -688,6 +691,11 @@ for `message.chant`, which is intentionally transient. Some system messages
 also produce `spell.succeeded`, `spell.failed`, or `spell.received`.
 Both frames are intentional: one preserves the text shown by the game and the
 other supplies semantic spell data.
+
+Internal messages contain `payload` and omit `tick_ms` and `text`. They are
+published by `POST /messages/send` only to the selected recipient stream, or to
+every connected client stream for a broadcast. They never enter the game or
+DLL transport. See [Messages](messages.md#internal-messages).
 
 ## NPC dialog events
 
@@ -826,7 +834,7 @@ trying to infer state from only the changed field.
 | Effects | `effect.added`, `effect.removed`, `effect.changed` | `/effects` |
 | World | Player, monster, Mundane, ground-item, visual, damage, and `objects.cleared` events | `/objects` |
 | Audio | `sound.played`, `music.started`, `music.stopped` | None; transient events are not replayed. |
-| Messages | `message.say`, `message.shout`, `message.chant`, `message.whisper`, `message.guild`, `message.group`, `message.system`, `message.world` | `/messages`, except transient chants |
+| Messages | `message.say`, `message.shout`, `message.chant`, `message.whisper`, `message.guild`, `message.group`, `message.system`, `message.world`, `message.internal` | `/messages`, except transient chants |
 | NPC dialogs | `dialog.opened`, `dialog.changed`, `dialog.submitted`, `dialog.closed` | `/dialog` |
 | Groups | `group.settings_changed`, `group.invitation_sent`, `group.invitation_received`, `group.invitation_closed`, `group.joined`, `group.member_joined`, `group.member_left`, `group.disbanded` | `/group`, then `/status` for convenience fields |
 | Exchange | `exchange.opened`, `exchange.item_added`, `exchange.gold_changed`, `exchange.accepted`, `exchange.completed`, `exchange.cancelled` | `/exchange`, then `/status` for `is_in_exchange` |

@@ -2,6 +2,7 @@ use crate::registry::{ClientIdentity, ConnectionEvent, RegistrySnapshot};
 use chrono::{DateTime, Local, SecondsFormat, Utc};
 use darpc_model::{ClientMessage, MessageKind, StateUpdate};
 use serde::Serialize;
+use serde_json::{Map, Value};
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     str::FromStr,
@@ -24,6 +25,7 @@ pub(crate) enum MessageChannel {
     Group,
     System,
     World,
+    Internal,
 }
 
 impl MessageChannel {
@@ -37,6 +39,7 @@ impl MessageChannel {
             Self::Group => "message.group",
             Self::System => "message.system",
             Self::World => "message.world",
+            Self::Internal => "message.internal",
         }
     }
 }
@@ -69,6 +72,7 @@ impl FromStr for MessageChannel {
             "group" => Ok(Self::Group),
             "system" => Ok(Self::System),
             "world" => Ok(Self::World),
+            "internal" => Ok(Self::Internal),
             _ => Err(()),
         }
     }
@@ -83,13 +87,18 @@ pub(crate) struct Message {
     #[schema(value_type = String, format = DateTime)]
     pub(crate) timestamp: String,
     /// Wrapping Windows millisecond tick recorded by the game client.
-    pub(crate) tick_ms: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) tick_ms: Option<u32>,
     pub(crate) channel: MessageChannel,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) sender: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) recipient: Option<String>,
-    pub(crate) text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Object)]
+    pub(crate) payload: Option<Map<String, Value>>,
 }
 
 impl Message {
@@ -102,11 +111,30 @@ impl Message {
         Self {
             event_sequence,
             timestamp: local_timestamp(observed_at_utc),
-            tick_ms,
+            tick_ms: Some(tick_ms),
             channel: message.kind.into(),
             sender: message.sender,
             recipient: message.recipient,
-            text: message.text,
+            text: Some(message.text),
+            payload: None,
+        }
+    }
+
+    pub(crate) fn internal(
+        event_sequence: u32,
+        observed_at_utc: DateTime<Utc>,
+        recipient: Option<String>,
+        payload: Map<String, Value>,
+    ) -> Self {
+        Self {
+            event_sequence,
+            timestamp: local_timestamp(observed_at_utc),
+            tick_ms: None,
+            channel: MessageChannel::Internal,
+            sender: None,
+            recipient,
+            text: None,
+            payload: Some(payload),
         }
     }
 
@@ -116,6 +144,10 @@ impl Message {
 
     pub(crate) const fn sequence(&self) -> u32 {
         self.event_sequence
+    }
+
+    pub(crate) const fn is_internal(&self) -> bool {
+        matches!(self.channel, MessageChannel::Internal)
     }
 }
 
@@ -139,12 +171,13 @@ struct MessageHistory {
 #[derive(Clone, Debug)]
 struct StoredMessage {
     event_sequence: u32,
-    tick_ms: u32,
+    tick_ms: Option<u32>,
     observed_at_utc: DateTime<Utc>,
     channel: MessageChannel,
     sender: Option<String>,
     recipient: Option<String>,
-    text: String,
+    text: Option<String>,
+    payload: Option<Map<String, Value>>,
 }
 
 impl StoredMessage {
@@ -158,13 +191,32 @@ impl StoredMessage {
         }
         Some(Self {
             event_sequence: event.sequence,
-            tick_ms: event.tick_ms,
+            tick_ms: Some(event.tick_ms),
             observed_at_utc,
             channel: message.kind.into(),
             sender: message.sender.clone(),
             recipient: message.recipient.clone(),
-            text: message.text.clone(),
+            text: Some(message.text.clone()),
+            payload: None,
         })
+    }
+
+    fn internal(
+        event_sequence: u32,
+        observed_at_utc: DateTime<Utc>,
+        recipient: Option<String>,
+        payload: Map<String, Value>,
+    ) -> Self {
+        Self {
+            event_sequence,
+            tick_ms: None,
+            observed_at_utc,
+            channel: MessageChannel::Internal,
+            sender: None,
+            recipient,
+            text: None,
+            payload: Some(payload),
+        }
     }
 
     fn to_api(&self) -> Message {
@@ -176,13 +228,19 @@ impl StoredMessage {
             sender: self.sender.clone(),
             recipient: self.recipient.clone(),
             text: self.text.clone(),
+            payload: self.payload.clone(),
         }
     }
 
     fn byte_size(&self) -> usize {
-        self.text.len()
+        self.text.as_ref().map_or(0, String::len)
             + self.sender.as_ref().map_or(0, String::len)
             + self.recipient.as_ref().map_or(0, String::len)
+            + self
+                .payload
+                .as_ref()
+                .and_then(|payload| serde_json::to_vec(payload).ok())
+                .map_or(0, |payload| payload.len())
     }
 }
 
@@ -225,6 +283,27 @@ pub(crate) struct MessageStore {
 }
 
 impl MessageStore {
+    pub(crate) fn push_internal(
+        &mut self,
+        identities: &[ClientIdentity],
+        event_sequence: u32,
+        observed_at_utc: DateTime<Utc>,
+        recipient: Option<String>,
+        payload: Map<String, Value>,
+    ) {
+        for identity in identities {
+            self.clients
+                .entry(*identity)
+                .or_default()
+                .push(StoredMessage::internal(
+                    event_sequence,
+                    observed_at_utc,
+                    recipient.clone(),
+                    payload.clone(),
+                ));
+        }
+    }
+
     pub(crate) fn observe(&mut self, event: &ConnectionEvent, observed_at_utc: DateTime<Utc>) {
         match event {
             ConnectionEvent::Connected { pid, hello, .. } => {
@@ -366,9 +445,9 @@ mod tests {
 
         let messages = store.get(identity, &MessageFilter::default());
         assert_eq!(messages.messages.len(), 1);
-        assert_eq!(messages.messages[0].text, "hello");
+        assert_eq!(messages.messages[0].text.as_deref(), Some("hello"));
         assert_eq!(messages.messages[0].channel, MessageChannel::Say);
-        assert_eq!(messages.messages[0].tick_ms, 10);
+        assert_eq!(messages.messages[0].tick_ms, Some(10));
         assert_eq!(
             DateTime::parse_from_rfc3339(&messages.messages[0].timestamp)
                 .unwrap()

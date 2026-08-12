@@ -41,7 +41,7 @@ fn parse_message(body: &[u8]) -> Result<Option<ParsedMessage<'_>>, ParseError> {
         return Ok(None);
     }
     let message = reader.string16()?;
-    Ok(classify_message(trim_ascii(message)))
+    Ok(classify_message(message_type, trim_ascii(message)))
 }
 
 fn parse_say(body: &[u8]) -> Result<Option<ParsedMessage<'_>>, ParseError> {
@@ -86,7 +86,7 @@ fn parse_say(body: &[u8]) -> Result<Option<ParsedMessage<'_>>, ParseError> {
     }))
 }
 
-fn classify_message(message: &[u8]) -> Option<ParsedMessage<'_>> {
+fn classify_message(message_type: u8, message: &[u8]) -> Option<ParsedMessage<'_>> {
     if message.is_empty() {
         return None;
     }
@@ -117,7 +117,15 @@ fn classify_message(message: &[u8]) -> Option<ParsedMessage<'_>> {
             text,
         });
     }
-    parsed(MessageKind::System, Participant::None, message)
+    parsed(
+        if message_type == 0 {
+            MessageKind::Whisper
+        } else {
+            MessageKind::System
+        },
+        Participant::None,
+        message,
+    )
 }
 
 fn parsed<'a>(
@@ -290,6 +298,20 @@ mod tests {
             assert_eq!(parsed.sender, sender);
             assert_eq!(parsed.recipient, recipient);
         }
+    }
+
+    #[test]
+    fn classifies_unformatted_whisper_errors_from_the_packet_type() {
+        let body = message(0, b"That user is not available.");
+        let parsed = update(&body).unwrap().unwrap();
+        assert_eq!(parsed.kind, MessageKind::Whisper);
+        assert_eq!(parsed.sender, Participant::None);
+        assert_eq!(parsed.recipient, Participant::None);
+        assert_eq!(parsed.text, b"That user is not available.");
+
+        let body = message(1, b"You cannot do that now.");
+        let parsed = update(&body).unwrap().unwrap();
+        assert_eq!(parsed.kind, MessageKind::System);
     }
 
     #[test]

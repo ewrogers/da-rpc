@@ -24,7 +24,7 @@ use darpc_model::{
     TilePosition as ModelTilePosition,
 };
 use serde::Serialize;
-use std::{convert::Infallible, time::Duration};
+use std::{convert::Infallible, sync::Arc, time::Duration};
 use tokio::sync::broadcast;
 use utoipa::ToSchema;
 
@@ -45,6 +45,10 @@ pub(crate) const EVENT_CHANNEL_CAPACITY: usize = 4_096;
 
 #[derive(Clone, Debug)]
 pub(crate) enum PublishedEvent {
+    Internal {
+        recipients: Arc<[ClientIdentity]>,
+        message: Message,
+    },
     #[cfg_attr(not(windows), allow(dead_code))]
     State {
         pid: u32,
@@ -392,6 +396,17 @@ impl ClientEvent {
             .json_data(self)
             .expect("client event serialization is infallible")
     }
+
+    fn into_internal_sse(self) -> Event {
+        debug_assert!(matches!(&self, Self::Message(message) if message.is_internal()));
+        let event_name = self.name();
+        let event_id = format!("internal-{}", self.sequence());
+        Event::default()
+            .event(event_name)
+            .id(event_id)
+            .json_data(self)
+            .expect("client event serialization is infallible")
+    }
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
@@ -460,6 +475,12 @@ pub(crate) fn response(
         let mut last_sequence = event_sequence;
         loop {
             match receiver.recv().await {
+                Ok(PublishedEvent::Internal {
+                    recipients,
+                    message,
+                }) if recipients.contains(&identity) => {
+                    yield Ok(ClientEvent::Message(message).into_internal_sse());
+                }
                 Ok(PublishedEvent::State {
                     pid: event_pid,
                     identity: event_identity,
@@ -536,7 +557,7 @@ pub(crate) fn response(
     )
 }
 
-const fn next_nonzero(value: u32) -> u32 {
+pub(crate) const fn next_nonzero(value: u32) -> u32 {
     let next = value.wrapping_add(1);
     if next == 0 { 1 } else { next }
 }

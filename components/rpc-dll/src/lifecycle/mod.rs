@@ -361,10 +361,12 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
             Ok(mut hook) => {
                 let _ = writeln!(
                     log,
-                    "event=hook_installed hook={} rva=0x{:08X} relocated_bytes={}",
+                    "event=hook_installed hook={} rva=0x{:08X} relocated_bytes={} heartbeat_submit_rva=0x{:08X} heartbeat_pop_rva=0x{:08X}",
                     outgoing::NAME,
                     darpc_game_client::CLIENT_PACKET_SUBMIT_RVA,
-                    hook.relocated_bytes()
+                    hook.relocated_bytes(),
+                    darpc_game_client::CLIENT_TRANSPORT_SUBMIT_RVA,
+                    darpc_game_client::CLIENT_TRANSPORT_POP_RVA
                 );
                 if let Some(warning) = hook.take_install_warning() {
                     let _ = writeln!(
@@ -480,10 +482,12 @@ pub(crate) fn shutdown() -> io::Result<()> {
             Ok(true) => {
                 writeln!(
                     active.log,
-                    "event=hook_removed hook={} observations={} read_failures={}",
+                    "event=hook_removed hook={} observations={} read_failures={} prioritized_heartbeats={} heartbeat_fallbacks={}",
                     outgoing::NAME,
                     final_health.observation_count,
-                    final_health.read_failure_count
+                    final_health.read_failure_count,
+                    final_health.prioritized_heartbeat_count,
+                    final_health.heartbeat_fallback_count
                 )?;
             }
             Ok(false) => {}

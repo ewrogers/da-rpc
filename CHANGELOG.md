@@ -2,10 +2,29 @@
 
 ## Unreleased
 
+## 1.2.1 - 2026-08-11
+
+### Added
+
+- Added `message.internal` REST and Server-Sent Events support for daRPC-only
+  inter-client messages, including optional named recipients and structured
+  payloads.
+- Added `skill.cooldown`, `skill.ready`, `spell.cooldown`, and `spell.ready`
+  events with targeted client-side cooldown completion tracking.
+
 ### Fixed
 
 - Made initial location tracking independent of whether the authoritative
   position or map-size event arrives first after login.
+- Prioritized heartbeat responses outside the normal outbound transport queue
+  so high-volume game events cannot delay them until the server disconnects.
+- Classified unformatted whisper errors as whisper messages even when they do
+  not include the normal sender-name syntax.
+
+### Changed
+
+- Reserved `skill.changed` and `spell.changed` for intrinsic ability metadata
+  changes instead of cooldown-only transitions.
 
 ## 1.2.0 - 2026-08-11
 

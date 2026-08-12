@@ -61,6 +61,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc, Mutex, RwLock,
+        atomic::{AtomicU32, Ordering},
         mpsc::{self, Sender, SyncSender, TrySendError},
     },
     thread::{self, JoinHandle},
@@ -70,6 +71,7 @@ use utoipa::{IntoParams, OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
 mod clients;
+mod internal_messages;
 mod lifecycle;
 mod maps;
 mod schema;
@@ -94,6 +96,7 @@ pub(crate) struct ApiState {
     messages: Arc<RwLock<MessageStore>>,
     spell_feedback: Arc<Mutex<SpellFeedbackTrackers>>,
     maps_directory: Arc<RwLock<Option<PathBuf>>>,
+    internal_message_sequence: Arc<AtomicU32>,
 }
 
 impl ApiState {
@@ -115,6 +118,7 @@ impl ApiState {
             messages: Arc::new(RwLock::new(MessageStore::default())),
             spell_feedback: Arc::new(Mutex::new(SpellFeedbackTrackers::default())),
             maps_directory: Arc::new(RwLock::new(None)),
+            internal_message_sequence: Arc::new(AtomicU32::new(0)),
         }
     }
 
@@ -241,6 +245,39 @@ impl ApiState {
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .get(identity, filter)
+    }
+
+    fn publish_internal_message(
+        &self,
+        identities: Vec<RegistryClientIdentity>,
+        recipient: Option<String>,
+        payload: serde_json::Map<String, serde_json::Value>,
+    ) {
+        if identities.is_empty() {
+            return;
+        }
+        let previous = self
+            .internal_message_sequence
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+                Some(stream::next_nonzero(value))
+            })
+            .expect("internal message sequence update is infallible");
+        let sequence = stream::next_nonzero(previous);
+        let observed_at_utc = Utc::now();
+        let message = Message::internal(
+            sequence,
+            observed_at_utc,
+            recipient.clone(),
+            payload.clone(),
+        );
+        self.messages
+            .write()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push_internal(&identities, sequence, observed_at_utc, recipient, payload);
+        let _ = self.published_events.send(PublishedEvent::Internal {
+            recipients: identities.into(),
+            message,
+        });
     }
 
     pub(crate) fn snapshot(&self) -> Arc<RegistrySnapshot> {
@@ -391,6 +428,7 @@ fn router(state: ApiState) -> Router {
         .route("/health", get(health))
         .route("/maps/{map_id}/download", get(maps::download))
         .route("/clients", get(clients))
+        .route("/messages/send", post(internal_messages::send))
         .route("/clients/{client}/status", get(client_status))
         .route(
             "/clients/{client}/messages/send",
@@ -709,6 +747,7 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         crate::commands::assail::assail,
         crate::commands::resync::resync,
         crate::commands::message::send,
+        internal_messages::send,
         crate::commands::chant::chant,
         crate::commands::chant::sell,
         crate::commands::chant::sell_all,
@@ -773,6 +812,9 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         Messages,
         Message,
         MessageChannel,
+        internal_messages::InternalMessageChannel,
+        internal_messages::InternalMessageOptions,
+        internal_messages::InternalMessageResult,
         DialogSnapshot,
         DialogState,
         DialogKind,

@@ -1,6 +1,7 @@
 #![cfg_attr(not(windows), allow(dead_code))]
 
 use crate::{
+    atomic_sequence::next_nonzero,
     collections::{CollectionTracker, QueuedCollectionUpdate},
     event_queue::EventQueue,
     objects::{ObjectCache, QueuedObjectUpdate},
@@ -312,7 +313,7 @@ pub(crate) fn snapshot_boundary(
     unsafe { OBJECTS.replace(objects) };
     // SAFETY: snapshot capture and packet observation are serialized on the
     // client main thread.
-    unsafe { COLLECTIONS.replace(raw) };
+    unsafe { COLLECTIONS.replace(raw, tick_ms) };
     SnapshotBoundary {
         revision: next_nonzero(&REVISION),
         event_sequence: EVENT_SEQUENCE.load(Ordering::Acquire),
@@ -332,6 +333,12 @@ pub(crate) fn mark_collection_dirty(kind: CollectionKind, slot: u8, tick_ms: u32
     // SAFETY: the event hook runs on the client main thread, which is the sole
     // collection producer.
     unsafe { COLLECTIONS.mark(kind, slot, tick_ms) };
+}
+
+pub(crate) fn watch_ability_cooldown(kind: CollectionKind, slot: u8, tick_ms: u32) {
+    // SAFETY: outgoing ability observation runs on the client main thread,
+    // which is the sole collection producer.
+    unsafe { COLLECTIONS.watch_cooldown(kind, slot, tick_ms) };
 }
 
 pub(crate) fn mark_resync_required() {
@@ -419,7 +426,7 @@ pub(crate) fn observe_tick() {
 #[cfg(all(windows, not(test)))]
 fn observe_lifecycle(tick_ms: u32) {
     let next_poll = NEXT_LIFECYCLE_POLL_MS.load(Ordering::Acquire);
-    if tick_ms.wrapping_sub(next_poll) >= 0x8000_0000 {
+    if !crate::wrapping_time::deadline_reached(tick_ms, next_poll) {
         return;
     }
     NEXT_LIFECYCLE_POLL_MS.store(
@@ -570,25 +577,30 @@ fn participant(
     fallback_id: Option<u32>,
 ) -> Option<QueuedClientText<MAX_EVENT_MESSAGE_NAME_BYTES>> {
     match participant {
-        Participant::Named(name) => QueuedClientText::new(name),
-        Participant::SelfPlayer => unsafe { CACHE.self_name() }
-            .and_then(|(name, length)| QueuedClientText::new(&name[..usize::from(length)])),
+        Participant::Named(name) => QueuedClientText::try_nonempty(name),
+        Participant::SelfPlayer => unsafe { CACHE.self_name() }.and_then(|(name, length)| {
+            QueuedClientText::try_nonempty(&name[..usize::from(length)])
+        }),
         Participant::None => fallback_id.and_then(|id| {
             // SAFETY: packet observation runs on the client main thread,
             // which is the sole owner of both name caches.
             unsafe {
                 if CACHE.self_id() == Some(id) {
                     CACHE.self_name().and_then(|(name, length)| {
-                        QueuedClientText::new(&name[..usize::from(length)])
+                        QueuedClientText::try_nonempty(&name[..usize::from(length)])
                     })
                 } else {
                     OBJECTS.name(id).and_then(|(name, length)| {
-                        QueuedClientText::new(&name[..usize::from(length)])
+                        QueuedClientText::try_nonempty(&name[..usize::from(length)])
                     })
                 }
             }
         }),
     }
+}
+
+fn decode_client_text(bytes: &[u8]) -> Option<String> {
+    crate::client_text::decode(bytes)
 }
 
 fn observe_self_position(x: i32, y: i32, tick_ms: u32) {
@@ -630,19 +642,6 @@ pub(crate) fn poll(after_sequence: u32, max_events: u16, wait: Duration) -> Even
 
 pub(crate) fn rebase(snapshot_sequence: u32) {
     QUEUE.discard_through(snapshot_sequence);
-}
-
-fn next_nonzero(counter: &AtomicU32) -> u32 {
-    counter
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
-            let next = value.wrapping_add(1);
-            Some(if next == 0 { 1 } else { next })
-        })
-        .map(|previous| {
-            let next = previous.wrapping_add(1);
-            if next == 0 { 1 } else { next }
-        })
-        .expect("state counter update cannot fail")
 }
 
 #[cfg(test)]

@@ -3,25 +3,17 @@ use darpc_game_client::{
     CLIENT_TRANSPORT_POP_ENTRY, CLIENT_TRANSPORT_POP_RVA, CLIENT_TRANSPORT_SUBMIT_ENTRY,
     CLIENT_TRANSPORT_SUBMIT_RVA,
 };
-use darpc_hook::{
-    CodeRange, DetourActivity, DetourError, DetourSpec, InstallError, InstalledDetour,
-    PreparedDetour,
-};
+use darpc_hook::{DetourActivity, DetourError, InstallError, InstalledDetour};
 use std::{
-    io, panic, ptr,
-    ptr::NonNull,
-    slice,
+    io, panic, ptr, slice,
     sync::atomic::{AtomicU32, AtomicUsize, Ordering},
     thread,
     time::{Duration, Instant},
 };
-use windows_sys::Win32::{
-    Foundation::HANDLE,
-    System::{
-        Diagnostics::Debug::ReadProcessMemory,
-        Threading::{GetCurrentProcess, ReleaseSemaphore},
-    },
-};
+use windows_sys::Win32::{Foundation::HANDLE, System::Threading::ReleaseSemaphore};
+
+use super::support;
+use crate::process_memory::read_exact;
 
 const DETOUR_RANGE_LEN: usize = 128;
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(5);
@@ -92,7 +84,7 @@ impl HeartbeatPriorityHook {
 
     pub(crate) fn uninstall(&mut self) -> io::Result<bool> {
         let submit_changed = uninstall_detour(&mut self.submit, &HEARTBEAT_SUBMIT_TRAMPOLINE)
-            .map_err(detour_error)?;
+            .map_err(support::detour_error)?;
         let deadline = Instant::now() + UNINSTALL_TIMEOUT;
         while !heartbeat_priority::is_empty() {
             if Instant::now() >= deadline {
@@ -103,8 +95,8 @@ impl HeartbeatPriorityHook {
             }
             thread::sleep(RETRY_INTERVAL);
         }
-        let pop_changed =
-            uninstall_detour(&mut self.pop, &HEARTBEAT_POP_TRAMPOLINE).map_err(detour_error)?;
+        let pop_changed = uninstall_detour(&mut self.pop, &HEARTBEAT_POP_TRAMPOLINE)
+            .map_err(support::detour_error)?;
         Ok(submit_changed || pop_changed)
     }
 }
@@ -123,34 +115,34 @@ fn install_detour(
     activity: &'static DetourActivity,
     trampoline: &AtomicUsize,
 ) -> Result<(InstalledDetour, Option<io::Error>), InstallError> {
-    let target = target_address(rva)?;
-    validate_entry(target, rva, expected)?;
-    let detour = NonNull::new(detour)
-        .ok_or_else(|| io::Error::other("heartbeat priority detour address is null"))?;
-    let range =
-        CodeRange::new(detour.as_ptr() as usize, DETOUR_RANGE_LEN).map_err(InstallError::from)?;
-    let spec = DetourSpec::new(target, detour, range, activity).map_err(InstallError::from)?;
+    let target =
+        support::target_address(support::module_base()?, rva, "heartbeat priority target")?;
+    let entry_label = format!("heartbeat priority entry at RVA 0x{rva:08X}");
+    support::validate_bytes(target, expected, &entry_label)?;
     // SAFETY: the supported executable identity and exact entry bytes are
     // validated, and both detours preserve their native thiscall ABIs.
-    let mut prepared = unsafe { PreparedDetour::prepare(spec) }.map_err(InstallError::from)?;
+    let mut prepared = unsafe {
+        support::prepare_detour(
+            target,
+            detour,
+            DETOUR_RANGE_LEN,
+            activity,
+            "heartbeat priority detour",
+        )
+    }?;
     trampoline.store(
         prepared.trampoline_address().map_err(InstallError::from)?,
         Ordering::Release,
     );
-    let deadline = Instant::now() + INSTALL_TIMEOUT;
-    let mut installed = loop {
-        match prepared.install() {
-            Ok(installed) => break installed,
-            Err(error) if error.is_transient() && Instant::now() < deadline => {
-                thread::sleep(RETRY_INTERVAL);
-            }
+    let mut installed =
+        match support::install_prepared(&mut prepared, INSTALL_TIMEOUT, RETRY_INTERVAL) {
+            Ok(installed) => installed,
             Err(error) => {
                 trampoline.store(0, Ordering::Release);
                 return Err(InstallError::from(error));
             }
-        }
-    };
-    let warning = installed.take_resume_warning().map(detour_error);
+        };
+    let warning = installed.take_resume_warning().map(support::detour_error);
     Ok((installed, warning))
 }
 
@@ -158,45 +150,9 @@ fn uninstall_detour(
     detour: &mut InstalledDetour,
     trampoline: &AtomicUsize,
 ) -> Result<bool, DetourError> {
-    let deadline = Instant::now() + UNINSTALL_TIMEOUT;
-    loop {
-        match detour.uninstall() {
-            Ok(changed) => {
-                trampoline.store(0, Ordering::Release);
-                return Ok(changed);
-            }
-            Err(error) if error.is_transient() && Instant::now() < deadline => {
-                thread::sleep(RETRY_INTERVAL);
-            }
-            Err(error) => return Err(error),
-        }
-    }
-}
-
-fn target_address(rva: usize) -> io::Result<NonNull<u8>> {
-    use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-    // SAFETY: a null module name requests the current executable module.
-    let module = unsafe { GetModuleHandleW(ptr::null()) };
-    let module = NonNull::new(module.cast::<u8>()).ok_or_else(io::Error::last_os_error)?;
-    let address = (module.as_ptr() as usize)
-        .checked_add(rva)
-        .ok_or_else(|| io::Error::other("heartbeat priority target address overflow"))?;
-    NonNull::new(address as *mut u8)
-        .ok_or_else(|| io::Error::other("heartbeat priority target address is null"))
-}
-
-fn validate_entry(target: NonNull<u8>, rva: usize, expected: &[u8]) -> io::Result<()> {
-    // SAFETY: supported executable validation establishes a readable target.
-    let actual = unsafe { slice::from_raw_parts(target.as_ptr(), expected.len()) };
-    if actual != expected {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!(
-                "heartbeat priority entry mismatch at RVA 0x{rva:08X}: expected={expected:02X?} actual={actual:02X?}"
-            ),
-        ));
-    }
-    Ok(())
+    let changed = support::uninstall_detour(detour, UNINSTALL_TIMEOUT, RETRY_INTERVAL)?;
+    trampoline.store(0, Ordering::Release);
+    Ok(changed)
 }
 
 #[unsafe(naked)]
@@ -264,7 +220,7 @@ extern "C" fn prioritize_submit(network: usize, kind: usize, buffer: usize, leng
         panic::catch_unwind(|| {
             let mut prefix = [0_u8; 1];
             if length == 0
-                || !read_memory(buffer, &mut prefix)
+                || !read_exact(buffer, &mut prefix)
                 || !heartbeat_priority::is_heartbeat(&prefix)
             {
                 return false;
@@ -327,24 +283,5 @@ fn read_usize(address: usize) -> Option<usize> {
     let bytes = unsafe {
         slice::from_raw_parts_mut((&mut value as *mut usize).cast::<u8>(), size_of::<usize>())
     };
-    read_memory(address, bytes).then_some(value)
-}
-
-fn read_memory(address: usize, output: &mut [u8]) -> bool {
-    let mut read = 0_usize;
-    // SAFETY: output is valid and ReadProcessMemory validates the source range.
-    let succeeded = unsafe {
-        ReadProcessMemory(
-            GetCurrentProcess(),
-            address as *const core::ffi::c_void,
-            output.as_mut_ptr().cast(),
-            output.len(),
-            &mut read,
-        )
-    };
-    succeeded != 0 && read == output.len()
-}
-
-fn detour_error(error: DetourError) -> io::Error {
-    io::Error::other(error)
+    read_exact(address, bytes).then_some(value)
 }

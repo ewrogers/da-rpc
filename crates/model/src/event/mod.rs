@@ -1,8 +1,8 @@
 use crate::{
     CharacterModifiers, CharacterProfileUpdate, CharacterStats, ClientLifecycle, ClientMessage,
     ClientSnapshot, DialogUpdate, Direction, Effect, EntityUpdate, EquipmentSlot, ExchangeUpdate,
-    GroupUpdate, InventoryItem, LegendUpdate, MapLocation, ObjectUpdate, PlayerUpdate, Skill,
-    Spell,
+    GroupUpdate, InventoryItem, LegendUpdate, MapLocation, ObjectUpdate, PlayerUpdate,
+    SequenceNumber, Skill, Spell,
 };
 use std::{error::Error, fmt};
 
@@ -327,14 +327,14 @@ pub struct ProgressionStatus {
 
 impl ClientSnapshot {
     pub fn apply_event(&mut self, event: StateEvent) -> Result<(), ApplyEventError> {
-        let expected_sequence = next_nonzero(self.event_sequence);
+        let expected_sequence = SequenceNumber::new(self.event_sequence).next().get();
         if event.sequence != expected_sequence {
             return Err(ApplyEventError::UnexpectedSequence {
                 expected: expected_sequence,
                 actual: event.sequence,
             });
         }
-        let expected_revision = next_nonzero(self.revision);
+        let expected_revision = SequenceNumber::new(self.revision).next().get();
         if event.revision != expected_revision {
             return Err(ApplyEventError::UnexpectedRevision {
                 expected: expected_revision,
@@ -834,11 +834,6 @@ impl WorldObjectSortKey {
 }
 
 impl Error for ApplyEventError {}
-
-const fn next_nonzero(value: u32) -> u32 {
-    let next = value.wrapping_add(1);
-    if next == 0 { 1 } else { next }
-}
 
 #[cfg(test)]
 mod tests {

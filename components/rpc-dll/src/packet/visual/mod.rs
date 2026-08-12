@@ -1,4 +1,4 @@
-use crate::packet::ParseError;
+use crate::packet::{PacketReader as Reader, ParseError};
 
 const DAMAGE_EFFECT_OPCODE: u8 = 0x13;
 const MOTION_OPCODE: u8 = 0x1A;
@@ -74,50 +74,6 @@ fn parse_damage(body: &[u8]) -> Result<VisualUpdate, ParseError> {
         object_id,
         health_percent,
     })
-}
-
-struct Reader<'a> {
-    bytes: &'a [u8],
-    offset: usize,
-}
-
-impl<'a> Reader<'a> {
-    const fn new(bytes: &'a [u8]) -> Self {
-        Self { bytes, offset: 0 }
-    }
-
-    fn expect(&mut self, expected: u8) -> Result<(), ParseError> {
-        let actual = self.u8()?;
-        debug_assert_eq!(actual, expected);
-        Ok(())
-    }
-
-    fn u8(&mut self) -> Result<u8, ParseError> {
-        Ok(self.take(1)?[0])
-    }
-
-    fn u16_be(&mut self) -> Result<u16, ParseError> {
-        Ok(u16::from_be_bytes(
-            self.take(2)?.try_into().expect("two-byte slice"),
-        ))
-    }
-
-    fn u32_be(&mut self) -> Result<u32, ParseError> {
-        Ok(u32::from_be_bytes(
-            self.take(4)?.try_into().expect("four-byte slice"),
-        ))
-    }
-
-    fn take(&mut self, length: usize) -> Result<&'a [u8], ParseError> {
-        let remaining = self.bytes.len().saturating_sub(self.offset);
-        if length > remaining {
-            return Err(ParseError::truncated(self.offset, length, remaining));
-        }
-        let end = self.offset + length;
-        let bytes = &self.bytes[self.offset..end];
-        self.offset = end;
-        Ok(bytes)
-    }
 }
 
 #[cfg(test)]

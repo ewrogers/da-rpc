@@ -3,20 +3,15 @@ use darpc_game_client::{
     QUEUED_STEP_CALL, QUEUED_STEP_CALL_RVA, RESET_MOVEMENT_RVA, ROUTE_COLLISION_CALL,
     ROUTE_COLLISION_CALL_RVA, WALK_RVA,
 };
-use darpc_hook::{
-    CodeRange, DetourActivity, DetourError, DetourSpec, InstallError, InstalledDetour,
-    PreparedDetour,
-};
+use darpc_hook::{DetourActivity, InstallError, InstalledDetour};
 use std::{
     ffi::c_void,
     io, mem, panic,
-    ptr::{self, NonNull},
-    slice,
     sync::atomic::{AtomicUsize, Ordering},
-    thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
-use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+
+use super::support;
 
 pub(crate) const NAME: &str = "path_control";
 
@@ -56,49 +51,62 @@ pub(crate) struct PathHook {
 
 impl PathHook {
     pub(crate) fn install() -> Result<Self, InstallError> {
-        let module = module_base()?;
-        let path_target = target_address(module, BUILD_BREADTH_FIRST_PATH_RVA, "path builder")?;
+        let module = support::module_base()?;
+        let path_target =
+            support::target_address(module, BUILD_BREADTH_FIRST_PATH_RVA, "path builder")?;
         let collision_target =
-            target_address(module, ROUTE_COLLISION_CALL_RVA, "route collision call")?;
-        let step_target = target_address(module, QUEUED_STEP_CALL_RVA, "queued-step call")?;
+            support::target_address(module, ROUTE_COLLISION_CALL_RVA, "route collision call")?;
+        let step_target =
+            support::target_address(module, QUEUED_STEP_CALL_RVA, "queued-step call")?;
 
-        validate_bytes(
+        support::validate_bytes(
             path_target,
             &BUILD_BREADTH_FIRST_PATH_ENTRY,
             "path-builder entry",
         )?;
-        validate_bytes(
+        support::validate_bytes(
             collision_target,
             &ROUTE_COLLISION_CALL,
             "route-collision call",
         )?;
-        validate_bytes(step_target, &QUEUED_STEP_CALL, "queued-step call")?;
+        support::validate_bytes(step_target, &QUEUED_STEP_CALL, "queued-step call")?;
 
-        let mut path_prepared = prepare_detour(
-            path_target,
-            path_builder_detour as *mut u8,
-            PATH_DETOUR_RANGE_LEN,
-            &PATH_HOOK_ACTIVITY,
-            "path-builder detour",
-        )?;
-        let mut collision_prepared = prepare_detour(
-            collision_target,
-            route_collision_detour as *mut u8,
-            INLINE_DETOUR_RANGE_LEN,
-            &ROUTE_COLLISION_HOOK_ACTIVITY,
-            "route-collision detour",
-        )?;
-        let mut step_prepared = prepare_detour(
-            step_target,
-            queued_step_detour as *mut u8,
-            INLINE_DETOUR_RANGE_LEN,
-            &QUEUED_STEP_HOOK_ACTIVITY,
-            "queued-step detour",
-        )?;
+        // SAFETY: the supported executable identity and exact target bytes
+        // were validated, and each detour preserves its native x86 ABI.
+        let mut path_prepared = unsafe {
+            support::prepare_detour(
+                path_target,
+                path_builder_detour as *mut u8,
+                PATH_DETOUR_RANGE_LEN,
+                &PATH_HOOK_ACTIVITY,
+                "path-builder detour",
+            )
+        }?;
+        // SAFETY: the validated call site and detour preserve the native x86 ABI.
+        let mut collision_prepared = unsafe {
+            support::prepare_detour(
+                collision_target,
+                route_collision_detour as *mut u8,
+                INLINE_DETOUR_RANGE_LEN,
+                &ROUTE_COLLISION_HOOK_ACTIVITY,
+                "route-collision detour",
+            )
+        }?;
+        // SAFETY: the validated call site and detour preserve the native x86 ABI.
+        let mut step_prepared = unsafe {
+            support::prepare_detour(
+                step_target,
+                queued_step_detour as *mut u8,
+                INLINE_DETOUR_RANGE_LEN,
+                &QUEUED_STEP_HOOK_ACTIVITY,
+                "queued-step detour",
+            )
+        }?;
 
-        let path_relocated_bytes = relocated_bytes(&path_prepared, "path builder")?;
-        let collision_relocated_bytes = relocated_bytes(&collision_prepared, "route collision")?;
-        let step_relocated_bytes = relocated_bytes(&step_prepared, "queued step")?;
+        let path_relocated_bytes = support::relocated_bytes(&path_prepared, "path builder")?;
+        let collision_relocated_bytes =
+            support::relocated_bytes(&collision_prepared, "route collision")?;
+        let step_relocated_bytes = support::relocated_bytes(&step_prepared, "queued step")?;
         let path_trampoline = path_prepared
             .trampoline_address()
             .map_err(InstallError::from)?;
@@ -115,7 +123,11 @@ impl PathHook {
         WALK_ADDRESS.store(module + WALK_RVA, Ordering::Release);
         RESET_ADDRESS.store(module + RESET_MOVEMENT_RVA, Ordering::Release);
 
-        let mut collision_detour = match install_prepared(&mut collision_prepared) {
+        let mut collision_detour = match support::install_prepared(
+            &mut collision_prepared,
+            INSTALL_TIMEOUT,
+            COMMIT_RETRY_INTERVAL,
+        ) {
             Ok(detour) => detour,
             Err(error) => {
                 if error.unload_is_safe() {
@@ -124,7 +136,10 @@ impl PathHook {
                 return Err(InstallError::from(error));
             }
         };
-        if let Some(warning) = collision_detour.take_resume_warning().map(detour_error) {
+        if let Some(warning) = collision_detour
+            .take_resume_warning()
+            .map(support::detour_error)
+        {
             return Ok(Self::partial(
                 None,
                 Some(collision_detour),
@@ -136,7 +151,11 @@ impl PathHook {
             ));
         }
 
-        let mut step_detour = match install_prepared(&mut step_prepared) {
+        let mut step_detour = match support::install_prepared(
+            &mut step_prepared,
+            INSTALL_TIMEOUT,
+            COMMIT_RETRY_INTERVAL,
+        ) {
             Ok(detour) => detour,
             Err(error) => {
                 return Ok(Self::partial(
@@ -150,7 +169,7 @@ impl PathHook {
                 ));
             }
         };
-        if let Some(warning) = step_detour.take_resume_warning().map(detour_error) {
+        if let Some(warning) = step_detour.take_resume_warning().map(support::detour_error) {
             return Ok(Self::partial(
                 None,
                 Some(collision_detour),
@@ -163,7 +182,11 @@ impl PathHook {
         }
 
         PATH_TRAMPOLINE.store(path_trampoline, Ordering::Release);
-        let mut path_detour = match install_prepared(&mut path_prepared) {
+        let mut path_detour = match support::install_prepared(
+            &mut path_prepared,
+            INSTALL_TIMEOUT,
+            COMMIT_RETRY_INTERVAL,
+        ) {
             Ok(detour) => detour,
             Err(error) => {
                 return Ok(Self::partial(
@@ -177,7 +200,7 @@ impl PathHook {
                 ));
             }
         };
-        let install_warning = path_detour.take_resume_warning().map(detour_error);
+        let install_warning = path_detour.take_resume_warning().map(support::detour_error);
         Ok(Self {
             path_detour: Some(path_detour),
             collision_detour: Some(collision_detour),
@@ -244,87 +267,12 @@ impl PathHook {
     }
 }
 
-fn module_base() -> io::Result<usize> {
-    // SAFETY: a null module name requests the current executable module.
-    let module = unsafe { GetModuleHandleW(ptr::null()) } as usize;
-    (module != 0)
-        .then_some(module)
-        .ok_or_else(io::Error::last_os_error)
-}
-
-fn target_address(module: usize, rva: usize, label: &str) -> io::Result<NonNull<u8>> {
-    let address = module
-        .checked_add(rva)
-        .ok_or_else(|| io::Error::other(format!("{label} address overflow")))?;
-    NonNull::new(address as *mut u8)
-        .ok_or_else(|| io::Error::other(format!("{label} address is null")))
-}
-
-fn validate_bytes(target: NonNull<u8>, expected: &[u8], label: &str) -> io::Result<()> {
-    // SAFETY: the supported executable fingerprint establishes readable code
-    // spanning each fixed entry or call-site contract.
-    let actual = unsafe { slice::from_raw_parts(target.as_ptr(), expected.len()) };
-    if actual == expected {
-        Ok(())
-    } else {
-        Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("{label} bytes do not match: expected={expected:02X?} actual={actual:02X?}"),
-        ))
-    }
-}
-
-fn prepare_detour(
-    target: NonNull<u8>,
-    detour: *mut u8,
-    detour_range_len: usize,
-    activity: &'static DetourActivity,
-    label: &str,
-) -> Result<PreparedDetour, InstallError> {
-    let detour =
-        NonNull::new(detour).ok_or_else(|| io::Error::other(format!("{label} address is null")))?;
-    let detour_range =
-        CodeRange::new(detour.as_ptr() as usize, detour_range_len).map_err(InstallError::from)?;
-    let spec =
-        DetourSpec::new(target, detour, detour_range, activity).map_err(InstallError::from)?;
-    // SAFETY: exact client bytes and each x86 ABI are validated before this
-    // helper is called. The detour code remains loaded with the DLL.
-    unsafe { PreparedDetour::prepare(spec) }.map_err(InstallError::from)
-}
-
-fn relocated_bytes(prepared: &PreparedDetour, label: &str) -> Result<u8, InstallError> {
-    u8::try_from(prepared.relocated_len()).map_err(|_| {
-        io::Error::other(format!("{label} relocated length does not fit in u8")).into()
-    })
-}
-
-fn install_prepared(prepared: &mut PreparedDetour) -> Result<InstalledDetour, DetourError> {
-    let deadline = Instant::now() + INSTALL_TIMEOUT;
-    loop {
-        match prepared.install() {
-            Ok(detour) => return Ok(detour),
-            Err(error) if error.is_transient() && Instant::now() < deadline => {
-                thread::sleep(COMMIT_RETRY_INTERVAL);
-            }
-            Err(error) => return Err(error),
-        }
-    }
-}
-
 fn uninstall_owned(detour: &mut Option<InstalledDetour>) -> io::Result<bool> {
     let Some(installed) = detour.as_mut() else {
         return Ok(false);
     };
-    let deadline = Instant::now() + UNINSTALL_TIMEOUT;
-    let changed = loop {
-        match installed.uninstall() {
-            Ok(changed) => break changed,
-            Err(error) if error.is_transient() && Instant::now() < deadline => {
-                thread::sleep(COMMIT_RETRY_INTERVAL);
-            }
-            Err(error) => return Err(detour_error(error)),
-        }
-    };
+    let changed = support::uninstall_detour(installed, UNINSTALL_TIMEOUT, COMMIT_RETRY_INTERVAL)
+        .map_err(support::detour_error)?;
     *detour = None;
     Ok(changed)
 }
@@ -335,10 +283,6 @@ fn clear_inline_addresses() {
     CAN_MOVE_ADDRESS.store(0, Ordering::Release);
     WALK_ADDRESS.store(0, Ordering::Release);
     RESET_ADDRESS.store(0, Ordering::Release);
-}
-
-fn detour_error(error: DetourError) -> io::Error {
-    io::Error::other(error)
 }
 
 #[unsafe(naked)]
@@ -486,7 +430,7 @@ extern "C" fn observe_path(world: *const c_void, result: usize) {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_bytes;
+    use super::support;
     use darpc_game_client::{
         BUILD_BREADTH_FIRST_PATH_ENTRY, QUEUED_STEP_CALL, ROUTE_COLLISION_CALL,
     };
@@ -501,9 +445,9 @@ mod tests {
         ] {
             let mut bytes = expected.to_vec();
             let target = NonNull::new(bytes.as_mut_ptr()).unwrap();
-            validate_bytes(target, expected, label).unwrap();
+            support::validate_bytes(target, expected, label).unwrap();
             bytes[0] ^= 0xFF;
-            let error = validate_bytes(target, expected, label).unwrap_err();
+            let error = support::validate_bytes(target, expected, label).unwrap_err();
             assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
         }
     }

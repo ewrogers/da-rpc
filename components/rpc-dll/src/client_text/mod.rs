@@ -1,7 +1,10 @@
+#[cfg(windows)]
 use std::ptr;
 
+#[cfg(windows)]
 use windows_sys::Win32::Globalization::{CP_ACP, MultiByteToWideChar};
 
+#[cfg(windows)]
 pub(crate) fn decode(bytes: &[u8]) -> Option<String> {
     if bytes.is_empty() {
         return None;
@@ -28,4 +31,13 @@ pub(crate) fn decode(bytes: &[u8]) -> Option<String> {
         )
     };
     (written == required).then(|| String::from_utf16_lossy(&wide))
+}
+
+#[cfg(not(windows))]
+pub(crate) fn decode(bytes: &[u8]) -> Option<String> {
+    (!bytes.is_empty()).then(|| String::from_utf8_lossy(bytes).into_owned())
+}
+
+pub(crate) fn decode_or_empty(bytes: &[u8]) -> Option<String> {
+    bytes.is_empty().then(String::new).or_else(|| decode(bytes))
 }

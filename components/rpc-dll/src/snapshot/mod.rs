@@ -4,8 +4,8 @@ mod publication;
 #[cfg(not(test))]
 use darpc_game_client::RawLifecycle;
 use darpc_game_client::{
-    MemoryReader, RawGroupState, RawInventory, RawObjects, RawSkillbook, RawSpellbook,
-    RawStateSnapshot, StateReadError, StateWalker,
+    RawGroupState, RawInventory, RawObjects, RawSkillbook, RawSpellbook, RawStateSnapshot,
+    StateReadError, StateWalker,
 };
 use darpc_model::ClientSnapshot;
 use std::{
@@ -14,14 +14,10 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use windows_sys::Win32::System::{
-    Diagnostics::Debug::ReadProcessMemory,
-    LibraryLoader::GetModuleHandleW,
-    Threading::{GetCurrentProcess, GetCurrentThreadId},
-};
+use windows_sys::Win32::System::{LibraryLoader::GetModuleHandleW, Threading::GetCurrentThreadId};
 
 pub(crate) use self::publication::CaptureFailure;
-use crate::map_name;
+use crate::{atomic_sequence::next_nonzero, map_name, process_memory::ProcessMemory};
 
 const WAIT_POLL_INTERVAL: Duration = Duration::from_millis(1);
 
@@ -44,14 +40,7 @@ pub(crate) fn reset() {
 
 #[must_use]
 pub(crate) fn request() -> u32 {
-    let previous = REQUEST_GENERATION
-        .fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
-            let next = value.wrapping_add(1);
-            Some(if next == 0 { 1 } else { next })
-        })
-        .expect("snapshot request update cannot fail");
-    let next = previous.wrapping_add(1);
-    if next == 0 { 1 } else { next }
+    next_nonzero(&REQUEST_GENERATION)
 }
 
 pub(crate) fn wait(
@@ -155,27 +144,6 @@ fn process_walker() -> Result<(StateWalker<'static, ProcessMemory>, u32), StateR
     let thread_id = unsafe { GetCurrentThreadId() };
     static MEMORY: ProcessMemory = ProcessMemory;
     Ok((StateWalker::new(&MEMORY, module_base), thread_id))
-}
-
-struct ProcessMemory;
-
-impl MemoryReader for ProcessMemory {
-    fn read(&self, address: u32, output: &mut [u8]) -> bool {
-        let mut read = 0_usize;
-        // SAFETY: the destination is valid for `output.len()` bytes. The source
-        // belongs to the current process; ReadProcessMemory validates it and
-        // reports failure instead of dereferencing an unreadable pointer here.
-        let succeeded = unsafe {
-            ReadProcessMemory(
-                GetCurrentProcess(),
-                address as usize as *const core::ffi::c_void,
-                output.as_mut_ptr().cast(),
-                output.len(),
-                &mut read,
-            )
-        };
-        succeeded != 0 && read == output.len()
-    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -779,6 +779,14 @@ The public Server-Sent Events view emits one frame per changed collection slot.
 Its `batch_index` and `batch_count` fields preserve the atomic relationship even
 though the frames remain individually routable.
 
+Ability cooldown-only transitions are presented as semantic `skill.cooldown`,
+`skill.ready`, `spell.cooldown`, or `spell.ready` frames instead of collection
+`changed` frames. A simultaneous ability-metadata and cooldown transition emits
+both frames with the same event sequence. The DLL watches only submitted or
+already-active ability slots. It rereads skills at their exact retained expiry
+when available and otherwise polls the watched active slot until it becomes
+ready.
+
 A location update contains an absolute accepted position. `map` is absent for
 ordinary movement and present when the position completes a map transition.
 The latter replaces the map identity, name, dimensions, and coordinates in one

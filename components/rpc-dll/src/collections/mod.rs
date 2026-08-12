@@ -10,9 +10,11 @@ use darpc_model::{
 };
 
 mod convert;
+mod cooldown;
 
 use convert::trim_ascii;
 pub(crate) use convert::{inventory_item, skill_model, spell};
+use cooldown::CooldownWatch;
 
 const MAX_INVENTORY_CHANGES: usize = INVENTORY_SLOT_COUNT * 2;
 const MAX_ABILITY_CHANGES: usize = ABILITY_SLOT_COUNT * 2;
@@ -28,6 +30,8 @@ pub(crate) struct CollectionTracker {
     inventory_dirty: [bool; INVENTORY_SLOT_COUNT],
     skillbook_dirty: [bool; ABILITY_SLOT_COUNT],
     spellbook_dirty: [bool; ABILITY_SLOT_COUNT],
+    skill_cooldowns: [CooldownWatch; ABILITY_SLOT_COUNT],
+    spell_cooldowns: [CooldownWatch; ABILITY_SLOT_COUNT],
     inventory_tick_ms: u32,
     skillbook_tick_ms: u32,
     spellbook_tick_ms: u32,
@@ -45,6 +49,8 @@ impl CollectionTracker {
             inventory_dirty: [false; INVENTORY_SLOT_COUNT],
             skillbook_dirty: [false; ABILITY_SLOT_COUNT],
             spellbook_dirty: [false; ABILITY_SLOT_COUNT],
+            skill_cooldowns: [CooldownWatch::Idle; ABILITY_SLOT_COUNT],
+            spell_cooldowns: [CooldownWatch::Idle; ABILITY_SLOT_COUNT],
             inventory_tick_ms: 0,
             skillbook_tick_ms: 0,
             spellbook_tick_ms: 0,
@@ -55,7 +61,7 @@ impl CollectionTracker {
         *self = Self::new();
     }
 
-    pub(crate) fn replace(&mut self, raw: &RawStateSnapshot) {
+    pub(crate) fn replace(&mut self, raw: &RawStateSnapshot, tick_ms: u32) {
         self.inventory = RawInventory::empty();
         self.skillbook = RawSkillbook::empty();
         self.spellbook = RawSpellbook::empty();
@@ -73,6 +79,20 @@ impl CollectionTracker {
         self.inventory_dirty.fill(false);
         self.skillbook_dirty.fill(false);
         self.spellbook_dirty.fill(false);
+        self.skill_cooldowns.fill(CooldownWatch::Idle);
+        self.spell_cooldowns.fill(CooldownWatch::Idle);
+        reconcile_skill_cooldowns(
+            &mut self.skill_cooldowns,
+            &self.skillbook.skills,
+            &[true; ABILITY_SLOT_COUNT],
+            tick_ms,
+        );
+        reconcile_spell_cooldowns(
+            &mut self.spell_cooldowns,
+            &self.spellbook.spells,
+            &[true; ABILITY_SLOT_COUNT],
+            tick_ms,
+        );
     }
 
     pub(crate) fn mark(&mut self, kind: CollectionKind, slot: u8, tick_ms: u32) {
@@ -96,12 +116,41 @@ impl CollectionTracker {
         }
     }
 
+    pub(crate) fn watch_cooldown(&mut self, kind: CollectionKind, slot: u8, tick_ms: u32) {
+        let Some(index) = usize::from(slot).checked_sub(1) else {
+            return;
+        };
+        match kind {
+            CollectionKind::Spellbook if index < ABILITY_SLOT_COUNT => {
+                self.spell_cooldowns[index] = CooldownWatch::start(tick_ms, SETTLE_MS);
+                self.mark(kind, slot, tick_ms);
+            }
+            CollectionKind::Skillbook if index < ABILITY_SLOT_COUNT => {
+                self.skill_cooldowns[index] = CooldownWatch::start(tick_ms, SETTLE_MS);
+                self.mark(kind, slot, tick_ms);
+            }
+            _ => {}
+        }
+    }
+
     #[cfg(windows)]
     pub(crate) fn observe_tick(
         &mut self,
         current_tick_ms: u32,
         mut emit: impl FnMut(QueuedCollectionUpdate, u32),
     ) {
+        schedule_cooldown_polls(
+            &mut self.skill_cooldowns,
+            &mut self.skillbook_dirty,
+            &mut self.skillbook_tick_ms,
+            current_tick_ms,
+        );
+        schedule_cooldown_polls(
+            &mut self.spell_cooldowns,
+            &mut self.spellbook_dirty,
+            &mut self.spellbook_tick_ms,
+            current_tick_ms,
+        );
         if collection_ready(
             &self.inventory_dirty,
             self.inventory_tick_ms,
@@ -150,6 +199,12 @@ impl CollectionTracker {
                     &mut emit,
                     self.skillbook_tick_ms,
                 );
+                reconcile_skill_cooldowns(
+                    &mut self.skill_cooldowns,
+                    &self.skillbook_scratch.skills,
+                    &self.skillbook_dirty,
+                    current_tick_ms,
+                );
                 replace_dirty(
                     &mut self.skillbook.skills,
                     &self.skillbook_scratch.skills,
@@ -164,6 +219,12 @@ impl CollectionTracker {
                     QueuedCollectionUpdate::Spellbook,
                     &mut emit,
                     self.spellbook_tick_ms,
+                );
+                reconcile_spell_cooldowns(
+                    &mut self.spell_cooldowns,
+                    &self.spellbook_scratch.spells,
+                    &self.spellbook_dirty,
+                    current_tick_ms,
                 );
                 replace_dirty(
                     &mut self.spellbook.spells,
@@ -180,6 +241,61 @@ impl CollectionTracker {
         _current_tick_ms: u32,
         _emit: impl FnMut(QueuedCollectionUpdate, u32),
     ) {
+    }
+}
+
+fn schedule_cooldown_polls<const N: usize>(
+    watches: &mut [CooldownWatch; N],
+    dirty: &mut [bool; N],
+    marked_tick_ms: &mut u32,
+    now_ms: u32,
+) {
+    let mut scheduled = false;
+    for (watch, dirty) in watches.iter().zip(dirty.iter_mut()) {
+        if !*dirty && watch.due(now_ms) {
+            *dirty = true;
+            scheduled = true;
+        }
+    }
+    if scheduled {
+        *marked_tick_ms = now_ms;
+    }
+}
+
+fn reconcile_skill_cooldowns(
+    watches: &mut [CooldownWatch; ABILITY_SLOT_COUNT],
+    skills: &[Option<RawSkill>; ABILITY_SLOT_COUNT],
+    observed: &[bool; ABILITY_SLOT_COUNT],
+    now_ms: u32,
+) {
+    for (index, watch) in watches
+        .iter_mut()
+        .enumerate()
+        .filter(|(index, _)| observed[*index])
+    {
+        let skill = skills[index];
+        let active =
+            skill.is_some_and(|skill| skill.cooldown_visual_active || skill.action_delay_active);
+        let exact_end_ms = skill
+            .filter(|skill| skill.cooldown_visual_active)
+            .map(|skill| skill.cooldown_ends_at);
+        *watch = watch.observed(active, exact_end_ms, now_ms);
+    }
+}
+
+fn reconcile_spell_cooldowns(
+    watches: &mut [CooldownWatch; ABILITY_SLOT_COUNT],
+    spells: &[Option<RawSpell>; ABILITY_SLOT_COUNT],
+    observed: &[bool; ABILITY_SLOT_COUNT],
+    now_ms: u32,
+) {
+    for (index, watch) in watches
+        .iter_mut()
+        .enumerate()
+        .filter(|(index, _)| observed[*index])
+    {
+        let active = spells[index].is_some_and(|spell| spell.action_delay_active);
+        *watch = watch.observed(active, None, now_ms);
     }
 }
 
@@ -681,6 +797,72 @@ mod tests {
         assert_eq!(spell.level, 3);
         assert_eq!(spell.max_level, 5);
         assert_eq!(spell.prompt.as_deref(), Some("Target name?"));
+    }
+
+    #[test]
+    fn used_skill_is_polled_at_start_and_exact_expiry() {
+        let mut tracker = CollectionTracker::new();
+        tracker.watch_cooldown(CollectionKind::Skillbook, 3, 100);
+        assert!(tracker.skillbook_dirty[2]);
+
+        let mut skills = [None; ABILITY_SLOT_COUNT];
+        skills[2] = Some(RawSkill {
+            slot: 3,
+            icon: 91,
+            name: text(b"Assail"),
+            cooldown_started_at: 105,
+            cooldown_ends_at: 1_000,
+            cooldown_visual_active: true,
+            action_delay_active: false,
+            name_suffix_left: 0,
+            base_name_length: 0,
+        });
+        reconcile_skill_cooldowns(
+            &mut tracker.skill_cooldowns,
+            &skills,
+            &tracker.skillbook_dirty,
+            105,
+        );
+        tracker.skillbook_dirty.fill(false);
+
+        schedule_cooldown_polls(
+            &mut tracker.skill_cooldowns,
+            &mut tracker.skillbook_dirty,
+            &mut tracker.skillbook_tick_ms,
+            999,
+        );
+        assert!(!tracker.skillbook_dirty[2]);
+        schedule_cooldown_polls(
+            &mut tracker.skill_cooldowns,
+            &mut tracker.skillbook_dirty,
+            &mut tracker.skillbook_tick_ms,
+            1_000,
+        );
+        assert!(tracker.skillbook_dirty[2]);
+        assert_eq!(tracker.skillbook_tick_ms, 1_000);
+    }
+
+    #[test]
+    fn active_spell_without_exact_expiry_uses_targeted_polling() {
+        let mut watches = [CooldownWatch::Idle; ABILITY_SLOT_COUNT];
+        let mut spells = [None; ABILITY_SLOT_COUNT];
+        let mut observed = [false; ABILITY_SLOT_COUNT];
+        spells[3] = Some(RawSpell {
+            slot: 4,
+            icon: 82,
+            name: text(b"beag srad"),
+            argument_type: 0,
+            prompt: None,
+            cast_lines: 0,
+            action_delay_active: true,
+            name_suffix_left: 0,
+            base_name_length: 0,
+        });
+        observed[3] = true;
+        reconcile_spell_cooldowns(&mut watches, &spells, &observed, 200);
+        assert!(!watches[3].due(224));
+        assert!(watches[3].due(225));
+        assert_eq!(watches[2], CooldownWatch::Idle);
     }
 
     fn inventory_updates(

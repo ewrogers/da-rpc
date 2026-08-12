@@ -42,6 +42,7 @@ pub(crate) fn observe_outgoing(body: &[u8], tick_ms: u32) {
             let Some(&slot) = fields.first().filter(|slot| **slot != 0 && **slot <= 90) else {
                 return;
             };
+            watch_ability_cooldown(CollectionKind::Skillbook, slot, tick_ms);
             push_event(
                 QueuedStateUpdate::Ability(QueuedAbilityUpdate::SkillUsed { slot }),
                 tick_ms,
@@ -109,6 +110,7 @@ pub(crate) fn observe_outgoing(body: &[u8], tick_ms: u32) {
                     tick_ms,
                 );
             }
+            watch_ability_cooldown(CollectionKind::Spellbook, slot, tick_ms);
             push_event(
                 QueuedStateUpdate::Ability(QueuedAbilityUpdate::SpellCast { slot, arguments }),
                 tick_ms,
@@ -137,7 +139,7 @@ pub(crate) fn observe_spell_cancelled(tick_ms: u32) {
 
 fn parse_spell_arguments(slot: u8, body: &[u8]) -> QueuedSpellArguments {
     match spell_argument_type(slot) {
-        Some(1) => QueuedClientText::new(body.get(2..).unwrap_or_default())
+        Some(1) => QueuedClientText::try_nonempty(body.get(2..).unwrap_or_default())
             .map_or(QueuedSpellArguments::Unknown, QueuedSpellArguments::Input),
         Some(2) if body.len() == 10 => QueuedSpellArguments::Target {
             id: nonzero(u32::from_be_bytes(
@@ -239,8 +241,7 @@ impl QueuedSpellArguments {
             Self::Unknown => SpellCastArguments::Unknown,
             Self::None => SpellCastArguments::None,
             Self::Target { id, x, y } => SpellCastArguments::Target { id, x, y },
-            Self::Input(input) => input
-                .decode()
+            Self::Input(input) => decode_client_text(input.as_bytes())
                 .map(SpellCastArguments::Input)
                 .unwrap_or(SpellCastArguments::Unknown),
             Self::Values { count, values } => {

@@ -20,8 +20,8 @@ use axum::response::{
 };
 use chrono::{DateTime, Utc};
 use darpc_model::{
-    CollectionChange, CreatureKind, Effect, MovementUpdate, ObjectUpdate, StateEvent, StateUpdate,
-    TilePosition as ModelTilePosition,
+    CollectionChange, CreatureKind, Effect, MovementUpdate, ObjectUpdate, SequenceNumber,
+    StateEvent, StateUpdate, TilePosition as ModelTilePosition,
 };
 use serde::Serialize;
 use std::{convert::Infallible, sync::Arc, time::Duration};
@@ -105,6 +105,10 @@ pub(crate) enum ClientEvent {
     SkillAdded(SkillSlotChanged),
     SkillRemoved(SkillSlotChanged),
     SkillChanged(SkillSlotChanged),
+    SkillCooldown(CooldownStarted),
+    SkillReady(AbilityReady),
+    SpellCooldown(CooldownStarted),
+    SpellReady(AbilityReady),
     SkillUsed(SkillUsed),
     SpellBegin(SpellBegin),
     SpellChant(SpellChant),
@@ -210,6 +214,10 @@ impl ClientEvent {
             Self::SkillAdded(_) => "skill.added",
             Self::SkillRemoved(_) => "skill.removed",
             Self::SkillChanged(_) => "skill.changed",
+            Self::SkillCooldown(_) => "skill.cooldown",
+            Self::SkillReady(_) => "skill.ready",
+            Self::SpellCooldown(_) => "spell.cooldown",
+            Self::SpellReady(_) => "spell.ready",
             Self::SkillUsed(_) => "skill.used",
             Self::SpellBegin(_) => "spell.begin",
             Self::SpellChant(_) => "spell.chant",
@@ -315,6 +323,10 @@ impl ClientEvent {
             Self::SkillAdded(value) | Self::SkillRemoved(value) | Self::SkillChanged(value) => {
                 value.observation.event_sequence
             }
+            Self::SkillCooldown(value) | Self::SpellCooldown(value) => {
+                value.observation.event_sequence
+            }
+            Self::SkillReady(value) | Self::SpellReady(value) => value.observation.event_sequence,
             Self::SkillUsed(value) => value.observation.event_sequence,
             Self::SpellBegin(value) => value.observation.event_sequence,
             Self::SpellChant(value) => value.observation.event_sequence,
@@ -490,10 +502,12 @@ pub(crate) fn response(
                     feedback,
                     observed_at_utc,
                 }) if event_pid == pid && event_identity == identity => {
-                    if !sequence_after(event.sequence, last_sequence) {
+                    if !SequenceNumber::new(event.sequence)
+                        .is_after(SequenceNumber::new(last_sequence))
+                    {
                         continue;
                     }
-                    if event.sequence != next_nonzero(last_sequence) {
+                    if event.sequence != SequenceNumber::new(last_sequence).next().get() {
                         let resync = ClientEvent::StreamResyncRequired(StreamResyncRequired {
                             pid,
                             instance_id: hex(&identity.dll_instance_id),
@@ -555,16 +569,6 @@ pub(crate) fn response(
             .interval(Duration::from_secs(15))
             .text("keep-alive"),
     )
-}
-
-pub(crate) const fn next_nonzero(value: u32) -> u32 {
-    let next = value.wrapping_add(1);
-    if next == 0 { 1 } else { next }
-}
-
-fn sequence_after(candidate: u32, baseline: u32) -> bool {
-    let distance = candidate.wrapping_sub(baseline);
-    distance != 0 && distance < 0x8000_0000
 }
 
 #[cfg(test)]

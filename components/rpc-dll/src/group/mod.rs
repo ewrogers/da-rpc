@@ -8,43 +8,23 @@ use darpc_model::{
 };
 use std::{
     cell::UnsafeCell,
-    mem::MaybeUninit,
-    sync::atomic::{AtomicU8, AtomicU32, Ordering},
+    sync::atomic::{AtomicU32, Ordering},
 };
 
+use crate::{inline_bytes::InlineBytes, transfer_slot::TransferSlot};
+
 const EVENT_SLOT_COUNT: usize = 16;
-const EMPTY: u8 = 0;
-const WRITING: u8 = 1;
-const READY: u8 = 2;
-const READING: u8 = 3;
 
 static NEXT_INVITATION_ID: AtomicU32 = AtomicU32::new(1);
 static TRACKER: TrackerCell = TrackerCell(UnsafeCell::new(RawGroupState::empty()));
-static EVENTS: [EventSlot; EVENT_SLOT_COUNT] = [const { EventSlot::new() }; EVENT_SLOT_COUNT];
+static EVENTS: [TransferSlot<RawGroupUpdate>; EVENT_SLOT_COUNT] =
+    [const { TransferSlot::new() }; EVENT_SLOT_COUNT];
 
 struct TrackerCell(UnsafeCell<RawGroupState>);
 
 // SAFETY: only the client main thread accesses the tracker. Snapshot capture,
 // packet observation, and command execution are all serialized by the tick.
 unsafe impl Sync for TrackerCell {}
-
-struct EventSlot {
-    state: AtomicU8,
-    value: UnsafeCell<MaybeUninit<RawGroupUpdate>>,
-}
-
-// SAFETY: each slot's atomic state transfers exclusive ownership from the
-// client main-thread producer to the IPC consumer.
-unsafe impl Sync for EventSlot {}
-
-impl EventSlot {
-    const fn new() -> Self {
-        Self {
-            state: AtomicU8::new(EMPTY),
-            value: UnsafeCell::new(MaybeUninit::uninit()),
-        }
-    }
-}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct QueuedGroup(u8);
@@ -71,18 +51,14 @@ enum RawGroupUpdateKind {
     Disbanded,
 }
 
-#[derive(Clone, Copy)]
-struct RawName {
-    bytes: [u8; GROUP_NAME_BYTES],
-    length: u8,
-}
+type RawName = InlineBytes<GROUP_NAME_BYTES>;
 
 pub(crate) fn reset() {
     NEXT_INVITATION_ID.store(1, Ordering::Relaxed);
     // SAFETY: lifecycle reset runs without an installed producer or consumer.
     unsafe { *TRACKER.0.get() = RawGroupState::empty() };
     for slot in &EVENTS {
-        slot.state.store(EMPTY, Ordering::Release);
+        slot.reset();
     }
 }
 
@@ -142,7 +118,7 @@ pub(crate) fn observe_pending(name: &[u8], received_tick_ms: Option<u32>, tick_m
     let state = unsafe { &mut *TRACKER.0.get() };
     let count = usize::from(state.invitation_count);
     if state.invitations[..count].iter().any(|invitation| {
-        invitation.inviter_len == raw_name.length
+        usize::from(invitation.inviter_len) == raw_name.len()
             && invitation.inviter[..usize::from(invitation.inviter_len)].eq_ignore_ascii_case(name)
     }) {
         return;
@@ -153,8 +129,8 @@ pub(crate) fn observe_pending(name: &[u8], received_tick_ms: Option<u32>, tick_m
     }
     let invitation = RawGroupInvitation {
         id: next_invitation_id(),
-        inviter: raw_name.bytes,
-        inviter_len: raw_name.length,
+        inviter: raw_name.into_array(),
+        inviter_len: raw_name.len_u8().expect("group name length fits u8"),
         received_tick_ms,
     };
     state.invitations[count] = invitation;
@@ -262,17 +238,12 @@ pub(crate) fn close_invitation(id: u32, reason: GroupInvitationCloseReason, tick
 
 pub(crate) fn take(queued: QueuedGroup) -> Option<GroupUpdate> {
     let slot = EVENTS.get(usize::from(queued.0))?;
-    slot.state
-        .compare_exchange(READY, READING, Ordering::AcqRel, Ordering::Acquire)
-        .ok()?;
-    // SAFETY: READING gives this consumer exclusive ownership of the value.
-    let raw = unsafe { (*slot.value.get()).assume_init_read() };
-    slot.state.store(EMPTY, Ordering::Release);
+    let raw = slot.try_take()?;
     let state = model_state(&raw.state);
     Some(match raw.kind {
         RawGroupUpdateKind::SettingsChanged => GroupUpdate::SettingsChanged { state },
         RawGroupUpdateKind::InvitationSent(target) => GroupUpdate::InvitationSent {
-            target: decode(&target.bytes[..usize::from(target.length)])?,
+            target: decode(target.as_bytes())?,
         },
         RawGroupUpdateKind::InvitationReceived(invitation) => GroupUpdate::InvitationReceived {
             invitation: invitation_model(invitation)?,
@@ -298,7 +269,7 @@ pub(crate) fn take(queued: QueuedGroup) -> Option<GroupUpdate> {
 
 pub(crate) fn release(queued: QueuedGroup) {
     if let Some(slot) = EVENTS.get(usize::from(queued.0)) {
-        slot.state.store(EMPTY, Ordering::Release);
+        slot.discard();
     }
 }
 
@@ -429,17 +400,14 @@ fn contains_member(state: &RawGroupState, wanted: RawGroupMember) -> bool {
 }
 
 fn queue(update: RawGroupUpdate, tick_ms: u32) {
-    let Some((index, slot)) = EVENTS.iter().enumerate().find(|(_, slot)| {
-        slot.state
-            .compare_exchange(EMPTY, WRITING, Ordering::AcqRel, Ordering::Acquire)
-            .is_ok()
-    }) else {
+    let Some((index, _)) = EVENTS
+        .iter()
+        .enumerate()
+        .find(|(_, slot)| slot.try_write(update))
+    else {
         crate::state::mark_resync_required();
         return;
     };
-    // SAFETY: WRITING gives this producer exclusive ownership of the slot.
-    unsafe { (*slot.value.get()).write(update) };
-    slot.state.store(READY, Ordering::Release);
     let queued = QueuedGroup(u8::try_from(index).expect("group event slot index fits u8"));
     if !crate::state::observe_group(queued, tick_ms) {
         release(queued);
@@ -456,15 +424,7 @@ fn next_invitation_id() -> u32 {
 }
 
 fn raw_name(value: &[u8]) -> Option<RawName> {
-    if value.is_empty() || value.len() > GROUP_NAME_BYTES {
-        return None;
-    }
-    let mut bytes = [0; GROUP_NAME_BYTES];
-    bytes[..value.len()].copy_from_slice(value);
-    Some(RawName {
-        bytes,
-        length: u8::try_from(value.len()).ok()?,
-    })
+    RawName::try_nonempty(value)
 }
 
 fn member_model(raw: RawGroupMember) -> Option<GroupMember> {

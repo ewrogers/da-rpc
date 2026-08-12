@@ -1,5 +1,7 @@
 use super::*;
 
+pub(super) type QueuedClientText<const N: usize> = crate::inline_bytes::InlineBytes<N>;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct QueuedStateEvent {
     pub(super) sequence: u32,
@@ -118,12 +120,12 @@ pub(super) struct QueuedCommand {
 impl QueuedCommand {
     pub(super) fn new(text: &[u8]) -> Option<Self> {
         Some(Self {
-            text: QueuedClientText::new(text)?,
+            text: QueuedClientText::try_nonempty(text)?,
         })
     }
 
     fn into_model(self) -> Option<ClientCommand> {
-        ClientCommand::parse(&self.text.decode()?)
+        ClientCommand::parse(&decode_client_text(self.text.as_bytes())?)
     }
 }
 
@@ -209,52 +211,22 @@ impl QueuedMessage {
             kind,
             sender,
             recipient,
-            text: QueuedClientText::new(text)?,
+            text: QueuedClientText::try_nonempty(text)?,
         })
     }
 
     pub(super) fn into_model(self) -> ClientMessage {
         ClientMessage {
             kind: self.kind,
-            sender: self.sender.and_then(QueuedClientText::decode),
-            recipient: self.recipient.and_then(QueuedClientText::decode),
-            text: self.text.decode().unwrap_or_default(),
+            sender: self
+                .sender
+                .and_then(|text| decode_client_text(text.as_bytes())),
+            recipient: self
+                .recipient
+                .and_then(|text| decode_client_text(text.as_bytes())),
+            text: decode_client_text(self.text.as_bytes()).unwrap_or_default(),
         }
     }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) struct QueuedClientText<const N: usize> {
-    pub(super) length: u16,
-    pub(super) bytes: [u8; N],
-}
-
-impl<const N: usize> QueuedClientText<N> {
-    pub(super) fn new(text: &[u8]) -> Option<Self> {
-        if text.is_empty() || text.len() > N {
-            return None;
-        }
-        let mut bytes = [0; N];
-        bytes[..text.len()].copy_from_slice(text);
-        Some(Self {
-            length: u16::try_from(text.len()).expect("queued client text length fits u16"),
-            bytes,
-        })
-    }
-
-    pub(super) fn decode(self) -> Option<String> {
-        decode_client_text(&self.bytes[..usize::from(self.length)])
-    }
-}
-
-#[cfg(windows)]
-fn decode_client_text(bytes: &[u8]) -> Option<String> {
-    crate::client_text::decode(bytes)
-}
-
-#[cfg(not(windows))]
-fn decode_client_text(bytes: &[u8]) -> Option<String> {
-    (!bytes.is_empty()).then(|| String::from_utf8_lossy(bytes).into_owned())
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

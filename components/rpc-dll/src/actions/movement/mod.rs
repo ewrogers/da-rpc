@@ -1,4 +1,5 @@
 use super::{module_base, read};
+use crate::process_memory::ProcessValue;
 use crate::route_retry;
 use darpc_game_client::{
     ADVANCE_PATH_RVA, BUILD_PATH_RVA, RESET_MOVEMENT_RVA, SELF_OBJECT_RVA, TURN_RVA, WALK_RVA,
@@ -187,7 +188,7 @@ pub(crate) fn observe_tick() {
             return;
         }
         let deadline = REPLAN_DEADLINE_TICK.load(Ordering::Acquire);
-        if deadline != 0 && route_retry::tick_reached(tick_ms, deadline) {
+        if deadline != 0 && crate::wrapping_time::deadline_reached(tick_ms, deadline) {
             movement.reset();
             clear_route_destination();
             return;
@@ -199,7 +200,8 @@ pub(crate) fn observe_tick() {
         start_replan(movement.world.as_ptr() as usize, tick_ms);
     }
 
-    if route_retry::tick_reached(tick_ms, REPLAN_DEADLINE_TICK.load(Ordering::Acquire)) {
+    if crate::wrapping_time::deadline_reached(tick_ms, REPLAN_DEADLINE_TICK.load(Ordering::Acquire))
+    {
         clear_route_destination();
         return;
     }
@@ -211,7 +213,7 @@ pub(crate) fn observe_tick() {
         clear_route_destination();
         return;
     }
-    if !route_retry::tick_reached(tick_ms, REPLAN_DUE_TICK.load(Ordering::Acquire)) {
+    if !crate::wrapping_time::deadline_reached(tick_ms, REPLAN_DUE_TICK.load(Ordering::Acquire)) {
         return;
     }
 
@@ -375,7 +377,7 @@ impl Movement {
         unsafe { self.reset_fn()(self.world.as_ptr(), 0) };
     }
 
-    fn read_world<T: Copy>(&self, offset: usize) -> Result<T, CommandFailure> {
+    fn read_world<T: ProcessValue>(&self, offset: usize) -> Result<T, CommandFailure> {
         read(self.world.as_ptr() as usize + offset).ok_or(CommandFailure::InvalidState)
     }
 

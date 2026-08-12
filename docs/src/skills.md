@@ -124,11 +124,20 @@ The complete payload structures and batch rules are in
 | `skill.added` | A learned skill appeared in a slot. |
 | `skill.removed` | A skill left a slot. |
 | `skill.changed` | A skill moved or its retained details changed. |
+| `skill.cooldown` | A retained skill entered or restarted cooldown. |
+| `skill.ready` | A retained skill left cooldown and is ready to use. |
 
 These events use the same `batch_index`, `batch_count`, `slot`, `before`, and
 `after` shape as [inventory events](inventory.md#inventory-events). Moving or
 swapping skills can update several slots in one batch. Identical same-slot
 updates are ignored.
+
+`skill.changed` is not emitted for a cooldown-only transition. A cooldown event
+contains `observation`, the one-based `slot`, optional `name`, and optional
+`remaining_ms`. A ready event contains `observation`, `slot`, and optional
+`name`. When the client exposes an exact skill expiry, daRPC schedules a read at
+that deadline. Otherwise it polls only the watched active slot until the skill
+is ready.
 
 ## Skill use event
 

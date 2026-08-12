@@ -1,6 +1,26 @@
 use super::*;
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
+/// An ability entered or restarted cooldown.
+pub(crate) struct CooldownStarted {
+    pub(super) observation: EventObservation,
+    pub(super) slot: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) remaining_ms: Option<u32>,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+/// An ability left cooldown and is ready to use.
+pub(crate) struct AbilityReady {
+    pub(super) observation: EventObservation,
+    pub(super) slot: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) name: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
 /// A skill packet was submitted by the client.
 pub(crate) struct SkillUsed {
     pub(super) observation: EventObservation,

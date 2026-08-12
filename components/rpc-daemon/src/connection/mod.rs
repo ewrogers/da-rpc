@@ -6,6 +6,7 @@ use crate::{
 #[cfg(debug_assertions)]
 use darpc_game_client::DEBUG_UNSUPPORTED_CLIENT_BYPASS_ENVIRONMENT_VARIABLE;
 use darpc_game_client::{CLIENT_VERSION_CODE, EXECUTABLE_SHA256};
+use darpc_model::SequenceNumber;
 use darpc_protocol::{
     Architecture, CommandRequest, EventPollRequest, EventPollResult, Hello, MAX_EVENTS_PER_POLL,
     Message, Ping, Pong, SnapshotRequest, SnapshotResult, SnapshotUnavailableReason,
@@ -187,7 +188,7 @@ fn monitor(
                 let _ = call.reply.send(CommandReply::Unavailable);
             } else {
                 let result = request_command(session, request_id, call.operation);
-                request_id = next_nonzero(request_id);
+                request_id = SequenceNumber::new(request_id).next().get();
                 match result {
                     Ok(result) => {
                         let _ = call.reply.send(CommandReply::Result(result));
@@ -228,7 +229,7 @@ fn monitor(
                     }
                 }
             }
-            request_id = request_id.wrapping_add(1);
+            request_id = SequenceNumber::new(request_id).next().get();
             continue;
         }
 
@@ -255,11 +256,11 @@ fn monitor(
             }
             EventPollResult::ResyncRequired { .. } => boundary = None,
         }
-        request_id = request_id.wrapping_add(1);
+        request_id = SequenceNumber::new(request_id).next().get();
 
         if last_health.elapsed() >= HEALTH_INTERVAL {
             ping(session, request_id)?;
-            request_id = request_id.wrapping_add(1);
+            request_id = SequenceNumber::new(request_id).next().get();
             last_health = Instant::now();
         }
     }
@@ -382,11 +383,6 @@ fn send_event(events: &Sender<DaemonEvent>, event: ConnectionEvent) -> Result<()
     }
 }
 
-const fn next_nonzero(value: u32) -> u32 {
-    let next = value.wrapping_add(1);
-    if next == 0 { 1 } else { next }
-}
-
 fn validate_event_batch(
     after_sequence: u32,
     after_revision: u32,
@@ -394,7 +390,8 @@ fn validate_event_batch(
 ) -> Option<(u32, u32)> {
     let mut boundary = (after_sequence, after_revision);
     for event in events {
-        if event.sequence != next_nonzero(boundary.0) || event.revision != next_nonzero(boundary.1)
+        if event.sequence != SequenceNumber::new(boundary.0).next().get()
+            || event.revision != SequenceNumber::new(boundary.1).next().get()
         {
             return None;
         }

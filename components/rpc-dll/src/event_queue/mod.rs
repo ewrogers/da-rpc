@@ -1,5 +1,5 @@
 use crate::state::QueuedStateEvent;
-use darpc_model::CollectionBatch;
+use darpc_model::{CollectionBatch, SequenceNumber};
 use darpc_protocol::EventPollResult;
 use std::{
     cell::UnsafeCell,
@@ -67,7 +67,7 @@ impl<const N: usize> EventQueue<N> {
     pub(crate) fn take_after(&self, after_sequence: u32, max_events: usize) -> EventPollResult {
         let dropped = self.latest_dropped_sequence.load(Ordering::Acquire);
         let latest = self.latest_sequence.load(Ordering::Acquire);
-        if sequence_after(dropped, after_sequence) {
+        if SequenceNumber::new(dropped).is_after(SequenceNumber::new(after_sequence)) {
             return EventPollResult::ResyncRequired {
                 missing_sequence: dropped,
                 latest_sequence: latest,
@@ -75,12 +75,12 @@ impl<const N: usize> EventQueue<N> {
         }
 
         let mut events = Vec::with_capacity(max_events.min(N));
-        let mut expected = next_sequence(after_sequence);
+        let mut expected = SequenceNumber::new(after_sequence).next().get();
         while events.len() < max_events {
             let Some(next) = self.peek() else {
                 break;
             };
-            if !sequence_after(next.sequence(), after_sequence) {
+            if !SequenceNumber::new(next.sequence()).is_after(SequenceNumber::new(after_sequence)) {
                 if let Some(event) = self.pop() {
                     event.discard();
                 }
@@ -123,7 +123,7 @@ impl<const N: usize> EventQueue<N> {
                             latest_sequence: latest,
                         };
                     }
-                    expected = next_sequence(event.sequence());
+                    expected = SequenceNumber::new(event.sequence()).next().get();
                     events.push(
                         event
                             .into_model()
@@ -132,7 +132,7 @@ impl<const N: usize> EventQueue<N> {
                 }
             } else {
                 let event = self.pop().expect("peeked event is available");
-                expected = next_sequence(event.sequence());
+                expected = SequenceNumber::new(event.sequence()).next().get();
                 let sequence = event.sequence();
                 let Some(event) = event.into_model() else {
                     return EventPollResult::ResyncRequired {
@@ -147,10 +147,9 @@ impl<const N: usize> EventQueue<N> {
     }
 
     pub(crate) fn discard_through(&self, snapshot_sequence: u32) {
-        while self
-            .peek()
-            .is_some_and(|event| !sequence_after(event.sequence(), snapshot_sequence))
-        {
+        while self.peek().is_some_and(|event| {
+            !SequenceNumber::new(event.sequence()).is_after(SequenceNumber::new(snapshot_sequence))
+        }) {
             if let Some(event) = self.pop() {
                 event.discard();
             }
@@ -189,14 +188,4 @@ impl<const N: usize> EventQueue<N> {
             .store(read.wrapping_add(1), Ordering::Release);
         Some(event)
     }
-}
-
-fn next_sequence(sequence: u32) -> u32 {
-    let next = sequence.wrapping_add(1);
-    if next == 0 { 1 } else { next }
-}
-
-fn sequence_after(candidate: u32, baseline: u32) -> bool {
-    let distance = candidate.wrapping_sub(baseline);
-    distance != 0 && distance < 0x8000_0000
 }

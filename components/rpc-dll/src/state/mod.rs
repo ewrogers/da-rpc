@@ -287,15 +287,22 @@ pub(crate) fn stage_map_transition(
     name: &[u8],
     tick_ms: u32,
 ) {
-    #[cfg(all(windows, not(test)))]
-    crate::actions::movement::clear_route_destination();
-    #[cfg(windows)]
-    if crate::dialog::is_active() {
-        observe_dialog_closed(darpc_model::DialogCloseReason::WorldChanged, tick_ms);
-    }
     // SAFETY: the map-size hook runs on the client main thread, which is the
     // sole cache producer.
-    if let Some(update) = unsafe { CACHE.stage_map_transition(map_id, width, height, name) } {
+    let update = unsafe { CACHE.stage_map_transition(map_id, width, height, name) };
+    // A transition either commits immediately when a position is already
+    // available or remains pending until the authoritative position arrives.
+    let map_changed = update.is_some() || map_transition_pending();
+    if map_changed {
+        #[cfg(all(windows, not(test)))]
+        crate::actions::movement::clear_route_destination();
+        crate::route::clear(tick_ms);
+        #[cfg(windows)]
+        if crate::dialog::is_active() {
+            observe_dialog_closed(darpc_model::DialogCloseReason::WorldChanged, tick_ms);
+        }
+    }
+    if let Some(update) = update {
         publish_location_update(update, true, tick_ms);
     }
 }

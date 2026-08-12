@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Cleared walking and planned-route state when the client changes maps.
+
 ## 1.2.2 - 2026-08-12
 
 ### Fixed

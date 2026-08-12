@@ -418,6 +418,10 @@ impl ClientSnapshot {
                     .as_mut()
                     .ok_or(ApplyEventError::CharacterUnavailable)?;
                 if let Some(map) = update.map {
+                    character.is_walking = false;
+                    if let Some(route) = &mut self.planned_route {
+                        route.tiles.clear();
+                    }
                     character.location = Some(MapLocation {
                         id: map.id,
                         name: map.name,
@@ -913,6 +917,93 @@ mod tests {
         );
         assert_eq!(snapshot.event_sequence, 2);
         assert_eq!(snapshot.lifecycle, ClientLifecycle::InGame);
+    }
+
+    #[test]
+    fn map_change_clears_walking_and_the_previous_maps_route() {
+        let mut snapshot = empty_snapshot(ClientLifecycle::InGame);
+        snapshot.character = Some(crate::CharacterSnapshot {
+            id: Some(7),
+            name: Some("Silo".into()),
+            identity: None,
+            appearance: None,
+            class: crate::CharacterClass::Warrior,
+            is_action_restricted: false,
+            is_blinded: false,
+            is_casting: false,
+            is_walking: true,
+            gold: 0,
+            weight: 0,
+            max_weight: 0,
+            progression: crate::CharacterProgression {
+                level: 1,
+                ability_level: 0,
+                experience: 0,
+                ability_points: None,
+                experience_to_next_level: None,
+                ability_to_next_level: None,
+            },
+            stats: CharacterStats {
+                strength: 3,
+                intelligence: 3,
+                wisdom: 3,
+                constitution: 3,
+                dexterity: 3,
+            },
+            vitals: crate::CharacterVitals {
+                health: 50,
+                max_health: 50,
+                mana: 25,
+                max_mana: 25,
+            },
+            modifiers: None,
+            location: Some(MapLocation {
+                id: 1,
+                name: Some("Mileth".into()),
+                x: Some(10),
+                y: Some(20),
+                width: 100,
+                height: 100,
+            }),
+            inventory: None,
+            equipment: None,
+            spellbook: None,
+            skillbook: None,
+            effects: None,
+        });
+        snapshot.planned_route = Some(PlannedRoute {
+            generation: 9,
+            tiles: vec![TilePosition { x: 11, y: 20 }],
+        });
+
+        snapshot
+            .apply_event(StateEvent {
+                sequence: 2,
+                revision: 2,
+                tick_ms: 20,
+                update: StateUpdate::Location(LocationUpdate {
+                    x: 2,
+                    y: 3,
+                    map: Some(MapChange {
+                        id: 2,
+                        name: Some("Abel".into()),
+                        width: 80,
+                        height: 90,
+                    }),
+                }),
+            })
+            .unwrap();
+
+        let character = snapshot.character.unwrap();
+        assert!(!character.is_walking);
+        assert_eq!(character.location.unwrap().id, 2);
+        assert_eq!(
+            snapshot.planned_route,
+            Some(PlannedRoute {
+                generation: 9,
+                tiles: Vec::new(),
+            })
+        );
     }
 
     fn item(slot: u8, quantity: u32) -> InventoryItem {

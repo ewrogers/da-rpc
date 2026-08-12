@@ -97,6 +97,36 @@ pub(crate) fn reset() {
     }
 }
 
+pub(crate) fn clear(tick_ms: u32) {
+    // SAFETY: map transitions and route observations are serialized on the
+    // client main thread.
+    let changed = unsafe { clear_route(&mut *CURRENT.0.get()) };
+    if !changed {
+        return;
+    }
+
+    let Some((index, slot)) = claim_event() else {
+        crate::state::mark_resync_required();
+        return;
+    };
+    // SAFETY: WRITING gives this main-thread producer exclusive access to the
+    // event buffer, and route snapshots are also copied on the main thread.
+    unsafe { copy_route(&mut *slot.route.get(), &*CURRENT.0.get()) };
+    slot.state.store(READY, Ordering::Release);
+    let queued = QueuedRoute(u8::try_from(index).expect("route event index fits u8"));
+    if !crate::state::observe_route(queued, tick_ms) {
+        release(queued);
+    }
+}
+
+fn clear_route(route: &mut RawRoute) -> bool {
+    if !route.available() || route.length == 0 {
+        return false;
+    }
+    route.length = 0;
+    true
+}
+
 #[cfg(all(windows, not(test)))]
 pub(crate) fn observe_current(tick_ms: u32) {
     let Some(world) = world_pane() else {
@@ -388,6 +418,25 @@ mod tests {
                 TilePosition { x: 6, y: 5 },
                 TilePosition { x: 6, y: 6 },
             ]
+        );
+    }
+
+    #[test]
+    fn clearing_a_route_retains_telemetry_with_no_tiles() {
+        let mut route = RawRoute::empty();
+        route.generation = 7;
+        route.length = 1;
+        route.tiles[0] = RawTile { x: 4, y: 5 };
+
+        assert!(clear_route(&mut route));
+        assert!(!clear_route(&mut route));
+
+        assert_eq!(
+            model(&route),
+            Some(PlannedRoute {
+                generation: 7,
+                tiles: Vec::new(),
+            })
         );
     }
 }

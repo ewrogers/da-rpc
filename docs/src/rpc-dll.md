@@ -57,8 +57,11 @@ The DLL also observes the central decoded-event dispatcher after original
 handling. Bounded status, collection, effect, position, world-object, message,
 and audio values update retained state or enter a fixed 1 MiB queue as ordered
 events. A tick-time lifecycle check records login and disconnect transitions.
-Map-size metadata is staged until an authoritative position completes the
-transition. The pipe worker serves those updates through bounded long polls. It
+For the initial map, map-size metadata and the authoritative position are joined
+regardless of arrival order. Later map-size metadata is staged until a new
+authoritative position completes the transition. A snapshot also retains that
+accepted position while the matching local player object is still becoming
+available. The pipe worker serves those updates through bounded long polls. It
 requests no allocation, logging, serialization, or IPC work from the hook path.
 
 A separate observer watches the common outbound submission boundary after the

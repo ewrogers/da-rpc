@@ -181,6 +181,23 @@ impl StateCache {
         self.position
     }
 
+    pub(super) fn merge_position(&self, raw: &mut RawCharacter) {
+        let (Some(map), Some((x, y)), Some(location)) =
+            (self.map, self.position, raw.location.as_mut())
+        else {
+            return;
+        };
+        if map.id != location.map_id
+            || map.width != location.width
+            || map.height != location.height
+            || (location.x.is_some() && location.y.is_some())
+        {
+            return;
+        }
+        location.x = Some(x);
+        location.y = Some(y);
+    }
+
     #[cfg(not(test))]
     pub(super) fn valid_tile(&self, x: i32, y: i32) -> bool {
         self.map
@@ -270,13 +287,25 @@ impl StateCache {
         width: i32,
         height: i32,
         name: &[u8],
-    ) {
+    ) -> Option<QueuedLocationUpdate> {
         let pending = QueuedMapChange::new(map_id, width, height, name);
         if self.map == Some(pending.into()) {
             self.pending_map = None;
-        } else {
-            self.pending_map = Some(pending);
+            return None;
         }
+        if self.map.is_none()
+            && let Some((x, y)) = self.position
+        {
+            self.map = Some(pending.into());
+            self.pending_map = None;
+            return Some(QueuedLocationUpdate {
+                x,
+                y,
+                map: Some(pending),
+            });
+        }
+        self.pending_map = Some(pending);
+        None
     }
 
     pub(super) fn user_position(&mut self, x: i32, y: i32) -> Option<(QueuedLocationUpdate, bool)> {
@@ -401,6 +430,11 @@ impl MainThreadCache {
         unsafe { (&*self.0.get()).gold }
     }
 
+    pub(super) unsafe fn merge_position(&self, raw: &mut RawCharacter) {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&*self.0.get()).merge_position(raw) };
+    }
+
     pub(super) unsafe fn self_name(&self) -> Option<([u8; 16], u8)> {
         // SAFETY: the caller guarantees exclusive main-thread access.
         let cache = unsafe { &*self.0.get() };
@@ -495,9 +529,9 @@ impl MainThreadCache {
         width: i32,
         height: i32,
         name: &[u8],
-    ) {
+    ) -> Option<QueuedLocationUpdate> {
         // SAFETY: the caller guarantees exclusive main-thread access.
-        unsafe { (&mut *self.0.get()).stage_map_transition(map_id, width, height, name) };
+        unsafe { (&mut *self.0.get()).stage_map_transition(map_id, width, height, name) }
     }
 
     pub(super) unsafe fn user_position(

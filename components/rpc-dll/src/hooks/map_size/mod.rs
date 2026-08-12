@@ -3,6 +3,7 @@ use darpc_hook::{
     CodeRange, DetourActivity, DetourError, DetourSpec, InstallError, InstalledDetour,
     PreparedDetour,
 };
+use darpc_win32::pipe::sender_tick_ms;
 use std::{
     io, panic,
     ptr::{self, NonNull},
@@ -184,6 +185,6 @@ extern "C" fn observe_map_size(world: *const core::ffi::c_void, packet: *const u
             )
         };
         map_name::publish(world as usize as u32, map_id, name);
-        state::stage_map_transition(map_id, width, height, name);
+        state::stage_map_transition(map_id, width, height, name, sender_tick_ms());
     });
 }

@@ -105,6 +105,10 @@ pub(crate) enum ClientEvent {
     SkillAdded(SkillSlotChanged),
     SkillRemoved(SkillSlotChanged),
     SkillChanged(SkillSlotChanged),
+    SkillCooldown(CooldownStarted),
+    SkillReady(AbilityReady),
+    SpellCooldown(CooldownStarted),
+    SpellReady(AbilityReady),
     SkillUsed(SkillUsed),
     SpellBegin(SpellBegin),
     SpellChant(SpellChant),
@@ -210,6 +214,10 @@ impl ClientEvent {
             Self::SkillAdded(_) => "skill.added",
             Self::SkillRemoved(_) => "skill.removed",
             Self::SkillChanged(_) => "skill.changed",
+            Self::SkillCooldown(_) => "skill.cooldown",
+            Self::SkillReady(_) => "skill.ready",
+            Self::SpellCooldown(_) => "spell.cooldown",
+            Self::SpellReady(_) => "spell.ready",
             Self::SkillUsed(_) => "skill.used",
             Self::SpellBegin(_) => "spell.begin",
             Self::SpellChant(_) => "spell.chant",
@@ -315,6 +323,10 @@ impl ClientEvent {
             Self::SkillAdded(value) | Self::SkillRemoved(value) | Self::SkillChanged(value) => {
                 value.observation.event_sequence
             }
+            Self::SkillCooldown(value) | Self::SpellCooldown(value) => {
+                value.observation.event_sequence
+            }
+            Self::SkillReady(value) | Self::SpellReady(value) => value.observation.event_sequence,
             Self::SkillUsed(value) => value.observation.event_sequence,
             Self::SpellBegin(value) => value.observation.event_sequence,
             Self::SpellChant(value) => value.observation.event_sequence,

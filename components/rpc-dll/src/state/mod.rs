@@ -313,7 +313,7 @@ pub(crate) fn snapshot_boundary(
     unsafe { OBJECTS.replace(objects) };
     // SAFETY: snapshot capture and packet observation are serialized on the
     // client main thread.
-    unsafe { COLLECTIONS.replace(raw) };
+    unsafe { COLLECTIONS.replace(raw, tick_ms) };
     SnapshotBoundary {
         revision: next_nonzero(&REVISION),
         event_sequence: EVENT_SEQUENCE.load(Ordering::Acquire),
@@ -333,6 +333,12 @@ pub(crate) fn mark_collection_dirty(kind: CollectionKind, slot: u8, tick_ms: u32
     // SAFETY: the event hook runs on the client main thread, which is the sole
     // collection producer.
     unsafe { COLLECTIONS.mark(kind, slot, tick_ms) };
+}
+
+pub(crate) fn watch_ability_cooldown(kind: CollectionKind, slot: u8, tick_ms: u32) {
+    // SAFETY: outgoing ability observation runs on the client main thread,
+    // which is the sole collection producer.
+    unsafe { COLLECTIONS.watch_cooldown(kind, slot, tick_ms) };
 }
 
 pub(crate) fn mark_resync_required() {

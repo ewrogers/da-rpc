@@ -42,6 +42,7 @@ pub(crate) fn observe_outgoing(body: &[u8], tick_ms: u32) {
             let Some(&slot) = fields.first().filter(|slot| **slot != 0 && **slot <= 90) else {
                 return;
             };
+            watch_ability_cooldown(CollectionKind::Skillbook, slot, tick_ms);
             push_event(
                 QueuedStateUpdate::Ability(QueuedAbilityUpdate::SkillUsed { slot }),
                 tick_ms,
@@ -109,6 +110,7 @@ pub(crate) fn observe_outgoing(body: &[u8], tick_ms: u32) {
                     tick_ms,
                 );
             }
+            watch_ability_cooldown(CollectionKind::Spellbook, slot, tick_ms);
             push_event(
                 QueuedStateUpdate::Ability(QueuedAbilityUpdate::SpellCast { slot, arguments }),
                 tick_ms,

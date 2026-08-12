@@ -100,6 +100,221 @@ fn collection_updates_keep_the_requested_public_event_names() {
 }
 
 #[test]
+fn cooldown_only_updates_emit_specialized_events_instead_of_changed() {
+    let skill = ModelSkill {
+        slot: 3,
+        icon: 91,
+        name: Some("Assail".into()),
+        level: 99,
+        max_level: 100,
+        cooldown: CooldownStatus {
+            active: false,
+            remaining_ms: None,
+        },
+    };
+    let spell = ModelSpell {
+        slot: 4,
+        icon: 82,
+        name: Some("beag srad".into()),
+        level: 10,
+        max_level: 100,
+        lines: 0,
+        target_type: SpellTargetType::Target,
+        prompt: None,
+        cooldown: CooldownStatus {
+            active: false,
+            remaining_ms: None,
+        },
+    };
+
+    let cases = [
+        (
+            StateUpdate::Skillbook(SlotUpdate {
+                batch_index: 0,
+                batch_count: 1,
+                change: CollectionChange::Changed,
+                slot: skill.slot,
+                before: Some(skill.clone()),
+                after: Some(ModelSkill {
+                    cooldown: CooldownStatus {
+                        active: true,
+                        remaining_ms: Some(750),
+                    },
+                    ..skill
+                }),
+            }),
+            "skill.cooldown",
+            Some(750),
+        ),
+        (
+            StateUpdate::Spellbook(SlotUpdate {
+                batch_index: 0,
+                batch_count: 1,
+                change: CollectionChange::Changed,
+                slot: spell.slot,
+                before: Some(spell.clone()),
+                after: Some(ModelSpell {
+                    cooldown: CooldownStatus {
+                        active: true,
+                        remaining_ms: None,
+                    },
+                    ..spell
+                }),
+            }),
+            "spell.cooldown",
+            None,
+        ),
+    ];
+
+    for (sequence, (update, expected_name, remaining_ms)) in cases
+        .into_iter()
+        .enumerate()
+        .map(|(index, case)| (u32::try_from(index + 1).unwrap(), case))
+    {
+        let events = expand_collection_update(sequence, update);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].name(), expected_name);
+        let json = serde_json::to_value(&events[0]).unwrap();
+        assert_eq!(
+            json["data"]
+                .get("remaining_ms")
+                .and_then(|value| value.as_u64()),
+            remaining_ms
+        );
+    }
+}
+
+#[test]
+fn cooldown_completion_emits_ready_instead_of_changed() {
+    let skill = ModelSkill {
+        slot: 3,
+        icon: 91,
+        name: Some("Assail".into()),
+        level: 99,
+        max_level: 100,
+        cooldown: CooldownStatus {
+            active: true,
+            remaining_ms: Some(1),
+        },
+    };
+    let spell = ModelSpell {
+        slot: 4,
+        icon: 82,
+        name: Some("beag srad".into()),
+        level: 10,
+        max_level: 100,
+        lines: 0,
+        target_type: SpellTargetType::Target,
+        prompt: None,
+        cooldown: CooldownStatus {
+            active: true,
+            remaining_ms: None,
+        },
+    };
+    let ready = CooldownStatus {
+        active: false,
+        remaining_ms: None,
+    };
+    let updates = [
+        (
+            StateUpdate::Skillbook(SlotUpdate {
+                batch_index: 0,
+                batch_count: 1,
+                change: CollectionChange::Changed,
+                slot: skill.slot,
+                before: Some(skill.clone()),
+                after: Some(ModelSkill {
+                    cooldown: ready,
+                    ..skill
+                }),
+            }),
+            "skill.ready",
+        ),
+        (
+            StateUpdate::Spellbook(SlotUpdate {
+                batch_index: 0,
+                batch_count: 1,
+                change: CollectionChange::Changed,
+                slot: spell.slot,
+                before: Some(spell.clone()),
+                after: Some(ModelSpell {
+                    cooldown: ready,
+                    ..spell
+                }),
+            }),
+            "spell.ready",
+        ),
+    ];
+
+    for (sequence, (update, expected_name)) in updates
+        .into_iter()
+        .enumerate()
+        .map(|(index, case)| (u32::try_from(index + 1).unwrap(), case))
+    {
+        let events = expand_collection_update(sequence, update);
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].name(), expected_name);
+    }
+}
+
+#[test]
+fn metadata_and_cooldown_changes_emit_both_semantic_events() {
+    let before = ModelSkill {
+        slot: 3,
+        icon: 91,
+        name: Some("Assail".into()),
+        level: 99,
+        max_level: 100,
+        cooldown: CooldownStatus {
+            active: false,
+            remaining_ms: None,
+        },
+    };
+    let events = expand_collection_update(
+        1,
+        StateUpdate::Skillbook(SlotUpdate {
+            batch_index: 0,
+            batch_count: 1,
+            change: CollectionChange::Changed,
+            slot: before.slot,
+            before: Some(before.clone()),
+            after: Some(ModelSkill {
+                level: 100,
+                cooldown: CooldownStatus {
+                    active: true,
+                    remaining_ms: Some(750),
+                },
+                ..before
+            }),
+        }),
+    );
+    assert_eq!(
+        events.iter().map(ClientEvent::name).collect::<Vec<_>>(),
+        ["skill.changed", "skill.cooldown"]
+    );
+}
+
+fn expand_collection_update(sequence: u32, update: StateUpdate) -> Vec<ClientEvent> {
+    expand(
+        42,
+        ClientIdentity {
+            pid: 42,
+            process_creation_time: 100,
+            dll_instance_id: [1; 16],
+        },
+        StateEvent {
+            sequence,
+            revision: sequence,
+            tick_ms: 500,
+            update,
+        },
+        None,
+        None,
+        observed_at(),
+    )
+}
+
+#[test]
 fn map_transition_expands_as_one_location_event() {
     let events = expand(
         42,

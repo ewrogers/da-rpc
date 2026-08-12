@@ -205,10 +205,17 @@ events add useful structure without hiding the text that appeared in the game.
 | `spell.added` | A learned spell appeared in a slot. |
 | `spell.removed` | A spell left a slot. |
 | `spell.changed` | A spell moved or its retained details changed. |
+| `spell.cooldown` | A retained spell entered or restarted cooldown. |
+| `spell.ready` | A retained spell left cooldown and is ready to cast. |
 
 Spellbook changes use `batch_index`, `batch_count`, `slot`, `before`, and
 `after`. Moving or swapping spells can create several frames in one batch. The
 daemon applies the full batch before it broadcasts the first frame.
+
+`spell.changed` is not emitted for a cooldown-only transition. Spell cooldowns
+do not currently expose an exact remaining duration, so daRPC polls only the
+watched active spell slot until it can emit `spell.ready`. Both cooldown events
+include `observation`, the one-based `slot`, and the spell `name` when known.
 
 ## Availability
 

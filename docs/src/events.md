@@ -426,10 +426,16 @@ Read the skillbook from `GET /clients/{client}/skills`. See [Skills](skills.md).
 | `skill.added` | `skill_added` | `SlotChanged<Skill>` |
 | `skill.removed` | `skill_removed` | `SlotChanged<Skill>` |
 | `skill.changed` | `skill_changed` | `SlotChanged<Skill>` |
+| `skill.cooldown` | `skill_cooldown` | A retained skill entered or restarted cooldown. |
+| `skill.ready` | `skill_ready` | `AbilityReady` |
 | `skill.used` | `skill_used` | `observation`, `slot`, optional `name` |
 
 `skill.used` records an observed submission through the client's normal skill
-path. Cooldown changes arrive through `skill.changed`.
+path. `skill.cooldown` confirms that the retained skill entered cooldown, while
+`skill.ready` confirms that it left cooldown. `skill.changed` is reserved for
+changes to the retained skill itself, such as its name, icon, or level. A single
+client update can emit both `skill.changed` and `skill.cooldown` when both kinds
+of state changed together.
 
 ## Spell events
 
@@ -440,7 +446,9 @@ for targeting, chanting, replacement, and feedback matching.
 | --- | --- | --- |
 | `spell.added` | `spell_added` | A spellbook slot gained a spell. |
 | `spell.removed` | `spell_removed` | A spellbook slot became empty. |
-| `spell.changed` | `spell_changed` | A retained spell or cooldown changed. |
+| `spell.changed` | `spell_changed` | A retained spell's own details changed. |
+| `spell.cooldown` | `spell_cooldown` | A retained spell entered or restarted cooldown. |
+| `spell.ready` | `spell_ready` | A retained spell left cooldown. |
 | `spell.begin` | `spell_begin` | A delayed spell began. |
 | `spell.chant` | `spell_chant` | One chant line was submitted. |
 | `spell.cast` | `spell_cast` | The final spell use was submitted. |
@@ -449,9 +457,11 @@ for targeting, chanting, replacement, and feedback matching.
 | `spell.failed` | `spell_failed` | System feedback rejected or resisted a recent submission. |
 | `spell.received` | `spell_received` | Another entity cast or attacked with a spell on this character. |
 
-The spellbook events use `SlotChanged<Spell>`. Cast activity uses:
+The spellbook events use `SlotChanged<Spell>`. Cooldown and cast activity use:
 
 ```text
+CooldownStarted { observation, slot, name?, remaining_ms? }
+AbilityReady { observation, slot, name? }
 SpellBegin { observation, slot, name?, total_lines }
 SpellChant { observation, slot, name?, line, total_lines }
 SpellCast { observation, slot, name?, arguments? }
@@ -488,6 +498,11 @@ SpellReceived {
     feedback,
 }
 ```
+
+The skill cooldown events use the same `CooldownStarted` and `AbilityReady`
+payloads. `remaining_ms` is present only when the client retains an exact
+expiry. A consumer should treat `*.ready` as the authoritative completion
+signal rather than relying only on a local countdown.
 
 `SpellCastArguments` is tagged by its own `type` field:
 
@@ -829,8 +844,8 @@ trying to infer state from only the changed field.
 | Walking | `walking.started`, `walking.stopped`, `walking.route_changed`, `character.turned`, `character.emoted` | `/status` |
 | Inventory | `item.added`, `item.removed`, `item.changed`, `item.used`, `item.dropped`, `item.given`, `item.picked_up`, `gold.dropped`, `gold.given` | `/items`, then `/status` for gold |
 | Equipment | `equipment.unequipped` | `/equipment` |
-| Skills | `skill.added`, `skill.removed`, `skill.changed`, `skill.used` | `/skills` |
-| Spells | `spell.added`, `spell.removed`, `spell.changed`, `spell.begin`, `spell.chant`, `spell.cast`, `spell.cancelled`, `spell.succeeded`, `spell.failed`, `spell.received` | `/spells`, then `/status` for casting state |
+| Skills | `skill.added`, `skill.removed`, `skill.changed`, `skill.cooldown`, `skill.ready`, `skill.used` | `/skills` |
+| Spells | `spell.added`, `spell.removed`, `spell.changed`, `spell.cooldown`, `spell.ready`, `spell.begin`, `spell.chant`, `spell.cast`, `spell.cancelled`, `spell.succeeded`, `spell.failed`, `spell.received` | `/spells`, then `/status` for casting state |
 | Effects | `effect.added`, `effect.removed`, `effect.changed` | `/effects` |
 | World | Player, monster, Mundane, ground-item, visual, damage, and `objects.cleared` events | `/objects` |
 | Audio | `sound.played`, `music.started`, `music.stopped` | None; transient events are not replayed. |

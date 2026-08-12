@@ -14,6 +14,8 @@ pub const MAX_ITEM_SLOT: u8 = 59;
 pub const MAX_SPELL_INPUT_LEN: usize = 100;
 pub const MAX_DIALOG_INPUT_LEN: usize = u8::MAX as usize;
 pub const MAX_CHANT_TEXT_LEN: usize = u8::MAX as usize;
+pub const MAX_MESSAGE_CONTENT_LEN: usize = 100;
+pub const MAX_MESSAGE_RECIPIENT_LEN: usize = 15;
 pub const MAX_GROUP_NAME_LEN: usize = 28;
 pub const MAX_WHO_PLAYERS: usize = 768;
 pub const MAX_WHO_NAME_LEN: usize = 24;
@@ -91,6 +93,109 @@ pub enum CommandKind {
     Assail,
     InspectPlayer(NonZeroU32),
     Resync,
+    Message(MessageCommand),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MessageCommand {
+    Say(MessageContent),
+    Shout(MessageContent),
+    Whisper {
+        recipient: MessageRecipient,
+        content: MessageContent,
+    },
+    Guild(MessageContent),
+    Group(MessageContent),
+}
+
+impl MessageCommand {
+    #[must_use]
+    pub const fn content(self) -> MessageContent {
+        match self {
+            Self::Say(content)
+            | Self::Shout(content)
+            | Self::Whisper { content, .. }
+            | Self::Guild(content)
+            | Self::Group(content) => content,
+        }
+    }
+
+    #[must_use]
+    pub const fn recipient(self) -> Option<MessageRecipient> {
+        match self {
+            Self::Whisper { recipient, .. } => Some(recipient),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MessageContent {
+    length: u8,
+    bytes: [u8; MAX_MESSAGE_CONTENT_LEN],
+}
+
+impl MessageContent {
+    #[must_use]
+    pub fn new(value: &str) -> Option<Self> {
+        let value = value.as_bytes();
+        if value.is_empty() || value.len() > MAX_MESSAGE_CONTENT_LEN || !value.is_ascii() {
+            return None;
+        }
+        let mut bytes = [0; MAX_MESSAGE_CONTENT_LEN];
+        bytes[..value.len()].copy_from_slice(value);
+        Some(Self {
+            length: u8::try_from(value.len()).expect("message content limit fits u8"),
+            bytes,
+        })
+    }
+
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes[..usize::from(self.length)]
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MessageRecipient {
+    length: u8,
+    bytes: [u8; MAX_MESSAGE_RECIPIENT_LEN],
+}
+
+impl MessageRecipient {
+    #[must_use]
+    pub fn new(value: &str) -> Option<Self> {
+        Self::from_value(value, false)
+    }
+
+    #[must_use]
+    pub fn channel(value: &str) -> Option<Self> {
+        Self::from_value(value, true)
+    }
+
+    fn from_value(value: &str, channel: bool) -> Option<Self> {
+        let value = value.as_bytes();
+        if value.is_empty()
+            || value.len() > MAX_MESSAGE_RECIPIENT_LEN
+            || !value.is_ascii()
+            || value.iter().any(u8::is_ascii_whitespace)
+            || (!channel && matches!(value, b"!" | b"!!" | b"#" | b"@" | b"$"))
+            || (channel && !matches!(value, b"!" | b"!!"))
+        {
+            return None;
+        }
+        let mut bytes = [0; MAX_MESSAGE_RECIPIENT_LEN];
+        bytes[..value.len()].copy_from_slice(value);
+        Some(Self {
+            length: u8::try_from(value.len()).expect("message recipient limit fits u8"),
+            bytes,
+        })
+    }
+
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes[..usize::from(self.length)]
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -607,7 +712,34 @@ pub(super) fn encode_kind(output: &mut Vec<u8>, kind: CommandKind) {
             push_u32(output, id.get());
         }
         CommandKind::Resync => output.push(24),
+        CommandKind::Message(message) => {
+            output.push(25);
+            match message {
+                MessageCommand::Say(content) => encode_message(output, 0, None, content),
+                MessageCommand::Shout(content) => encode_message(output, 1, None, content),
+                MessageCommand::Whisper { recipient, content } => {
+                    encode_message(output, 2, Some(recipient), content);
+                }
+                MessageCommand::Guild(content) => encode_message(output, 3, None, content),
+                MessageCommand::Group(content) => encode_message(output, 4, None, content),
+            }
+        }
     }
+}
+
+fn encode_message(
+    output: &mut Vec<u8>,
+    channel: u8,
+    recipient: Option<MessageRecipient>,
+    content: MessageContent,
+) {
+    output.push(channel);
+    if let Some(recipient) = recipient {
+        output.push(recipient.length);
+        output.extend_from_slice(recipient.as_bytes());
+    }
+    output.push(content.length);
+    output.extend_from_slice(content.as_bytes());
 }
 
 fn encode_transfer_target(output: &mut Vec<u8>, target: TransferTarget) {
@@ -786,6 +918,37 @@ pub(super) fn decode_kind(reader: &mut PayloadReader<'_>) -> Result<CommandKind,
             .map(CommandKind::InspectPlayer)
             .ok_or(DecodeError::InvalidTransferTarget { actual: 1 }),
         24 => Ok(CommandKind::Resync),
+        25 => {
+            let channel = reader.read_u8()?;
+            let recipient = if channel == 2 {
+                let length = usize::from(reader.read_u8()?);
+                let value = std::str::from_utf8(reader.take(length)?).ok();
+                Some(
+                    value
+                        .and_then(MessageRecipient::new)
+                        .ok_or(DecodeError::InvalidMessageRecipient)?,
+                )
+            } else {
+                None
+            };
+            let length = usize::from(reader.read_u8()?);
+            let content = std::str::from_utf8(reader.take(length)?)
+                .ok()
+                .and_then(MessageContent::new)
+                .ok_or(DecodeError::InvalidMessageContent)?;
+            let message = match channel {
+                0 => MessageCommand::Say(content),
+                1 => MessageCommand::Shout(content),
+                2 => MessageCommand::Whisper {
+                    recipient: recipient.expect("whisper channel decoded a recipient"),
+                    content,
+                },
+                3 => MessageCommand::Guild(content),
+                4 => MessageCommand::Group(content),
+                actual => return Err(DecodeError::InvalidMessageChannel { actual }),
+            };
+            Ok(CommandKind::Message(message))
+        }
         actual => Err(DecodeError::InvalidCommandKind { actual }),
     }
 }
@@ -853,8 +1016,9 @@ fn decode_direction(reader: &mut PayloadReader<'_>) -> Result<Direction, DecodeE
 #[cfg(test)]
 mod tests {
     use super::{
-        ChantText, CommandKind, ItemSlot, MAX_RAW_PACKET_PAYLOAD_LEN, RawPacket,
-        RawPacketDirection, SkillSlot, SlotSwap, SpellSlot, encode_kind,
+        ChantText, CommandKind, ItemSlot, MAX_MESSAGE_CONTENT_LEN, MAX_RAW_PACKET_PAYLOAD_LEN,
+        MessageCommand, MessageContent, MessageRecipient, RawPacket, RawPacketDirection, SkillSlot,
+        SlotSwap, SpellSlot, encode_kind,
     };
 
     #[test]
@@ -909,6 +1073,44 @@ mod tests {
         let mut encoded = Vec::new();
         encode_kind(&mut encoded, CommandKind::Resync);
         assert_eq!(encoded, [24]);
+    }
+
+    #[test]
+    fn message_commands_have_a_stable_bounded_encoding() {
+        let content = MessageContent::new("hello").unwrap();
+        let recipient = MessageRecipient::new("Eidolon").unwrap();
+        let cases = [
+            (
+                MessageCommand::Say(content),
+                b"\x19\x00\x05hello".as_slice(),
+            ),
+            (
+                MessageCommand::Shout(content),
+                b"\x19\x01\x05hello".as_slice(),
+            ),
+            (
+                MessageCommand::Whisper { recipient, content },
+                b"\x19\x02\x07Eidolon\x05hello".as_slice(),
+            ),
+            (
+                MessageCommand::Guild(content),
+                b"\x19\x03\x05hello".as_slice(),
+            ),
+            (
+                MessageCommand::Group(content),
+                b"\x19\x04\x05hello".as_slice(),
+            ),
+        ];
+        for (message, expected) in cases {
+            let mut encoded = Vec::new();
+            encode_kind(&mut encoded, CommandKind::Message(message));
+            assert_eq!(encoded, expected);
+        }
+        assert!(MessageContent::new("").is_none());
+        assert!(MessageContent::new(&"x".repeat(MAX_MESSAGE_CONTENT_LEN)).is_some());
+        assert!(MessageContent::new(&"x".repeat(MAX_MESSAGE_CONTENT_LEN + 1)).is_none());
+        assert!(MessageRecipient::new("!!").is_none());
+        assert!(MessageRecipient::new("#").is_none());
     }
 
     #[test]

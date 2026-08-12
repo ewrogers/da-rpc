@@ -453,6 +453,17 @@ fn command_messages_round_trip() {
                 wait_ms: 50,
             },
         }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 51,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::Message(MessageCommand::Whisper {
+                    recipient: MessageRecipient::new("Eidolon").unwrap(),
+                    content: MessageContent::new("hello").unwrap(),
+                }),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
     ];
 
     for message in messages {

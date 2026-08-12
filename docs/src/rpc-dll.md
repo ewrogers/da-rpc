@@ -103,6 +103,13 @@ length-prefixed ASCII string and preserves every supplied byte. NPC sell,
 deposit, withdraw, and repair helpers format their phrases in the controller and
 use this same executor.
 
+Message commands submit bounded public or directed chat packets on the client
+main thread. Say and shout use `0x0E` modes `0` and `1`; whisper uses `0x19`
+with length-prefixed recipient and content strings. Guild and group messages
+use whisper recipients `!` and `!!`. A say beginning with `/` is escaped while
+passing through the local command interceptor so the server receives the
+requested slash-prefixed text unchanged.
+
 Assail commands submit the one-byte `0x13` basic-attack packet through that
 same confirmed client packet function. Server responses remain responsible for
 the observed player animation and sound events.

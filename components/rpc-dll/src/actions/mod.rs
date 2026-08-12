@@ -4,6 +4,7 @@ pub(crate) mod dialog;
 pub(crate) mod exchange;
 pub(crate) mod group;
 mod interaction;
+mod message;
 pub(crate) mod movement;
 pub(crate) mod network;
 mod skill;
@@ -43,6 +44,7 @@ pub(crate) fn execute(command: CommandKind) -> Result<(), CommandFailure> {
         CommandKind::Raw(packet) => network::raw(packet),
         CommandKind::Assail => network::submit(&[0x13]),
         CommandKind::Resync => network::submit(&[0x38]),
+        CommandKind::Message(message) => message::submit(message),
     }
 }
 

@@ -37,9 +37,9 @@ use darpc_model::{
 use darpc_protocol::{
     Architecture, ChantText, CommandKind, CommandOperation, CommandResult, CommandState,
     CommandStatus, ComponentVersion, DialogAction, DialogCommand, ExchangeCommand, GoldTransfer,
-    Hello, ItemSlot, ItemTransfer, RawPacket, RawPacketDirection, SUPPORTED_VERSIONS, SkillSlot,
-    SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition,
-    TransferTarget, WalkTarget,
+    Hello, ItemSlot, ItemTransfer, MessageCommand, MessageContent, MessageRecipient, RawPacket,
+    RawPacketDirection, SUPPORTED_VERSIONS, SkillSlot, SlotSwap, SpellArguments, SpellCast,
+    SpellInput, SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkTarget,
 };
 use serde_json::Value;
 use std::{
@@ -986,6 +986,39 @@ fn routes_typed_actions() {
         CommandKind::Emote(12),
     );
     assert_routes_action(
+        "/clients/42/messages/send",
+        r#"{"channel":"say","content":"hello"}"#,
+        CommandKind::Message(MessageCommand::Say(MessageContent::new("hello").unwrap())),
+    );
+    for (channel, message) in [
+        (
+            "shout",
+            MessageCommand::Shout(MessageContent::new("hello").unwrap()),
+        ),
+        (
+            "guild",
+            MessageCommand::Guild(MessageContent::new("hello").unwrap()),
+        ),
+        (
+            "group",
+            MessageCommand::Group(MessageContent::new("hello").unwrap()),
+        ),
+    ] {
+        assert_routes_action(
+            "/clients/42/messages/send",
+            &format!(r#"{{"channel":"{channel}","content":"hello"}}"#),
+            CommandKind::Message(message),
+        );
+    }
+    assert_routes_action(
+        "/clients/42/messages/send",
+        r#"{"channel":"whisper","recipient":"Eidolon","content":"hello"}"#,
+        CommandKind::Message(MessageCommand::Whisper {
+            recipient: MessageRecipient::new("Eidolon").unwrap(),
+            content: MessageContent::new("hello").unwrap(),
+        }),
+    );
+    assert_routes_action(
         "/clients/42/emote",
         r#"{"name":"WaVe"}"#,
         CommandKind::Emote(13),
@@ -1058,6 +1091,21 @@ fn routes_typed_actions() {
             action: DialogAction::Close,
         }),
     );
+}
+
+#[test]
+fn validates_outbound_message_fields_before_routing() {
+    for body in [
+        r#"{"channel":"whisper","content":"hello"}"#.to_owned(),
+        r#"{"channel":"say","recipient":"Eidolon","content":"hello"}"#.to_owned(),
+        r#"{"channel":"whisper","recipient":"!!","content":"hello"}"#.to_owned(),
+        r##"{"channel":"whisper","recipient":"#","content":"hello"}"##.to_owned(),
+        r#"{"channel":"group","content":""}"#.to_owned(),
+        format!(r#"{{"channel":"guild","content":"{}"}}"#, "x".repeat(101)),
+    ] {
+        let response = post_json(state(), "/clients/42/messages/send", &body);
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST, "body: {body}");
+    }
 }
 
 #[test]
@@ -1806,6 +1854,8 @@ fn serves_the_openapi_contract_and_vendored_swagger_ui() {
         "CommandKind",
         "CommandState",
         "CommandFailure",
+        "SendMessageChannel",
+        "SendMessageOptions",
     ] {
         assert!(schemas.contains_key(name), "OpenAPI omitted {name}");
     }

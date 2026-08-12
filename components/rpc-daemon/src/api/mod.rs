@@ -392,6 +392,10 @@ fn router(state: ApiState) -> Router {
         .route("/maps/{map_id}/download", get(maps::download))
         .route("/clients", get(clients))
         .route("/clients/{client}/status", get(client_status))
+        .route(
+            "/clients/{client}/messages/send",
+            post(crate::commands::message::send),
+        )
         .route("/clients/{client}/dialog", get(client_dialog))
         .route("/clients/{client}/group", get(client_group))
         .route("/clients/{client}/exchange", get(client_exchange))
@@ -606,6 +610,7 @@ async fn reject_request_body(request: Request<Body>, next: Next) -> Response {
             || request.uri().path().ends_with("/walk")
             || request.uri().path().ends_with("/skills/use")
             || request.uri().path().ends_with("/chant")
+            || request.uri().path().ends_with("/messages/send")
             || request.uri().path().ends_with("/items/sell")
             || request.uri().path().ends_with("/items/sell-all")
             || request.uri().path().ends_with("/items/deposit")
@@ -703,6 +708,7 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         crate::commands::raw::send,
         crate::commands::assail::assail,
         crate::commands::resync::resync,
+        crate::commands::message::send,
         crate::commands::chant::chant,
         crate::commands::chant::sell,
         crate::commands::chant::sell_all,
@@ -860,6 +866,8 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         crate::commands::EmoteOptions,
         crate::commands::ChantOptions,
         crate::commands::ItemChantOptions,
+        crate::commands::SendMessageChannel,
+        crate::commands::SendMessageOptions,
         crate::commands::InteractOptions,
         crate::commands::DialogSelectOptions,
         crate::commands::DialogInputOptions,

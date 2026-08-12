@@ -6,6 +6,7 @@ parse the punctuation the client uses for each channel.
 | Use | Route or events |
 | --- | --- |
 | Read recent messages | `GET /clients/{client}/messages` |
+| Send a message | `POST /clients/{client}/messages/send` |
 | Filter retained history | `channels`, `since`, `skip`, and `count` |
 | Watch new messages | [Message events](events.md#message-events) |
 
@@ -51,6 +52,27 @@ ordinary conversation history.
 Channel markers and participant punctuation shown by the game are removed from
 the text. Empty messages are ignored. A world shout is stored once as `world`,
 even though the client also renders a duplicate shout-form message.
+
+## Sending messages
+
+Send nearby speech, shouts, guild chat, group chat, or a whisper through the
+selected client:
+
+```console
+curl -X POST "http://127.0.0.1:2626/clients/ZiLo/messages/send" \
+  -H "content-type: application/json" \
+  -d '{"channel":"whisper","recipient":"Eidolon","content":"hello"}'
+```
+
+The request body has `channel`, optional `recipient`, and `content` fields.
+`channel` must be `say`, `shout`, `guild`, `group`, or `whisper`. A whisper
+requires a recipient; every other channel rejects one. Content must contain
+from 1 through 100 ASCII characters. Whisper recipients must contain from 1
+through 15 ASCII characters without whitespace.
+
+Guild and group messages use the game's directed-message packet with the
+special recipients `!` and `!!`, respectively. Callers select `guild` or
+`group`; they do not supply those markers as whisper recipients.
 
 ## Filtering and paging
 

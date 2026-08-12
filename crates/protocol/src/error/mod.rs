@@ -314,6 +314,11 @@ pub enum DecodeError {
     },
     InvalidDialogText,
     InvalidChantText,
+    InvalidMessageChannel {
+        actual: u8,
+    },
+    InvalidMessageRecipient,
+    InvalidMessageContent,
     InvalidStatusFields {
         actual: u8,
     },
@@ -594,6 +599,11 @@ impl fmt::Display for DecodeError {
             }
             Self::InvalidDialogText => formatter.write_str("dialog text is not valid UTF-8"),
             Self::InvalidChantText => formatter.write_str("chant text is invalid"),
+            Self::InvalidMessageChannel { actual } => {
+                write!(formatter, "message channel {actual} is invalid")
+            }
+            Self::InvalidMessageRecipient => formatter.write_str("message recipient is invalid"),
+            Self::InvalidMessageContent => formatter.write_str("message content is invalid"),
             Self::InvalidStatusFields { actual } => {
                 write!(formatter, "invalid status field mask 0x{actual:02X}")
             }

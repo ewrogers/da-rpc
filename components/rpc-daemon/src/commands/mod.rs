@@ -32,6 +32,7 @@ pub(crate) mod exchange;
 pub(crate) mod group;
 pub(crate) mod interaction;
 pub(crate) mod legend;
+pub(crate) mod message;
 pub(crate) mod movement;
 pub(crate) mod player;
 pub(crate) mod raw;
@@ -62,6 +63,7 @@ pub(crate) use interaction::{
     give_item, pickup_item, swap_items, unequip, use_item,
 };
 pub(crate) use legend::{LegendIcon, LegendMark, LegendSnapshot, legend};
+pub(crate) use message::{SendMessageChannel, SendMessageOptions};
 use movement::validate_destination;
 pub(crate) use movement::{
     ActionDirection, Destination, TurnOptions, WalkDestinationOptions, WalkDirectionOptions,
@@ -299,6 +301,7 @@ pub(crate) enum CommandKind {
     Raw,
     Assail,
     Resync,
+    Message,
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
@@ -658,6 +661,7 @@ impl From<ProtocolKind> for CommandKind {
             ProtocolKind::Assail => Self::Assail,
             ProtocolKind::InspectPlayer(_) => Self::InspectPlayer,
             ProtocolKind::Resync => Self::Resync,
+            ProtocolKind::Message(_) => Self::Message,
         }
     }
 }

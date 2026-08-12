@@ -24,7 +24,7 @@ use profile_cache::{clear_profile, copy_profile, previous_body, publish_profile}
 use request_tracking::{IN_FLIGHT_TIMEOUT_MS, ORIGIN_TTL_MS};
 use request_tracking::{
     ORIGIN_DARPC, ORIGIN_USER, Origin, Pending, enqueue, pop_pending, prune_origins, push_origin,
-    take_origin,
+    take_internal_origin, take_origin,
 };
 
 const RESPONSE_OPCODE: u8 = 0x34;
@@ -163,6 +163,14 @@ pub(crate) fn appeared(player: RawWorldObject) {
     });
 }
 
+pub(crate) fn refresh_self(id: u32) {
+    enqueue(Pending {
+        id,
+        trigger: PlayerInspectionTrigger::Appeared,
+        command_id: 0,
+    });
+}
+
 #[cfg(not(test))]
 pub(crate) fn request(command_id: u32, id: u32) -> Result<(), darpc_protocol::CommandFailure> {
     if crate::state::observed_player(id).is_none() {
@@ -191,6 +199,9 @@ pub(crate) fn cleared() {
 
 pub(crate) fn observe_tick(tick_ms: u32) {
     prune_origins(tick_ms);
+    if crate::state::map_transition_pending() {
+        return;
+    }
     if !request_tracking::ready_for_next(tick_ms) {
         return;
     }
@@ -324,6 +335,9 @@ pub(crate) fn observe_self_look(body: &[u8], tick_ms: u32) {
     let Some(current) = parse_self_identity(body) else {
         return;
     };
+    if let Some(id) = crate::state::self_id() {
+        complete_self_request(id, tick_ms);
+    }
     let previous = raw_identity();
     if previous.as_ref() == Some(&current) {
         return;
@@ -334,6 +348,18 @@ pub(crate) fn observe_self_look(body: &[u8], tick_ms: u32) {
     IDENTITY.available.store(true, Ordering::Relaxed);
     IDENTITY.sequence.fetch_add(1, Ordering::Release);
     queue_identity(RawIdentityEvent { previous, current }, tick_ms);
+}
+
+fn complete_self_request(id: u32, tick_ms: u32) {
+    request_tracking::remove(id);
+    let Some(origin) = take_internal_origin(id, tick_ms) else {
+        return;
+    };
+    request_tracking::complete(id);
+    if origin.command_id != 0 {
+        crate::commands::fail_player(origin.command_id);
+    }
+    let _ = origin.command_id;
 }
 
 pub(crate) fn self_identity() -> Option<PlayerIdentity> {
@@ -669,5 +695,28 @@ mod tests {
         assert_eq!(identity.title, "Title");
         assert_eq!(identity.display_class, "Summoner");
         assert_eq!(identity.guild, "Guild");
+    }
+
+    #[test]
+    fn self_look_completes_internal_inspection_and_drops_retry() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset();
+        refresh_self(7);
+        request_tracking::mark_in_flight(7, 10);
+        push_origin(Origin {
+            kind: ORIGIN_DARPC,
+            id: 7,
+            trigger: PlayerInspectionTrigger::Appeared,
+            command_id: 0,
+            tick_ms: 10,
+        });
+
+        complete_self_request(7, 11);
+
+        assert!(request_tracking::ready_for_next(11));
+        assert!(pop_pending().is_none());
+        assert!(!INTERCEPT_PENDING.load(Ordering::Acquire));
     }
 }

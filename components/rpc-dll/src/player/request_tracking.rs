@@ -194,12 +194,26 @@ pub(super) fn take_origin(id: u32, tick_ms: u32) -> Option<Origin> {
     let index = queue.entries[..queue.count]
         .iter()
         .position(|origin| origin.id == id)?;
+    Some(remove_origin(queue, index))
+}
+
+pub(super) fn take_internal_origin(id: u32, tick_ms: u32) -> Option<Origin> {
+    prune_origins(tick_ms);
+    // SAFETY: event observation is serialized on the client main thread.
+    let queue = unsafe { &mut *ORIGINS.0.get() };
+    let index = queue.entries[..queue.count]
+        .iter()
+        .position(|origin| origin.kind == ORIGIN_DARPC && origin.id == id)?;
+    Some(remove_origin(queue, index))
+}
+
+fn remove_origin(queue: &mut OriginQueue, index: usize) -> Origin {
     let origin = queue.entries[index];
     queue.entries.copy_within(index + 1..queue.count, index);
     queue.count -= 1;
     queue.entries[queue.count] = EMPTY_ORIGIN;
     update_intercept_pending(queue);
-    Some(origin)
+    origin
 }
 
 pub(super) fn prune_origins(tick_ms: u32) {

@@ -336,8 +336,30 @@ pub(crate) fn observe_self_look(body: &[u8], tick_ms: u32) {
         return;
     };
     if let Some(id) = crate::state::self_id() {
-        complete_self_request(id, tick_ms);
+        let _ = complete_self_request(id, tick_ms);
     }
+    observe_self_identity(current, tick_ms);
+}
+
+pub(crate) fn intercept_self_response(body: &[u8], tick_ms: u32) -> bool {
+    let Some(id) = crate::state::self_id() else {
+        return false;
+    };
+    intercept_self_response_for(id, body, tick_ms)
+}
+
+fn intercept_self_response_for(id: u32, body: &[u8], tick_ms: u32) -> bool {
+    let Some(current) = parse_self_identity(body) else {
+        return false;
+    };
+    if !complete_self_request(id, tick_ms) {
+        return false;
+    }
+    observe_self_identity(current, tick_ms);
+    true
+}
+
+fn observe_self_identity(current: RawIdentity, tick_ms: u32) {
     let previous = raw_identity();
     if previous.as_ref() == Some(&current) {
         return;
@@ -350,16 +372,17 @@ pub(crate) fn observe_self_look(body: &[u8], tick_ms: u32) {
     queue_identity(RawIdentityEvent { previous, current }, tick_ms);
 }
 
-fn complete_self_request(id: u32, tick_ms: u32) {
+fn complete_self_request(id: u32, tick_ms: u32) -> bool {
     request_tracking::remove(id);
     let Some(origin) = take_internal_origin(id, tick_ms) else {
-        return;
+        return false;
     };
     request_tracking::complete(id);
     if origin.command_id != 0 {
         crate::commands::fail_player(origin.command_id);
     }
     let _ = origin.command_id;
+    true
 }
 
 pub(crate) fn self_identity() -> Option<PlayerIdentity> {
@@ -698,7 +721,7 @@ mod tests {
     }
 
     #[test]
-    fn self_look_completes_internal_inspection_and_drops_retry() {
+    fn internal_self_look_is_observed_and_suppressed() {
         let _guard = TEST_LOCK
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -713,10 +736,28 @@ mod tests {
             tick_ms: 10,
         });
 
-        complete_self_request(7, 11);
+        let mut body = vec![0x39, 1, 4];
+        body.extend_from_slice(b"Rank");
+        body.extend_from_slice(&[5]);
+        body.extend_from_slice(b"Title");
+        body.extend_from_slice(&[0, 1, 1]);
+        for value in [b"Lead".as_slice(), b"Team", b"Note"] {
+            body.push(value.len() as u8);
+            body.extend_from_slice(value);
+        }
+        body.extend_from_slice(&[1, 99]);
+        body.extend_from_slice(&[0; 10]);
+        body.extend_from_slice(&[3, 1, 1, 8]);
+        body.extend_from_slice(b"Summoner");
+        body.extend_from_slice(&[5]);
+        body.extend_from_slice(b"Guild");
+
+        assert!(intercept_self_response_for(7, &body, 11));
 
         assert!(request_tracking::ready_for_next(11));
         assert!(pop_pending().is_none());
         assert!(!INTERCEPT_PENDING.load(Ordering::Acquire));
+        assert_eq!(self_identity().unwrap().display_class, "Summoner");
+        assert!(!intercept_self_response_for(7, &body, 12));
     }
 }

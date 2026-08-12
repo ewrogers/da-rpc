@@ -118,9 +118,7 @@ fn install_detour(
     let target =
         support::target_address(support::module_base()?, rva, "heartbeat priority target")?;
     let entry_label = format!("heartbeat priority entry at RVA 0x{rva:08X}");
-    // SAFETY: supported executable validation establishes that this fixed
-    // transport entry is readable for its complete byte contract.
-    unsafe { support::validate_bytes(target, expected, &entry_label) }?;
+    support::validate_bytes(target, expected, &entry_label)?;
     // SAFETY: the supported executable identity and exact entry bytes are
     // validated, and both detours preserve their native thiscall ABIs.
     let mut prepared = unsafe {

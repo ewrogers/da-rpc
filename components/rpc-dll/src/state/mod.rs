@@ -593,14 +593,8 @@ fn participant(
     }
 }
 
-#[cfg(windows)]
 fn decode_client_text(bytes: &[u8]) -> Option<String> {
     crate::client_text::decode(bytes)
-}
-
-#[cfg(not(windows))]
-fn decode_client_text(bytes: &[u8]) -> Option<String> {
-    (!bytes.is_empty()).then(|| String::from_utf8_lossy(bytes).into_owned())
 }
 
 fn observe_self_position(x: i32, y: i32, tick_ms: u32) {

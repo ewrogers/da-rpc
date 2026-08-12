@@ -39,11 +39,7 @@ impl MapSizeHook {
             MAP_SIZE_HANDLER_RVA,
             "map-size target",
         )?;
-        // SAFETY: supported executable validation establishes that the fixed
-        // map-size entry is readable for its complete byte contract.
-        unsafe {
-            support::validate_bytes(target, &MAP_SIZE_HANDLER_ENTRY, "map-size handler entry")
-        }?;
+        support::validate_bytes(target, &MAP_SIZE_HANDLER_ENTRY, "map-size handler entry")?;
 
         // SAFETY: client fingerprint and exact target entry bytes were
         // validated. The detour preserves the handler's thiscall ABI and owns

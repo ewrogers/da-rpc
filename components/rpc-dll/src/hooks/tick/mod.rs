@@ -43,9 +43,7 @@ impl TickHook {
             EVENT_DISPATCHER_TICK_RVA,
             "tick target",
         )?;
-        // SAFETY: supported executable validation establishes that the fixed
-        // tick entry is readable for its complete byte contract.
-        unsafe { support::validate_bytes(target, &EVENT_DISPATCHER_TICK_ENTRY, "tick entry") }?;
+        support::validate_bytes(target, &EVENT_DISPATCHER_TICK_ENTRY, "tick entry")?;
 
         // SAFETY: the supported executable fingerprint and exact target entry
         // bytes were validated. The detour preserves the target's thiscall ABI,
@@ -158,18 +156,14 @@ mod tests {
     fn validates_the_exact_tick_entry() {
         let mut entry = EVENT_DISPATCHER_TICK_ENTRY;
         let target = NonNull::new(entry.as_mut_ptr()).unwrap();
-        // SAFETY: target points at the complete local entry array.
-        unsafe { support::validate_bytes(target, &EVENT_DISPATCHER_TICK_ENTRY, "tick entry") }
-            .unwrap();
+        support::validate_bytes(target, &EVENT_DISPATCHER_TICK_ENTRY, "tick entry").unwrap();
 
         let mut wrong_entry = EVENT_DISPATCHER_TICK_ENTRY;
         wrong_entry[0] ^= 0xFF;
         let wrong_target = NonNull::new(wrong_entry.as_mut_ptr()).unwrap();
-        // SAFETY: wrong_target still points at a complete local entry array.
-        let error = unsafe {
+        let error =
             support::validate_bytes(wrong_target, &EVENT_DISPATCHER_TICK_ENTRY, "tick entry")
-        }
-        .unwrap_err();
+                .unwrap_err();
         assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
         assert!(error.to_string().contains("bytes do not match"));
     }

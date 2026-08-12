@@ -60,11 +60,7 @@ impl OutgoingHook {
             CLIENT_PACKET_SUBMIT_RVA,
             "outgoing packet target",
         )?;
-        // SAFETY: supported executable validation establishes that the fixed
-        // outgoing entry is readable for its complete byte contract.
-        unsafe {
-            support::validate_bytes(target, &CLIENT_PACKET_SUBMIT_ENTRY, "outgoing packet entry")
-        }?;
+        support::validate_bytes(target, &CLIENT_PACKET_SUBMIT_ENTRY, "outgoing packet entry")?;
 
         // SAFETY: exact executable identity and entry bytes are validated. The
         // detour preserves the two-argument thiscall ABI and copies bounded
@@ -388,25 +384,19 @@ mod tests {
     #[test]
     fn validates_the_exact_outgoing_entry() {
         let mut entry = CLIENT_PACKET_SUBMIT_ENTRY;
-        // SAFETY: target points at the complete local entry array.
-        unsafe {
+        support::validate_bytes(
+            NonNull::new(entry.as_mut_ptr()).unwrap(),
+            &CLIENT_PACKET_SUBMIT_ENTRY,
+            "outgoing entry",
+        )
+        .unwrap();
+        entry[0] ^= 0xFF;
+        assert_eq!(
             support::validate_bytes(
                 NonNull::new(entry.as_mut_ptr()).unwrap(),
                 &CLIENT_PACKET_SUBMIT_ENTRY,
                 "outgoing entry",
             )
-        }
-        .unwrap();
-        entry[0] ^= 0xFF;
-        assert_eq!(
-            unsafe {
-                // SAFETY: target still points at the complete local entry array.
-                support::validate_bytes(
-                    NonNull::new(entry.as_mut_ptr()).unwrap(),
-                    &CLIENT_PACKET_SUBMIT_ENTRY,
-                    "outgoing entry",
-                )
-            }
             .unwrap_err()
             .kind(),
             std::io::ErrorKind::InvalidData

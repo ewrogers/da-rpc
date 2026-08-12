@@ -238,11 +238,7 @@ fn parse_rows(
 }
 
 fn decode_text(bytes: &[u8]) -> Result<String, ()> {
-    if bytes.is_empty() {
-        Ok(String::new())
-    } else {
-        crate::client_text::decode(bytes).ok_or(())
-    }
+    crate::client_text::decode_or_empty(bytes).ok_or(())
 }
 
 fn read_u16(body: &[u8], offset: usize) -> Result<u16, ()> {

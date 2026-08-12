@@ -188,7 +188,7 @@ pub(crate) fn observe_tick() {
             return;
         }
         let deadline = REPLAN_DEADLINE_TICK.load(Ordering::Acquire);
-        if deadline != 0 && route_retry::tick_reached(tick_ms, deadline) {
+        if deadline != 0 && crate::wrapping_time::deadline_reached(tick_ms, deadline) {
             movement.reset();
             clear_route_destination();
             return;
@@ -200,7 +200,8 @@ pub(crate) fn observe_tick() {
         start_replan(movement.world.as_ptr() as usize, tick_ms);
     }
 
-    if route_retry::tick_reached(tick_ms, REPLAN_DEADLINE_TICK.load(Ordering::Acquire)) {
+    if crate::wrapping_time::deadline_reached(tick_ms, REPLAN_DEADLINE_TICK.load(Ordering::Acquire))
+    {
         clear_route_destination();
         return;
     }
@@ -212,7 +213,7 @@ pub(crate) fn observe_tick() {
         clear_route_destination();
         return;
     }
-    if !route_retry::tick_reached(tick_ms, REPLAN_DUE_TICK.load(Ordering::Acquire)) {
+    if !crate::wrapping_time::deadline_reached(tick_ms, REPLAN_DUE_TICK.load(Ordering::Acquire)) {
         return;
     }
 

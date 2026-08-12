@@ -59,21 +59,17 @@ impl PathHook {
         let step_target =
             support::target_address(module, QUEUED_STEP_CALL_RVA, "queued-step call")?;
 
-        // SAFETY: supported executable validation establishes that each fixed
-        // code site is readable for its complete byte contract.
-        unsafe {
-            support::validate_bytes(
-                path_target,
-                &BUILD_BREADTH_FIRST_PATH_ENTRY,
-                "path-builder entry",
-            )?;
-            support::validate_bytes(
-                collision_target,
-                &ROUTE_COLLISION_CALL,
-                "route-collision call",
-            )?;
-            support::validate_bytes(step_target, &QUEUED_STEP_CALL, "queued-step call")?;
-        }
+        support::validate_bytes(
+            path_target,
+            &BUILD_BREADTH_FIRST_PATH_ENTRY,
+            "path-builder entry",
+        )?;
+        support::validate_bytes(
+            collision_target,
+            &ROUTE_COLLISION_CALL,
+            "route-collision call",
+        )?;
+        support::validate_bytes(step_target, &QUEUED_STEP_CALL, "queued-step call")?;
 
         // SAFETY: the supported executable identity and exact target bytes
         // were validated, and each detour preserves its native x86 ABI.
@@ -449,11 +445,9 @@ mod tests {
         ] {
             let mut bytes = expected.to_vec();
             let target = NonNull::new(bytes.as_mut_ptr()).unwrap();
-            // SAFETY: target points at the complete local code-site array.
-            unsafe { support::validate_bytes(target, expected, label) }.unwrap();
+            support::validate_bytes(target, expected, label).unwrap();
             bytes[0] ^= 0xFF;
-            // SAFETY: target still points at the complete local code-site array.
-            let error = unsafe { support::validate_bytes(target, expected, label) }.unwrap_err();
+            let error = support::validate_bytes(target, expected, label).unwrap_err();
             assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
         }
     }

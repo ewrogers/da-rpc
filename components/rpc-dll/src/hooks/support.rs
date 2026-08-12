@@ -5,10 +5,12 @@ use darpc_hook::{
 use std::{
     io,
     ptr::{self, NonNull},
-    slice, thread,
+    thread,
     time::{Duration, Instant},
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+
+use crate::process_memory::read_exact;
 
 pub(super) fn module_base() -> io::Result<usize> {
     // SAFETY: a null module name requests the current executable module and
@@ -28,18 +30,13 @@ pub(super) fn target_address(module: usize, rva: usize, label: &str) -> io::Resu
 }
 
 /// Validates a fixed code contract at a previously resolved client address.
-///
-/// # Safety
-///
-/// `target` must be readable for `expected.len()` bytes for this call.
-pub(super) unsafe fn validate_bytes(
-    target: NonNull<u8>,
-    expected: &[u8],
-    label: &str,
-) -> io::Result<()> {
-    // SAFETY: the caller guarantees that target is readable for the complete
-    // expected byte contract.
-    let actual = unsafe { slice::from_raw_parts(target.as_ptr(), expected.len()) };
+pub(super) fn validate_bytes(target: NonNull<u8>, expected: &[u8], label: &str) -> io::Result<()> {
+    let mut actual = vec![0; expected.len()];
+    if !read_exact(target.as_ptr() as usize, &mut actual) {
+        return Err(io::Error::other(format!(
+            "failed to read {label} byte contract"
+        )));
+    }
     if actual == expected {
         Ok(())
     } else {

@@ -495,7 +495,7 @@ pub(crate) fn response(
                     {
                         continue;
                     }
-                    if event.sequence != next_nonzero(last_sequence) {
+                    if event.sequence != SequenceNumber::new(last_sequence).next().get() {
                         let resync = ClientEvent::StreamResyncRequired(StreamResyncRequired {
                             pid,
                             instance_id: hex(&identity.dll_instance_id),
@@ -557,10 +557,6 @@ pub(crate) fn response(
             .interval(Duration::from_secs(15))
             .text("keep-alive"),
     )
-}
-
-pub(crate) const fn next_nonzero(value: u32) -> u32 {
-    SequenceNumber::new(value).next().get()
 }
 
 #[cfg(test)]

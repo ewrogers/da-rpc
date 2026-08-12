@@ -121,17 +121,7 @@ fn ascii_text(raw: darpc_game_client::RawClientText<128>) -> Option<String> {
 }
 
 fn text(raw: darpc_game_client::RawClientText<128>) -> Option<String> {
-    decode_client_text(&raw.bytes[..usize::from(raw.length)])
-}
-
-#[cfg(windows)]
-fn decode_client_text(bytes: &[u8]) -> Option<String> {
-    crate::client_text::decode(bytes)
-}
-
-#[cfg(not(windows))]
-fn decode_client_text(bytes: &[u8]) -> Option<String> {
-    (!bytes.is_empty()).then(|| String::from_utf8_lossy(bytes).into_owned())
+    crate::client_text::decode(&raw.bytes[..usize::from(raw.length)])
 }
 
 pub(super) fn trim_ascii(mut value: &[u8]) -> &[u8] {

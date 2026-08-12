@@ -268,14 +268,7 @@ fn option_text(value: String) -> Option<String> {
 }
 
 pub(super) fn decode_text(bytes: &[u8]) -> String {
-    #[cfg(windows)]
-    {
-        crate::client_text::decode(bytes).unwrap_or_default()
-    }
-    #[cfg(not(windows))]
-    {
-        String::from_utf8_lossy(bytes).into_owned()
-    }
+    crate::client_text::decode(bytes).unwrap_or_default()
 }
 
 struct Reader<'a> {

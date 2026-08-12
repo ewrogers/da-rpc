@@ -621,14 +621,8 @@ fn read_text(body: &[u8], offset: usize) -> Option<(RawText, usize)> {
     Some((RawText::from_bytes(body.get(start..end)?), end))
 }
 
-#[cfg(windows)]
 fn decode_text(bytes: &[u8]) -> String {
     crate::client_text::decode(bytes).unwrap_or_default()
-}
-
-#[cfg(not(windows))]
-fn decode_text(bytes: &[u8]) -> String {
-    String::from_utf8_lossy(bytes).into_owned()
 }
 
 #[cfg(test)]

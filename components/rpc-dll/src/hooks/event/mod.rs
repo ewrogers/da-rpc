@@ -100,9 +100,7 @@ impl EventHook {
     pub(crate) fn install() -> Result<Self, InstallError> {
         let target =
             support::target_address(support::module_base()?, EVENT_DISPATCH_RVA, "event target")?;
-        // SAFETY: supported executable validation establishes that the fixed
-        // event entry is readable for its complete byte contract.
-        unsafe { support::validate_bytes(target, &EVENT_DISPATCH_ENTRY, "event dispatch entry") }?;
+        support::validate_bytes(target, &EVENT_DISPATCH_ENTRY, "event dispatch entry")?;
 
         // SAFETY: the supported executable fingerprint and exact target entry
         // bytes were validated. The detour preserves the target's thiscall ABI,
@@ -471,19 +469,15 @@ mod tests {
     fn validates_the_exact_event_entry() {
         let mut entry = EVENT_DISPATCH_ENTRY;
         let target = NonNull::new(entry.as_mut_ptr()).unwrap();
-        // SAFETY: target points at the complete local entry array.
-        unsafe { support::validate_bytes(target, &EVENT_DISPATCH_ENTRY, "event entry") }.unwrap();
+        support::validate_bytes(target, &EVENT_DISPATCH_ENTRY, "event entry").unwrap();
 
         let mut wrong_entry = EVENT_DISPATCH_ENTRY;
         wrong_entry[0] ^= 0xFF;
         let wrong_target = NonNull::new(wrong_entry.as_mut_ptr()).unwrap();
         assert_eq!(
-            unsafe {
-                // SAFETY: wrong_target still points at a complete local entry array.
-                support::validate_bytes(wrong_target, &EVENT_DISPATCH_ENTRY, "event entry")
-            }
-            .unwrap_err()
-            .kind(),
+            support::validate_bytes(wrong_target, &EVENT_DISPATCH_ENTRY, "event entry")
+                .unwrap_err()
+                .kind(),
             std::io::ErrorKind::InvalidData
         );
     }

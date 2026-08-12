@@ -53,6 +53,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use darpc_game_client::CLIENT_VERSION;
+use darpc_model::SequenceNumber;
 use darpc_protocol::{Hello, protocol_version_major, protocol_version_minor};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -259,10 +260,10 @@ impl ApiState {
         let previous = self
             .internal_message_sequence
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
-                Some(stream::next_nonzero(value))
+                Some(SequenceNumber::new(value).next().get())
             })
             .expect("internal message sequence update is infallible");
-        let sequence = stream::next_nonzero(previous);
+        let sequence = SequenceNumber::new(previous).next().get();
         let observed_at_utc = Utc::now();
         let message = Message::internal(
             sequence,

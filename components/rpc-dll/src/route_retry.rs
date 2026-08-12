@@ -18,11 +18,6 @@ pub(crate) fn delay_ms(attempt: u32) -> u32 {
         .unwrap_or(DELAYS_MS[DELAYS_MS.len() - 1])
 }
 
-#[cfg_attr(test, allow(dead_code))]
-pub(crate) const fn tick_reached(now: u32, target: u32) -> bool {
-    crate::wrapping_time::deadline_reached(now, target)
-}
-
 pub(crate) fn stalled(now: u32, last_progress_tick: u32) -> bool {
     crate::wrapping_time::deadline_reached(now, last_progress_tick.wrapping_add(STALL_TIMEOUT_MS))
 }

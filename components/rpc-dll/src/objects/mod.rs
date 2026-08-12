@@ -309,14 +309,8 @@ pub(crate) fn object_model(raw: RawWorldObject) -> WorldObject {
     }
 }
 
-#[cfg(windows)]
 fn decode_name(bytes: &[u8]) -> Option<String> {
     crate::client_text::decode(bytes)
-}
-
-#[cfg(not(windows))]
-fn decode_name(bytes: &[u8]) -> Option<String> {
-    (!bytes.is_empty()).then(|| String::from_utf8_lossy(bytes).into_owned())
 }
 
 const fn object_id(object: RawWorldObject) -> u32 {

@@ -4,7 +4,7 @@
 mod actions;
 #[cfg(any(windows, test))]
 mod atomic_sequence;
-#[cfg(windows)]
+#[cfg(any(windows, test))]
 mod client_text;
 #[cfg(any(windows, test))]
 mod collections;

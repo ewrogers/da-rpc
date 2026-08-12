@@ -487,6 +487,9 @@ fn publish_location_update(update: QueuedLocationUpdate, map_changed: bool, tick
         if let Some(update) = unsafe { OBJECTS.clear() } {
             push_event(QueuedStateUpdate::Object(update), tick_ms);
         }
+        if let Some(id) = unsafe { CACHE.self_id() } {
+            crate::player::refresh_self(id);
+        }
     } else {
         observe_self_position(update.x, update.y, tick_ms);
     }
@@ -557,10 +560,15 @@ pub(crate) fn observe_world(update: WorldUpdate, objects: &RawObjects, tick_ms: 
 
 pub(crate) fn observed_player(id: u32) -> Option<RawWorldObject> {
     // SAFETY: callers run on the client main thread, which owns the cache.
-    match unsafe { OBJECTS.get(id) } {
+    match unsafe { OBJECTS.get(id).or_else(|| CACHE.self_entity(id)) } {
         Some(player @ RawWorldObject::Player { .. }) => Some(player),
         _ => None,
     }
+}
+
+pub(crate) fn self_id() -> Option<u32> {
+    // SAFETY: callers run on the client main thread, which owns the cache.
+    unsafe { CACHE.self_id() }
 }
 
 pub(crate) fn observe_message(message: ParsedMessage<'_>, tick_ms: u32) {

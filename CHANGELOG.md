@@ -2,8 +2,13 @@
 
 ## Unreleased
 
+## 1.2.3 - 2026-08-12
+
 ### Fixed
 
+- Retried the automatic self inspection after the initial map transition so
+  character identity fields, including player class, populate without clicking
+  the local player.
 - Cleared walking and planned-route state when the client changes maps.
 
 ## 1.2.2 - 2026-08-12

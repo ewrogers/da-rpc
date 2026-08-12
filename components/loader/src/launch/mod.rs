@@ -330,12 +330,13 @@ mod platform {
         arguments: &[OsString],
         dll: &DarpcDll,
         patches: LaunchPatches,
+        apply_default_patches: bool,
     ) -> Result<LaunchOutcome> {
         let (executable, current_directory) = validate_executable(executable_path)?;
         let mut child = SuspendedChild::create(&executable, &current_directory, arguments)?;
         let pid = child.pid();
 
-        if let Err(error) = patch::apply(child.process(), patches) {
+        if let Err(error) = patch::apply(child.process(), patches, apply_default_patches) {
             return Err(cleanup_launch_error(&mut child, error));
         }
 
@@ -537,15 +538,28 @@ pub(crate) fn launch(
     arguments: &[OsString],
     dll: &DarpcDll,
     patches: LaunchPatches,
+    apply_default_patches: bool,
 ) -> Result<LaunchOutcome> {
     #[cfg(windows)]
     {
-        platform::run(executable_path, arguments, dll, patches)
+        platform::run(
+            executable_path,
+            arguments,
+            dll,
+            patches,
+            apply_default_patches,
+        )
     }
 
     #[cfg(not(windows))]
     {
-        let _ = (executable_path, arguments, dll, patches);
+        let _ = (
+            executable_path,
+            arguments,
+            dll,
+            patches,
+            apply_default_patches,
+        );
         Err(LoaderError::new(
             ErrorKind::UnsupportedPlatform,
             "loader requires Windows",

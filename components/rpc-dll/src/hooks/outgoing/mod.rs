@@ -50,7 +50,9 @@ pub(crate) struct OutgoingHealth {
     pub(crate) observation_count: u32,
     pub(crate) read_failure_count: u32,
     pub(crate) prioritized_heartbeat_count: u32,
+    pub(crate) delivered_heartbeat_count: u32,
     pub(crate) heartbeat_fallback_count: u32,
+    pub(crate) pending_heartbeat_count: usize,
 }
 
 impl OutgoingHook {
@@ -142,7 +144,9 @@ pub(crate) fn health() -> OutgoingHealth {
         observation_count: OUTGOING_OBSERVATION_COUNT.load(Ordering::Acquire),
         read_failure_count: OUTGOING_READ_FAILURE_COUNT.load(Ordering::Acquire),
         prioritized_heartbeat_count: heartbeat.prioritized_count,
+        delivered_heartbeat_count: heartbeat.delivered_count,
         heartbeat_fallback_count: heartbeat.fallback_count,
+        pending_heartbeat_count: heartbeat.pending_count,
     }
 }
 

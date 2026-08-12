@@ -19,8 +19,8 @@ pub use runtime::{
 };
 #[cfg(any(windows, test))]
 pub use runtime::{
-    CLIENT_TRANSPORT_POP_ENTRY, CLIENT_TRANSPORT_POP_RVA, CLIENT_TRANSPORT_SUBMIT_ENTRY,
-    CLIENT_TRANSPORT_SUBMIT_RVA,
+    CLIENT_TRANSPORT_EMPTY_ENTRY, CLIENT_TRANSPORT_EMPTY_RVA, CLIENT_TRANSPORT_POP_ENTRY,
+    CLIENT_TRANSPORT_POP_RVA, CLIENT_TRANSPORT_SUBMIT_ENTRY, CLIENT_TRANSPORT_SUBMIT_RVA,
 };
 pub use state::{
     ABILITY_SLOT_COUNT, EFFECT_SLOT_COUNT, EQUIPMENT_SLOT_COUNT, GROUP_INVITATION_CAPACITY,
@@ -59,6 +59,25 @@ pub struct LaunchPatch {
     pub expected: &'static [u8],
     pub replacement: &'static [u8],
 }
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BootstrapSequencePatch {
+    pub hello_submit_call_rva: u32,
+    pub hello_submit_call_expected: &'static [u8],
+    pub late_reset_call_rva: u32,
+    pub late_reset_call_expected: &'static [u8],
+    pub reset_sequence_rva: u32,
+    pub submit_packet_rva: u32,
+}
+
+pub const BOOTSTRAP_SEQUENCE_PATCH: BootstrapSequencePatch = BootstrapSequencePatch {
+    hello_submit_call_rva: 0x0017_9849,
+    hello_submit_call_expected: &[0xE8, 0xB2, 0xA5, 0xFE, 0xFF],
+    late_reset_call_rva: 0x0017_993A,
+    late_reset_call_expected: &[0xE8, 0xA1, 0xA4, 0xFE, 0xFF],
+    reset_sequence_rva: 0x0016_3DE0,
+    submit_packet_rva: 0x0016_3E00,
+};
 
 pub const ALLOW_MULTIPLE_PATCHES: &[LaunchPatch] = &[LaunchPatch {
     name: "allow multiple clients",
@@ -220,8 +239,8 @@ fn encode_hash(hash: &[u8; 32]) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        ALLOW_MULTIPLE_PATCHES, COMMAND_LINE_ENDPOINT_PATCHES, ClientExecutable,
-        DISABLE_ENDPOINT_FALLBACK_PATCHES, EXECUTABLE_SHA256, EXECUTABLE_SIZE,
+        ALLOW_MULTIPLE_PATCHES, BOOTSTRAP_SEQUENCE_PATCH, COMMAND_LINE_ENDPOINT_PATCHES,
+        ClientExecutable, DISABLE_ENDPOINT_FALLBACK_PATCHES, EXECUTABLE_SHA256, EXECUTABLE_SIZE,
         SKIP_EXCHANGE_ALERTS_PATCHES, SKIP_INTRO_PATCHES, SKIP_NOTICE_PATCHES, executable_sha256,
     };
     use std::{fs, process};
@@ -263,6 +282,18 @@ mod tests {
                 assert!(end <= other_start || other_end <= start);
             }
         }
+    }
+
+    #[test]
+    fn bootstrap_sequence_patch_identifies_two_call_sites() {
+        assert_eq!(BOOTSTRAP_SEQUENCE_PATCH.hello_submit_call_expected[0], 0xE8);
+        assert_eq!(BOOTSTRAP_SEQUENCE_PATCH.hello_submit_call_expected.len(), 5);
+        assert_eq!(BOOTSTRAP_SEQUENCE_PATCH.late_reset_call_expected[0], 0xE8);
+        assert_eq!(BOOTSTRAP_SEQUENCE_PATCH.late_reset_call_expected.len(), 5);
+        assert_ne!(
+            BOOTSTRAP_SEQUENCE_PATCH.hello_submit_call_rva,
+            BOOTSTRAP_SEQUENCE_PATCH.late_reset_call_rva
+        );
     }
 
     #[test]

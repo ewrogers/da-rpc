@@ -68,7 +68,7 @@ The executable path is also supplied explicitly as its `argv[0]`.
 | `inspect` | Validate a running process and report whether the supported DLL is loaded. |
 | `attach` | Validate a running process, inject the DLL, and confirm the loaded module. |
 | `detach` | Ask the DLL to unload cleanly and confirm that the module is gone. |
-| `launch` | Create a supported client in a suspended state, apply selected startup options, inject the DLL, then resume it. |
+| `launch` | Create a supported client in a suspended state, apply the default bootstrap fix and selected startup options, inject the DLL, then resume it. |
 
 `--json` is a global output flag and must precede the command. It writes one
 machine-readable result to standard output while keeping diagnostics on
@@ -80,9 +80,20 @@ loader.exe --json attach 3780 .\darpc.dll
 loader.exe detach 3780 .\darpc.dll
 ```
 
-The five launch options are independent, may be combined, and are disabled by
-default. They apply only to a new suspended child. `attach` never modifies
-client startup behavior.
+The five optional launch patches are independent, may be combined, and are
+disabled by default. Every supported-client launch also applies a mandatory
+bootstrap sequence patch before the child resumes. It resets the outgoing
+encrypted-packet sequence before `CHello` enters the communications worker,
+then removes the original late reset. This keeps `CHello` at sequence zero and
+the later `CMulti` at sequence one even when the worker runs immediately.
+
+All startup patches apply only to a new suspended child. `attach` never
+modifies client startup behavior. The loader validates the exact 7.41
+executable fingerprint and both original bootstrap call sites, writes and
+verifies an executable 12-byte bridge, restores code-page protections, and
+flushes the instruction cache before resuming. Any mismatch or incomplete
+write terminates the still-suspended child rather than starting it partially
+patched.
 
 | Launch option | Behavior |
 | --- | --- |
@@ -353,5 +364,7 @@ client follows its normal disconnected cleanup and does not retry the compiled
 official endpoint.
 
 The loader-owned startup patches run between suspended process validation and
-DLL initialization. Hooks and trampolines owned by daRPC remain the
-responsibility of `darpc_initialize` and `darpc_shutdown`.
+DLL initialization. The bootstrap sequence patch is always included for a
+validated 7.41 launch; the flags above control only their named optional
+patches. Hooks and trampolines owned by daRPC remain the responsibility of
+`darpc_initialize` and `darpc_shutdown`.

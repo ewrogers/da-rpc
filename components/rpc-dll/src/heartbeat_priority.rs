@@ -50,6 +50,12 @@ impl PriorityQueue {
             .position(|entry| entry.is_some_and(|entry| entry.queue == queue))?;
         Some(self.remove(index).descriptor)
     }
+
+    fn has_for(&self, queue: usize) -> bool {
+        self.entries[..self.len]
+            .iter()
+            .any(|entry| entry.is_some_and(|entry| entry.queue == queue))
+    }
 }
 
 static PRIORITY_QUEUE: Mutex<PriorityQueue> = Mutex::new(PriorityQueue::new());
@@ -86,8 +92,18 @@ pub(crate) fn pop_for(queue: usize) -> Option<Descriptor> {
     lock_queue().pop_for(queue)
 }
 
+#[cfg(windows)]
+pub(crate) fn has_for(queue: usize) -> bool {
+    lock_queue().has_for(queue)
+}
+
 pub(crate) fn is_empty() -> bool {
     lock_queue().len == 0
+}
+
+#[cfg(windows)]
+pub(crate) fn len() -> usize {
+    lock_queue().len
 }
 
 #[cfg(test)]
@@ -138,8 +154,30 @@ mod tests {
             queue: 2,
             descriptor: descriptor(20)
         }));
+        assert!(queue.has_for(1));
+        assert!(queue.has_for(2));
+        assert!(!queue.has_for(3));
         assert_eq!(queue.pop_for(2), Some(descriptor(20)));
+        assert!(!queue.has_for(2));
+        assert!(queue.has_for(1));
         assert_eq!(queue.pop_for(1), Some(descriptor(10)));
+    }
+
+    #[test]
+    fn priority_entry_makes_an_empty_native_queue_appear_non_empty() {
+        let mut priority = PriorityQueue::new();
+        let native_empty = true;
+
+        assert!(native_empty && !priority.has_for(7));
+        assert!(priority.push(Entry {
+            queue: 7,
+            descriptor: descriptor(45),
+        }));
+        assert!(!(native_empty && !priority.has_for(7)));
+        assert!(native_empty && !priority.has_for(8));
+
+        assert_eq!(priority.pop_for(7), Some(descriptor(45)));
+        assert!(native_empty && !priority.has_for(7));
     }
 
     #[test]

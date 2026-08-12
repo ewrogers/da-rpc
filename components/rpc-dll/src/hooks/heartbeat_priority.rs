@@ -1,7 +1,7 @@
 use crate::heartbeat_priority::{self, DESCRIPTOR_WORDS};
 use darpc_game_client::{
-    CLIENT_TRANSPORT_POP_ENTRY, CLIENT_TRANSPORT_POP_RVA, CLIENT_TRANSPORT_SUBMIT_ENTRY,
-    CLIENT_TRANSPORT_SUBMIT_RVA,
+    CLIENT_TRANSPORT_EMPTY_ENTRY, CLIENT_TRANSPORT_EMPTY_RVA, CLIENT_TRANSPORT_POP_ENTRY,
+    CLIENT_TRANSPORT_POP_RVA, CLIENT_TRANSPORT_SUBMIT_ENTRY, CLIENT_TRANSPORT_SUBMIT_RVA,
 };
 use darpc_hook::{DetourActivity, DetourError, InstallError, InstalledDetour};
 use std::{
@@ -26,26 +26,34 @@ const TRANSPORT_SEMAPHORE_OFFSET: usize = 0x14;
 static HEARTBEAT_SUBMIT_ACTIVITY: DetourActivity = DetourActivity::new();
 #[unsafe(no_mangle)]
 static HEARTBEAT_POP_ACTIVITY: DetourActivity = DetourActivity::new();
+#[unsafe(no_mangle)]
+static HEARTBEAT_EMPTY_ACTIVITY: DetourActivity = DetourActivity::new();
 static HEARTBEAT_SUBMIT_TRAMPOLINE: AtomicUsize = AtomicUsize::new(0);
 static HEARTBEAT_POP_TRAMPOLINE: AtomicUsize = AtomicUsize::new(0);
+static HEARTBEAT_EMPTY_TRAMPOLINE: AtomicUsize = AtomicUsize::new(0);
 static PRIORITIZED_COUNT: AtomicU32 = AtomicU32::new(0);
+static DELIVERED_COUNT: AtomicU32 = AtomicU32::new(0);
 static FALLBACK_COUNT: AtomicU32 = AtomicU32::new(0);
 
 pub(crate) struct HeartbeatPriorityHook {
     submit: InstalledDetour,
     pop: InstalledDetour,
+    empty: InstalledDetour,
     install_warning: Option<io::Error>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct Health {
     pub(crate) prioritized_count: u32,
+    pub(crate) delivered_count: u32,
     pub(crate) fallback_count: u32,
+    pub(crate) pending_count: usize,
 }
 
 impl HeartbeatPriorityHook {
     pub(crate) fn install() -> Result<Self, InstallError> {
         PRIORITIZED_COUNT.store(0, Ordering::Release);
+        DELIVERED_COUNT.store(0, Ordering::Release);
         FALLBACK_COUNT.store(0, Ordering::Release);
 
         let (mut pop, pop_warning) = install_detour(
@@ -55,12 +63,12 @@ impl HeartbeatPriorityHook {
             &HEARTBEAT_POP_ACTIVITY,
             &HEARTBEAT_POP_TRAMPOLINE,
         )?;
-        let (submit, submit_warning) = match install_detour(
-            CLIENT_TRANSPORT_SUBMIT_RVA,
-            &CLIENT_TRANSPORT_SUBMIT_ENTRY,
-            transport_submit_detour as *mut u8,
-            &HEARTBEAT_SUBMIT_ACTIVITY,
-            &HEARTBEAT_SUBMIT_TRAMPOLINE,
+        let (mut empty, empty_warning) = match install_detour(
+            CLIENT_TRANSPORT_EMPTY_RVA,
+            &CLIENT_TRANSPORT_EMPTY_ENTRY,
+            transport_empty_detour as *mut u8,
+            &HEARTBEAT_EMPTY_ACTIVITY,
+            &HEARTBEAT_EMPTY_TRAMPOLINE,
         ) {
             Ok(installed) => installed,
             Err(error) => {
@@ -70,11 +78,30 @@ impl HeartbeatPriorityHook {
                 return Err(error);
             }
         };
+        let (submit, submit_warning) = match install_detour(
+            CLIENT_TRANSPORT_SUBMIT_RVA,
+            &CLIENT_TRANSPORT_SUBMIT_ENTRY,
+            transport_submit_detour as *mut u8,
+            &HEARTBEAT_SUBMIT_ACTIVITY,
+            &HEARTBEAT_SUBMIT_TRAMPOLINE,
+        ) {
+            Ok(installed) => installed,
+            Err(error) => {
+                let empty_rollback =
+                    uninstall_detour(&mut empty, &HEARTBEAT_EMPTY_TRAMPOLINE).err();
+                let pop_rollback = uninstall_detour(&mut pop, &HEARTBEAT_POP_TRAMPOLINE).err();
+                if let Some(rollback) = empty_rollback.or(pop_rollback) {
+                    return Err(InstallError::from(rollback));
+                }
+                return Err(error);
+            }
+        };
 
         Ok(Self {
             submit,
             pop,
-            install_warning: pop_warning.or(submit_warning),
+            empty,
+            install_warning: pop_warning.or(empty_warning).or(submit_warning),
         })
     }
 
@@ -97,14 +124,18 @@ impl HeartbeatPriorityHook {
         }
         let pop_changed = uninstall_detour(&mut self.pop, &HEARTBEAT_POP_TRAMPOLINE)
             .map_err(support::detour_error)?;
-        Ok(submit_changed || pop_changed)
+        let empty_changed = uninstall_detour(&mut self.empty, &HEARTBEAT_EMPTY_TRAMPOLINE)
+            .map_err(support::detour_error)?;
+        Ok(submit_changed || pop_changed || empty_changed)
     }
 }
 
 pub(crate) fn health() -> Health {
     Health {
         prioritized_count: PRIORITIZED_COUNT.load(Ordering::Acquire),
+        delivered_count: DELIVERED_COUNT.load(Ordering::Acquire),
         fallback_count: FALLBACK_COUNT.load(Ordering::Acquire),
+        pending_count: heartbeat_priority::len(),
     }
 }
 
@@ -120,7 +151,7 @@ fn install_detour(
     let entry_label = format!("heartbeat priority entry at RVA 0x{rva:08X}");
     support::validate_bytes(target, expected, &entry_label)?;
     // SAFETY: the supported executable identity and exact entry bytes are
-    // validated, and both detours preserve their native thiscall ABIs.
+    // validated, and all detours preserve their native thiscall ABIs.
     let mut prepared = unsafe {
         support::prepare_detour(
             target,
@@ -215,6 +246,27 @@ unsafe extern "thiscall" fn transport_pop_detour(
     );
 }
 
+#[unsafe(naked)]
+unsafe extern "thiscall" fn transport_empty_detour(_queue: *mut core::ffi::c_void) {
+    core::arch::naked_asm!(
+        "lock inc dword ptr [{activity}]",
+        "push ecx",
+        "call {has_priority}",
+        "pop ecx",
+        "test eax, eax",
+        "jz 1f",
+        "lock dec dword ptr [{activity}]",
+        "xor eax, eax",
+        "ret",
+        "1:",
+        "lock dec dword ptr [{activity}]",
+        "jmp dword ptr [{trampoline}]",
+        activity = sym HEARTBEAT_EMPTY_ACTIVITY,
+        has_priority = sym has_priority_for,
+        trampoline = sym HEARTBEAT_EMPTY_TRAMPOLINE,
+    );
+}
+
 extern "C" fn prioritize_submit(network: usize, kind: usize, buffer: usize, length: usize) -> u32 {
     u32::from(
         panic::catch_unwind(|| {
@@ -271,10 +323,15 @@ extern "C" fn pop_priority(queue: usize, output: *mut usize) -> u32 {
             unsafe {
                 ptr::copy_nonoverlapping(descriptor.as_ptr(), output, DESCRIPTOR_WORDS);
             }
+            DELIVERED_COUNT.fetch_add(1, Ordering::Relaxed);
             true
         })
         .unwrap_or(false),
     )
+}
+
+extern "C" fn has_priority_for(queue: usize) -> u32 {
+    u32::from(panic::catch_unwind(|| heartbeat_priority::has_for(queue)).unwrap_or(false))
 }
 
 fn read_usize(address: usize) -> Option<usize> {

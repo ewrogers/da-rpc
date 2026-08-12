@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 1.2.2 - 2026-08-12
+
+### Fixed
+
+- Made every new supported-client launch reset the encrypted outgoing packet
+  sequence before queuing `CHello`, preventing a bootstrap race that could
+  reuse sequence zero for `CMulti` and disconnect before server transfer.
+- Made the heartbeat priority queue participate in the client's native FIFO
+  empty check so an otherwise idle client wakes and sends its queued heartbeat
+  instead of waiting for unrelated outgoing traffic.
+
 ## 1.2.1 - 2026-08-11
 
 ### Added

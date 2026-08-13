@@ -79,13 +79,13 @@ replanning. If a later step becomes blocked, daRPC resets the route and emits
 replan. Split longer paths into segments and wait for route or location events
 before submitting the next segment.
 
-Direct installation is implemented and passes static, codec, and native Windows
-tests, but it has not yet completed its first live-client trial. For that trial,
-use an open area with no warp or nearby entity and submit the confirmed current
-tile plus only two or three walkable cardinal edges. Watch
-`walking.route_changed`, `walking.started`, and `location.changed`; stop with
-ordinary player movement if the observed route or first step differs. Test a
-warp-ending segment only after that short route behaves normally.
+Direct installation passes static, codec, native Windows, and live client
+tests. The initial live trial installed two cardinal edges on the supported
+7.41 client, reached both confirmed tiles, emitted `walking.route_changed`,
+`walking.started`, `location.changed`, and `walking.stopped`, and cleared the
+route afterward. Repeat this short open-area trial before treating another
+client fingerprint as supported. Test a warp-ending segment only after that
+trial behaves normally.
 
 Never include two maps in one route. End a map segment on its warp tile, wait
 for the atomic `location.changed` event containing the new map and entry

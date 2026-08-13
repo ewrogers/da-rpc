@@ -1,4 +1,5 @@
 use super::{module_base, read};
+use crate::hooks::path::{CanMoveFn, native_edge_allowed};
 use crate::process_memory::ProcessValue;
 use crate::route_retry;
 use darpc_game_client::{
@@ -29,7 +30,6 @@ type ResetFn = unsafe extern "thiscall" fn(*mut c_void, u8) -> usize;
 type AdvanceFn = unsafe extern "thiscall" fn(*mut c_void) -> usize;
 type BuildPathFn = unsafe extern "thiscall" fn(*mut c_void, i32, i32, i32, i32, u8) -> usize;
 type InteractFn = unsafe extern "thiscall" fn(*mut c_void, u32) -> usize;
-type CanMoveFn = unsafe extern "thiscall" fn(*mut c_void, i32, i32, u8, u8) -> usize;
 type PushRouteStepFn = unsafe extern "thiscall" fn(*mut c_void, *const PathRouteStep) -> usize;
 
 #[derive(Clone, Copy)]
@@ -526,23 +526,20 @@ impl Movement {
 
     fn route_step_allowed(&self, source: RouteTile, direction: Direction) -> bool {
         // SAFETY: the supported client fingerprint fixes this helper and ABI.
-        // Coordinates were checked against the live map dimensions above.
+        // Coordinates were checked against the live map dimensions above. The
+        // native helper takes x before y even though route records store y
+        // before x.
         let can_move = self.can_move_fn();
+        // SAFETY: this live WorldPane and the in-map source coordinates meet
+        // the native collision helper's requirements.
         unsafe {
-            can_move(
+            native_edge_allowed(
+                can_move,
                 self.world.as_ptr(),
-                i32::from(source.y),
                 i32::from(source.x),
+                i32::from(source.y),
                 direction.raw(),
-                1,
-            ) != 0
-                && can_move(
-                    self.world.as_ptr(),
-                    i32::from(source.y),
-                    i32::from(source.x),
-                    direction.raw(),
-                    0,
-                ) != 0
+            )
         }
     }
 

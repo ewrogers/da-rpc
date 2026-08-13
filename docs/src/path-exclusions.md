@@ -76,11 +76,12 @@ Use an exact route when the external planner must choose every edge, including
 an intentional final step onto an excluded warp tile.
 
 The registry, atomic activation, protocol, and API paths pass native Windows
-tests. The added rejection at the supported client's live breadth-first-search
-call site has not yet completed its first live-client trial. A safe first check
-uses one harmless open-area tile, compares a nearby native route before and
-after the `PUT`, and removes the test resource immediately afterward. Do not use
-a warp tile for that initial check.
+and live client tests. The initial live trial added one known-open tile on the
+supported 7.41 client, confirmed that destination pathfinding failed with
+`no_path` without moving, observed `map.exclusions_changed` for both replacement
+and removal, and verified that the registry was empty afterward. Repeat this
+reversible open-area check before treating another client fingerprint as
+supported. Do not use a warp tile for that check.
 
 ## Change events
 

@@ -21,7 +21,7 @@ const INSTALL_TIMEOUT: Duration = Duration::from_secs(5);
 const UNINSTALL_TIMEOUT: Duration = Duration::from_secs(5);
 const COMMIT_RETRY_INTERVAL: Duration = Duration::from_millis(1);
 
-type CanMoveFn = unsafe extern "thiscall" fn(*mut c_void, i32, i32, u8, u8) -> usize;
+pub(crate) type CanMoveFn = unsafe extern "thiscall" fn(*mut c_void, i32, i32, u8, u8) -> usize;
 type WalkFn = unsafe extern "thiscall" fn(*mut c_void, u8) -> usize;
 type ResetFn = unsafe extern "thiscall" fn(*mut c_void, u8) -> usize;
 
@@ -306,8 +306,8 @@ unsafe extern "thiscall" fn route_collision_detour(
 
 unsafe extern "thiscall" fn combined_route_can_move(
     world: *mut c_void,
-    y: i32,
     x: i32,
+    y: i32,
     direction: u8,
     _mode: u8,
 ) -> usize {
@@ -319,14 +319,9 @@ unsafe extern "thiscall" fn combined_route_can_move(
         // SAFETY: the exact client fingerprint fixes this RVA and ABI. The
         // native caller supplies its validated live WorldPane and coordinates.
         let can_move: CanMoveFn = unsafe { mem::transmute(address) };
-        // SAFETY: the same native invariants hold for both supported collision
-        // modes. Mode 1 preserves live changes and known dynamic occupants.
-        if unsafe { can_move(world, y, x, direction, 1) } == 0 {
-            return 0;
-        }
-        // SAFETY: mode 0 adds collision from complete raw map storage, so
-        // off-screen statics are not mistaken for empty cells.
-        if unsafe { can_move(world, y, x, direction, 0) } == 0 {
+        // SAFETY: the native caller supplied a validated live WorldPane and
+        // in-map source coordinates.
+        if !unsafe { native_edge_allowed(can_move, world, x, y, direction) } {
             return 0;
         }
         let Some((destination_x, destination_y)) = step_destination(x, y, direction) else {
@@ -348,6 +343,23 @@ unsafe extern "thiscall" fn combined_route_can_move(
         ))
     })
     .unwrap_or(0)
+}
+
+pub(crate) unsafe fn native_edge_allowed(
+    can_move: CanMoveFn,
+    world: *mut c_void,
+    x: i32,
+    y: i32,
+    direction: u8,
+) -> bool {
+    // SAFETY: callers provide the exact client helper and its validated live
+    // WorldPane. Mode 1 preserves live changes and known dynamic occupants.
+    if unsafe { can_move(world, x, y, direction, 1) } == 0 {
+        return false;
+    }
+    // SAFETY: the same native invariants hold for mode 0, which adds
+    // collision from complete raw map storage.
+    unsafe { can_move(world, x, y, direction, 0) != 0 }
 }
 
 fn step_destination(x: i32, y: i32, direction: u8) -> Option<(i32, i32)> {
@@ -460,11 +472,32 @@ extern "C" fn observe_path(world: *const c_void, result: usize) {
 
 #[cfg(test)]
 mod tests {
-    use super::{step_destination, support};
+    use super::{native_edge_allowed, step_destination, support};
     use darpc_game_client::{
         BUILD_BREADTH_FIRST_PATH_ENTRY, QUEUED_STEP_CALL, ROUTE_COLLISION_CALL,
     };
-    use std::ptr::NonNull;
+    use std::{
+        ffi::c_void,
+        ptr::NonNull,
+        sync::atomic::{AtomicI32, AtomicU8, Ordering},
+    };
+
+    static SEEN_X: AtomicI32 = AtomicI32::new(0);
+    static SEEN_Y: AtomicI32 = AtomicI32::new(0);
+    static SEEN_MODE: AtomicU8 = AtomicU8::new(u8::MAX);
+
+    unsafe extern "thiscall" fn allow_edge(
+        _world: *mut c_void,
+        x: i32,
+        y: i32,
+        _direction: u8,
+        mode: u8,
+    ) -> usize {
+        SEEN_X.store(x, Ordering::Relaxed);
+        SEEN_Y.store(y, Ordering::Relaxed);
+        SEEN_MODE.store(mode, Ordering::Relaxed);
+        1
+    }
 
     #[test]
     fn validates_all_path_control_sites() {
@@ -489,5 +522,15 @@ mod tests {
         assert_eq!(step_destination(4, 5, 2), Some((4, 6)));
         assert_eq!(step_destination(4, 5, 3), Some((3, 5)));
         assert_eq!(step_destination(4, 5, 4), None);
+    }
+
+    #[test]
+    fn passes_native_collision_coordinates_as_x_then_y() {
+        // SAFETY: the fake helper ignores its null WorldPane and only records
+        // the scalar ABI arguments supplied by the wrapper.
+        assert!(unsafe { native_edge_allowed(allow_edge, std::ptr::null_mut(), 4, 9, 2) });
+        assert_eq!(SEEN_X.load(Ordering::Relaxed), 4);
+        assert_eq!(SEEN_Y.load(Ordering::Relaxed), 9);
+        assert_eq!(SEEN_MODE.load(Ordering::Relaxed), 0);
     }
 }

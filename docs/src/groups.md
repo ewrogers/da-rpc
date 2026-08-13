@@ -110,9 +110,12 @@ unknown or already closed ID returns `404`.
 later by `group.joined` or another roster event.
 
 The client refreshes its self-look data after an answer and briefly after an
-outgoing invitation. While grouped, it also refreshes the roster every two
-seconds. This catches joins, departures, and disbands even when the game does
-not send fresh self-look data to every member at the same moment.
+outgoing invitation. The self-look roster is `Adventuring alone` while solo or
+a newline-delimited list headed by `Group members` while grouped. The list ends
+with `Total n`, and a leading `*` marks the leader. While grouped, daRPC
+refreshes the roster every two seconds. This catches joins, departures, and
+disbands even when the game does not send fresh self-look data to every member
+at the same moment.
 
 ## Live group events
 

@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 1.2.5 - 2026-08-13
+
+### Fixed
+
+- Read group membership and the leader marker from the server's self-look
+  roster instead of an invalid client-memory layout.
+- Refresh group membership after server-confirmed joins and disbands without
+  opening the client's self-look interface.
+
 ## 1.2.4 - 2026-08-12
 
 ### Fixed

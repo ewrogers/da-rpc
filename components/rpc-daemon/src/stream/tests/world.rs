@@ -36,6 +36,7 @@ fn collection_updates_keep_the_requested_public_event_names() {
                 prompt: None,
                 cooldown: CooldownStatus {
                     active: false,
+                    cooldown_ms: None,
                     remaining_ms: None,
                 },
             }),
@@ -54,6 +55,7 @@ fn collection_updates_keep_the_requested_public_event_names() {
                 max_level: 100,
                 cooldown: CooldownStatus {
                     active: false,
+                    cooldown_ms: None,
                     remaining_ms: None,
                 },
             }),
@@ -65,6 +67,7 @@ fn collection_updates_keep_the_requested_public_event_names() {
                 max_level: 100,
                 cooldown: CooldownStatus {
                     active: false,
+                    cooldown_ms: None,
                     remaining_ms: None,
                 },
             }),
@@ -109,6 +112,7 @@ fn cooldown_only_updates_emit_specialized_events_instead_of_changed() {
         max_level: 100,
         cooldown: CooldownStatus {
             active: false,
+            cooldown_ms: None,
             remaining_ms: None,
         },
     };
@@ -123,6 +127,7 @@ fn cooldown_only_updates_emit_specialized_events_instead_of_changed() {
         prompt: None,
         cooldown: CooldownStatus {
             active: false,
+            cooldown_ms: None,
             remaining_ms: None,
         },
     };
@@ -138,12 +143,14 @@ fn cooldown_only_updates_emit_specialized_events_instead_of_changed() {
                 after: Some(ModelSkill {
                     cooldown: CooldownStatus {
                         active: true,
+                        cooldown_ms: Some(1_000),
                         remaining_ms: Some(750),
                     },
                     ..skill
                 }),
             }),
             "skill.cooldown",
+            Some(1_000),
             Some(750),
         ),
         (
@@ -156,6 +163,7 @@ fn cooldown_only_updates_emit_specialized_events_instead_of_changed() {
                 after: Some(ModelSpell {
                     cooldown: CooldownStatus {
                         active: true,
+                        cooldown_ms: None,
                         remaining_ms: None,
                     },
                     ..spell
@@ -163,10 +171,11 @@ fn cooldown_only_updates_emit_specialized_events_instead_of_changed() {
             }),
             "spell.cooldown",
             None,
+            None,
         ),
     ];
 
-    for (sequence, (update, expected_name, remaining_ms)) in cases
+    for (sequence, (update, expected_name, cooldown_ms, remaining_ms)) in cases
         .into_iter()
         .enumerate()
         .map(|(index, case)| (u32::try_from(index + 1).unwrap(), case))
@@ -175,6 +184,12 @@ fn cooldown_only_updates_emit_specialized_events_instead_of_changed() {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].name(), expected_name);
         let json = serde_json::to_value(&events[0]).unwrap();
+        assert_eq!(
+            json["data"]
+                .get("cooldown_ms")
+                .and_then(|value| value.as_u64()),
+            cooldown_ms
+        );
         assert_eq!(
             json["data"]
                 .get("remaining_ms")
@@ -194,6 +209,7 @@ fn cooldown_completion_emits_ready_instead_of_changed() {
         max_level: 100,
         cooldown: CooldownStatus {
             active: true,
+            cooldown_ms: Some(1_000),
             remaining_ms: Some(1),
         },
     };
@@ -208,11 +224,13 @@ fn cooldown_completion_emits_ready_instead_of_changed() {
         prompt: None,
         cooldown: CooldownStatus {
             active: true,
+            cooldown_ms: None,
             remaining_ms: None,
         },
     };
     let ready = CooldownStatus {
         active: false,
+        cooldown_ms: None,
         remaining_ms: None,
     };
     let updates = [
@@ -267,6 +285,7 @@ fn metadata_and_cooldown_changes_emit_both_semantic_events() {
         max_level: 100,
         cooldown: CooldownStatus {
             active: false,
+            cooldown_ms: None,
             remaining_ms: None,
         },
     };
@@ -282,6 +301,7 @@ fn metadata_and_cooldown_changes_emit_both_semantic_events() {
                 level: 100,
                 cooldown: CooldownStatus {
                     active: true,
+                    cooldown_ms: Some(1_000),
                     remaining_ms: Some(750),
                 },
                 ..before

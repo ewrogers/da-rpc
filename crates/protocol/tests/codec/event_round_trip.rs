@@ -231,6 +231,7 @@ fn event_messages_round_trip() {
                             prompt: None,
                             cooldown: CooldownStatus {
                                 active: false,
+                                cooldown_ms: None,
                                 remaining_ms: None,
                             },
                         }),
@@ -253,6 +254,7 @@ fn event_messages_round_trip() {
                             max_level: 100,
                             cooldown: CooldownStatus {
                                 active: false,
+                                cooldown_ms: None,
                                 remaining_ms: None,
                             },
                         }),

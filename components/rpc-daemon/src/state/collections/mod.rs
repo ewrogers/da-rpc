@@ -12,6 +12,8 @@ use utoipa::ToSchema;
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, ToSchema)]
 pub(crate) struct CooldownStatus {
     active: bool,
+    /// Total cooldown duration in milliseconds when retained by the client.
+    cooldown_ms: Option<u32>,
     /// Milliseconds remaining when the client retains an expiry tick.
     remaining_ms: Option<u32>,
 }
@@ -20,6 +22,7 @@ impl From<ModelCooldownStatus> for CooldownStatus {
     fn from(value: ModelCooldownStatus) -> Self {
         Self {
             active: value.active,
+            cooldown_ms: value.cooldown_ms,
             remaining_ms: value.remaining_ms,
         }
     }

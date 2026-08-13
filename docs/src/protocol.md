@@ -56,10 +56,11 @@ advertises an inclusive, continuous range and the controller selects the
 highest version in the overlap. A peer must not advertise one continuous range
 across an incompatible major boundary. No overlap rejects the connection.
 
-The only currently supported version is 1.1 (`0x0101`). Version 1.1 adds exact
-route and path-exclusion commands plus obstruction events. Peers advertise only
-1.1 because these features can introduce command and event discriminants that
-a 1.0 decoder cannot interpret safely.
+The only currently supported version is 1.2 (`0x0102`). Version 1.1 added exact
+route and path-exclusion commands plus obstruction events. Version 1.2 adds the
+total skill cooldown duration to cooldown snapshots and collection updates.
+Peers advertise only 1.2 because these additions change message layouts or can
+introduce discriminants that earlier decoders cannot interpret safely.
 
 ## Message types
 
@@ -382,6 +383,12 @@ struct Spell {
     cooldown: CooldownStatus;
 }
 
+struct CooldownStatus {
+    active: bool;
+    cooldown_ms: Option<u32>;
+    remaining_ms: Option<u32>;
+}
+
 struct Effect {
     icon: u16;
     duration: EffectDuration;
@@ -458,8 +465,9 @@ carry their slot, appearance identifier, optional name, and their domain fields:
 inventory quantity, stackability, and durability, equipment durability, spell
 levels, lines, target type, optional text-input prompt, and cooldown, or skill
 levels and cooldown. Equipment slots use numeric values 1 through 18 on the
-wire and typed names in public presentation. A cooldown contains an active flag
-and an optional wrapping millisecond duration.
+wire and typed names in public presentation. A cooldown contains an active
+flag, an optional total duration in milliseconds, and an optional remaining
+duration in milliseconds.
 
 Unavailable reason values distinguish an absent hook, a bounded capture
 timeout, and a failed state walk. A ready response may still contain absent
@@ -468,7 +476,7 @@ groups when the client lifecycle or validated pointers do not expose them.
 still contain character state when the underlying world remains valid.
 These snapshot-tail additions remain compatible with their protocol 1.0
 encoding. The command and event additions documented below require protocol
-1.1.
+1.1. Total cooldown duration requires protocol 1.2.
 
 ## Event polling and state updates
 

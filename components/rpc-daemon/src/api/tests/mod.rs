@@ -164,6 +164,7 @@ fn game_snapshot() -> ModelClientSnapshot {
                     prompt: Some("Who?".into()),
                     cooldown: ModelCooldownStatus {
                         active: true,
+                        cooldown_ms: None,
                         remaining_ms: None,
                     },
                 },
@@ -178,6 +179,7 @@ fn game_snapshot() -> ModelClientSnapshot {
                     prompt: None,
                     cooldown: ModelCooldownStatus {
                         active: false,
+                        cooldown_ms: None,
                         remaining_ms: None,
                     },
                 },
@@ -192,6 +194,7 @@ fn game_snapshot() -> ModelClientSnapshot {
                     prompt: None,
                     cooldown: ModelCooldownStatus {
                         active: false,
+                        cooldown_ms: None,
                         remaining_ms: None,
                     },
                 },
@@ -204,6 +207,7 @@ fn game_snapshot() -> ModelClientSnapshot {
                 max_level: 100,
                 cooldown: ModelCooldownStatus {
                     active: true,
+                    cooldown_ms: Some(1_000),
                     remaining_ms: Some(750),
                 },
             }]),

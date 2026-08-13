@@ -1,6 +1,8 @@
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CooldownStatus {
     pub active: bool,
+    /// Total cooldown duration in milliseconds when retained by the client.
+    pub cooldown_ms: Option<u32>,
     /// Milliseconds remaining when the client retains an expiry tick.
     pub remaining_ms: Option<u32>,
 }

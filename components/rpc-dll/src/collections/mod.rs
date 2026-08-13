@@ -800,6 +800,27 @@ mod tests {
     }
 
     #[test]
+    fn skill_remaining_time_does_not_exceed_total_duration() {
+        let skill = skill_model(
+            RawSkill {
+                slot: 11,
+                icon: 91,
+                name: text(b"Throw"),
+                cooldown_started_at: 1_006,
+                cooldown_ends_at: 46_006,
+                cooldown_visual_active: true,
+                action_delay_active: false,
+                name_suffix_left: 0,
+                base_name_length: 0,
+            },
+            1_000,
+        );
+
+        assert_eq!(skill.cooldown.cooldown_ms, Some(45_000));
+        assert_eq!(skill.cooldown.remaining_ms, Some(45_000));
+    }
+
+    #[test]
     fn used_skill_is_polled_at_start_and_exact_expiry() {
         let mut tracker = CollectionTracker::new();
         tracker.watch_cooldown(CollectionKind::Skillbook, 3, 100);

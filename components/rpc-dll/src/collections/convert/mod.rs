@@ -32,6 +32,7 @@ pub(crate) fn spell(raw: RawSpell) -> Spell {
         },
         cooldown: CooldownStatus {
             active: raw.action_delay_active,
+            cooldown_ms: None,
             remaining_ms: None,
         },
     }
@@ -40,6 +41,15 @@ pub(crate) fn spell(raw: RawSpell) -> Spell {
 pub(crate) fn skill_model(raw: RawSkill, tick_ms: u32) -> Skill {
     let (name, level, max_level) =
         parsed_ability_name(raw.name, raw.name_suffix_left, raw.base_name_length);
+    let cooldown_ms = raw
+        .cooldown_visual_active
+        .then(|| raw.cooldown_ends_at.wrapping_sub(raw.cooldown_started_at))
+        .filter(|duration| *duration <= i32::MAX as u32);
+    let remaining_ms = raw
+        .cooldown_visual_active
+        .then(|| raw.cooldown_ends_at.wrapping_sub(tick_ms))
+        .filter(|remaining| *remaining <= i32::MAX as u32)
+        .map(|remaining| cooldown_ms.map_or(remaining, |duration| remaining.min(duration)));
     Skill {
         slot: raw.slot,
         icon: raw.icon,
@@ -48,10 +58,8 @@ pub(crate) fn skill_model(raw: RawSkill, tick_ms: u32) -> Skill {
         max_level,
         cooldown: CooldownStatus {
             active: raw.cooldown_visual_active || raw.action_delay_active,
-            remaining_ms: raw
-                .cooldown_visual_active
-                .then(|| raw.cooldown_ends_at.wrapping_sub(tick_ms))
-                .filter(|remaining| *remaining <= i32::MAX as u32),
+            cooldown_ms,
+            remaining_ms,
         },
     }
 }

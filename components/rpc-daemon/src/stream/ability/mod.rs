@@ -8,6 +8,8 @@ pub(crate) struct CooldownStarted {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) cooldown_ms: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) remaining_ms: Option<u32>,
 }
 

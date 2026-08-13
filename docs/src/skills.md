@@ -24,6 +24,7 @@ Each occupied slot includes:
 - `icon` and available `name`
 - Current `level` and `max_level`
 - `cooldown.active`
+- Optional `cooldown.cooldown_ms` containing the total cooldown duration
 - Optional `cooldown.remaining_ms` when the client retains an exact expiry
 
 A cooldown can be known to be active even when the exact remaining time is not
@@ -42,6 +43,12 @@ Skill {
     level: u8,
     max_level: u8,
     cooldown: Cooldown,
+}
+
+Cooldown {
+    active: bool,
+    cooldown_ms: u32?,
+    remaining_ms: u32?,
 }
 ```
 
@@ -133,11 +140,13 @@ swapping skills can update several slots in one batch. Identical same-slot
 updates are ignored.
 
 `skill.changed` is not emitted for a cooldown-only transition. A cooldown event
-contains `observation`, the one-based `slot`, optional `name`, and optional
-`remaining_ms`. A ready event contains `observation`, `slot`, and optional
-`name`. When the client exposes an exact skill expiry, daRPC schedules a read at
-that deadline. Otherwise it polls only the watched active slot until the skill
-is ready.
+contains `observation`, the one-based `slot`, optional `name`, optional
+`cooldown_ms`, and optional `remaining_ms`. `cooldown_ms` is the stable total
+duration, while `remaining_ms` is the time left at observation and never
+exceeds the total when both are present. A ready event
+contains `observation`, `slot`, and optional `name`. When the client exposes an
+exact skill expiry, daRPC schedules a read at that deadline. Otherwise it polls
+only the watched active slot until the skill is ready.
 
 ## Skill use event
 

@@ -146,8 +146,8 @@ fn leaves_a_group_open_by_default() {
         snapshot.clone(),
     );
     assert_routes_action_with_snapshot(
-        "/clients/42/group/toggle?leave_open=false",
-        "",
+        "/clients/42/group/toggle",
+        r#"{"leave_open":false}"#,
         CommandKind::Group(GroupCommand::Toggle),
         snapshot,
     );

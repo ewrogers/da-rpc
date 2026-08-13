@@ -662,6 +662,7 @@ async fn reject_request_body(request: Request<Body>, next: Next) -> Response {
             || request.uri().path().ends_with("/chant")
             || request.uri().path().ends_with("/messages/send")
             || request.uri().path().ends_with("/group/invite")
+            || request.uri().path().ends_with("/group/toggle")
             || request.uri().path().ends_with("/items/sell")
             || request.uri().path().ends_with("/items/sell-all")
             || request.uri().path().ends_with("/items/deposit")

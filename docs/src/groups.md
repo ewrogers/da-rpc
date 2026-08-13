@@ -68,14 +68,16 @@ when the character is not grouped.
 curl --request POST "http://127.0.0.1:2626/clients/ZiLo/group/toggle"
 ```
 
-The request has no body. When the character is adventuring alone, it toggles
-whether other players may invite them. When the character is already grouped,
-it leaves the group or disbands it for the leader, then reopens invitations by
-default:
+The request body is optional. When the character is adventuring alone, the
+route toggles whether other players may invite them. When the character is
+already grouped, it leaves the group or disbands it for the leader, then
+reopens invitations by default:
 
 ```console
 curl --request POST \
-  "http://127.0.0.1:2626/clients/ZiLo/group/toggle?leave_open=false"
+  --header "Content-Type: application/json" \
+  --data '{"leave_open":false}' \
+  "http://127.0.0.1:2626/clients/ZiLo/group/toggle"
 ```
 
 Set `leave_open=false` to retain the game's normal single-toggle behavior,

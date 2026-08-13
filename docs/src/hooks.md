@@ -130,11 +130,20 @@ dynamic occupants. The raw mode reads complete map storage, including statics
 outside the rendered viewport. The client's ordinary per-step live validator
 remains authoritative before any movement request is sent.
 
+The collision wrapper also consults a preallocated, map-tagged exclusion bit
+set after both native modes accept a candidate destination. A bounded sparse
+registry retains configured tile lists across map changes. The main thread
+builds the matching map into the inactive dense bitset and atomically swaps it
+active during a map transition. The hook only reads the last complete bitset,
+without locking, allocation, or a registry lookup.
+
 The failed-step wrapper checks the result that the stock queued-route code
-ignores. It performs the native full reset for a ground route, preserves the
-timed retry generation for entity pursuit, and retains a daRPC-requested ground
-destination for a next-tick replan. Replanning is deferred so breadth-first
-search is never entered recursively from the movement validator.
+ignores and publishes the rejected edge as `walking.obstructed`. It performs
+the native full reset for a ground route, preserves the timed retry generation
+for entity pursuit, and retains a daRPC-requested native destination for a
+next-tick replan. An injected exact route is cancelled without native
+replanning. Replanning is deferred so breadth-first search is never entered
+recursively from the movement validator.
 
 The path-builder entry hook runs after the client's breadth-first search succeeds.
 It reads the retained 12-byte step records, reverses their goal-to-start queue
@@ -147,6 +156,11 @@ tiles.
 The game-thread callback writes only to preallocated route buffers. Four event
 buffers bound pending revisions; exhaustion requests the normal snapshot
 resynchronization instead of blocking movement or allocating in the hook.
+
+Exact route commands validate a bounded, map-tagged cardinal tile sequence on
+the main thread. They use the client's native vector append helper to create
+12-byte `direction, source_y, source_x` records in goal-to-start order, publish
+the installed route, and start the first step through normal queued movement.
 
 ## Main-thread affinity
 

@@ -271,6 +271,7 @@ pub(crate) fn reset() {
     unsafe { COLLECTIONS.reset() };
     crate::legend::reset();
     crate::player::reset();
+    crate::path_exclusions::reset();
 }
 
 #[must_use]
@@ -287,6 +288,7 @@ pub(crate) fn stage_map_transition(
     name: &[u8],
     tick_ms: u32,
 ) {
+    crate::path_exclusions::activate(map_id);
     // SAFETY: the map-size hook runs on the client main thread, which is the
     // sole cache producer.
     let update = unsafe { CACHE.stage_map_transition(map_id, width, height, name) };
@@ -351,6 +353,19 @@ pub(crate) fn watch_ability_cooldown(kind: CollectionKind, slot: u8, tick_ms: u3
 pub(crate) fn mark_resync_required() {
     let missing_sequence = next_nonzero(&EVENT_SEQUENCE);
     QUEUE.mark_resync_required(missing_sequence);
+}
+
+#[cfg(all(windows, not(test)))]
+pub(crate) fn observe_movement(update: MovementUpdate, tick_ms: u32) {
+    push_event(QueuedStateUpdate::Movement(update), tick_ms);
+}
+
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn observe_path_exclusions(
+    update: crate::path_exclusions::QueuedPathExclusionsUpdate,
+    tick_ms: u32,
+) {
+    push_event(QueuedStateUpdate::MapExclusions(update), tick_ms);
 }
 
 #[must_use]

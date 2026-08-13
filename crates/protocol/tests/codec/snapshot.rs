@@ -8,6 +8,7 @@ fn snapshot_decoder_accepts_the_pre_dialog_protocol_1_0_tail() {
     snapshot.exchange = None;
     snapshot.legend = None;
     snapshot.planned_route = None;
+    snapshot.map_exclusions.clear();
     let frame = Frame::new(
         7,
         123,
@@ -147,6 +148,35 @@ fn snapshot_collections_are_strictly_validated() {
             length: 128,
             max: 127,
         })
+    );
+
+    let mut invalid_exclusion_map = snapshot();
+    invalid_exclusion_map.map_exclusions[0].map_id = 65_536;
+    assert_eq!(
+        encode_frame(&Frame::new(
+            0,
+            0,
+            Message::SnapshotResponse(SnapshotResponse {
+                request_id: 1,
+                result: SnapshotResult::Ready(Box::new(invalid_exclusion_map)),
+            }),
+        )),
+        Err(EncodeError::InvalidPathExclusionMapId { map_id: 65_536 })
+    );
+
+    let mut unordered_exclusion_maps = snapshot();
+    unordered_exclusion_maps.map_exclusions[1].map_id =
+        unordered_exclusion_maps.map_exclusions[0].map_id;
+    assert_eq!(
+        encode_frame(&Frame::new(
+            0,
+            0,
+            Message::SnapshotResponse(SnapshotResponse {
+                request_id: 1,
+                result: SnapshotResult::Ready(Box::new(unordered_exclusion_maps)),
+            }),
+        )),
+        Err(EncodeError::InvalidPathExclusionMapOrder { map_id: 3000 })
     );
 }
 

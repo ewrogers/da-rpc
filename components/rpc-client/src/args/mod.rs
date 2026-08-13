@@ -76,6 +76,9 @@ pub(crate) struct Command {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+// Exact walk routes stay inline in the protocol model so command construction
+// remains bounded across the injected-process boundary.
+#[allow(clippy::large_enum_variant)]
 pub(crate) enum Operation {
     Hello,
     Ping,

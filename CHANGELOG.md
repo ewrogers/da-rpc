@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## 1.3.0 - 2026-08-13
+
+### Added
+
+- Added map-tagged exact route injection through the client's native queued
+  movement vector.
+- Added a session-persistent sparse registry of per-map pathfinding exclusions
+  for native breadth-first search, with map-scoped REST resources and automatic
+  activation on map changes.
+- Added `map.exclusions_changed` events for exclusion replacement, removal, and
+  registry clearing.
+- Added `walking.obstructed` events with the rejected edge, route context, and
+  retained destination.
+
+### Changed
+
+- Advanced the binary protocol to version 1.1 for the new movement, exclusion,
+  and event discriminants.
+
 ## 1.2.5 - 2026-08-13
 
 ### Fixed

@@ -34,6 +34,18 @@ pub const WORLD_PANE_ADJUSTMENT: usize = 0x2EC;
 /// Byte offset of the native queued-route active flag in `WorldPane`.
 pub const WORLD_PANE_ROUTE_ACTIVE_OFFSET: usize = 0x294;
 
+/// Byte offset of the native queued-route vector in `WorldPane`.
+#[cfg(any(windows, test))]
+pub const WORLD_PANE_ROUTE_VECTOR_OFFSET: usize = 0x2A8;
+
+/// Byte offset of the number of unconsumed queued-route records.
+#[cfg(any(windows, test))]
+pub const WORLD_PANE_ROUTE_STEP_COUNT_OFFSET: usize = 0x2B8;
+
+/// Byte offset of the current map identifier in `WorldPane`.
+#[cfg(any(windows, test))]
+pub const WORLD_PANE_MAP_ID_OFFSET: usize = 0x26C;
+
 /// Byte offset of the native entity-pursuit target identifier in `WorldPane`.
 pub const WORLD_PANE_PURSUIT_TARGET_ID_OFFSET: usize = 0x2BC;
 
@@ -60,6 +72,10 @@ pub const BUILD_PATH_RVA: usize = 0x001F_4DE0;
 
 /// Module-relative address of the native breadth-first route builder.
 pub const BUILD_BREADTH_FIRST_PATH_RVA: usize = 0x001F_4E30;
+
+/// Module-relative address of the native 12-byte route-record append helper.
+#[cfg(any(windows, test))]
+pub const ROUTE_STEP_PUSH_BACK_RVA: usize = 0x001F_59A0;
 
 /// Complete entry instructions required before observing native route builds.
 pub const BUILD_BREADTH_FIRST_PATH_ENTRY: [u8; 9] =
@@ -164,11 +180,12 @@ mod tests {
         EVENT_DISPATCHER_TICK_ENTRY, EVENT_DISPATCHER_TICK_RVA, GUI_BACK_PANE_GET_RVA,
         MAP_CAN_MOVE_DIRECTION_RVA, MAP_SIZE_HANDLER_ENTRY, MAP_SIZE_HANDLER_RVA, QUEUED_STEP_CALL,
         QUEUED_STEP_CALL_RVA, RESET_MOVEMENT_RVA, ROUTE_COLLISION_CALL, ROUTE_COLLISION_CALL_RVA,
-        SELF_OBJECT_RVA, SKILL_ACTIVATE_RVA, SPELL_DELAY_ACTIVE_OFFSET,
+        ROUTE_STEP_PUSH_BACK_RVA, SELF_OBJECT_RVA, SKILL_ACTIVATE_RVA, SPELL_DELAY_ACTIVE_OFFSET,
         SPELL_DELAY_CONTROL_PANE_GET_RVA, SPELL_DELAY_CONTROL_PANE_POINTER_RVA, SPELL_DENIED_RVA,
         SPELL_NO_ARGS_RVA, SPELL_START_RVA, SPELL_TARGET_RVA, TURN_RVA, WALK_RVA,
-        WORLD_PANE_ADJUSTMENT, WORLD_PANE_POINTER_RVA, WORLD_PANE_PURSUIT_TARGET_ID_OFFSET,
-        WORLD_PANE_ROUTE_ACTIVE_OFFSET,
+        WORLD_PANE_ADJUSTMENT, WORLD_PANE_MAP_ID_OFFSET, WORLD_PANE_POINTER_RVA,
+        WORLD_PANE_PURSUIT_TARGET_ID_OFFSET, WORLD_PANE_ROUTE_ACTIVE_OFFSET,
+        WORLD_PANE_ROUTE_STEP_COUNT_OFFSET, WORLD_PANE_ROUTE_VECTOR_OFFSET,
     };
 
     #[test]
@@ -213,6 +230,9 @@ mod tests {
         assert_eq!(WORLD_PANE_POINTER_RVA, 0x0033_D964);
         assert_eq!(WORLD_PANE_ADJUSTMENT, 0x2EC);
         assert_eq!(WORLD_PANE_ROUTE_ACTIVE_OFFSET, 0x294);
+        assert_eq!(WORLD_PANE_ROUTE_VECTOR_OFFSET, 0x2A8);
+        assert_eq!(WORLD_PANE_ROUTE_STEP_COUNT_OFFSET, 0x2B8);
+        assert_eq!(WORLD_PANE_MAP_ID_OFFSET, 0x26C);
         assert_eq!(WORLD_PANE_PURSUIT_TARGET_ID_OFFSET, 0x2BC);
         assert_eq!(SELF_OBJECT_RVA, 0x001E_EDB0);
         assert_eq!(TURN_RVA, 0x001F_0900);
@@ -222,6 +242,7 @@ mod tests {
         assert_eq!(ADVANCE_PATH_RVA, 0x001F_4990);
         assert_eq!(BUILD_PATH_RVA, 0x001F_4DE0);
         assert_eq!(BUILD_BREADTH_FIRST_PATH_RVA, 0x001F_4E30);
+        assert_eq!(ROUTE_STEP_PUSH_BACK_RVA, 0x001F_59A0);
         assert_eq!(ROUTE_COLLISION_CALL_RVA, 0x001F_5068);
         assert_eq!(ROUTE_COLLISION_CALL, [0xE8, 0x73, 0xAF, 0xFF, 0xFF]);
         assert_eq!(QUEUED_STEP_CALL_RVA, 0x001F_4A46);

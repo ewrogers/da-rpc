@@ -125,6 +125,12 @@ impl Element {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MapExclusions {
+    pub map_id: u32,
+    pub tiles: Vec<crate::TilePosition>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ClientSnapshot {
     pub revision: u32,
     pub event_sequence: u32,
@@ -142,6 +148,8 @@ pub struct ClientSnapshot {
     /// Current native walking plan, from the character's current tile through
     /// the goal. `None` means route telemetry is unavailable.
     pub planned_route: Option<crate::PlannedRoute>,
+    /// Session-scoped pathfinding exclusions keyed by map identifier.
+    pub map_exclusions: Vec<MapExclusions>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

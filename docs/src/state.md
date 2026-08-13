@@ -59,7 +59,8 @@ the events relevant to that data in game terms.
 
 When the daemon connects, the DLL captures one complete baseline from the game
 client. That baseline includes the current character, map, planned route,
-collections, effects, and any world objects still available in client memory.
+session path-exclusion registry, collections, effects, and any world objects
+still available in client memory.
 
 The capture runs on a normal client tick because that is where the game changes
 most of these structures. The DLL copies bounded values into memory it owns,

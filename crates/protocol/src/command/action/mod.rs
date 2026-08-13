@@ -21,6 +21,11 @@ pub const MAX_WHO_PLAYERS: usize = 768;
 pub const MAX_WHO_NAME_LEN: usize = 24;
 pub const MAX_WHO_TITLE_LEN: usize = 48;
 pub const MAX_RAW_PACKET_PAYLOAD_LEN: usize = u8::MAX as usize;
+pub const MAX_WALK_ROUTE_TILES: usize = 256;
+pub const MAX_PATH_EXCLUSION_TILES: usize = 256;
+pub const MAX_PATH_EXCLUSION_MAPS: usize = 1_024;
+pub const MAX_PATH_EXCLUSION_TOTAL_TILES: usize = u16::MAX as usize;
+pub const MAX_PATH_EXCLUSION_DIMENSION: usize = 400;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RawPacketDirection {
@@ -94,6 +99,9 @@ pub enum CommandKind {
     InspectPlayer(NonZeroU32),
     Resync,
     Message(MessageCommand),
+    SetPathExclusions(PathExclusions),
+    RemovePathExclusions { map_id: u32 },
+    ClearPathExclusions,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -515,9 +523,94 @@ impl SpellSlot {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+// Exact routes remain inline so decoded and queued commands are bounded and
+// pointer-free across the IPC-worker to main-thread handoff.
+#[allow(clippy::large_enum_variant)]
 pub enum WalkTarget {
     Direction(Direction),
     Destination { x: i32, y: i32 },
+    Route(WalkRoute),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RouteTile {
+    pub x: u16,
+    pub y: u16,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct WalkRoute {
+    map_id: u32,
+    length: u16,
+    tiles: [RouteTile; MAX_WALK_ROUTE_TILES],
+}
+
+impl WalkRoute {
+    #[must_use]
+    pub fn new(map_id: u32, tiles: &[RouteTile]) -> Option<Self> {
+        let length = u16::try_from(tiles.len()).ok()?;
+        if tiles.is_empty() || tiles.len() > MAX_WALK_ROUTE_TILES {
+            return None;
+        }
+        let mut stored = [RouteTile { x: 0, y: 0 }; MAX_WALK_ROUTE_TILES];
+        stored[..tiles.len()].copy_from_slice(tiles);
+        Some(Self {
+            map_id,
+            length,
+            tiles: stored,
+        })
+    }
+
+    #[must_use]
+    pub const fn map_id(self) -> u32 {
+        self.map_id
+    }
+
+    #[must_use]
+    pub fn tiles(&self) -> &[RouteTile] {
+        &self.tiles[..usize::from(self.length)]
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PathExclusions {
+    map_id: u32,
+    length: u16,
+    tiles: [RouteTile; MAX_PATH_EXCLUSION_TILES],
+}
+
+impl PathExclusions {
+    #[must_use]
+    pub fn new(map_id: u32, tiles: &[RouteTile]) -> Option<Self> {
+        let length = u16::try_from(tiles.len()).ok()?;
+        if map_id > u32::from(u16::MAX)
+            || tiles.is_empty()
+            || tiles.len() > MAX_PATH_EXCLUSION_TILES
+            || tiles.iter().any(|tile| {
+                usize::from(tile.x) >= MAX_PATH_EXCLUSION_DIMENSION
+                    || usize::from(tile.y) >= MAX_PATH_EXCLUSION_DIMENSION
+            })
+        {
+            return None;
+        }
+        let mut stored = [RouteTile { x: 0, y: 0 }; MAX_PATH_EXCLUSION_TILES];
+        stored[..tiles.len()].copy_from_slice(tiles);
+        Some(Self {
+            map_id,
+            length,
+            tiles: stored,
+        })
+    }
+
+    #[must_use]
+    pub const fn map_id(self) -> u32 {
+        self.map_id
+    }
+
+    #[must_use]
+    pub fn tiles(&self) -> &[RouteTile] {
+        &self.tiles[..usize::from(self.length)]
+    }
 }
 
 pub(super) fn encode_kind(output: &mut Vec<u8>, kind: CommandKind) {
@@ -537,6 +630,11 @@ pub(super) fn encode_kind(output: &mut Vec<u8>, kind: CommandKind) {
             output.push(1);
             push_i32(output, x);
             push_i32(output, y);
+        }
+        CommandKind::Walk(WalkTarget::Route(route)) => {
+            output.push(2);
+            output.push(2);
+            encode_route_tiles(output, route.map_id(), route.tiles());
         }
         CommandKind::UseSkill(slot) => {
             output.push(3);
@@ -724,6 +822,15 @@ pub(super) fn encode_kind(output: &mut Vec<u8>, kind: CommandKind) {
                 MessageCommand::Group(content) => encode_message(output, 4, None, content),
             }
         }
+        CommandKind::SetPathExclusions(exclusions) => {
+            output.push(26);
+            encode_route_tiles(output, exclusions.map_id(), exclusions.tiles());
+        }
+        CommandKind::RemovePathExclusions { map_id } => {
+            output.push(27);
+            push_u32(output, map_id);
+        }
+        CommandKind::ClearPathExclusions => output.push(28),
     }
 }
 
@@ -766,6 +873,16 @@ pub(super) fn decode_kind(reader: &mut PayloadReader<'_>) -> Result<CommandKind,
                 x: reader.read_i32()?,
                 y: reader.read_i32()?,
             },
+            2 => {
+                let map_id = reader.read_u32()?;
+                let tiles = decode_route_tiles(reader, MAX_WALK_ROUTE_TILES)?;
+                WalkTarget::Route(WalkRoute::new(map_id, &tiles).ok_or(
+                    DecodeError::InvalidRouteTileCount {
+                        actual: tiles.len(),
+                        max: MAX_WALK_ROUTE_TILES,
+                    },
+                )?)
+            }
             actual => return Err(DecodeError::InvalidWalkTarget { actual }),
         })),
         3 => {
@@ -949,8 +1066,71 @@ pub(super) fn decode_kind(reader: &mut PayloadReader<'_>) -> Result<CommandKind,
             };
             Ok(CommandKind::Message(message))
         }
+        26 => {
+            let map_id = reader.read_u32()?;
+            if map_id > u32::from(u16::MAX) {
+                return Err(DecodeError::InvalidPathExclusionMapId { map_id });
+            }
+            let tiles = decode_route_tiles(reader, MAX_PATH_EXCLUSION_TILES)?;
+            if let Some(tile) = tiles.iter().find(|tile| {
+                usize::from(tile.x) >= MAX_PATH_EXCLUSION_DIMENSION
+                    || usize::from(tile.y) >= MAX_PATH_EXCLUSION_DIMENSION
+            }) {
+                return Err(DecodeError::InvalidPathExclusionTile {
+                    x: tile.x,
+                    y: tile.y,
+                });
+            }
+            Ok(CommandKind::SetPathExclusions(
+                PathExclusions::new(map_id, &tiles).ok_or(DecodeError::InvalidRouteTileCount {
+                    actual: tiles.len(),
+                    max: MAX_PATH_EXCLUSION_TILES,
+                })?,
+            ))
+        }
+        27 => {
+            let map_id = reader.read_u32()?;
+            if map_id > u32::from(u16::MAX) {
+                return Err(DecodeError::InvalidPathExclusionMapId { map_id });
+            }
+            Ok(CommandKind::RemovePathExclusions { map_id })
+        }
+        28 => Ok(CommandKind::ClearPathExclusions),
         actual => Err(DecodeError::InvalidCommandKind { actual }),
     }
+}
+
+fn encode_route_tiles(output: &mut Vec<u8>, map_id: u32, tiles: &[RouteTile]) {
+    push_u32(output, map_id);
+    push_u16(
+        output,
+        u16::try_from(tiles.len()).expect("bounded route tile count fits u16"),
+    );
+    for tile in tiles {
+        push_u16(output, tile.x);
+        push_u16(output, tile.y);
+    }
+}
+
+fn decode_route_tiles(
+    reader: &mut PayloadReader<'_>,
+    max: usize,
+) -> Result<Vec<RouteTile>, DecodeError> {
+    let length = usize::from(reader.read_u16()?);
+    if length > max {
+        return Err(DecodeError::InvalidRouteTileCount {
+            actual: length,
+            max,
+        });
+    }
+    let mut tiles = Vec::with_capacity(length);
+    for _ in 0..length {
+        tiles.push(RouteTile {
+            x: reader.read_u16()?,
+            y: reader.read_u16()?,
+        });
+    }
+    Ok(tiles)
 }
 
 fn decode_slot_swap(reader: &mut PayloadReader<'_>) -> Result<SlotSwap, DecodeError> {

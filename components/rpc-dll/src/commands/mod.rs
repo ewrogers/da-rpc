@@ -5,15 +5,16 @@ use darpc_model::{Direction, EquipmentSlot};
 use darpc_protocol::{
     ChantText, CommandFailure, CommandKind, CommandOperation, CommandResult, CommandState,
     CommandStatus, DialogAction, DialogCommand, DialogText, ExchangeCommand, GoldTransfer,
-    GroupCommand, GroupInvitationAction, GroupText, ItemSlot, ItemTransfer, MAX_DIALOG_INPUT_LEN,
-    MAX_MESSAGE_CONTENT_LEN, MAX_MESSAGE_RECIPIENT_LEN, MessageCommand, MessageContent,
-    MessageRecipient, RawPacket, RawPacketDirection, SkillSlot, SlotSwap, SpellArguments,
-    SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkTarget,
+    GroupCommand, GroupInvitationAction, GroupText, ItemSlot, ItemTransfer,
+    MAX_MESSAGE_CONTENT_LEN, MAX_MESSAGE_RECIPIENT_LEN, MAX_WALK_ROUTE_TILES, MessageCommand,
+    MessageContent, MessageRecipient, PathExclusions, RawPacket, RawPacketDirection, RouteTile,
+    SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget,
+    TilePosition, TransferTarget, WalkRoute, WalkTarget,
 };
 use std::{
     num::NonZeroU32,
     panic,
-    sync::atomic::{AtomicBool, AtomicU8, AtomicU32, AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, AtomicU8, AtomicU16, AtomicU32, AtomicUsize, Ordering},
     thread,
     time::{Duration, Instant},
 };
@@ -28,6 +29,7 @@ use storage::{StoredInput, kind_from_value, stored_kind};
 
 pub(crate) const COMMAND_CAPACITY: usize = 64;
 pub(crate) const COMMANDS_PER_TICK: usize = 1;
+const MAX_COMMAND_TILE_BYTES: usize = MAX_WALK_ROUTE_TILES * 4;
 
 const TERMINAL_RETENTION_MS: u32 = 30_000;
 const RESPONSE_COALESCE_MS: u32 = 1_000;
@@ -588,6 +590,18 @@ mod tests {
             CommandKind::Turn(Direction::West),
             CommandKind::Walk(WalkTarget::Direction(Direction::North)),
             CommandKind::Walk(WalkTarget::Destination { x: 120, y: 85 }),
+            CommandKind::Walk(WalkTarget::Route(
+                WalkRoute::new(
+                    3001,
+                    &[RouteTile { x: 11, y: 22 }, RouteTile { x: 12, y: 22 }],
+                )
+                .unwrap(),
+            )),
+            CommandKind::SetPathExclusions(
+                PathExclusions::new(3001, &[RouteTile { x: 40, y: 50 }]).unwrap(),
+            ),
+            CommandKind::RemovePathExclusions { map_id: 3001 },
+            CommandKind::ClearPathExclusions,
             CommandKind::UseSkill(SkillSlot::new(7).unwrap()),
             CommandKind::Assail,
             CommandKind::Resync,

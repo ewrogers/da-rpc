@@ -1,10 +1,52 @@
 use super::*;
 
 fn assert_routes_action(path: &str, body: &str, expected_kind: CommandKind) {
-    assert_routes_action_with_snapshot(path, body, expected_kind, game_snapshot());
+    assert_routes_action_request(
+        axum::http::Method::POST,
+        path,
+        body,
+        expected_kind,
+        game_snapshot(),
+    );
+}
+
+fn assert_routes_put_action(path: &str, body: &str, expected_kind: CommandKind) {
+    assert_routes_action_request(
+        axum::http::Method::PUT,
+        path,
+        body,
+        expected_kind,
+        game_snapshot(),
+    );
+}
+
+fn assert_routes_delete_action(path: &str, expected_kind: CommandKind) {
+    assert_routes_action_request(
+        axum::http::Method::DELETE,
+        path,
+        "",
+        expected_kind,
+        game_snapshot(),
+    );
 }
 
 fn assert_routes_action_with_snapshot(
+    path: &str,
+    body: &str,
+    expected_kind: CommandKind,
+    snapshot: ModelClientSnapshot,
+) {
+    assert_routes_action_request(
+        axum::http::Method::POST,
+        path,
+        body,
+        expected_kind,
+        snapshot,
+    );
+}
+
+fn assert_routes_action_request(
+    method: axum::http::Method,
     path: &str,
     body: &str,
     expected_kind: CommandKind,
@@ -55,10 +97,12 @@ fn assert_routes_action_with_snapshot(
             .unwrap();
     });
 
-    let response = if body.is_empty() {
-        post_empty(state, path)
-    } else {
-        post_json(state, path, body)
+    let response = match method {
+        axum::http::Method::POST if body.is_empty() => post_empty(state, path),
+        axum::http::Method::POST => post_json(state, path, body),
+        axum::http::Method::PUT => put_json(state, path, body),
+        axum::http::Method::DELETE => delete_empty(state, path),
+        _ => panic!("unsupported test request method"),
     };
     assert_eq!(response.status(), StatusCode::OK, "route failed: {path}");
     let response = response_json(response);
@@ -316,6 +360,40 @@ fn routes_typed_actions() {
         "/clients/42/walk",
         r#"{"destination":{"x":99,"y":79}}"#,
         CommandKind::Walk(WalkTarget::Destination { x: 99, y: 79 }),
+    );
+    assert_routes_action(
+        "/clients/42/walk",
+        r#"{"route":{"map_id":3001,"tiles":[{"x":11,"y":22},{"x":12,"y":22},{"x":12,"y":23}]}}"#,
+        CommandKind::Walk(WalkTarget::Route(
+            WalkRoute::new(
+                3001,
+                &[
+                    RouteTile { x: 11, y: 22 },
+                    RouteTile { x: 12, y: 22 },
+                    RouteTile { x: 12, y: 23 },
+                ],
+            )
+            .unwrap(),
+        )),
+    );
+    assert_routes_put_action(
+        "/clients/42/maps/3002/path-exclusions",
+        r#"{"tiles":[{"x":41,"y":50},{"x":40,"y":50},{"x":40,"y":50}]}"#,
+        CommandKind::SetPathExclusions(
+            PathExclusions::new(
+                3002,
+                &[RouteTile { x: 40, y: 50 }, RouteTile { x: 41, y: 50 }],
+            )
+            .unwrap(),
+        ),
+    );
+    assert_routes_delete_action(
+        "/clients/42/maps/3001/path-exclusions",
+        CommandKind::RemovePathExclusions { map_id: 3001 },
+    );
+    assert_routes_delete_action(
+        "/clients/42/maps/path-exclusions",
+        CommandKind::ClearPathExclusions,
     );
     let skill = CommandKind::UseSkill(SkillSlot::new(4).unwrap());
     assert_routes_action("/clients/42/skills/use", r#"{"slot":4}"#, skill);
@@ -835,6 +913,23 @@ fn rejects_invalid_movement_requests() {
     ] {
         assert_eq!(
             post_json(state(), path, body).status(),
+            StatusCode::BAD_REQUEST
+        );
+    }
+
+    for (path, body) in [
+        ("/clients/42/maps/3001/path-exclusions", r#"{"tiles":[]}"#),
+        (
+            "/clients/42/maps/3001/path-exclusions",
+            r#"{"tiles":[{"x":400,"y":0}]}"#,
+        ),
+        (
+            "/clients/42/maps/65536/path-exclusions",
+            r#"{"tiles":[{"x":0,"y":0}]}"#,
+        ),
+    ] {
+        assert_eq!(
+            put_json(state(), path, body).status(),
             StatusCode::BAD_REQUEST
         );
     }

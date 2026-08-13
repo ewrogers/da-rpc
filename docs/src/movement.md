@@ -8,7 +8,8 @@ Ordinary player input can still replace or cancel a route.
 | Read position and walking state | `GET /clients/{client}/status` |
 | Read the complete current planned route | `GET /clients/{client}/status` |
 | Turn | `POST /clients/{client}/turn` |
-| Step or walk to a tile | `POST /clients/{client}/walk` |
+| Step, pathfind, or install an exact route | `POST /clients/{client}/walk` |
+| Configure per-map pathfinding exclusions | `PUT /clients/{client}/maps/{map_id}/path-exclusions` |
 | Request a server resynchronization | `POST /clients/{client}/resync` |
 | Watch movement changes | [Walking and character action events](events.md#walking-and-character-action-events) |
 
@@ -53,6 +54,49 @@ Coordinates are zero-based and must satisfy `0 <= x < width` and
 `0 <= y < height`. Bad directions, malformed choice bodies, and out-of-map
 tiles return `400 Bad Request`. A client that is not in game or has no current
 map returns `409 Conflict`.
+
+## Walking an exact route
+
+An external planner can install a map-tagged sequence of absolute tiles:
+
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"route":{"map_id":3001,"tiles":[{"x":11,"y":22},{"x":12,"y":22},{"x":12,"y":23}]}}' \
+  "http://127.0.0.1:2626/clients/ZiLo/walk"
+```
+
+The first tile must equal the character's confirmed position. A route contains
+from 1 through 256 unique in-map tiles, and each edge must move one cardinal
+tile. The DLL validates the current map, every edge, and both native collision
+views before resetting movement. It then appends goal-to-start 12-byte records
+through the client's native vector helper and lets the normal movement,
+animation, packet, and acknowledgement pacing consume them.
+
+Exact routes do not use the breadth-first search and do not inherit native
+replanning. If a later step becomes blocked, daRPC resets the route and emits
+`walking.obstructed`; the external controller decides whether and how to
+replan. Split longer paths into segments and wait for route or location events
+before submitting the next segment.
+
+Direct installation passes static, codec, native Windows, and live client
+tests. The initial live trial installed two cardinal edges on the supported
+7.41 client, reached both confirmed tiles, emitted `walking.route_changed`,
+`walking.started`, `location.changed`, and `walking.stopped`, and cleared the
+route afterward. Repeat this short open-area trial before treating another
+client fingerprint as supported. Test a warp-ending segment only after that
+trial behaves normally.
+
+Never include two maps in one route. End a map segment on its warp tile, wait
+for the atomic `location.changed` event containing the new map and entry
+position, validate both, and then submit the next map-tagged segment.
+
+## Excluding policy tiles from native pathfinding
+
+The DLL keeps a session-scoped sparse registry of excluded tiles for every
+configured map and activates the matching entry automatically on map change.
+See [Path exclusions](path-exclusions.md) for its REST resources, limits,
+lifetime, collision behavior, and `map.exclusions_changed` event.
 
 ## Pathfinding
 
@@ -142,6 +186,18 @@ destination, and `reached_destination`. The outcome is true only when the final
 position equals the requested tile. A route started directly through the game
 may not expose a reliable destination, so its destination and outcome can be
 null.
+
+`walking.obstructed` is emitted when a direct daRPC step or a queued native,
+exact, or pursuit route attempts a tile that the live step validator rejects.
+It includes `map_id`, `current`, `attempted`, `direction`, the retained
+destination when known, and a `mode` of `direct`, `native_route`,
+`exact_route`, or `pursuit`. Native daRPC destination walks may still perform
+their bounded replan after this event. Exact routes never do so automatically.
+
+`map.exclusions_changed` reports a replacement, removal, or complete clear of
+the session's per-map pathfinding policy. See
+[Path exclusions](path-exclusions.md#change-events) for its payload and
+resource readback behavior.
 
 The started and stopped events update `is_walking` in
 [character status](status.md). `walking.route_changed` updates

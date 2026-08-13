@@ -39,6 +39,8 @@ mod objects;
 #[cfg(any(windows, test))]
 mod packet;
 #[cfg(any(windows, test))]
+mod path_exclusions;
+#[cfg(any(windows, test))]
 mod player;
 #[cfg(windows)]
 mod process_memory;

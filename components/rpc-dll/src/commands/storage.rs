@@ -1,6 +1,9 @@
 use super::*;
 
 #[derive(Clone, Copy)]
+// Route and exclusion tiles stay in fixed inline storage so command publishing
+// never allocates or transfers ownership across threads.
+#[allow(clippy::large_enum_variant)]
 pub(super) enum StoredInput {
     Spell(SpellInput),
     Dialog(DialogText),
@@ -8,6 +11,7 @@ pub(super) enum StoredInput {
     Chant(ChantText),
     Raw(RawPacket),
     Message(StoredMessage),
+    Tiles(StoredTiles),
 }
 
 impl StoredInput {
@@ -19,7 +23,33 @@ impl StoredInput {
             Self::Chant(value) => value.as_bytes(),
             Self::Raw(value) => value.payload(),
             Self::Message(value) => value.as_bytes(),
+            Self::Tiles(value) => value.as_bytes(),
         }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct StoredTiles {
+    length: u16,
+    bytes: [u8; MAX_COMMAND_TILE_BYTES],
+}
+
+impl StoredTiles {
+    fn new(tiles: &[RouteTile]) -> Self {
+        let mut bytes = [0; MAX_COMMAND_TILE_BYTES];
+        for (index, tile) in tiles.iter().enumerate() {
+            let offset = index * 4;
+            bytes[offset..offset + 2].copy_from_slice(&tile.x.to_le_bytes());
+            bytes[offset + 2..offset + 4].copy_from_slice(&tile.y.to_le_bytes());
+        }
+        Self {
+            length: u16::try_from(tiles.len() * 4).expect("bounded route bytes fit u16"),
+            bytes,
+        }
+    }
+
+    fn as_bytes(&self) -> &[u8] {
+        &self.bytes[..usize::from(self.length)]
     }
 }
 
@@ -62,6 +92,13 @@ pub(super) fn stored_kind(kind: CommandKind) -> (u8, u32, u32, u32, Option<Store
             (2, direction.raw() as u32, 0, 0, None)
         }
         CommandKind::Walk(WalkTarget::Destination { x, y }) => (3, x as u32, y as u32, 0, None),
+        CommandKind::Walk(WalkTarget::Route(route)) => (
+            46,
+            route.map_id(),
+            u32::try_from(route.tiles().len()).expect("bounded route length fits u32"),
+            0,
+            Some(StoredInput::Tiles(StoredTiles::new(route.tiles()))),
+        ),
         CommandKind::UseSkill(slot) => (4, slot.get() as u32, 0, 0, None),
         CommandKind::CastSpell(SpellCast {
             slot,
@@ -199,6 +236,15 @@ pub(super) fn stored_kind(kind: CommandKind) -> (u8, u32, u32, u32, Option<Store
             0,
             Some(StoredInput::Message(StoredMessage::new(message))),
         ),
+        CommandKind::SetPathExclusions(exclusions) => (
+            47,
+            exclusions.map_id(),
+            u32::try_from(exclusions.tiles().len()).expect("bounded exclusion length fits u32"),
+            0,
+            Some(StoredInput::Tiles(StoredTiles::new(exclusions.tiles()))),
+        ),
+        CommandKind::RemovePathExclusions { map_id } => (48, map_id, 0, 0, None),
+        CommandKind::ClearPathExclusions => (49, 0, 0, 0, None),
     }
 }
 
@@ -426,8 +472,33 @@ pub(super) fn kind_from_value(
             .unwrap_or(CommandKind::Diagnostic),
         44 => CommandKind::Resync,
         45 => stored_message(argument_x, input).unwrap_or(CommandKind::Diagnostic),
+        46 => stored_tiles(argument_y, input)
+            .and_then(|(tiles, length)| WalkRoute::new(argument_x, &tiles[..length]))
+            .map(|route| CommandKind::Walk(WalkTarget::Route(route)))
+            .unwrap_or(CommandKind::Diagnostic),
+        47 => stored_tiles(argument_y, input)
+            .and_then(|(tiles, length)| PathExclusions::new(argument_x, &tiles[..length]))
+            .map(CommandKind::SetPathExclusions)
+            .unwrap_or(CommandKind::Diagnostic),
+        48 => CommandKind::RemovePathExclusions { map_id: argument_x },
+        49 => CommandKind::ClearPathExclusions,
         _ => CommandKind::Diagnostic,
     }
+}
+
+fn stored_tiles(count: u32, input: &[u8]) -> Option<([RouteTile; MAX_WALK_ROUTE_TILES], usize)> {
+    let count = usize::try_from(count).ok()?;
+    if count > MAX_WALK_ROUTE_TILES || input.len() != count.checked_mul(4)? {
+        return None;
+    }
+    let mut tiles = [RouteTile { x: 0, y: 0 }; MAX_WALK_ROUTE_TILES];
+    for (tile, bytes) in tiles.iter_mut().zip(input.chunks_exact(4)) {
+        *tile = RouteTile {
+            x: u16::from_le_bytes(bytes[..2].try_into().ok()?),
+            y: u16::from_le_bytes(bytes[2..].try_into().ok()?),
+        };
+    }
+    Some((tiles, count))
 }
 
 fn stored_message(channel: u32, input: &[u8]) -> Option<CommandKind> {

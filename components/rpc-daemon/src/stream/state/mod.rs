@@ -265,10 +265,47 @@ pub(crate) struct WalkingStopped {
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
+pub(crate) struct WalkingObstructed {
+    pub(super) observation: EventObservation,
+    pub(super) map_id: u32,
+    pub(super) current: TilePosition,
+    pub(super) attempted: TilePosition,
+    pub(super) direction: crate::state::Direction,
+    pub(super) destination: Option<TilePosition>,
+    pub(super) mode: WalkingMode,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum WalkingMode {
+    Direct,
+    NativeRoute,
+    ExactRoute,
+    Pursuit,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
 pub(crate) struct WalkingRouteChanged {
     pub(super) observation: EventObservation,
     pub(super) generation: u32,
     pub(super) tiles: Vec<TilePosition>,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub(crate) struct MapExclusionsChanged {
+    pub(super) observation: EventObservation,
+    pub(super) operation: MapExclusionsOperation,
+    pub(super) map_id: Option<u32>,
+    pub(super) tile_count: u16,
+    pub(super) map_count: u16,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum MapExclusionsOperation {
+    Replaced,
+    Removed,
+    Cleared,
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]

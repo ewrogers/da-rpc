@@ -9,9 +9,10 @@ use crate::{
 
 pub const MAX_ECHO_TEXT_LEN: usize = 4 * 1024;
 pub const PROTOCOL_VERSION_1_0: u16 = protocol_version(1, 0);
+pub const PROTOCOL_VERSION_1_1: u16 = protocol_version(1, 1);
 pub const SUPPORTED_VERSIONS: VersionRange = VersionRange {
-    min: PROTOCOL_VERSION_1_0,
-    max: PROTOCOL_VERSION_1_0,
+    min: PROTOCOL_VERSION_1_1,
+    max: PROTOCOL_VERSION_1_1,
 };
 
 #[must_use]

@@ -335,6 +335,11 @@ fn routes_typed_actions() {
     assert_routes_action("/clients/42/assail", "", CommandKind::Assail);
     assert_routes_action("/clients/42/resync", "", CommandKind::Resync);
     assert_routes_action(
+        "/clients/42/group/invite",
+        r#"{"target":"OtherPlayer"}"#,
+        CommandKind::Group(GroupCommand::Invite(GroupText::new("OtherPlayer").unwrap())),
+    );
+    assert_routes_action(
         "/clients/42/raw/send",
         r#"{"direction":"client","command":"7E","payload":"00 03 02"}"#,
         CommandKind::Raw(

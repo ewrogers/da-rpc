@@ -8,7 +8,7 @@ as the game client and lets the server confirm every roster or setting change.
 | --- | --- |
 | Read current group state | `GET /clients/{client}/group` |
 | Open or close grouping, or leave a group | `POST /clients/{client}/group/toggle` |
-| Invite a visible player | `POST /clients/{client}/group/invite` |
+| Invite a player | `POST /clients/{client}/group/invite` |
 | Answer an invitation | `POST /clients/{client}/group/invitations/{id}/accept` or `/decline` |
 | Watch changes | `group.*` events on `/clients/{client}/events` |
 
@@ -83,8 +83,10 @@ curl --request POST \
   "http://127.0.0.1:2626/clients/ZiLo/group/invite"
 ```
 
-`target` may be a case-insensitive visible player name or a visible player
-object ID. The target must be on screen and cannot be the calling character.
+`target` may be a player name or a visible player object ID. A supplied name
+does not need to be present in the client's visible objects, which lets a caller
+invite a known character elsewhere on the same map. Object IDs still require a
+visible player with a known name. The target cannot be the calling character.
 
 `group.invitation_sent` means the local client submitted the request. The game
 does not report a remote decline or acceptance directly. A closed group setting

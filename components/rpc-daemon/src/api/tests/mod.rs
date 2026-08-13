@@ -42,10 +42,10 @@ use darpc_model::{
 use darpc_protocol::{
     Architecture, ChantText, CommandKind, CommandOperation, CommandResult, CommandState,
     CommandStatus, ComponentVersion, DialogAction, DialogCommand, ExchangeCommand, GoldTransfer,
-    Hello, ItemSlot, ItemTransfer, MessageCommand, MessageContent, MessageRecipient,
-    PathExclusions, RawPacket, RawPacketDirection, RouteTile, SUPPORTED_VERSIONS, SkillSlot,
-    SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition,
-    TransferTarget, WalkRoute, WalkTarget,
+    GroupCommand, GroupText, Hello, ItemSlot, ItemTransfer, MessageCommand, MessageContent,
+    MessageRecipient, PathExclusions, RawPacket, RawPacketDirection, RouteTile, SUPPORTED_VERSIONS,
+    SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget,
+    TilePosition, TransferTarget, WalkRoute, WalkTarget,
 };
 use serde_json::Value;
 use std::{

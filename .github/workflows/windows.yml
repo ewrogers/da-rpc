@@ -26,6 +26,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: windows-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   loader:
     name: Windows integration
@@ -36,19 +40,14 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v7
 
-      - name: Restore Rust build cache
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: windows-cargo-${{ runner.arch }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', '**/*.rs') }}
-          restore-keys: |
-            windows-cargo-${{ runner.arch }}-
-
       - name: Install x86 Rust target
         run: rustup target add i686-pc-windows-msvc
+
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@v2.9.2
+        with:
+          shared-key: windows
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -155,19 +154,14 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v7
 
-      - name: Restore Rust build cache
-        uses: actions/cache@v6
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: windows-cargo-${{ runner.arch }}-${{ hashFiles('Cargo.lock', '**/Cargo.toml', '**/*.rs') }}
-          restore-keys: |
-            windows-cargo-${{ runner.arch }}-
-
       - name: Install Windows Rust targets
         run: rustup target add i686-pc-windows-msvc x86_64-pc-windows-msvc
+
+      - name: Restore Rust build cache
+        uses: Swatinem/rust-cache@v2.9.2
+        with:
+          shared-key: windows
+          save-if: "false"
 
       - name: Verify release version
         shell: pwsh

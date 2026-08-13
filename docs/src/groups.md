@@ -8,7 +8,7 @@ as the game client and lets the server confirm every roster or setting change.
 | --- | --- |
 | Read current group state | `GET /clients/{client}/group` |
 | Open or close grouping, or leave a group | `POST /clients/{client}/group/toggle` |
-| Invite a visible player | `POST /clients/{client}/group/invite` |
+| Invite a player | `POST /clients/{client}/group/invite` |
 | Answer an invitation | `POST /clients/{client}/group/invitations/{id}/accept` or `/decline` |
 | Watch changes | `group.*` events on `/clients/{client}/events` |
 
@@ -68,11 +68,23 @@ when the character is not grouped.
 curl --request POST "http://127.0.0.1:2626/clients/ZiLo/group/toggle"
 ```
 
-The request has no body. When the character is adventuring alone, it toggles
-whether other players may invite them. When the character is already grouped,
-the same native action leaves the group or disbands it for the leader. The REST
-command result only confirms that the client submitted the action. Read the
-updated state or wait for a group event for the server-confirmed result.
+The request body is optional. When the character is adventuring alone, the
+route toggles whether other players may invite them. When the character is
+already grouped, it leaves the group or disbands it for the leader, then
+reopens invitations by default:
+
+```console
+curl --request POST \
+  --header "Content-Type: application/json" \
+  --data '{"leave_open":false}' \
+  "http://127.0.0.1:2626/clients/ZiLo/group/toggle"
+```
+
+Set `leave_open=false` to retain the game's normal single-toggle behavior,
+which leaves grouping closed. Reopening is a second ordered client command and
+only runs after the leave command executes. The response describes the last
+command submitted. Read the updated state or wait for a group event for the
+server-confirmed result.
 
 ## Invite a player
 
@@ -83,8 +95,10 @@ curl --request POST \
   "http://127.0.0.1:2626/clients/ZiLo/group/invite"
 ```
 
-`target` may be a case-insensitive visible player name or a visible player
-object ID. The target must be on screen and cannot be the calling character.
+`target` may be a player name or a visible player object ID. A supplied name
+does not need to be present in the client's visible objects, which lets a caller
+invite a known character elsewhere on the same map. Object IDs still require a
+visible player with a known name. The target cannot be the calling character.
 
 `group.invitation_sent` means the local client submitted the request. The game
 does not report a remote decline or acceptance directly. A closed group setting

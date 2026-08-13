@@ -220,6 +220,9 @@ fn kind(kind: CommandKind) -> &'static str {
         CommandKind::InspectPlayer(_) => "inspect_player",
         CommandKind::Resync => "resync",
         CommandKind::Message(_) => "message",
+        CommandKind::SetPathExclusions(_) => "set_path_exclusions",
+        CommandKind::RemovePathExclusions { .. } => "remove_path_exclusions",
+        CommandKind::ClearPathExclusions => "clear_path_exclusions",
     }
 }
 

@@ -238,6 +238,41 @@ fn movement_updates_expose_route_lifecycle_context() {
 }
 
 #[test]
+fn obstruction_updates_include_the_attempted_edge_and_route_mode() {
+    let events = expand(
+        42,
+        ClientIdentity {
+            pid: 42,
+            process_creation_time: 100,
+            dll_instance_id: [1; 16],
+        },
+        StateEvent {
+            sequence: 12,
+            revision: 15,
+            tick_ms: 503,
+            update: StateUpdate::Movement(MovementUpdate::Obstructed {
+                map_id: 3001,
+                current: ModelTilePosition { x: 11, y: 22 },
+                attempted: ModelTilePosition { x: 12, y: 22 },
+                direction: darpc_model::Direction::East,
+                destination: Some(ModelTilePosition { x: 30, y: 40 }),
+                mode: darpc_model::WalkMode::ExactRoute,
+            }),
+        },
+        None,
+        None,
+        observed_at(),
+    );
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].name(), "walking.obstructed");
+    let event = serde_json::to_value(&events[0]).unwrap();
+    assert_eq!(event["data"]["map_id"], 3001);
+    assert_eq!(event["data"]["attempted"]["x"], 12);
+    assert_eq!(event["data"]["direction"], "east");
+    assert_eq!(event["data"]["mode"], "exact_route");
+}
+
+#[test]
 fn planned_route_updates_expose_generation_and_absolute_tiles() {
     let events = expand(
         42,
@@ -269,6 +304,44 @@ fn planned_route_updates_expose_generation_and_absolute_tiles() {
     assert_eq!(event["data"]["generation"], 9);
     assert_eq!(event["data"]["tiles"][0]["x"], 2);
     assert_eq!(event["data"]["tiles"][2]["y"], 9);
+}
+
+#[test]
+fn map_exclusion_updates_expose_resource_metadata() {
+    let events = expand(
+        42,
+        ClientIdentity {
+            pid: 42,
+            process_creation_time: 100,
+            dll_instance_id: [1; 16],
+        },
+        StateEvent {
+            sequence: 13,
+            revision: 16,
+            tick_ms: 504,
+            update: StateUpdate::MapExclusions(darpc_model::MapExclusionsUpdate::Replaced {
+                exclusions: darpc_model::MapExclusions {
+                    map_id: 3001,
+                    tiles: vec![
+                        ModelTilePosition { x: 40, y: 50 },
+                        ModelTilePosition { x: 41, y: 50 },
+                    ],
+                },
+                map_count: 3,
+            }),
+        },
+        None,
+        None,
+        observed_at(),
+    );
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].name(), "map.exclusions_changed");
+    let event = serde_json::to_value(&events[0]).unwrap();
+    assert_eq!(event["data"]["observation"]["revision"], 16);
+    assert_eq!(event["data"]["operation"], "replaced");
+    assert_eq!(event["data"]["map_id"], 3001);
+    assert_eq!(event["data"]["tile_count"], 2);
+    assert_eq!(event["data"]["map_count"], 3);
 }
 
 #[test]

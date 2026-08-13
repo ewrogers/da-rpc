@@ -1,6 +1,24 @@
 use super::*;
 
 #[test]
+fn serves_session_map_exclusion_resources() {
+    let exclusions = json("/clients/42/maps/3001/path-exclusions");
+    assert_eq!(exclusions["map_id"], 3001);
+    assert_eq!(exclusions["tiles"][0]["x"], 40);
+    assert_eq!(exclusions["tiles"][0]["y"], 50);
+
+    let collection = json("/clients/42/maps/path-exclusions");
+    assert_eq!(collection["total_tiles"], 1);
+    assert_eq!(collection["maps"][0]["map_id"], 3001);
+    assert_eq!(collection["maps"][0]["tile_count"], 1);
+
+    assert_eq!(
+        response("/clients/42/maps/3002/path-exclusions").status(),
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[test]
 fn serves_health_and_client_resources() {
     assert_eq!(json("/health")["status"], "ok");
 
@@ -14,7 +32,7 @@ fn serves_health_and_client_resources() {
     );
     assert_eq!(
         clients["clients"][0]["connection"]["protocol_version"],
-        "1.0"
+        "1.1"
     );
     assert_eq!(
         clients["clients"][0]["connection"]["client_version"],

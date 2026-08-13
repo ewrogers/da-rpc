@@ -80,6 +80,8 @@ they need:
 | `GET /clients/{client}/legend` | [Legend](legend.md) |
 | `GET /clients/{client}/players/{player}` | Read one case-insensitive visible player from retained state; see [World](world.md). |
 | `POST /clients/{client}/players/{player}/inspect` | Refresh one visible player; see [World](world.md). |
+| `GET /clients/{client}/maps/path-exclusions` | List maps with session path exclusions. |
+| `GET /clients/{client}/maps/{map_id}/path-exclusions` | Read one map's path-exclusion tiles. |
 | `GET /maps/{map_id}/download` | Download one locally available raw map file. |
 
 Most routes read the daemon's retained state and do not ask the DLL to scan the
@@ -116,7 +118,10 @@ request cannot select another file in or outside the configured directory.
 | Route | Purpose |
 | --- | --- |
 | `POST /clients/{client}/turn` | Face a cardinal direction. |
-| `POST /clients/{client}/walk` | Take one step or pathfind to a tile. |
+| `POST /clients/{client}/walk` | Take one step, pathfind to a tile, or install an exact route. |
+| `PUT /clients/{client}/maps/{map_id}/path-exclusions` | Replace one map's session path exclusions. |
+| `DELETE /clients/{client}/maps/{map_id}/path-exclusions` | Remove one map's session path exclusions. |
+| `DELETE /clients/{client}/maps/path-exclusions` | Clear all session path exclusions. |
 | `POST /clients/{client}/resync` | [Request the same server refresh as the F5 key.](#resynchronizing-a-client) |
 | `POST /clients/{client}/skills/use` | Use a skill by slot or name. |
 | `POST /clients/{client}/skills/swap` | Swap skills using slot-or-name selectors. |
@@ -161,8 +166,9 @@ request cannot select another file in or outside the configured directory.
 | `GET /clients/{client}/commands/{command_id}` | Read retained command status. |
 | `DELETE /clients/{client}/commands/{command_id}` | Cancel a command that has not started. |
 
-Movement request bodies are documented in [Movement](movement.md). Emote names
-and codes are documented in [Emotes](emotes.md).
+Movement request bodies are documented in [Movement](movement.md). The complete
+map exclusion resource is documented in [Path exclusions](path-exclusions.md).
+Emote names and codes are documented in [Emotes](emotes.md).
 Item, gold, pickup, chant, and NPC item-action bodies are documented in
 [Inventory](inventory.md).
 Outbound chat and internal inter-client message fields are documented in

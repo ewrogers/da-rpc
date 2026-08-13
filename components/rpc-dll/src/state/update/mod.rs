@@ -49,6 +49,9 @@ impl QueuedStateEvent {
             QueuedStateUpdate::PlannedRoute(update) => {
                 StateUpdate::PlannedRoute(crate::route::take(update)?)
             }
+            QueuedStateUpdate::MapExclusions(update) => {
+                StateUpdate::MapExclusions(update.into_model())
+            }
         };
         Some(StateEvent {
             sequence: self.sequence,
@@ -84,8 +87,8 @@ impl QueuedStateEvent {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-// Queue entries are fixed, pointer-free copies. Boxing the collection variant
-// would allocate in the game-thread observer.
+// Queue entries are fixed, pointer-free copies. Boxing the collection or map
+// configuration variants would allocate in the game-thread observer.
 #[allow(clippy::large_enum_variant)]
 pub(super) enum QueuedStateUpdate {
     #[cfg(not(test))]
@@ -110,6 +113,8 @@ pub(super) enum QueuedStateUpdate {
     Player(crate::player::QueuedPlayer),
     CharacterProfile(crate::player::QueuedCharacterProfile),
     PlannedRoute(crate::route::QueuedRoute),
+    #[cfg_attr(test, allow(dead_code))]
+    MapExclusions(crate::path_exclusions::QueuedPathExclusionsUpdate),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -1,7 +1,7 @@
 use darpc_game_client::{
     BUILD_BREADTH_FIRST_PATH_ENTRY, BUILD_BREADTH_FIRST_PATH_RVA, MAP_CAN_MOVE_DIRECTION_RVA,
     QUEUED_STEP_CALL, QUEUED_STEP_CALL_RVA, RESET_MOVEMENT_RVA, ROUTE_COLLISION_CALL,
-    ROUTE_COLLISION_CALL_RVA, WALK_RVA,
+    ROUTE_COLLISION_CALL_RVA, WALK_RVA, WORLD_PANE_MAP_ID_OFFSET,
 };
 use darpc_hook::{DetourActivity, InstallError, InstalledDetour};
 use std::{
@@ -326,9 +326,38 @@ unsafe extern "thiscall" fn combined_route_can_move(
         }
         // SAFETY: mode 0 adds collision from complete raw map storage, so
         // off-screen statics are not mistaken for empty cells.
-        unsafe { can_move(world, y, x, direction, 0) }
+        if unsafe { can_move(world, y, x, direction, 0) } == 0 {
+            return 0;
+        }
+        let Some((destination_x, destination_y)) = step_destination(x, y, direction) else {
+            return 0;
+        };
+        // SAFETY: the caller supplied the live complete WorldPane and the map
+        // identifier offset is fixed by the supported executable fingerprint.
+        let map_id = unsafe {
+            world
+                .cast::<u8>()
+                .add(WORLD_PANE_MAP_ID_OFFSET)
+                .cast::<u32>()
+                .read_unaligned()
+        };
+        usize::from(!crate::path_exclusions::blocked(
+            map_id,
+            destination_x,
+            destination_y,
+        ))
     })
     .unwrap_or(0)
+}
+
+fn step_destination(x: i32, y: i32, direction: u8) -> Option<(i32, i32)> {
+    match direction {
+        0 => y.checked_sub(1).map(|y| (x, y)),
+        1 => x.checked_add(1).map(|x| (x, y)),
+        2 => y.checked_add(1).map(|y| (x, y)),
+        3 => x.checked_sub(1).map(|x| (x, y)),
+        _ => None,
+    }
 }
 
 #[unsafe(naked)]
@@ -358,7 +387,8 @@ unsafe extern "thiscall" fn try_queued_step(world: *mut c_void, direction: u8) -
         // same receiver and direction.
         let result = unsafe { walk(world, direction) };
         #[cfg(not(test))]
-        let reset_mode = crate::actions::movement::queued_step_reset_mode(world, result != 0);
+        let reset_mode =
+            crate::actions::movement::queued_step_reset_mode(world, direction, result != 0);
         #[cfg(test)]
         let reset_mode = None;
         if let Some(mode) = reset_mode {
@@ -430,7 +460,7 @@ extern "C" fn observe_path(world: *const c_void, result: usize) {
 
 #[cfg(test)]
 mod tests {
-    use super::support;
+    use super::{step_destination, support};
     use darpc_game_client::{
         BUILD_BREADTH_FIRST_PATH_ENTRY, QUEUED_STEP_CALL, ROUTE_COLLISION_CALL,
     };
@@ -450,5 +480,14 @@ mod tests {
             let error = support::validate_bytes(target, expected, label).unwrap_err();
             assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
         }
+    }
+
+    #[test]
+    fn computes_candidate_destination_tiles() {
+        assert_eq!(step_destination(4, 5, 0), Some((4, 4)));
+        assert_eq!(step_destination(4, 5, 1), Some((5, 5)));
+        assert_eq!(step_destination(4, 5, 2), Some((4, 6)));
+        assert_eq!(step_destination(4, 5, 3), Some((3, 5)));
+        assert_eq!(step_destination(4, 5, 4), None);
     }
 }

@@ -2,6 +2,9 @@ use super::*;
 
 #[test]
 fn command_messages_round_trip() {
+    assert!(PathExclusions::new(65_536, &[RouteTile { x: 1, y: 1 }]).is_none());
+    assert!(PathExclusions::new(1, &[RouteTile { x: 400, y: 1 }]).is_none());
+
     let messages = [
         Message::CommandRequest(CommandRequest {
             request_id: 14,
@@ -31,6 +34,54 @@ fn command_messages_round_trip() {
             request_id: 17,
             operation: CommandOperation::Submit {
                 kind: CommandKind::Walk(WalkTarget::Destination { x: 120, y: 85 }),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 170,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::Walk(WalkTarget::Route(
+                    WalkRoute::new(
+                        3000,
+                        &[
+                            RouteTile { x: 10, y: 20 },
+                            RouteTile { x: 11, y: 20 },
+                            RouteTile { x: 11, y: 21 },
+                        ],
+                    )
+                    .unwrap(),
+                )),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 171,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::SetPathExclusions(
+                    PathExclusions::new(
+                        3000,
+                        &[RouteTile { x: 40, y: 50 }, RouteTile { x: 41, y: 50 }],
+                    )
+                    .unwrap(),
+                ),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 172,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::RemovePathExclusions { map_id: 3000 },
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 173,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::ClearPathExclusions,
                 timeout_ms: 1_000,
                 wait_ms: 50,
             },

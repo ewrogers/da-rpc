@@ -46,6 +46,7 @@ A negotiated protocol version is one `u16` split into major and minor bytes:
 let version: u16 = ((major as u16) << 8) | minor as u16;
 
 const VERSION_1_0: u16 = 0x0100;
+const VERSION_1_1: u16 = 0x0101;
 const VERSION_2_0: u16 = 0x0200;
 ```
 
@@ -55,10 +56,10 @@ advertises an inclusive, continuous range and the controller selects the
 highest version in the overlap. A peer must not advertise one continuous range
 across an incompatible major boundary. No overlap rejects the connection.
 
-The only currently supported version is 1.0 (`0x0100`). The project has not
-released a compatibility boundary yet, so the implemented message set remains
-within 1.0. A later version should be introduced only when compatibility with a
-released consumer requires it.
+The only currently supported version is 1.1 (`0x0101`). Version 1.1 adds exact
+route and path-exclusion commands plus obstruction events. Peers advertise only
+1.1 because these features can introduce command and event discriminants that
+a 1.0 decoder cannot interpret safely.
 
 ## Message types
 
@@ -219,11 +220,18 @@ struct ClientSnapshot {
     exchange: Option<ExchangeState>;
     legend: Option<Vec<LegendMark>>;
     planned_route: Option<PlannedRoute>;
+    map_exclusions: Vec<MapExclusions>;     // u16 count, maximum 1,024
 }
 
 struct PlannedRoute {
     generation: u32;
     tiles: Vec<TilePosition>;              // u32 count, maximum 160,001
+}
+
+struct MapExclusions {
+    map_id: u32;                           // 0 through 65,535
+    tile_count: u16;                        // 1 through 256
+    tiles: [RouteTile; tile_count];
 }
 
 struct LegendMark {
@@ -458,8 +466,9 @@ timeout, and a failed state walk. A ready response may still contain absent
 groups when the client lifecycle or validated pointers do not expose them.
 `Disconnected` means that the client has an active reconnect dialog. It may
 still contain character state when the underlying world remains valid.
-Adding these operations does not change protocol version 1.0 because daRPC has
-not established a released compatibility boundary.
+These snapshot-tail additions remain compatible with their protocol 1.0
+encoding. The command and event additions documented below require protocol
+1.1.
 
 ## Event polling and state updates
 
@@ -519,6 +528,13 @@ enum StateUpdate: u8 {
     Player(PlayerUpdate) = 20,
     CharacterProfile(CharacterProfileUpdate) = 21,
     PlannedRoute(PlannedRoute) = 22,
+    MapExclusions(MapExclusionsUpdate) = 23,
+}
+
+enum MapExclusionsUpdate: u8 {
+    Replaced { exclusions: MapExclusions, map_count: u16 } = 1,
+    Removed { map_id: u32, map_count: u16 } = 2,
+    Cleared { removed_map_count: u16 } = 3,
 }
 
 struct ClientCommand {
@@ -713,6 +729,21 @@ enum MovementUpdate: u8 {
         destination: Option<TilePosition>;
         reached_destination: Option<bool>;
     } = 2,
+    Obstructed {
+        map_id: u32;
+        current: TilePosition;
+        attempted: TilePosition;
+        direction: Direction;
+        destination: Option<TilePosition>;
+        mode: WalkMode;
+    } = 3,
+}
+
+enum WalkMode: u8 {
+    Direct = 0,
+    NativeRoute = 1,
+    ExactRoute = 2,
+    Pursuit = 3,
 }
 
 struct CoreStatus {
@@ -880,6 +911,13 @@ enum CommandKind: u8 {
     InspectPlayer { id: u32 } = 23, // nonzero visible player object ID
     Resync = 24,
     Message(MessageCommand) = 25,
+    SetPathExclusions {
+        map_id: u32;               // 0 through 65,535
+        tile_count: u16;       // 1 through 256
+        tiles: [RouteTile; tile_count];
+    } = 26,
+    RemovePathExclusions { map_id: u32 } = 27, // 0 through 65,535
+    ClearPathExclusions = 28,
 }
 
 enum MessageCommand: u8 {
@@ -975,6 +1013,16 @@ enum SpellArguments: u8 {
 enum WalkTarget: u8 {
     Direction(Direction) = 0,
     Destination { x: i32, y: i32 } = 1,
+    Route {
+        map_id: u32;
+        tile_count: u16;       // 1 through 256
+        tiles: [RouteTile; tile_count];
+    } = 2,
+}
+
+struct RouteTile {
+    x: u16;
+    y: u16;
 }
 
 enum CommandState: u8 {

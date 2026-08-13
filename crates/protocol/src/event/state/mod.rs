@@ -158,6 +158,27 @@ pub(super) fn encode_movement(
                 Some(true) => 2,
             });
         }
+        MovementUpdate::Obstructed {
+            map_id,
+            current,
+            attempted,
+            direction,
+            destination,
+            mode,
+        } => {
+            output.push(3);
+            push_u32(output, map_id);
+            encode_tile_position(output, current);
+            encode_tile_position(output, attempted);
+            output.push(direction.raw());
+            encode_destination(output, destination);
+            output.push(match mode {
+                WalkMode::Direct => 0,
+                WalkMode::NativeRoute => 1,
+                WalkMode::ExactRoute => 2,
+                WalkMode::Pursuit => 3,
+            });
+        }
     }
     Ok(())
 }
@@ -166,14 +187,14 @@ pub(super) fn decode_movement(
     reader: &mut PayloadReader<'_>,
 ) -> Result<MovementUpdate, DecodeError> {
     let kind = reader.read_u8()?;
-    let current = decode_tile_position(reader)?;
-    let destination = decode_destination(reader)?;
     match kind {
         1 => Ok(MovementUpdate::Started {
-            current,
-            destination,
+            current: decode_tile_position(reader)?,
+            destination: decode_destination(reader)?,
         }),
         2 => {
+            let current = decode_tile_position(reader)?;
+            let destination = decode_destination(reader)?;
             let actual = reader.read_u8()?;
             let reached_destination = match (destination.is_some(), actual) {
                 (false, 0) => None,
@@ -190,6 +211,32 @@ pub(super) fn decode_movement(
                 current,
                 destination,
                 reached_destination,
+            })
+        }
+        3 => {
+            let map_id = reader.read_u32()?;
+            let current = decode_tile_position(reader)?;
+            let attempted = decode_tile_position(reader)?;
+            let raw_direction = reader.read_u8()?;
+            let direction =
+                Direction::from_raw(raw_direction).ok_or(DecodeError::InvalidDirection {
+                    actual: raw_direction,
+                })?;
+            let destination = decode_destination(reader)?;
+            let mode = match reader.read_u8()? {
+                0 => WalkMode::Direct,
+                1 => WalkMode::NativeRoute,
+                2 => WalkMode::ExactRoute,
+                3 => WalkMode::Pursuit,
+                actual => return Err(DecodeError::InvalidMovementMode { actual }),
+            };
+            Ok(MovementUpdate::Obstructed {
+                map_id,
+                current,
+                attempted,
+                direction,
+                destination,
+                mode,
             })
         }
         actual => Err(DecodeError::InvalidMovementUpdateType { actual }),

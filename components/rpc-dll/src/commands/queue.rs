@@ -8,8 +8,8 @@ pub(super) struct CommandSlot {
     pub(super) argument_x: AtomicU32,
     pub(super) argument_y: AtomicU32,
     pub(super) argument_z: AtomicU32,
-    pub(super) argument_length: AtomicU8,
-    pub(super) argument_bytes: [AtomicU8; MAX_DIALOG_INPUT_LEN],
+    pub(super) argument_length: AtomicU16,
+    pub(super) argument_bytes: [AtomicU8; MAX_COMMAND_TILE_BYTES],
     pub(super) enqueued_tick_ms: AtomicU32,
     pub(super) deadline_tick_ms: AtomicU32,
     pub(super) started_tick_ms: AtomicU32,
@@ -33,8 +33,8 @@ impl CommandSlot {
             argument_x: AtomicU32::new(0),
             argument_y: AtomicU32::new(0),
             argument_z: AtomicU32::new(0),
-            argument_length: AtomicU8::new(0),
-            argument_bytes: [const { AtomicU8::new(0) }; MAX_DIALOG_INPUT_LEN],
+            argument_length: AtomicU16::new(0),
+            argument_bytes: [const { AtomicU8::new(0) }; MAX_COMMAND_TILE_BYTES],
             enqueued_tick_ms: AtomicU32::new(0),
             deadline_tick_ms: AtomicU32::new(0),
             started_tick_ms: AtomicU32::new(0),
@@ -58,7 +58,7 @@ impl CommandSlot {
         self.argument_z.store(argument_z, Ordering::Relaxed);
         let input = input.as_ref().map_or(&[][..], StoredInput::as_bytes);
         self.argument_length.store(
-            u8::try_from(input.len()).expect("command input limit fits u8"),
+            u16::try_from(input.len()).expect("command input limit fits u16"),
             Ordering::Relaxed,
         );
         for (index, byte) in self.argument_bytes.iter().enumerate() {
@@ -131,7 +131,7 @@ impl CommandSlot {
 
     pub(super) fn kind(&self) -> CommandKind {
         let length = usize::from(self.argument_length.load(Ordering::Relaxed));
-        let mut input = [0; MAX_DIALOG_INPUT_LEN];
+        let mut input = [0; MAX_COMMAND_TILE_BYTES];
         for (destination, source) in input.iter_mut().zip(&self.argument_bytes).take(length) {
             *destination = source.load(Ordering::Relaxed);
         }
@@ -140,7 +140,7 @@ impl CommandSlot {
             self.argument_x.load(Ordering::Relaxed),
             self.argument_y.load(Ordering::Relaxed),
             self.argument_z.load(Ordering::Relaxed),
-            &input[..length.min(MAX_DIALOG_INPUT_LEN)],
+            &input[..length.min(MAX_COMMAND_TILE_BYTES)],
         )
     }
 }

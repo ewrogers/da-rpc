@@ -28,7 +28,9 @@ than creating network packets from scratch.
 That matters for actions. The client still performs its usual checks, updates
 its interface, and keeps its normal timing. Native pathfinding can build a
 route, and ordinary player input can interrupt that route without fighting a
-separate movement loop.
+separate movement loop. An external planner can install an exact native route,
+while per-map policy exclusions keep the built-in pathfinder from choosing
+application-defined tiles to avoid.
 
 The DLL can attach to an already running client and detach without closing it.
 A packet analyzer can still run alongside daRPC when both views are useful.

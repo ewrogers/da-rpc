@@ -17,9 +17,9 @@ mod who;
 pub use event::{
     AbilityUpdate, ActionUpdate, ApplyEventError, AudioUpdate, ClientCommand, CollectionBatch,
     CollectionChange, CollectionKind, CoreStatus, CurrentVitals, EffectUpdate, InventoryUpdate,
-    LifecycleUpdate, LocationUpdate, MapChange, MovementUpdate, PlannedRoute, ProgressionStatus,
-    SkillbookUpdate, SlotUpdate, SpellCancellationSource, SpellCastArguments, SpellbookUpdate,
-    StateEvent, StateUpdate, StatusUpdate, TilePosition,
+    LifecycleUpdate, LocationUpdate, MapChange, MapExclusionsUpdate, MovementUpdate, PlannedRoute,
+    ProgressionStatus, SkillbookUpdate, SlotUpdate, SpellCancellationSource, SpellCastArguments,
+    SpellbookUpdate, StateEvent, StateUpdate, StatusUpdate, TilePosition, WalkMode,
 };
 
 pub use group::{
@@ -50,7 +50,7 @@ pub use snapshot::{
     CharacterAppearance, CharacterClass, CharacterModifiers, CharacterProgression,
     CharacterSnapshot, CharacterStats, CharacterVitals, ClientLifecycle, ClientSnapshot,
     CooldownStatus, Effect, EffectDuration, Element, EquipmentItem, EquipmentSlot, Gender,
-    InventoryItem, MapLocation, Skill, Spell, SpellTargetType,
+    InventoryItem, MapExclusions, MapLocation, Skill, Spell, SpellTargetType,
 };
 
 pub use who::{UserState, WhoList, WhoPlayer};

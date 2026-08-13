@@ -5,7 +5,7 @@ use crate::{
 use darpc_model::{
     CharacterAppearance, CharacterClass, CharacterModifiers, CharacterProgression,
     CharacterSnapshot, CharacterStats, CharacterVitals, ClientLifecycle, ClientSnapshot, Element,
-    Gender, MapLocation, PlannedRoute, TilePosition,
+    Gender, MapExclusions, MapLocation, PlannedRoute, TilePosition,
 };
 
 pub const MAX_CHARACTER_NAME_LEN: usize = 15;
@@ -81,6 +81,9 @@ pub(crate) fn encode(output: &mut Vec<u8>, snapshot: &ClientSnapshot) -> Result<
     )?;
     encode_player_profiles(output, snapshot.objects.as_deref())?;
     encode_optional_planned_route(output, snapshot.planned_route.as_ref())?;
+    if !snapshot.map_exclusions.is_empty() {
+        encode_map_exclusions(output, &snapshot.map_exclusions)?;
+    }
     Ok(())
 }
 
@@ -132,6 +135,11 @@ pub(crate) fn decode(reader: &mut PayloadReader<'_>) -> Result<ClientSnapshot, D
     } else {
         decode_optional_planned_route(reader)?
     };
+    let map_exclusions = if reader.is_empty() {
+        Vec::new()
+    } else {
+        decode_map_exclusions(reader)?
+    };
     let mut snapshot = ClientSnapshot {
         revision,
         event_sequence,
@@ -147,11 +155,133 @@ pub(crate) fn decode(reader: &mut PayloadReader<'_>) -> Result<ClientSnapshot, D
         exchange,
         legend,
         planned_route,
+        map_exclusions,
     };
     if let Some(character) = snapshot.character.as_mut() {
         character.identity = identity;
     }
     Ok(snapshot)
+}
+
+pub(crate) fn encode_map_exclusions(
+    output: &mut Vec<u8>,
+    maps: &[MapExclusions],
+) -> Result<(), EncodeError> {
+    if maps.len() > crate::MAX_PATH_EXCLUSION_MAPS {
+        return Err(EncodeError::SnapshotCollectionTooLong {
+            length: maps.len(),
+            max: crate::MAX_PATH_EXCLUSION_MAPS,
+        });
+    }
+    let total_tiles = maps
+        .iter()
+        .try_fold(0usize, |total, map| total.checked_add(map.tiles.len()))
+        .ok_or(EncodeError::LengthOverflow)?;
+    if total_tiles > crate::MAX_PATH_EXCLUSION_TOTAL_TILES {
+        return Err(EncodeError::SnapshotCollectionTooLong {
+            length: total_tiles,
+            max: crate::MAX_PATH_EXCLUSION_TOTAL_TILES,
+        });
+    }
+    push_u16(
+        output,
+        u16::try_from(maps.len()).map_err(|_| EncodeError::LengthOverflow)?,
+    );
+    let mut previous_map_id = None;
+    for map in maps {
+        if map.map_id > u32::from(u16::MAX) {
+            return Err(EncodeError::InvalidPathExclusionMapId { map_id: map.map_id });
+        }
+        if previous_map_id.is_some_and(|previous| previous >= map.map_id) {
+            return Err(EncodeError::InvalidPathExclusionMapOrder { map_id: map.map_id });
+        }
+        previous_map_id = Some(map.map_id);
+        push_u32(output, map.map_id);
+        if map.tiles.is_empty() || map.tiles.len() > crate::MAX_PATH_EXCLUSION_TILES {
+            return Err(EncodeError::SnapshotCollectionTooLong {
+                length: map.tiles.len(),
+                max: crate::MAX_PATH_EXCLUSION_TILES,
+            });
+        }
+        push_u16(
+            output,
+            u16::try_from(map.tiles.len()).map_err(|_| EncodeError::LengthOverflow)?,
+        );
+        for tile in &map.tiles {
+            let invalid_tile = || EncodeError::InvalidPathExclusionTile {
+                x: tile.x,
+                y: tile.y,
+            };
+            let x = u16::try_from(tile.x).map_err(|_| invalid_tile())?;
+            let y = u16::try_from(tile.y).map_err(|_| invalid_tile())?;
+            if usize::from(x) >= crate::MAX_PATH_EXCLUSION_DIMENSION
+                || usize::from(y) >= crate::MAX_PATH_EXCLUSION_DIMENSION
+            {
+                return Err(invalid_tile());
+            }
+            push_u16(output, x);
+            push_u16(output, y);
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn decode_map_exclusions(
+    reader: &mut PayloadReader<'_>,
+) -> Result<Vec<MapExclusions>, DecodeError> {
+    let map_count = usize::from(reader.read_u16()?);
+    if map_count > crate::MAX_PATH_EXCLUSION_MAPS {
+        return Err(DecodeError::SnapshotCollectionTooLong {
+            length: map_count,
+            max: crate::MAX_PATH_EXCLUSION_MAPS,
+        });
+    }
+    let mut maps = Vec::with_capacity(map_count);
+    let mut total_tiles = 0usize;
+    for _ in 0..map_count {
+        let map_id = reader.read_u32()?;
+        if map_id > u32::from(u16::MAX) {
+            return Err(DecodeError::InvalidPathExclusionMapId { map_id });
+        }
+        if maps
+            .last()
+            .is_some_and(|previous: &MapExclusions| previous.map_id >= map_id)
+        {
+            return Err(DecodeError::InvalidPathExclusionMapOrder { map_id });
+        }
+        let tile_count = usize::from(reader.read_u16()?);
+        if tile_count == 0 || tile_count > crate::MAX_PATH_EXCLUSION_TILES {
+            return Err(DecodeError::InvalidRouteTileCount {
+                actual: tile_count,
+                max: crate::MAX_PATH_EXCLUSION_TILES,
+            });
+        }
+        total_tiles = total_tiles
+            .checked_add(tile_count)
+            .ok_or(DecodeError::LengthOverflow)?;
+        if total_tiles > crate::MAX_PATH_EXCLUSION_TOTAL_TILES {
+            return Err(DecodeError::SnapshotCollectionTooLong {
+                length: total_tiles,
+                max: crate::MAX_PATH_EXCLUSION_TOTAL_TILES,
+            });
+        }
+        let mut tiles = Vec::with_capacity(tile_count);
+        for _ in 0..tile_count {
+            let x = reader.read_u16()?;
+            let y = reader.read_u16()?;
+            if usize::from(x) >= crate::MAX_PATH_EXCLUSION_DIMENSION
+                || usize::from(y) >= crate::MAX_PATH_EXCLUSION_DIMENSION
+            {
+                return Err(DecodeError::InvalidPathExclusionTile { x, y });
+            }
+            tiles.push(TilePosition {
+                x: i32::from(x),
+                y: i32::from(y),
+            });
+        }
+        maps.push(MapExclusions { map_id, tiles });
+    }
+    Ok(maps)
 }
 
 pub(crate) fn encode_planned_route(

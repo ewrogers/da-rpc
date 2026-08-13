@@ -32,8 +32,8 @@ use darpc_model::{
     EquipmentSlot as ModelEquipmentSlot, ExchangeItem as ModelExchangeItem,
     ExchangeOffer as ModelExchangeOffer, ExchangeState as ModelExchangeState, Gender,
     InventoryItem as ModelInventoryItem, LegendIcon as ModelLegendIcon,
-    LegendMark as ModelLegendMark, MapLocation, MessageKind as ModelMessageKind,
-    Nation as ModelNation, PlannedRoute as ModelPlannedRoute,
+    LegendMark as ModelLegendMark, MapExclusions as ModelMapExclusions, MapLocation,
+    MessageKind as ModelMessageKind, Nation as ModelNation, PlannedRoute as ModelPlannedRoute,
     PlayerEquipmentItem as ModelPlayerEquipmentItem, PlayerIdentity as ModelPlayerIdentity,
     PlayerProfile as ModelPlayerProfile, Skill as ModelSkill, Spell as ModelSpell,
     SpellCastArguments as ModelSpellCastArguments, SpellTargetType as ModelSpellTargetType,
@@ -42,9 +42,10 @@ use darpc_model::{
 use darpc_protocol::{
     Architecture, ChantText, CommandKind, CommandOperation, CommandResult, CommandState,
     CommandStatus, ComponentVersion, DialogAction, DialogCommand, ExchangeCommand, GoldTransfer,
-    Hello, ItemSlot, ItemTransfer, MessageCommand, MessageContent, MessageRecipient, RawPacket,
-    RawPacketDirection, SUPPORTED_VERSIONS, SkillSlot, SlotSwap, SpellArguments, SpellCast,
-    SpellInput, SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkTarget,
+    Hello, ItemSlot, ItemTransfer, MessageCommand, MessageContent, MessageRecipient,
+    PathExclusions, RawPacket, RawPacketDirection, RouteTile, SUPPORTED_VERSIONS, SkillSlot,
+    SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition,
+    TransferTarget, WalkRoute, WalkTarget,
 };
 use serde_json::Value;
 use std::{
@@ -279,6 +280,10 @@ fn game_snapshot() -> ModelClientSnapshot {
                 ModelTilePosition { x: 12, y: 22 },
             ],
         }),
+        map_exclusions: vec![ModelMapExclusions {
+            map_id: 3001,
+            tiles: vec![ModelTilePosition { x: 40, y: 50 }],
+        }],
     }
 }
 
@@ -518,6 +523,38 @@ fn post_json(state: ApiState, path: &str, body: &str) -> axum::response::Respons
                         .body(Body::from(body.to_owned()))
                         .unwrap(),
                 )
+                .await
+                .unwrap()
+        })
+}
+
+fn put_json(state: ApiState, path: &str, body: &str) -> axum::response::Response {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_time()
+        .build()
+        .unwrap()
+        .block_on(async {
+            router(state)
+                .oneshot(
+                    Request::put(path)
+                        .header("content-type", "application/json")
+                        .header("content-length", body.len())
+                        .body(Body::from(body.to_owned()))
+                        .unwrap(),
+                )
+                .await
+                .unwrap()
+        })
+}
+
+fn delete_empty(state: ApiState, path: &str) -> axum::response::Response {
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            router(state)
+                .oneshot(Request::delete(path).body(Body::empty()).unwrap())
                 .await
                 .unwrap()
         })

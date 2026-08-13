@@ -162,6 +162,7 @@ Listen on `GET /clients/{client}/events`. These events update status:
 | `location.changed` | Absolute x/y and, when applicable, an atomic map change |
 | `walking.started` | Native pathfinding began a queued route |
 | `walking.stopped` | The queued route ended or was interrupted |
+| `walking.obstructed` | A direct or queued movement step was rejected at a tile |
 | `walking.route_changed` | The complete native planned route was rebuilt, consumed, or cleared |
 | `spell.begin` | A delayed cast began and `is_casting` became true |
 | `spell.cast` | A cast completed and `is_casting` became false |

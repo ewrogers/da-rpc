@@ -16,8 +16,10 @@ use darpc_protocol::{
     CommandFailure as ProtocolFailure, CommandKind as ProtocolKind, CommandOperation,
     CommandResult as ProtocolResult, CommandState as ProtocolState,
     CommandStatus as ProtocolStatus, DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS,
-    MAX_COMMAND_WAIT_MS, MAX_ITEM_SLOT, MAX_SKILL_SLOT, MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT,
-    SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget, WalkTarget,
+    MAX_COMMAND_WAIT_MS, MAX_ITEM_SLOT, MAX_PATH_EXCLUSION_DIMENSION, MAX_PATH_EXCLUSION_MAPS,
+    MAX_PATH_EXCLUSION_TILES, MAX_PATH_EXCLUSION_TOTAL_TILES, MAX_SKILL_SLOT, MAX_SPELL_INPUT_LEN,
+    MAX_SPELL_SLOT, MAX_WALK_ROUTE_TILES, PathExclusions, RouteTile, SkillSlot, SlotSwap,
+    SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget, WalkRoute, WalkTarget,
 };
 use serde::{Deserialize, Serialize};
 use std::{num::NonZeroU32, time::Duration};
@@ -66,8 +68,10 @@ pub(crate) use legend::{LegendIcon, LegendMark, LegendSnapshot, legend};
 pub(crate) use message::{SendMessageChannel, SendMessageOptions};
 use movement::validate_destination;
 pub(crate) use movement::{
-    ActionDirection, Destination, TurnOptions, WalkDestinationOptions, WalkDirectionOptions,
-    WalkOptions, turn, walk,
+    ActionDirection, Destination, MapExclusionsCollection, MapExclusionsOptions,
+    MapExclusionsSummary, MapPathExclusions, RouteOptions, TurnOptions, WalkDestinationOptions,
+    WalkDirectionOptions, WalkOptions, WalkRouteOptions, clear_map_exclusions, map_exclusions,
+    map_exclusions_collection, remove_map_exclusions, replace_map_exclusions, turn, walk,
 };
 pub(crate) use player::{cached_player, inspect_player};
 pub(crate) use who::{UserState as WhoUserState, WhoClass, WhoList, WhoPlayer, who};
@@ -302,6 +306,7 @@ pub(crate) enum CommandKind {
     Assail,
     Resync,
     Message,
+    PathExclusions,
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
@@ -662,6 +667,9 @@ impl From<ProtocolKind> for CommandKind {
             ProtocolKind::InspectPlayer(_) => Self::InspectPlayer,
             ProtocolKind::Resync => Self::Resync,
             ProtocolKind::Message(_) => Self::Message,
+            ProtocolKind::SetPathExclusions(_)
+            | ProtocolKind::RemovePathExclusions { .. }
+            | ProtocolKind::ClearPathExclusions => Self::PathExclusions,
         }
     }
 }

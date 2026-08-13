@@ -113,6 +113,27 @@ pub(crate) fn expand(
                     destination: destination.map(Into::into),
                     reached_destination,
                 }),
+                MovementUpdate::Obstructed {
+                    map_id,
+                    current,
+                    attempted,
+                    direction,
+                    destination,
+                    mode,
+                } => ClientEvent::WalkingObstructed(WalkingObstructed {
+                    observation,
+                    map_id,
+                    current: current.into(),
+                    attempted: attempted.into(),
+                    direction: direction.into(),
+                    destination: destination.map(Into::into),
+                    mode: match mode {
+                        darpc_model::WalkMode::Direct => WalkingMode::Direct,
+                        darpc_model::WalkMode::NativeRoute => WalkingMode::NativeRoute,
+                        darpc_model::WalkMode::ExactRoute => WalkingMode::ExactRoute,
+                        darpc_model::WalkMode::Pursuit => WalkingMode::Pursuit,
+                    },
+                }),
             });
             events
         }
@@ -121,6 +142,34 @@ pub(crate) fn expand(
                 observation,
                 generation: route.generation,
                 tiles: route.tiles.into_iter().map(Into::into).collect(),
+            }));
+            events
+        }
+        StateUpdate::MapExclusions(update) => {
+            let (operation, map_id, tile_count, map_count) = match update {
+                darpc_model::MapExclusionsUpdate::Replaced {
+                    exclusions,
+                    map_count,
+                } => (
+                    MapExclusionsOperation::Replaced,
+                    Some(exclusions.map_id),
+                    u16::try_from(exclusions.tiles.len())
+                        .expect("bounded exclusion tile count fits u16"),
+                    map_count,
+                ),
+                darpc_model::MapExclusionsUpdate::Removed { map_id, map_count } => {
+                    (MapExclusionsOperation::Removed, Some(map_id), 0, map_count)
+                }
+                darpc_model::MapExclusionsUpdate::Cleared { .. } => {
+                    (MapExclusionsOperation::Cleared, None, 0, 0)
+                }
+            };
+            events.push(ClientEvent::MapExclusionsChanged(MapExclusionsChanged {
+                observation,
+                operation,
+                map_id,
+                tile_count,
+                map_count,
             }));
             events
         }

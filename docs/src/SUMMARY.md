@@ -19,6 +19,7 @@
   - [Effects](effects.md)
   - [World](world.md)
   - [Movement](movement.md)
+    - [Path exclusions](path-exclusions.md)
   - [Emotes](emotes.md)
   - [Messages](messages.md)
   - [NPC dialogs](dialogs.md)

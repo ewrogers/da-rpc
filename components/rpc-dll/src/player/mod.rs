@@ -171,6 +171,43 @@ pub(crate) fn refresh_self(id: u32) {
     });
 }
 
+#[cfg_attr(
+    test,
+    expect(dead_code, reason = "production submits through the network action")
+)]
+pub(crate) fn request_self_look(tick_ms: u32) {
+    let Some(id) = crate::state::self_id() else {
+        return;
+    };
+    if track_self_look(id, tick_ms) {
+        #[cfg(all(windows, not(test)))]
+        if crate::actions::network::submit(&[0x2D]).is_err() {
+            cancel_self_look(id, tick_ms);
+        }
+    }
+}
+
+fn track_self_look(id: u32, tick_ms: u32) -> bool {
+    if !request_tracking::ready_for_next(tick_ms) {
+        return false;
+    }
+    push_origin(Origin {
+        kind: ORIGIN_DARPC,
+        id,
+        trigger: PlayerInspectionTrigger::Appeared,
+        command_id: 0,
+        tick_ms,
+    });
+    request_tracking::mark_in_flight(id, tick_ms);
+    true
+}
+
+#[cfg(all(windows, not(test)))]
+fn cancel_self_look(id: u32, tick_ms: u32) {
+    let _ = take_internal_origin(id, tick_ms);
+    request_tracking::complete(id);
+}
+
 #[cfg(not(test))]
 pub(crate) fn request(command_id: u32, id: u32) -> Result<(), darpc_protocol::CommandFailure> {
     if crate::state::observed_player(id).is_none() {
@@ -356,6 +393,7 @@ fn intercept_self_response_for(id: u32, body: &[u8], tick_ms: u32) -> bool {
         return false;
     }
     observe_self_identity(current, tick_ms);
+    crate::group::observe_packet(body, tick_ms);
     true
 }
 
@@ -726,21 +764,18 @@ mod tests {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         reset();
-        refresh_self(7);
-        request_tracking::mark_in_flight(7, 10);
-        push_origin(Origin {
-            kind: ORIGIN_DARPC,
-            id: 7,
-            trigger: PlayerInspectionTrigger::Appeared,
-            command_id: 0,
-            tick_ms: 10,
-        });
+        crate::group::reset();
+        assert!(track_self_look(7, 10));
+        assert!(!track_self_look(7, 10));
 
         let mut body = vec![0x39, 1, 4];
         body.extend_from_slice(b"Rank");
         body.extend_from_slice(&[5]);
         body.extend_from_slice(b"Title");
-        body.extend_from_slice(&[0, 1, 1]);
+        let roster = b"Group members\n  Eidolon\n* ZiLo\nTotal 2";
+        body.push(u8::try_from(roster.len()).unwrap());
+        body.extend_from_slice(roster);
+        body.extend_from_slice(&[1, 1]);
         for value in [b"Lead".as_slice(), b"Team", b"Note"] {
             body.push(value.len() as u8);
             body.extend_from_slice(value);
@@ -758,6 +793,7 @@ mod tests {
         assert!(pop_pending().is_none());
         assert!(!INTERCEPT_PENDING.load(Ordering::Acquire));
         assert_eq!(self_identity().unwrap().display_class, "Summoner");
+        assert_eq!(crate::group::member_count(), 2);
         assert!(!intercept_self_response_for(7, &body, 12));
     }
 }

@@ -4,8 +4,8 @@ mod publication;
 #[cfg(not(test))]
 use darpc_game_client::RawLifecycle;
 use darpc_game_client::{
-    RawGroupState, RawInventory, RawObjects, RawSkillbook, RawSpellbook, RawStateSnapshot,
-    StateReadError, StateWalker,
+    RawInventory, RawObjects, RawSkillbook, RawSpellbook, RawStateSnapshot, StateReadError,
+    StateWalker,
 };
 use darpc_model::ClientSnapshot;
 use std::{
@@ -108,11 +108,6 @@ fn capture(raw: &mut RawStateSnapshot, objects: &mut RawObjects) -> Result<(), S
         );
     }
     Ok(())
-}
-
-pub(crate) fn capture_group(output: &mut RawGroupState) -> Result<(), StateReadError> {
-    let (walker, thread_id) = process_walker()?;
-    walker.capture_group_state(thread_id, output)
 }
 
 pub(crate) fn capture_inventory(output: &mut RawInventory) -> Result<bool, StateReadError> {

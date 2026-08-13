@@ -4,7 +4,7 @@ use darpc_game_client::{
     GROUP_INVITATION_CAPACITY, GROUP_NAME_BYTES, RawGroupInvitation, RawGroupMember, RawGroupState,
 };
 use darpc_model::{
-    GroupInvitation, GroupInvitationCloseReason, GroupMember, GroupState, GroupUpdate,
+    GroupInvitation, GroupInvitationCloseReason, GroupMember, GroupState, GroupUpdate, MessageKind,
 };
 use std::{
     cell::UnsafeCell,
@@ -14,6 +14,11 @@ use std::{
 use crate::{inline_bytes::InlineBytes, transfer_slot::TransferSlot};
 
 const EVENT_SLOT_COUNT: usize = 16;
+const GROUP_MEMBERS_HEADER: &[u8] = b"Group Members";
+const GROUP_TOTAL_HEADER: &[u8] = b"Total ";
+const ADVENTURING_ALONE: &[u8] = b"Adventuring alone";
+const GROUP_DISBANDED_MESSAGE: &[u8] = b"Group disbanded.";
+const GROUP_JOINED_SUFFIX: &[u8] = b" is joining this group.";
 
 static NEXT_INVITATION_ID: AtomicU32 = AtomicU32::new(1);
 static TRACKER: TrackerCell = TrackerCell(UnsafeCell::new(RawGroupState::empty()));
@@ -70,6 +75,8 @@ pub(crate) fn merge_snapshot(group: &mut RawGroupState, available: bool) {
     }
     // SAFETY: snapshot capture runs on the sole producer thread.
     let tracked = unsafe { &*TRACKER.0.get() };
+    group.member_count = tracked.member_count;
+    group.members = tracked.members;
     group.invitation_count = tracked.invitation_count;
     group.invitations = tracked.invitations;
     group.is_group_open = tracked.is_group_open.or(group.is_group_open);
@@ -108,6 +115,16 @@ pub(crate) fn observe_packet(body: &[u8], tick_ms: u32) {
         }
         _ => {}
     }
+}
+
+pub(crate) fn observe_message(kind: MessageKind, text: &[u8], tick_ms: u32) {
+    if !is_roster_confirmation(kind, text) {
+        return;
+    }
+    #[cfg(all(windows, not(test)))]
+    crate::actions::group::schedule_roster_refresh(tick_ms);
+    #[cfg(any(not(windows), test))]
+    let _ = tick_ms;
 }
 
 pub(crate) fn observe_pending(name: &[u8], received_tick_ms: Option<u32>, tick_ms: u32) {
@@ -199,10 +216,6 @@ pub(crate) fn invitation(id: u32) -> Option<RawGroupInvitation> {
         .find(|invitation| invitation.id == id)
 }
 
-#[cfg_attr(
-    test,
-    expect(dead_code, reason = "called by the production-only actions module")
-)]
 pub(crate) fn member_count() -> u8 {
     // SAFETY: roster refresh runs on the sole producer thread.
     unsafe { (*TRACKER.0.get()).member_count }
@@ -290,7 +303,6 @@ fn observe_invitation_packet(body: &[u8], tick_ms: u32) {
         if !crate::actions::group::is_open(name) {
             // SAFETY: packet observation runs on the sole producer thread.
             unsafe { (*TRACKER.0.get()).auto_accept = Some(true) };
-            crate::actions::group::schedule_roster_refresh(tick_ms);
             return;
         }
         // SAFETY: a visible prompt establishes that automatic acceptance is off.
@@ -299,92 +311,181 @@ fn observe_invitation_packet(body: &[u8], tick_ms: u32) {
     observe_pending(name, Some(tick_ms), tick_ms);
 }
 
-fn observe_self_look(body: &[u8], tick_ms: u32) {
-    #[cfg(not(windows))]
-    {
-        let _ = (body, tick_ms);
+fn is_roster_confirmation(kind: MessageKind, text: &[u8]) -> bool {
+    if kind != MessageKind::System {
+        return false;
     }
-    #[cfg(windows)]
-    {
-        let is_group_open = parse_self_look_open(body);
-        let mut captured = RawGroupState::empty();
-        if crate::snapshot::capture_group(&mut captured).is_err() {
-            crate::state::mark_resync_required();
-            return;
-        }
-        // SAFETY: packet observation runs on the sole producer thread.
-        let current = unsafe { &mut *TRACKER.0.get() };
-        captured.invitations = current.invitations;
-        captured.invitation_count = current.invitation_count;
-        captured.is_group_open = is_group_open.or(current.is_group_open);
-        captured.auto_accept = current.auto_accept;
-        let previous = *current;
-        *current = captured;
+    if text.eq_ignore_ascii_case(GROUP_DISBANDED_MESSAGE) {
+        return true;
+    }
+    let Some(name_length) = text.len().checked_sub(GROUP_JOINED_SUFFIX.len()) else {
+        return false;
+    };
+    let (name, suffix) = text.split_at(name_length);
+    suffix.eq_ignore_ascii_case(GROUP_JOINED_SUFFIX) && raw_name(name).is_some()
+}
 
-        let old_count = usize::from(previous.member_count);
-        let new_count = usize::from(captured.member_count);
-        if old_count == 0 && new_count != 0 {
-            queue(
-                RawGroupUpdate {
-                    kind: RawGroupUpdateKind::Joined,
-                    state: captured,
-                },
-                tick_ms,
-            );
-        } else if old_count != 0 && new_count == 0 {
-            queue(
-                RawGroupUpdate {
-                    kind: RawGroupUpdateKind::Disbanded,
-                    state: captured,
-                },
-                tick_ms,
-            );
-        } else {
-            for member in captured.members.iter().copied().take(new_count) {
-                if !contains_member(&previous, member) {
-                    queue(
-                        RawGroupUpdate {
-                            kind: RawGroupUpdateKind::MemberJoined(member),
-                            state: captured,
-                        },
-                        tick_ms,
-                    );
-                }
-            }
-            for member in previous.members.iter().copied().take(old_count) {
-                if !contains_member(&captured, member) {
-                    queue(
-                        RawGroupUpdate {
-                            kind: RawGroupUpdateKind::MemberLeft(member),
-                            state: captured,
-                        },
-                        tick_ms,
-                    );
-                }
+fn observe_self_look(body: &[u8], tick_ms: u32) {
+    let Some(mut captured) = parse_self_look(body) else {
+        return;
+    };
+    // SAFETY: packet observation runs on the sole producer thread.
+    let current = unsafe { &mut *TRACKER.0.get() };
+    captured.invitations = current.invitations;
+    captured.invitation_count = current.invitation_count;
+    captured.auto_accept = current.auto_accept;
+    let previous = *current;
+    *current = captured;
+
+    let old_count = usize::from(previous.member_count);
+    let new_count = usize::from(captured.member_count);
+    if old_count == 0 && new_count != 0 {
+        queue(
+            RawGroupUpdate {
+                kind: RawGroupUpdateKind::Joined,
+                state: captured,
+            },
+            tick_ms,
+        );
+    } else if old_count != 0 && new_count == 0 {
+        queue(
+            RawGroupUpdate {
+                kind: RawGroupUpdateKind::Disbanded,
+                state: captured,
+            },
+            tick_ms,
+        );
+    } else {
+        for member in captured.members.iter().copied().take(new_count) {
+            if !contains_member(&previous, member) {
+                queue(
+                    RawGroupUpdate {
+                        kind: RawGroupUpdateKind::MemberJoined(member),
+                        state: captured,
+                    },
+                    tick_ms,
+                );
             }
         }
-        if previous.is_group_open != captured.is_group_open {
-            queue(
-                RawGroupUpdate {
-                    kind: RawGroupUpdateKind::SettingsChanged,
-                    state: captured,
-                },
-                tick_ms,
-            );
+        for member in previous.members.iter().copied().take(old_count) {
+            if !contains_member(&captured, member) {
+                queue(
+                    RawGroupUpdate {
+                        kind: RawGroupUpdateKind::MemberLeft(member),
+                        state: captured,
+                    },
+                    tick_ms,
+                );
+            }
         }
+    }
+    if previous.is_group_open != captured.is_group_open {
+        queue(
+            RawGroupUpdate {
+                kind: RawGroupUpdateKind::SettingsChanged,
+                state: captured,
+            },
+            tick_ms,
+        );
     }
 }
 
-fn parse_self_look_open(body: &[u8]) -> Option<bool> {
+fn parse_self_look(body: &[u8]) -> Option<RawGroupState> {
     if body.first() != Some(&0x39) {
         return None;
     }
     let mut offset = 2;
-    for _ in 0..3 {
-        let length = usize::from(*body.get(offset)?);
-        offset = offset.checked_add(1 + length)?;
+    take_string(body, &mut offset)?;
+    take_string(body, &mut offset)?;
+    let roster = take_string(body, &mut offset)?;
+    let mut state = RawGroupState::empty();
+    state.is_group_open = Some(*body.get(offset)? != 0);
+    parse_roster(roster, &mut state)?;
+    Some(state)
+}
+
+fn parse_roster(value: &[u8], state: &mut RawGroupState) -> Option<()> {
+    let value = trim_ascii(value);
+    if value.is_empty() || find_ascii_case_insensitive(value, ADVENTURING_ALONE).is_some() {
+        return Some(());
     }
-    body.get(offset).map(|value| *value != 0)
+
+    let header = find_ascii_case_insensitive(value, GROUP_MEMBERS_HEADER)?;
+    let roster = trim_ascii(value.get(header + GROUP_MEMBERS_HEADER.len()..)?);
+    let roster = roster.strip_prefix(b":").map_or(roster, trim_ascii);
+    let lines = roster.split(|byte| matches!(*byte, b'\r' | b'\n'));
+    let mut leader_seen = false;
+    let mut total_seen = false;
+    for line in lines {
+        let mut name = trim_ascii(line);
+        if let Some(total) = parse_total(name) {
+            if total_seen || total != state.member_count {
+                return None;
+            }
+            total_seen = true;
+            continue;
+        }
+        let is_leader = if let Some(remainder) = name.strip_prefix(b"*") {
+            name = trim_ascii(remainder);
+            if leader_seen {
+                return None;
+            }
+            leader_seen = true;
+            true
+        } else {
+            false
+        };
+        if name.is_empty() {
+            continue;
+        }
+        if total_seen {
+            return None;
+        }
+        let index = usize::from(state.member_count);
+        let member = state.members.get_mut(index)?;
+        let raw = raw_name(name)?;
+        member.name[..raw.len()].copy_from_slice(raw.as_bytes());
+        member.name_len = u8::try_from(raw.len()).expect("group name length fits u8");
+        member.is_leader = is_leader;
+        state.member_count = state.member_count.checked_add(1)?;
+    }
+    (state.member_count != 0).then_some(())
+}
+
+fn parse_total(value: &[u8]) -> Option<u8> {
+    let (header, digits) = value.split_at_checked(GROUP_TOTAL_HEADER.len())?;
+    if !header.eq_ignore_ascii_case(GROUP_TOTAL_HEADER) || digits.is_empty() {
+        return None;
+    }
+    digits.iter().try_fold(0_u8, |total, byte| {
+        let digit = byte.checked_sub(b'0').filter(|digit| *digit <= 9)?;
+        total.checked_mul(10)?.checked_add(digit)
+    })
+}
+
+fn find_ascii_case_insensitive(value: &[u8], needle: &[u8]) -> Option<usize> {
+    value
+        .windows(needle.len())
+        .position(|window| window.eq_ignore_ascii_case(needle))
+}
+
+fn take_string<'a>(body: &'a [u8], offset: &mut usize) -> Option<&'a [u8]> {
+    let length = usize::from(*body.get(*offset)?);
+    *offset = offset.checked_add(1)?;
+    let end = offset.checked_add(length)?;
+    let value = body.get(*offset..end)?;
+    *offset = end;
+    Some(value)
+}
+
+fn trim_ascii(mut value: &[u8]) -> &[u8] {
+    while value.first().is_some_and(u8::is_ascii_whitespace) {
+        value = &value[1..];
+    }
+    while value.last().is_some_and(u8::is_ascii_whitespace) {
+        value = &value[..value.len() - 1];
+    }
+    value
 }
 
 fn contains_member(state: &RawGroupState, wanted: RawGroupMember) -> bool {
@@ -450,4 +551,95 @@ fn decode(bytes: &[u8]) -> Option<String> {
 #[cfg(not(windows))]
 fn decode(bytes: &[u8]) -> Option<String> {
     (!bytes.is_empty()).then(|| String::from_utf8_lossy(bytes).into_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn self_look(roster: &[u8], is_group_open: bool) -> Vec<u8> {
+        let mut body = vec![0x39, 1, 0, 0];
+        body.push(u8::try_from(roster.len()).expect("test roster fits string8"));
+        body.extend_from_slice(roster);
+        body.push(u8::from(is_group_open));
+        body
+    }
+
+    #[test]
+    fn parses_group_members_and_leader_from_self_look() {
+        let state = parse_self_look(&self_look(
+            b"Group members\n  Eidolon\n* ZiLo\nTotal 2",
+            true,
+        ))
+        .expect("valid self look");
+
+        assert_eq!(state.is_group_open, Some(true));
+        assert_eq!(state.member_count, 2);
+        assert_eq!(member_model(state.members[0]).unwrap().name, "Eidolon");
+        assert!(!state.members[0].is_leader);
+        assert_eq!(member_model(state.members[1]).unwrap().name, "ZiLo");
+        assert!(state.members[1].is_leader);
+    }
+
+    #[test]
+    fn parses_crlf_group_members_without_a_leader_marker() {
+        let state = parse_self_look(&self_look(b"Group Members:\r\nZiLo\r\nEidolon\r\n", false))
+            .expect("valid self look");
+
+        assert_eq!(state.is_group_open, Some(false));
+        assert_eq!(state.member_count, 2);
+        assert!(!state.members[0].is_leader);
+        assert!(!state.members[1].is_leader);
+    }
+
+    #[test]
+    fn parses_control_prefixed_roster_with_cr_line_endings() {
+        let state = parse_self_look(&self_look(b"\x01Group Members:\r*ZiLo\rEidolon\r", false))
+            .expect("valid self look");
+
+        assert_eq!(state.member_count, 2);
+        assert_eq!(member_model(state.members[0]).unwrap().name, "ZiLo");
+        assert!(state.members[0].is_leader);
+        assert_eq!(member_model(state.members[1]).unwrap().name, "Eidolon");
+    }
+
+    #[test]
+    fn parses_adventuring_alone_as_an_empty_roster() {
+        let state =
+            parse_self_look(&self_look(b"Adventuring alone", true)).expect("valid solo self look");
+
+        assert_eq!(state.member_count, 0);
+        assert_eq!(state.is_group_open, Some(true));
+    }
+
+    #[test]
+    fn rejects_unknown_roster_text_and_multiple_leaders() {
+        assert!(parse_self_look(&self_look(b"Unknown", true)).is_none());
+        assert!(parse_self_look(&self_look(b"Group Members:\n*ZiLo\n*Eidolon", true)).is_none());
+        assert!(parse_self_look(&self_look(b"Group Members\nZiLo\nTotal 2", true)).is_none());
+    }
+
+    #[test]
+    fn recognizes_server_confirmed_group_changes() {
+        assert!(is_roster_confirmation(
+            MessageKind::System,
+            b"Group disbanded."
+        ));
+        assert!(is_roster_confirmation(
+            MessageKind::System,
+            b"ZiLo is joining this group."
+        ));
+        assert!(!is_roster_confirmation(
+            MessageKind::Group,
+            b"ZiLo is joining this group."
+        ));
+        assert!(!is_roster_confirmation(
+            MessageKind::System,
+            b" is joining this group."
+        ));
+        assert!(!is_roster_confirmation(
+            MessageKind::System,
+            b"ZiLo joined some other group."
+        ));
+    }
 }

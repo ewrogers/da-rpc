@@ -77,8 +77,7 @@ pub(super) fn submit(command: GroupCommand) -> Result<(), CommandFailure> {
 }
 
 fn toggle() -> Result<(), CommandFailure> {
-    network::submit(&[0x2F])?;
-    network::submit(&[0x2D])
+    network::submit(&[0x2F])
 }
 
 pub(crate) fn observe_tick(tick_ms: u32) {
@@ -120,7 +119,6 @@ fn invite(target: &[u8]) -> Result<(), CommandFailure> {
     body[3..3 + target.len()].copy_from_slice(target);
     network::submit(&body[..3 + target.len()])?;
     crate::group::observe_sent(target, now());
-    schedule_roster_refresh(now());
     Ok(())
 }
 
@@ -156,7 +154,7 @@ fn refresh_roster(tick_ms: u32) {
         REFRESH_UNTIL.store(0, Ordering::Relaxed);
         return;
     }
-    let _ = network::submit(&[0x2D]);
+    crate::player::request_self_look(tick_ms);
     NEXT_ROSTER_REFRESH.store(
         tick_ms.wrapping_add(ROSTER_REFRESH_INTERVAL_MS),
         Ordering::Relaxed,
@@ -174,7 +172,6 @@ fn respond(id: u32, action: GroupInvitationAction) -> Result<(), CommandFailure>
         body[2] = invitation.inviter_len;
         body[3..3 + name.len()].copy_from_slice(name);
         network::submit(&body[..4 + name.len()])?;
-        network::submit(&[0x2D])?;
     }
     let module_base = module_base()?;
     let address = module_base

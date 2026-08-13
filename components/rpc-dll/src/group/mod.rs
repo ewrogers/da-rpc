@@ -4,7 +4,7 @@ use darpc_game_client::{
     GROUP_INVITATION_CAPACITY, GROUP_NAME_BYTES, RawGroupInvitation, RawGroupMember, RawGroupState,
 };
 use darpc_model::{
-    GroupInvitation, GroupInvitationCloseReason, GroupMember, GroupState, GroupUpdate,
+    GroupInvitation, GroupInvitationCloseReason, GroupMember, GroupState, GroupUpdate, MessageKind,
 };
 use std::{
     cell::UnsafeCell,
@@ -17,6 +17,8 @@ const EVENT_SLOT_COUNT: usize = 16;
 const GROUP_MEMBERS_HEADER: &[u8] = b"Group Members";
 const GROUP_TOTAL_HEADER: &[u8] = b"Total ";
 const ADVENTURING_ALONE: &[u8] = b"Adventuring alone";
+const GROUP_DISBANDED_MESSAGE: &[u8] = b"Group disbanded.";
+const GROUP_JOINED_SUFFIX: &[u8] = b" is joining this group.";
 
 static NEXT_INVITATION_ID: AtomicU32 = AtomicU32::new(1);
 static TRACKER: TrackerCell = TrackerCell(UnsafeCell::new(RawGroupState::empty()));
@@ -115,6 +117,16 @@ pub(crate) fn observe_packet(body: &[u8], tick_ms: u32) {
     }
 }
 
+pub(crate) fn observe_message(kind: MessageKind, text: &[u8], tick_ms: u32) {
+    if !is_roster_confirmation(kind, text) {
+        return;
+    }
+    #[cfg(all(windows, not(test)))]
+    crate::actions::group::schedule_roster_refresh(tick_ms);
+    #[cfg(any(not(windows), test))]
+    let _ = tick_ms;
+}
+
 pub(crate) fn observe_pending(name: &[u8], received_tick_ms: Option<u32>, tick_ms: u32) {
     let Some(raw_name) = raw_name(name) else {
         return;
@@ -204,10 +216,6 @@ pub(crate) fn invitation(id: u32) -> Option<RawGroupInvitation> {
         .find(|invitation| invitation.id == id)
 }
 
-#[cfg_attr(
-    test,
-    expect(dead_code, reason = "called by the production-only actions module")
-)]
 pub(crate) fn member_count() -> u8 {
     // SAFETY: roster refresh runs on the sole producer thread.
     unsafe { (*TRACKER.0.get()).member_count }
@@ -295,13 +303,26 @@ fn observe_invitation_packet(body: &[u8], tick_ms: u32) {
         if !crate::actions::group::is_open(name) {
             // SAFETY: packet observation runs on the sole producer thread.
             unsafe { (*TRACKER.0.get()).auto_accept = Some(true) };
-            crate::actions::group::schedule_roster_refresh(tick_ms);
             return;
         }
         // SAFETY: a visible prompt establishes that automatic acceptance is off.
         unsafe { (*TRACKER.0.get()).auto_accept = Some(false) };
     }
     observe_pending(name, Some(tick_ms), tick_ms);
+}
+
+fn is_roster_confirmation(kind: MessageKind, text: &[u8]) -> bool {
+    if kind != MessageKind::System {
+        return false;
+    }
+    if text.eq_ignore_ascii_case(GROUP_DISBANDED_MESSAGE) {
+        return true;
+    }
+    let Some(name_length) = text.len().checked_sub(GROUP_JOINED_SUFFIX.len()) else {
+        return false;
+    };
+    let (name, suffix) = text.split_at(name_length);
+    suffix.eq_ignore_ascii_case(GROUP_JOINED_SUFFIX) && raw_name(name).is_some()
 }
 
 fn observe_self_look(body: &[u8], tick_ms: u32) {
@@ -596,5 +617,29 @@ mod tests {
         assert!(parse_self_look(&self_look(b"Unknown", true)).is_none());
         assert!(parse_self_look(&self_look(b"Group Members:\n*ZiLo\n*Eidolon", true)).is_none());
         assert!(parse_self_look(&self_look(b"Group Members\nZiLo\nTotal 2", true)).is_none());
+    }
+
+    #[test]
+    fn recognizes_server_confirmed_group_changes() {
+        assert!(is_roster_confirmation(
+            MessageKind::System,
+            b"Group disbanded."
+        ));
+        assert!(is_roster_confirmation(
+            MessageKind::System,
+            b"ZiLo is joining this group."
+        ));
+        assert!(!is_roster_confirmation(
+            MessageKind::Group,
+            b"ZiLo is joining this group."
+        ));
+        assert!(!is_roster_confirmation(
+            MessageKind::System,
+            b" is joining this group."
+        ));
+        assert!(!is_roster_confirmation(
+            MessageKind::System,
+            b"ZiLo joined some other group."
+        ));
     }
 }

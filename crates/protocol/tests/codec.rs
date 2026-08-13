@@ -145,6 +145,7 @@ fn snapshot() -> ClientSnapshot {
                 prompt: Some("Who?".into()),
                 cooldown: CooldownStatus {
                     active: true,
+                    cooldown_ms: None,
                     remaining_ms: None,
                 },
             }]),
@@ -156,6 +157,7 @@ fn snapshot() -> ClientSnapshot {
                 max_level: 100,
                 cooldown: CooldownStatus {
                     active: true,
+                    cooldown_ms: Some(1_000),
                     remaining_ms: Some(750),
                 },
             }]),

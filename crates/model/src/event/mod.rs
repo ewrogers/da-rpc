@@ -851,8 +851,12 @@ impl fmt::Display for ApplyEventError {
     }
 }
 
-trait Slotted {
+trait Slotted: Eq {
     fn slot(&self) -> u8;
+
+    fn matches_baseline(&self, current: &Self) -> bool {
+        self == current
+    }
 }
 
 impl Slotted for InventoryItem {
@@ -870,6 +874,16 @@ impl Slotted for Spell {
 impl Slotted for Skill {
     fn slot(&self) -> u8 {
         self.slot
+    }
+
+    fn matches_baseline(&self, current: &Self) -> bool {
+        self.slot == current.slot
+            && self.icon == current.icon
+            && self.name == current.name
+            && self.level == current.level
+            && self.max_level == current.max_level
+            && self.cooldown.active == current.cooldown.active
+            && self.cooldown.cooldown_ms == current.cooldown.cooldown_ms
     }
 }
 
@@ -904,7 +918,11 @@ fn apply_slot_update<T: Clone + Eq + Slotted>(
         .iter()
         .find(|item| item.slot() == update.slot)
         .cloned();
-    if current != update.before {
+    if !match (&update.before, &current) {
+        (Some(before), Some(current)) => before.matches_baseline(current),
+        (None, None) => true,
+        _ => false,
+    } {
         return Err(ApplyEventError::CollectionSlotMismatch {
             collection: kind,
             slot: update.slot,
@@ -937,6 +955,7 @@ impl Error for ApplyEventError {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::CooldownStatus;
 
     #[test]
     fn client_command_splits_trimmed_nonempty_arguments() {
@@ -1260,5 +1279,53 @@ mod tests {
             }
         );
         assert_eq!(inventory, vec![item(1, 2)]);
+    }
+
+    #[test]
+    fn skill_update_accepts_elapsed_remaining_time_in_its_baseline() {
+        let retained = Skill {
+            slot: 3,
+            icon: 91,
+            name: Some("Assail".into()),
+            level: 99,
+            max_level: 100,
+            cooldown: CooldownStatus {
+                active: true,
+                cooldown_ms: Some(1_000),
+                remaining_ms: Some(750),
+            },
+        };
+        let ready = Skill {
+            cooldown: CooldownStatus {
+                active: false,
+                cooldown_ms: None,
+                remaining_ms: None,
+            },
+            ..retained.clone()
+        };
+        let mut skills = vec![retained.clone()];
+
+        apply_slot_update(
+            &mut skills,
+            SlotUpdate {
+                batch_index: 0,
+                batch_count: 1,
+                change: CollectionChange::Changed,
+                slot: retained.slot,
+                before: Some(Skill {
+                    cooldown: CooldownStatus {
+                        active: true,
+                        cooldown_ms: Some(1_000),
+                        remaining_ms: Some(1),
+                    },
+                    ..retained
+                }),
+                after: Some(ready.clone()),
+            },
+            CollectionKind::Skillbook,
+        )
+        .unwrap();
+
+        assert_eq!(skills, vec![ready]);
     }
 }

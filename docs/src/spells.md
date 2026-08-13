@@ -25,10 +25,11 @@ Each occupied slot includes:
 - The number of chant `lines`
 - `target_type`: `none`, `target`, or `text_input`
 - An optional cleaned ASCII `prompt` for text-input spells
-- Cooldown activity and an optional exact remaining duration
+- Cooldown activity plus optional total and exact remaining durations
 
 The prompt is only present for text-input spells. A cooldown can be known to be
-active without an exact `remaining_ms` value.
+active without exact `cooldown_ms` or `remaining_ms` values. The currently
+supported client exposes only the active flag for spells.
 
 ```text
 Spellbook {
@@ -46,6 +47,12 @@ Spell {
     target_type: SpellTargetType,
     prompt: string?,
     cooldown: Cooldown,
+}
+
+Cooldown {
+    active: bool,
+    cooldown_ms: u32?,
+    remaining_ms: u32?,
 }
 ```
 

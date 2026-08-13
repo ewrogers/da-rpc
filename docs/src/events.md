@@ -496,7 +496,7 @@ for targeting, chanting, replacement, and feedback matching.
 The spellbook events use `SlotChanged<Spell>`. Cooldown and cast activity use:
 
 ```text
-CooldownStarted { observation, slot, name?, remaining_ms? }
+CooldownStarted { observation, slot, name?, cooldown_ms?, remaining_ms? }
 AbilityReady { observation, slot, name? }
 SpellBegin { observation, slot, name?, total_lines }
 SpellChant { observation, slot, name?, line, total_lines }
@@ -536,9 +536,11 @@ SpellReceived {
 ```
 
 The skill cooldown events use the same `CooldownStarted` and `AbilityReady`
-payloads. `remaining_ms` is present only when the client retains an exact
-expiry. A consumer should treat `*.ready` as the authoritative completion
-signal rather than relying only on a local countdown.
+payloads. `cooldown_ms` is the stable total duration and `remaining_ms` is the
+time left at observation; each is present only when retained by the client.
+When both are present, `remaining_ms` does not exceed `cooldown_ms`. A consumer
+can calculate progress from both values but should treat `*.ready` as the
+authoritative completion signal rather than relying only on a local countdown.
 
 `SpellCastArguments` is tagged by its own `type` field:
 

@@ -122,7 +122,10 @@ enum AbilityKind {
 
 #[derive(Clone, Copy)]
 enum CooldownTransition {
-    Started { remaining_ms: Option<u32> },
+    Started {
+        cooldown_ms: Option<u32>,
+        remaining_ms: Option<u32>,
+    },
     Ready,
 }
 
@@ -135,6 +138,7 @@ fn cooldown_transition(
     }
     if after.active {
         return Some(CooldownTransition::Started {
+            cooldown_ms: after.cooldown_ms,
             remaining_ms: after.remaining_ms,
         });
     }
@@ -149,22 +153,32 @@ fn cooldown_event(
     kind: AbilityKind,
 ) -> ClientEvent {
     match (kind, transition) {
-        (AbilityKind::Skill, CooldownTransition::Started { remaining_ms }) => {
-            ClientEvent::SkillCooldown(CooldownStarted {
-                observation,
-                slot,
-                name,
+        (
+            AbilityKind::Skill,
+            CooldownTransition::Started {
+                cooldown_ms,
                 remaining_ms,
-            })
-        }
-        (AbilityKind::Spell, CooldownTransition::Started { remaining_ms }) => {
-            ClientEvent::SpellCooldown(CooldownStarted {
-                observation,
-                slot,
-                name,
+            },
+        ) => ClientEvent::SkillCooldown(CooldownStarted {
+            observation,
+            slot,
+            name,
+            cooldown_ms,
+            remaining_ms,
+        }),
+        (
+            AbilityKind::Spell,
+            CooldownTransition::Started {
+                cooldown_ms,
                 remaining_ms,
-            })
-        }
+            },
+        ) => ClientEvent::SpellCooldown(CooldownStarted {
+            observation,
+            slot,
+            name,
+            cooldown_ms,
+            remaining_ms,
+        }),
         (AbilityKind::Skill, CooldownTransition::Ready) => ClientEvent::SkillReady(AbilityReady {
             observation,
             slot,

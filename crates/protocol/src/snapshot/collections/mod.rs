@@ -393,6 +393,10 @@ fn decode_slot<const N: usize>(
 
 fn encode_cooldown(output: &mut Vec<u8>, cooldown: CooldownStatus) {
     push_bool(output, cooldown.active);
+    push_bool(output, cooldown.cooldown_ms.is_some());
+    if let Some(cooldown_ms) = cooldown.cooldown_ms {
+        push_u32(output, cooldown_ms);
+    }
     push_bool(output, cooldown.remaining_ms.is_some());
     if let Some(remaining_ms) = cooldown.remaining_ms {
         push_u32(output, remaining_ms);
@@ -402,6 +406,11 @@ fn encode_cooldown(output: &mut Vec<u8>, cooldown: CooldownStatus) {
 fn decode_cooldown(reader: &mut PayloadReader<'_>) -> Result<CooldownStatus, DecodeError> {
     Ok(CooldownStatus {
         active: reader.read_bool()?,
+        cooldown_ms: if reader.read_bool()? {
+            Some(reader.read_u32()?)
+        } else {
+            None
+        },
         remaining_ms: if reader.read_bool()? {
             Some(reader.read_u32()?)
         } else {

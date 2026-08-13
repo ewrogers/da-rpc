@@ -276,7 +276,7 @@ function Assert-ApiContract {
             ($Client.identity.created_time -match "^[0-9]+$") `
             "PID $ProcessId had an invalid created_time"
         Assert-True `
-            ($Client.connection.protocol_version -eq "1.1") `
+            ($Client.connection.protocol_version -eq "1.2") `
             "PID $ProcessId had the wrong protocol version"
         Assert-True `
             ($Client.connection.client_version -eq "7.41") `

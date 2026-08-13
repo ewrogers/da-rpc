@@ -52,6 +52,17 @@ fn assert_routes_action_request(
     expected_kind: CommandKind,
     snapshot: ModelClientSnapshot,
 ) {
+    assert_routes_action_sequence(method, path, body, vec![expected_kind], snapshot);
+}
+
+fn assert_routes_action_sequence(
+    method: axum::http::Method,
+    path: &str,
+    body: &str,
+    expected_kinds: Vec<CommandKind>,
+    snapshot: ModelClientSnapshot,
+) {
+    let final_command_id = 8 + u32::try_from(expected_kinds.len()).unwrap();
     let mut registry = Registry::new();
     let hello = hello();
     let identity = RegistryClientIdentity::from_hello(hello);
@@ -70,31 +81,33 @@ fn assert_routes_action_request(
     let state = ApiState::new(registry.snapshot(), Arc::new(FakeLifecycle), events)
         .with_command_sender(commands);
     let worker = std::thread::spawn(move || {
-        let call = command_receiver.recv().unwrap();
-        assert_eq!(call.pid, 42);
-        assert_eq!(call.identity, identity);
-        assert!(matches!(
-            call.operation,
-            CommandOperation::Submit {
-                kind,
-                timeout_ms: 1_000,
-                wait_ms: 1_000,
-            } if kind == expected_kind
-        ));
-        call.reply
-            .send(CommandReply::Result(CommandResult::Status(CommandStatus {
-                command_id: 9,
-                kind: expected_kind,
-                state: CommandState::Executed,
-                enqueued_tick_ms: 100,
-                deadline_tick_ms: 1_100,
-                started_tick_ms: Some(104),
-                completed_tick_ms: Some(104),
-                execution_us: Some(2),
-                main_thread_id: Some(77),
-                failure: None,
-            })))
-            .unwrap();
+        for (index, expected_kind) in expected_kinds.into_iter().enumerate() {
+            let call = command_receiver.recv().unwrap();
+            assert_eq!(call.pid, 42);
+            assert_eq!(call.identity, identity);
+            assert!(matches!(
+                call.operation,
+                CommandOperation::Submit {
+                    kind,
+                    timeout_ms: 1_000,
+                    wait_ms: 1_000,
+                } if kind == expected_kind
+            ));
+            call.reply
+                .send(CommandReply::Result(CommandResult::Status(CommandStatus {
+                    command_id: 9 + u32::try_from(index).unwrap(),
+                    kind: expected_kind,
+                    state: CommandState::Executed,
+                    enqueued_tick_ms: 100,
+                    deadline_tick_ms: 1_100,
+                    started_tick_ms: Some(104),
+                    completed_tick_ms: Some(104),
+                    execution_us: Some(2),
+                    main_thread_id: Some(77),
+                    failure: None,
+                })))
+                .unwrap();
+        }
     });
 
     let response = match method {
@@ -106,9 +119,38 @@ fn assert_routes_action_request(
     };
     assert_eq!(response.status(), StatusCode::OK, "route failed: {path}");
     let response = response_json(response);
-    assert_eq!(response["command_id"], 9);
+    assert_eq!(response["command_id"], final_command_id);
     assert_eq!(response["state"], "executed");
     worker.join().unwrap();
+}
+
+#[test]
+fn leaves_a_group_open_by_default() {
+    let mut snapshot = game_snapshot();
+    snapshot.group = Some(darpc_model::GroupState {
+        members: vec![darpc_model::GroupMember {
+            name: "SiLo".into(),
+            is_leader: true,
+        }],
+        ..Default::default()
+    });
+
+    assert_routes_action_sequence(
+        axum::http::Method::POST,
+        "/clients/42/group/toggle",
+        "",
+        vec![
+            CommandKind::Group(GroupCommand::Toggle),
+            CommandKind::Group(GroupCommand::Toggle),
+        ],
+        snapshot.clone(),
+    );
+    assert_routes_action_with_snapshot(
+        "/clients/42/group/toggle?leave_open=false",
+        "",
+        CommandKind::Group(GroupCommand::Toggle),
+        snapshot,
+    );
 }
 
 #[test]
@@ -334,6 +376,11 @@ fn player_inspection_route_resolves_visible_name_and_returns_profile() {
 fn routes_typed_actions() {
     assert_routes_action("/clients/42/assail", "", CommandKind::Assail);
     assert_routes_action("/clients/42/resync", "", CommandKind::Resync);
+    assert_routes_action(
+        "/clients/42/group/toggle",
+        "",
+        CommandKind::Group(GroupCommand::Toggle),
+    );
     assert_routes_action(
         "/clients/42/group/invite",
         r#"{"target":"OtherPlayer"}"#,

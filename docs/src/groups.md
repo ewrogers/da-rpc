@@ -70,9 +70,19 @@ curl --request POST "http://127.0.0.1:2626/clients/ZiLo/group/toggle"
 
 The request has no body. When the character is adventuring alone, it toggles
 whether other players may invite them. When the character is already grouped,
-the same native action leaves the group or disbands it for the leader. The REST
-command result only confirms that the client submitted the action. Read the
-updated state or wait for a group event for the server-confirmed result.
+it leaves the group or disbands it for the leader, then reopens invitations by
+default:
+
+```console
+curl --request POST \
+  "http://127.0.0.1:2626/clients/ZiLo/group/toggle?leave_open=false"
+```
+
+Set `leave_open=false` to retain the game's normal single-toggle behavior,
+which leaves grouping closed. Reopening is a second ordered client command and
+only runs after the leave command executes. The response describes the last
+command submitted. Read the updated state or wait for a group event for the
+server-confirmed result.
 
 ## Invite a player
 

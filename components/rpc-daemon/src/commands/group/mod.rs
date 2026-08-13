@@ -1,6 +1,17 @@
 use super::*;
+use axum::extract::{Query, rejection::QueryRejection};
 use darpc_model::WorldObject;
 use darpc_protocol::{GroupCommand, GroupInvitationAction, GroupText};
+use utoipa::IntoParams;
+
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct GroupToggleQuery {
+    /// Reopen group invitations after leaving or disbanding a current group.
+    #[serde(default = "default_leave_open")]
+    #[param(default = true)]
+    leave_open: bool,
+}
 
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(deny_unknown_fields)]
@@ -17,13 +28,36 @@ enum GroupTarget {
     Id(u32),
 }
 
-/// Toggles whether invitations are open, or leaves the current group.
-#[utoipa::path(post, path = "/clients/{client}/group/toggle", params(("client" = String, Path)), responses((status = 200, body = CommandStatus), (status = 202, body = CommandStatus), (status = 404, body = crate::api::ErrorState), (status = 409, body = crate::api::ErrorState)))]
+/// Toggles whether invitations are open, or leaves the current group and reopens them.
+#[utoipa::path(post, path = "/clients/{client}/group/toggle", params(("client" = String, Path), GroupToggleQuery), responses((status = 200, body = CommandStatus), (status = 202, body = CommandStatus), (status = 400, body = crate::api::ErrorState), (status = 404, body = crate::api::ErrorState), (status = 409, body = crate::api::ErrorState)))]
 pub(crate) async fn toggle(
     State(state): State<ApiState>,
     Path(identifier): Path<String>,
+    query: Result<Query<GroupToggleQuery>, QueryRejection>,
 ) -> Result<(StatusCode, Json<CommandStatus>), ApiError> {
-    let (pid, identity, _) = action_client(&state, &identifier)?;
+    let Query(query) = query.map_err(|rejection| {
+        ApiError::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_group_query",
+            rejection.body_text(),
+            None,
+        )
+    })?;
+    let (pid, identity, snapshot) = action_client(&state, &identifier)?;
+    let grouped = snapshot
+        .group
+        .as_ref()
+        .is_some_and(|group| !group.members.is_empty());
+    let first = submit_action(
+        &state,
+        pid,
+        identity,
+        ProtocolKind::Group(GroupCommand::Toggle),
+    )
+    .await?;
+    if !grouped || !query.leave_open || first.1.0.state != CommandState::Executed {
+        return Ok(first);
+    }
     submit_action(
         &state,
         pid,
@@ -184,4 +218,8 @@ fn bad_request(pid: u32, message: impl Into<String>) -> ApiError {
         message,
         (pid != 0).then_some(pid),
     )
+}
+
+const fn default_leave_open() -> bool {
+    true
 }

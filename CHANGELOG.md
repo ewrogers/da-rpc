@@ -6,6 +6,8 @@
 
 - Correlated the login self-look response with its active automatic inspection
   before the initial in-game snapshot has populated the local character ID.
+- Avoided sending a redundant local-player inspection while the client is
+  already performing its built-in login self-look request.
 
 ## 1.4.0 - 2026-08-14
 

@@ -49,6 +49,10 @@ static SUBMIT_ID: AtomicU32 = AtomicU32::new(0);
 static SUBMIT_TRIGGER: AtomicU8 = AtomicU8::new(0);
 static SUBMIT_COMMAND_ID: AtomicU32 = AtomicU32::new(0);
 static SUBMIT_OBSERVED: AtomicBool = AtomicBool::new(false);
+static SUBMITTING_SELF_LOOK: AtomicBool = AtomicBool::new(false);
+static CLIENT_SELF_LOOK_PENDING: AtomicBool = AtomicBool::new(false);
+static CLIENT_SELF_LOOK_TICK: AtomicU32 = AtomicU32::new(0);
+const CLIENT_SELF_LOOK_GRACE_MS: u32 = 5_000;
 #[derive(Clone, Copy)]
 struct RawPlayerEvent {
     player: RawWorldObject,
@@ -138,6 +142,9 @@ pub(crate) fn reset() {
     SUBMIT_TRIGGER.store(0, Ordering::Release);
     SUBMIT_COMMAND_ID.store(0, Ordering::Release);
     SUBMIT_OBSERVED.store(false, Ordering::Release);
+    SUBMITTING_SELF_LOOK.store(false, Ordering::Release);
+    CLIENT_SELF_LOOK_PENDING.store(false, Ordering::Release);
+    CLIENT_SELF_LOOK_TICK.store(0, Ordering::Release);
     INTERCEPT_PENDING.store(false, Ordering::Release);
     request_tracking::reset();
     profile_cache::reset();
@@ -156,6 +163,10 @@ pub(crate) fn appeared(player: RawWorldObject) {
         return;
     };
     clear_profile(id);
+    if CLIENT_SELF_LOOK_PENDING.load(Ordering::Acquire) && crate::state::self_id() == Some(id) {
+        CLIENT_SELF_LOOK_PENDING.store(false, Ordering::Release);
+        return;
+    }
     enqueue(Pending {
         id,
         trigger: PlayerInspectionTrigger::Appeared,
@@ -181,10 +192,23 @@ pub(crate) fn request_self_look(tick_ms: u32) {
     };
     if track_self_look(id, tick_ms) {
         #[cfg(all(windows, not(test)))]
-        if crate::actions::network::submit(&[0x2D]).is_err() {
-            cancel_self_look(id, tick_ms);
+        {
+            SUBMITTING_SELF_LOOK.store(true, Ordering::Release);
+            let result = crate::actions::network::submit(&[0x2D]);
+            SUBMITTING_SELF_LOOK.store(false, Ordering::Release);
+            if result.is_err() {
+                cancel_self_look(id, tick_ms);
+            }
         }
     }
+}
+
+pub(crate) fn observe_client_self_look(tick_ms: u32) {
+    if SUBMITTING_SELF_LOOK.load(Ordering::Acquire) {
+        return;
+    }
+    CLIENT_SELF_LOOK_TICK.store(tick_ms, Ordering::Release);
+    CLIENT_SELF_LOOK_PENDING.store(true, Ordering::Release);
 }
 
 fn track_self_look(id: u32, tick_ms: u32) -> bool {
@@ -240,6 +264,9 @@ pub(crate) fn observe_tick(tick_ms: u32) {
     if crate::state::map_transition_pending() {
         return;
     }
+    if reconcile_client_self_look(crate::state::self_id(), tick_ms) {
+        return;
+    }
     if !request_tracking::ready_for_next(tick_ms) {
         return;
     }
@@ -266,6 +293,25 @@ pub(crate) fn observe_tick(tick_ms: u32) {
     if submitted && SUBMIT_OBSERVED.load(Ordering::Acquire) {
         request_tracking::mark_in_flight(pending.id, tick_ms);
     }
+}
+
+fn reconcile_client_self_look(self_id: Option<u32>, tick_ms: u32) -> bool {
+    if !CLIENT_SELF_LOOK_PENDING.load(Ordering::Acquire) {
+        return false;
+    }
+    if tick_ms.wrapping_sub(CLIENT_SELF_LOOK_TICK.load(Ordering::Acquire))
+        > CLIENT_SELF_LOOK_GRACE_MS
+    {
+        CLIENT_SELF_LOOK_PENDING.store(false, Ordering::Release);
+        return false;
+    }
+    let Some(id) = self_id else {
+        return request_tracking::next_is_automatic();
+    };
+    if request_tracking::remove_automatic(id) {
+        CLIENT_SELF_LOOK_PENDING.store(false, Ordering::Release);
+    }
+    false
 }
 
 pub(crate) fn observe_request(id: u32, tick_ms: u32) {
@@ -760,6 +806,66 @@ mod tests {
         assert!(request_tracking::ready_for_next(11));
         assert!(!INTERCEPT_PENDING.load(Ordering::Acquire));
         assert_eq!(self_identity().unwrap().display_class, "Summoner");
+    }
+
+    #[test]
+    fn client_login_self_look_defers_and_removes_automatic_self_inspection() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset();
+        observe_client_self_look(10);
+        enqueue(Pending {
+            id: 7,
+            trigger: PlayerInspectionTrigger::Appeared,
+            command_id: 0,
+        });
+
+        assert!(reconcile_client_self_look(None, 11));
+        assert!(!reconcile_client_self_look(Some(7), 12));
+        assert!(pop_pending().is_none());
+        assert!(!CLIENT_SELF_LOOK_PENDING.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn client_login_self_look_does_not_remove_manual_inspection() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset();
+        observe_client_self_look(10);
+        enqueue(Pending {
+            id: 7,
+            trigger: PlayerInspectionTrigger::Manual,
+            command_id: 42,
+        });
+
+        assert!(!reconcile_client_self_look(None, 11));
+        assert!(!reconcile_client_self_look(Some(7), 12));
+        let pending = pop_pending().expect("manual inspection remains queued");
+        assert_eq!(pending.id, 7);
+        assert_eq!(pending.trigger, PlayerInspectionTrigger::Manual);
+        assert_eq!(pending.command_id, 42);
+    }
+
+    #[test]
+    fn expired_client_self_look_does_not_block_automatic_inspection() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset();
+        observe_client_self_look(10);
+        enqueue(Pending {
+            id: 7,
+            trigger: PlayerInspectionTrigger::Appeared,
+            command_id: 0,
+        });
+
+        assert!(!reconcile_client_self_look(
+            None,
+            10 + CLIENT_SELF_LOOK_GRACE_MS + 1
+        ));
+        assert_eq!(pop_pending().expect("inspection remains queued").id, 7);
     }
 
     #[test]

@@ -169,7 +169,7 @@ impl ApiState {
         *current = Arc::new(snapshot);
     }
 
-    #[cfg_attr(not(windows), allow(dead_code))]
+    #[cfg(test)]
     pub(crate) fn publish_connection_event(&self, event: &ConnectionEvent) {
         let previous = self.snapshot();
         self.publish_connection_event_from(event, &previous);

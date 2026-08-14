@@ -480,7 +480,8 @@ groups when the client lifecycle or validated pointers do not expose them.
 still contain character state when the underlying world remains valid.
 These snapshot-tail additions remain compatible with their protocol 1.0
 encoding. The command and event additions documented below require protocol
-1.1. Total cooldown duration requires protocol 1.2.
+1.1. Total cooldown duration requires protocol 1.2. Local-character and
+player-object hidden-state fields require protocol 1.3.
 
 ## Event polling and state updates
 

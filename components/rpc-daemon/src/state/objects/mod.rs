@@ -175,7 +175,7 @@ impl From<&ModelWorldObject> for WorldObject {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, ToSchema)]
-#[serde(tag = "kind", rename_all = "snake_case")]
+#[serde(tag = "form", rename_all = "snake_case")]
 pub(crate) enum PlayerVisual {
     Human {
         gender: CharacterGender,

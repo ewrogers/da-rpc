@@ -80,13 +80,13 @@ malformed filter returns `400 Bad Request`.
 ### Player visuals
 
 Opcode `0x33` supplies a `visual` block for each drawn player. A normal player
-uses `kind: "human"` and exposes every sprite used by the client renderer:
+uses `form: "human"` and exposes every sprite used by the client renderer:
 head, body, arms, boots, pants, armor, weapon, shield, overcoat, and three
 accessories. `hair_color` and `skin_color` are top-level visual fields, alongside
 the boots, pants, overcoat, and accessory dye colors. The block also includes
 gender, rest position, face shape, and translucency flag used by the renderer.
 
-A transformed player uses `kind: "creature"` and exposes the creature sprite
+A transformed player uses `form: "creature"` and exposes the creature sprite
 plus the three color bytes carried by that packet layout. Creature-form draws
 are not treated as hidden. `visual: null` means the player was synthesized from
 partial retained state before a complete packet or memory appearance was

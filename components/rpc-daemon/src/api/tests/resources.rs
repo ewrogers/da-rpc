@@ -256,7 +256,7 @@ fn filters_world_objects_by_type() {
         .collect::<Vec<_>>();
     assert_eq!(kinds, ["player", "mundane"]);
     assert_eq!(filtered["objects"][0]["is_hidden"], false);
-    assert_eq!(filtered["objects"][0]["visual"]["kind"], "human");
+    assert_eq!(filtered["objects"][0]["visual"]["form"], "human");
     assert_eq!(filtered["objects"][0]["visual"]["head_sprite"], 101);
     assert_eq!(filtered["objects"][0]["visual"]["skin_color"], 4);
     assert_eq!(filtered["objects"][0]["visual"]["accessory3_sprite"], 111);

@@ -134,7 +134,7 @@ fn visual_json(visual: &PlayerVisual) -> serde_json::Value {
             face_shape,
             is_translucent,
         }) => json!({
-            "kind": "human", "gender": gender_name(*gender),
+            "form": "human", "gender": gender_name(*gender),
             "head_sprite": head_sprite, "body_sprite": body_sprite,
             "arms_sprite": arms_sprite, "boots_sprite": boots_sprite,
             "pants_sprite": pants_sprite, "armor_sprite": armor_sprite,
@@ -154,7 +154,7 @@ fn visual_json(visual: &PlayerVisual) -> serde_json::Value {
             boots_color,
             pants_color,
         } => json!({
-            "kind": "creature", "sprite": sprite, "color": color,
+            "form": "creature", "sprite": sprite, "color": color,
             "boots_color": boots_color, "pants_color": pants_color,
         }),
     }

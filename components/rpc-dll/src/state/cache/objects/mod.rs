@@ -29,6 +29,14 @@ impl MainThreadObjects {
         unsafe { (&*self.0.get()).get(id) }
     }
 
+    pub(in crate::state) unsafe fn remove_player_with_name(
+        &self,
+        observed: RawWorldObject,
+    ) -> Option<u32> {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&mut *self.0.get()).remove_player_with_name(observed) }
+    }
+
     #[cfg(not(test))]
     pub(in crate::state) unsafe fn position(&self, id: u32) -> Option<(i32, i32)> {
         // SAFETY: the caller guarantees exclusive main-thread access.

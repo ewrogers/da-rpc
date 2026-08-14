@@ -199,6 +199,7 @@ mod tests {
             y,
             direction: 0,
             is_hidden: false,
+            visual: None,
         }
     }
 }

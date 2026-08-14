@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.4.1 - 2026-08-14
+
 ### Fixed
 
 - Correlated the login self-look response with its active automatic inspection

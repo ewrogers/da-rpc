@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Correlated the login self-look response with its active automatic inspection
+  before the initial in-game snapshot has populated the local character ID.
+
 ## 1.4.0 - 2026-08-14
 
 ### Added

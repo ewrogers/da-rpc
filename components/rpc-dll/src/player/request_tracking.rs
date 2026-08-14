@@ -162,6 +162,11 @@ pub(super) fn mark_in_flight(id: u32, tick_ms: u32) {
     IN_FLIGHT_TICK.store(tick_ms, Ordering::Release);
 }
 
+pub(super) fn in_flight_id() -> Option<u32> {
+    let id = IN_FLIGHT_ID.load(Ordering::Acquire);
+    (id != 0).then_some(id)
+}
+
 pub(super) fn complete(id: u32) {
     if IN_FLIGHT_ID.load(Ordering::Acquire) == id {
         IN_FLIGHT_ID.store(0, Ordering::Release);

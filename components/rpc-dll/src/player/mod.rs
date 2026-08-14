@@ -382,7 +382,15 @@ pub(crate) fn observe_self_look(body: &[u8], tick_ms: u32) {
 }
 
 pub(crate) fn intercept_self_response(body: &[u8], tick_ms: u32) -> bool {
-    let Some(id) = crate::state::self_id() else {
+    intercept_self_response_with_self_id(crate::state::self_id(), body, tick_ms)
+}
+
+fn intercept_self_response_with_self_id(self_id: Option<u32>, body: &[u8], tick_ms: u32) -> bool {
+    // The first login snapshot can still be in transition when the local
+    // player's 0x33 draw queues its automatic inspection. The resulting 0x39
+    // response has no target ID, so use that one active request until the
+    // state cache has captured the local character ID.
+    let Some(id) = self_id.or_else(request_tracking::in_flight_id) else {
         return false;
     };
     intercept_self_response_for(id, body, tick_ms)
@@ -609,6 +617,28 @@ mod tests {
         body
     }
 
+    fn self_look() -> Vec<u8> {
+        let mut body = vec![0x39, 1, 4];
+        body.extend_from_slice(b"Rank");
+        body.extend_from_slice(&[5]);
+        body.extend_from_slice(b"Title");
+        let roster = b"Group members\n  Eidolon\n* ZiLo\nTotal 2";
+        body.push(u8::try_from(roster.len()).unwrap());
+        body.extend_from_slice(roster);
+        body.extend_from_slice(&[1, 1]);
+        for value in [b"Lead".as_slice(), b"Team", b"Note"] {
+            body.push(value.len() as u8);
+            body.extend_from_slice(value);
+        }
+        body.extend_from_slice(&[1, 99]);
+        body.extend_from_slice(&[0; 10]);
+        body.extend_from_slice(&[3, 1, 1, 8]);
+        body.extend_from_slice(b"Summoner");
+        body.extend_from_slice(&[5]);
+        body.extend_from_slice(b"Guild");
+        body
+    }
+
     #[test]
     fn parses_complete_other_player_profile_and_equipment_order() {
         let body = object_info();
@@ -707,6 +737,44 @@ mod tests {
         assert!(complete_self_request(7, 11));
         assert!(!INTERCEPT_PENDING.load(Ordering::Acquire));
         assert!(!intercept_response(&object_info(), 12));
+    }
+
+    #[test]
+    fn login_self_look_uses_in_flight_id_before_initial_snapshot() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset();
+        crate::group::reset();
+        push_origin(Origin {
+            kind: ORIGIN_DARPC,
+            response: ResponseKind::ObjectInfo,
+            id: 7,
+            trigger: PlayerInspectionTrigger::Appeared,
+            command_id: 0,
+            tick_ms: 10,
+        });
+        request_tracking::mark_in_flight(7, 10);
+
+        assert!(intercept_self_response_with_self_id(None, &self_look(), 11));
+        assert!(request_tracking::ready_for_next(11));
+        assert!(!INTERCEPT_PENDING.load(Ordering::Acquire));
+        assert_eq!(self_identity().unwrap().display_class, "Summoner");
+    }
+
+    #[test]
+    fn pre_snapshot_self_look_without_internal_request_fails_open() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset();
+
+        assert!(!intercept_self_response_with_self_id(
+            None,
+            &self_look(),
+            11
+        ));
+        assert!(!INTERCEPT_PENDING.load(Ordering::Acquire));
     }
 
     #[test]
@@ -838,24 +906,7 @@ mod tests {
         assert!(track_self_look(7, 10));
         assert!(!track_self_look(7, 10));
 
-        let mut body = vec![0x39, 1, 4];
-        body.extend_from_slice(b"Rank");
-        body.extend_from_slice(&[5]);
-        body.extend_from_slice(b"Title");
-        let roster = b"Group members\n  Eidolon\n* ZiLo\nTotal 2";
-        body.push(u8::try_from(roster.len()).unwrap());
-        body.extend_from_slice(roster);
-        body.extend_from_slice(&[1, 1]);
-        for value in [b"Lead".as_slice(), b"Team", b"Note"] {
-            body.push(value.len() as u8);
-            body.extend_from_slice(value);
-        }
-        body.extend_from_slice(&[1, 99]);
-        body.extend_from_slice(&[0; 10]);
-        body.extend_from_slice(&[3, 1, 1, 8]);
-        body.extend_from_slice(b"Summoner");
-        body.extend_from_slice(&[5]);
-        body.extend_from_slice(b"Guild");
+        let body = self_look();
 
         assert!(intercept_self_response_for(7, &body, 11));
 

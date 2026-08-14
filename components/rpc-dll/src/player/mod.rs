@@ -23,8 +23,8 @@ use profile_cache::{clear_profile, copy_profile, previous_body, publish_profile}
 #[cfg(test)]
 use request_tracking::{IN_FLIGHT_TIMEOUT_MS, ORIGIN_TTL_MS};
 use request_tracking::{
-    ORIGIN_DARPC, ORIGIN_USER, Origin, Pending, enqueue, pop_pending, prune_origins, push_origin,
-    take_internal_origin, take_origin,
+    ORIGIN_DARPC, ORIGIN_USER, Origin, Pending, ResponseKind, enqueue, pop_pending, prune_origins,
+    push_origin, take_internal_origin, take_origin,
 };
 
 const RESPONSE_OPCODE: u8 = 0x34;
@@ -193,6 +193,7 @@ fn track_self_look(id: u32, tick_ms: u32) -> bool {
     }
     push_origin(Origin {
         kind: ORIGIN_DARPC,
+        response: ResponseKind::SelfLook,
         id,
         trigger: PlayerInspectionTrigger::Appeared,
         command_id: 0,
@@ -204,7 +205,7 @@ fn track_self_look(id: u32, tick_ms: u32) -> bool {
 
 #[cfg(all(windows, not(test)))]
 fn cancel_self_look(id: u32, tick_ms: u32) {
-    let _ = take_internal_origin(id, tick_ms);
+    let _ = take_internal_origin(ResponseKind::SelfLook, id, tick_ms);
     request_tracking::complete(id);
 }
 
@@ -273,6 +274,7 @@ pub(crate) fn observe_request(id: u32, tick_ms: u32) {
         SUBMIT_OBSERVED.store(true, Ordering::Release);
         Origin {
             kind: ORIGIN_DARPC,
+            response: ResponseKind::ObjectInfo,
             id,
             trigger: trigger_from_raw(SUBMIT_TRIGGER.load(Ordering::Acquire)),
             command_id: SUBMIT_COMMAND_ID.load(Ordering::Acquire),
@@ -281,6 +283,7 @@ pub(crate) fn observe_request(id: u32, tick_ms: u32) {
     } else {
         Origin {
             kind: ORIGIN_USER,
+            response: ResponseKind::ObjectInfo,
             id,
             trigger: PlayerInspectionTrigger::User,
             command_id: 0,
@@ -295,7 +298,7 @@ pub(crate) fn intercept_response(body: &[u8], tick_ms: u32) -> bool {
         return false;
     }
     let id = u32::from_be_bytes(body[1..5].try_into().expect("checked object-info header"));
-    let Some(origin) = take_origin(id, tick_ms) else {
+    let Some(origin) = take_origin(ResponseKind::ObjectInfo, id, tick_ms) else {
         return false;
     };
     if origin.kind != ORIGIN_DARPC {
@@ -412,7 +415,7 @@ fn observe_self_identity(current: RawIdentity, tick_ms: u32) {
 
 fn complete_self_request(id: u32, tick_ms: u32) -> bool {
     request_tracking::remove(id);
-    let Some(origin) = take_internal_origin(id, tick_ms) else {
+    let Some(origin) = take_internal_origin(ResponseKind::SelfLook, id, tick_ms) else {
         return false;
     };
     request_tracking::complete(id);
@@ -658,6 +661,7 @@ mod tests {
         reset();
         push_origin(Origin {
             kind: ORIGIN_USER,
+            response: ResponseKind::ObjectInfo,
             id: 7,
             trigger: PlayerInspectionTrigger::User,
             command_id: 0,
@@ -665,6 +669,7 @@ mod tests {
         });
         push_origin(Origin {
             kind: ORIGIN_DARPC,
+            response: ResponseKind::ObjectInfo,
             id: 7,
             trigger: PlayerInspectionTrigger::Appeared,
             command_id: 0,
@@ -678,6 +683,42 @@ mod tests {
     }
 
     #[test]
+    fn self_look_response_does_not_consume_object_info_suppression() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset();
+        push_origin(Origin {
+            kind: ORIGIN_DARPC,
+            response: ResponseKind::ObjectInfo,
+            id: 7,
+            trigger: PlayerInspectionTrigger::Appeared,
+            command_id: 0,
+            tick_ms: 10,
+        });
+        request_tracking::mark_in_flight(7, 10);
+
+        assert!(!complete_self_request(7, 11));
+        assert!(INTERCEPT_PENDING.load(Ordering::Acquire));
+        assert!(intercept_response(&object_info(), 12));
+        assert!(!INTERCEPT_PENDING.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn object_info_response_does_not_consume_self_look_suppression() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset();
+        assert!(track_self_look(7, 10));
+
+        assert!(!intercept_response(&object_info(), 11));
+        assert!(INTERCEPT_PENDING.load(Ordering::Acquire));
+        assert!(complete_self_request(7, 12));
+        assert!(!INTERCEPT_PENDING.load(Ordering::Acquire));
+    }
+
+    #[test]
     fn expired_internal_origin_fails_open() {
         let _guard = TEST_LOCK
             .lock()
@@ -685,6 +726,7 @@ mod tests {
         reset();
         push_origin(Origin {
             kind: ORIGIN_DARPC,
+            response: ResponseKind::ObjectInfo,
             id: 7,
             trigger: PlayerInspectionTrigger::Appeared,
             command_id: 0,
@@ -702,6 +744,7 @@ mod tests {
         reset();
         push_origin(Origin {
             kind: ORIGIN_DARPC,
+            response: ResponseKind::ObjectInfo,
             id: 7,
             trigger: PlayerInspectionTrigger::Appeared,
             command_id: 0,

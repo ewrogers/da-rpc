@@ -22,7 +22,7 @@ const QUEUED_BODY_LENGTH_OFFSET: usize = 0x8C92;
 const USE_SPELL_OPCODE: u8 = 0x0F;
 
 type SpellDelayGetFn = unsafe extern "C" fn() -> *mut c_void;
-type SpellDeniedFn = unsafe extern "thiscall" fn(*mut c_void) -> u8;
+type SpellDeniedFn = unsafe extern "C" fn(*mut c_void) -> u8;
 type SpellNoArgsFn = unsafe extern "thiscall" fn(*mut c_void);
 type SpellTargetFn = unsafe extern "thiscall" fn(*mut c_void, u32, u16, u16);
 type SpellStartFn = unsafe extern "thiscall" fn(*mut c_void, *const u8, i16, u16, u8, *const u8);
@@ -41,7 +41,7 @@ pub(super) fn cast(cast: SpellCast) -> Result<(), CommandFailure> {
         return Err(CommandFailure::Rejected);
     }
     let control = control(module)?;
-    // SAFETY: executable validation fixes the x86 thiscall ABI and the entry
+    // SAFETY: executable validation fixes the x86 cdecl ABI and the entry
     // is a live SpellInvItemPane resolved on the client main thread.
     if unsafe { denied_fn(module)(entry.as_ptr()) } != 0 {
         return Err(CommandFailure::Rejected);
@@ -187,4 +187,18 @@ fn target_fn(module: usize) -> SpellTargetFn {
 fn start_fn(module: usize) -> SpellStartFn {
     // SAFETY: the supported executable fixes this x86 function address.
     unsafe { mem::transmute(module + SPELL_START_RVA) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{SpellDeniedFn, c_void};
+
+    unsafe extern "C" fn denied_fixture(_: *mut c_void) -> u8 {
+        0
+    }
+
+    #[test]
+    fn denied_lookup_uses_the_native_cdecl_abi() {
+        let _: SpellDeniedFn = denied_fixture;
+    }
 }

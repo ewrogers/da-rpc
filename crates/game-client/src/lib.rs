@@ -29,9 +29,9 @@ pub use state::{
     GROUP_MEMBER_CAPACITY, GROUP_NAME_BYTES, INVENTORY_SLOT_COUNT, MAX_OBJECT_NAME_BYTES,
     MAX_WORLD_OBJECTS, MemoryReader, RawAppearance, RawCharacter, RawClientText, RawEffect,
     RawEffects, RawEquipment, RawEquipmentItem, RawGroupInvitation, RawGroupMember, RawGroupState,
-    RawInventory, RawInventoryItem, RawLifecycle, RawLocation, RawMapName, RawModifiers,
-    RawObjects, RawPaneProgression, RawSkill, RawSkillbook, RawSpell, RawSpellbook,
-    RawStateSnapshot, RawWorldObject, StateReadError, StateWalker,
+    RawHumanVisual, RawInventory, RawInventoryItem, RawLifecycle, RawLocation, RawMapName,
+    RawModifiers, RawObjects, RawPaneProgression, RawPlayerVisual, RawSkill, RawSkillbook,
+    RawSpell, RawSpellbook, RawStateSnapshot, RawWorldObject, StateReadError, StateWalker,
 };
 
 use sha2::{Digest, Sha256};

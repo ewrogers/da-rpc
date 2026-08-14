@@ -1,5 +1,7 @@
 use crate::packet::{PacketReader as Reader, ParseError};
-use darpc_game_client::{MAX_OBJECT_NAME_BYTES, RawObjects, RawWorldObject};
+use darpc_game_client::{
+    MAX_OBJECT_NAME_BYTES, RawHumanVisual, RawObjects, RawPlayerVisual, RawWorldObject,
+};
 
 const DRAW_OBJECTS_OPCODE: u8 = 0x07;
 const MOVE_OBJECT_OPCODE: u8 = 0x0C;
@@ -104,15 +106,68 @@ fn parse_player(body: &[u8], objects: &mut RawObjects) -> Result<(), ParseError>
     let direction = reader.direction()?;
     let id = reader.u32_be()?;
     let head_sprite = reader.u16_be()?;
-    let is_hidden = if head_sprite == u16::MAX {
-        reader.skip(10)?;
-        false
+    let visual = if head_sprite == u16::MAX {
+        let sprite = reader.u16_be()? & SPRITE_MASK;
+        let color = reader.u8()?;
+        let boots_color = reader.u8()?;
+        let pants_color = reader.u8()?;
+        reader.skip(5)?;
+        RawPlayerVisual::Creature {
+            sprite,
+            color,
+            boots_color,
+            pants_color,
+        }
     } else {
-        let body_sprite = reader.u8()?;
-        reader.skip(25)?;
-        let translucent = reader.u8()? != 0;
+        let body_and_pants = reader.u8()?;
+        let arms_sprite = reader.u16_be()?;
+        let boots_sprite = u16::from(reader.u8()?);
+        let armor_sprite = reader.u16_be()?;
+        let shield_sprite = u16::from(reader.u8()?);
+        let weapon_sprite = reader.u16_be()?;
+        let hair_color = reader.u8()?;
+        let boots_color = reader.u8()?;
+        let accessory1_color = reader.u8()?;
+        let accessory1_sprite = reader.u16_be()?;
+        let accessory2_color = reader.u8()?;
+        let accessory2_sprite = reader.u16_be()?;
+        let accessory3_color = reader.u8()?;
+        let accessory3_sprite = reader.u16_be()?;
         reader.skip(1)?;
-        body_sprite == 0 || translucent
+        let rest_position = reader.u8()?;
+        let overcoat_sprite = reader.u16_be()?;
+        let overcoat_color = reader.u8()?;
+        let skin_color = reader.u8()?;
+        let packet_translucent = reader.u8()? != 0;
+        let face_shape = reader.u8()?;
+        let (gender, body_sprite, style_translucent) = decode_body_style(body_and_pants >> 4);
+        let pants_color = body_and_pants & 0x0F;
+        RawPlayerVisual::Human(RawHumanVisual {
+            gender,
+            head_sprite,
+            body_sprite,
+            arms_sprite,
+            boots_sprite,
+            pants_sprite: u16::from(pants_color != 0),
+            armor_sprite,
+            weapon_sprite,
+            shield_sprite,
+            overcoat_sprite,
+            accessory1_sprite,
+            accessory2_sprite,
+            accessory3_sprite,
+            hair_color,
+            skin_color,
+            boots_color,
+            pants_color,
+            overcoat_color,
+            accessory1_color,
+            accessory2_color,
+            accessory3_color,
+            rest_position,
+            face_shape,
+            is_translucent: packet_translucent || style_translucent,
+        })
     };
     reader.skip(1)?;
     let (name, name_len) = reader.name()?;
@@ -125,10 +180,34 @@ fn parse_player(body: &[u8], objects: &mut RawObjects) -> Result<(), ParseError>
         x,
         y,
         direction,
-        is_hidden,
+        is_hidden: matches!(
+            visual,
+            RawPlayerVisual::Human(RawHumanVisual { body_sprite: 0, .. })
+                | RawPlayerVisual::Human(RawHumanVisual {
+                    is_translucent: true,
+                    ..
+                })
+        ),
+        visual: Some(visual),
     });
     debug_assert!(pushed);
     Ok(())
+}
+
+const fn decode_body_style(style: u8) -> (u8, u16, bool) {
+    match style {
+        0 => (0, 0, false),
+        1 => (0, 1, false),
+        2 => (1, 1, false),
+        3 => (0, 2, false),
+        4 => (1, 2, false),
+        5 => (0, 1, true),
+        6 => (1, 1, true),
+        7 => (0, 4, false),
+        8 => (0, 5, false),
+        9 => (1, 5, false),
+        other => (0, other as u16, false),
+    }
 }
 
 fn parse_move(body: &[u8]) -> Result<WorldUpdate, ParseError> {
@@ -297,6 +376,7 @@ mod tests {
             y,
             direction,
             is_hidden,
+            ..
         }) = objects.entries[0]
         else {
             panic!("expected player object");
@@ -357,6 +437,83 @@ mod tests {
             objects.entries[0],
             Some(RawWorldObject::Player {
                 is_hidden: true,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn parses_every_human_visual_field() {
+        let mut objects = RawObjects::empty();
+        let player = [
+            0x33, 0, 10, 0, 20, 1, 0, 0, 0, 7, 0x01, 0x23, 0x4A, 0x02, 0x03, 4, 0x05, 0x06, 7,
+            0x08, 0x09, 10, 11, 12, 0x0D, 0x0E, 15, 0x10, 0x11, 18, 0x13, 0x14, 21, 22, 0x17, 0x18,
+            25, 26, 0, 27, 28, 1, b'X', 0,
+        ];
+
+        assert_eq!(
+            update(&player, &mut objects).unwrap(),
+            Some(WorldUpdate::DrawPlayer)
+        );
+        let Some(RawWorldObject::Player {
+            visual: Some(visual),
+            is_hidden,
+            ..
+        }) = objects.entries[0]
+        else {
+            panic!("expected player visual");
+        };
+        assert!(!is_hidden);
+        assert_eq!(
+            visual,
+            RawPlayerVisual::Human(RawHumanVisual {
+                gender: 1,
+                head_sprite: 0x0123,
+                body_sprite: 2,
+                arms_sprite: 0x0203,
+                boots_sprite: 4,
+                pants_sprite: 1,
+                armor_sprite: 0x0506,
+                weapon_sprite: 0x0809,
+                shield_sprite: 7,
+                overcoat_sprite: 0x1718,
+                accessory1_sprite: 0x0D0E,
+                accessory2_sprite: 0x1011,
+                accessory3_sprite: 0x1314,
+                hair_color: 10,
+                skin_color: 26,
+                boots_color: 11,
+                pants_color: 10,
+                overcoat_color: 25,
+                accessory1_color: 12,
+                accessory2_color: 15,
+                accessory3_color: 18,
+                rest_position: 22,
+                face_shape: 27,
+                is_translucent: false,
+            })
+        );
+    }
+
+    #[test]
+    fn parses_transformed_player_visual_fields() {
+        let mut objects = RawObjects::empty();
+        let player = [
+            0x33, 0, 1, 0, 2, 0, 0, 0, 0, 9, 0xFF, 0xFF, 0x41, 0x23, 4, 5, 6, 0, 0, 0, 0, 0, 7, 0,
+            0,
+        ];
+
+        update(&player, &mut objects).unwrap();
+        assert!(matches!(
+            objects.entries[0],
+            Some(RawWorldObject::Player {
+                visual: Some(RawPlayerVisual::Creature {
+                    sprite: 0x0123,
+                    color: 4,
+                    boots_color: 5,
+                    pants_color: 6,
+                }),
+                is_hidden: false,
                 ..
             })
         ));

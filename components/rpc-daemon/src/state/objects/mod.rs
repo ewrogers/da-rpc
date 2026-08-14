@@ -1,6 +1,8 @@
-use super::ObservationMetadata;
+use super::{CharacterGender, ObservationMetadata};
 use darpc_model::{
-    CreatureKind as ModelCreatureKind, Direction as ModelDirection, WorldObject as ModelWorldObject,
+    CreatureKind as ModelCreatureKind, Direction as ModelDirection,
+    HumanVisual as ModelHumanVisual, PlayerVisual as ModelPlayerVisual,
+    WorldObject as ModelWorldObject,
 };
 use serde::Serialize;
 use std::str::FromStr;
@@ -63,6 +65,7 @@ pub(crate) enum WorldObject {
         y: i32,
         direction: Direction,
         is_hidden: bool,
+        visual: Option<PlayerVisual>,
         profile: Option<PlayerProfile>,
     },
     Monster {
@@ -111,6 +114,7 @@ impl From<&ModelWorldObject> for WorldObject {
                 y,
                 direction,
                 is_hidden,
+                visual,
                 profile,
             } => Self::Player {
                 id: *id,
@@ -119,6 +123,7 @@ impl From<&ModelWorldObject> for WorldObject {
                 y: *y,
                 direction: (*direction).into(),
                 is_hidden: *is_hidden,
+                visual: visual.as_ref().map(PlayerVisual::from),
                 profile: profile.as_deref().map(PlayerProfile::from),
             },
             ModelWorldObject::Creature {
@@ -164,6 +169,112 @@ impl From<&ModelWorldObject> for WorldObject {
                 x: *x,
                 y: *y,
                 z_index: *z_index,
+            },
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(tag = "form", rename_all = "snake_case")]
+pub(crate) enum PlayerVisual {
+    Human {
+        gender: CharacterGender,
+        head_sprite: u16,
+        body_sprite: u16,
+        arms_sprite: u16,
+        boots_sprite: u16,
+        pants_sprite: u16,
+        armor_sprite: u16,
+        weapon_sprite: u16,
+        shield_sprite: u16,
+        overcoat_sprite: u16,
+        accessory1_sprite: u16,
+        accessory2_sprite: u16,
+        accessory3_sprite: u16,
+        hair_color: u8,
+        skin_color: u8,
+        boots_color: u8,
+        pants_color: u8,
+        overcoat_color: u8,
+        accessory1_color: u8,
+        accessory2_color: u8,
+        accessory3_color: u8,
+        rest_position: u8,
+        face_shape: u8,
+        is_translucent: bool,
+    },
+    Creature {
+        sprite: u16,
+        color: u8,
+        boots_color: u8,
+        pants_color: u8,
+    },
+}
+
+impl From<&ModelPlayerVisual> for PlayerVisual {
+    fn from(visual: &ModelPlayerVisual) -> Self {
+        match visual {
+            ModelPlayerVisual::Human(ModelHumanVisual {
+                gender,
+                head_sprite,
+                body_sprite,
+                arms_sprite,
+                boots_sprite,
+                pants_sprite,
+                armor_sprite,
+                weapon_sprite,
+                shield_sprite,
+                overcoat_sprite,
+                accessory1_sprite,
+                accessory2_sprite,
+                accessory3_sprite,
+                hair_color,
+                skin_color,
+                boots_color,
+                pants_color,
+                overcoat_color,
+                accessory1_color,
+                accessory2_color,
+                accessory3_color,
+                rest_position,
+                face_shape,
+                is_translucent,
+            }) => Self::Human {
+                gender: (*gender).into(),
+                head_sprite: *head_sprite,
+                body_sprite: *body_sprite,
+                arms_sprite: *arms_sprite,
+                boots_sprite: *boots_sprite,
+                pants_sprite: *pants_sprite,
+                armor_sprite: *armor_sprite,
+                weapon_sprite: *weapon_sprite,
+                shield_sprite: *shield_sprite,
+                overcoat_sprite: *overcoat_sprite,
+                accessory1_sprite: *accessory1_sprite,
+                accessory2_sprite: *accessory2_sprite,
+                accessory3_sprite: *accessory3_sprite,
+                hair_color: *hair_color,
+                skin_color: *skin_color,
+                boots_color: *boots_color,
+                pants_color: *pants_color,
+                overcoat_color: *overcoat_color,
+                accessory1_color: *accessory1_color,
+                accessory2_color: *accessory2_color,
+                accessory3_color: *accessory3_color,
+                rest_position: *rest_position,
+                face_shape: *face_shape,
+                is_translucent: *is_translucent,
+            },
+            ModelPlayerVisual::Creature {
+                sprite,
+                color,
+                boots_color,
+                pants_color,
+            } => Self::Creature {
+                sprite: *sprite,
+                color: *color,
+                boots_color: *boots_color,
+                pants_color: *pants_color,
             },
         }
     }

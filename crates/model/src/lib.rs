@@ -39,7 +39,7 @@ pub use exchange::{ExchangeItem, ExchangeOffer, ExchangeParty, ExchangeState, Ex
 
 pub use message::{ClientMessage, MessageKind};
 
-pub use object::{CreatureKind, Direction, ObjectUpdate, WorldObject};
+pub use object::{CreatureKind, Direction, HumanVisual, ObjectUpdate, PlayerVisual, WorldObject};
 pub use player::{
     CharacterProfileUpdate, Nation, PlayerEquipmentItem, PlayerIdentity, PlayerInspectionChanges,
     PlayerInspectionTrigger, PlayerProfile, PlayerUpdate,

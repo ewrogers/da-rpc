@@ -22,6 +22,7 @@ pub(crate) fn render_human(
                 name,
                 x,
                 y,
+                visual,
                 profile: Some(profile),
                 ..
             } = player.as_ref()
@@ -32,7 +33,7 @@ pub(crate) fn render_human(
                 concat!(
                     "player inspected: pid={} request_id={} round_trip_ms={} id={} name={:?} x={} y={} ",
                     "nation={:?} title={:?} guild_rank={:?} display_class={:?} guild={:?} ",
-                    "user_state={:?} is_group_open={} equipment={} legend={} inspected_tick_ms={}"
+                    "visual={:?} user_state={:?} is_group_open={} equipment={} legend={} inspected_tick_ms={}"
                 ),
                 pid,
                 request_id,
@@ -46,6 +47,7 @@ pub(crate) fn render_human(
                 profile.identity.guild_rank,
                 profile.identity.display_class,
                 profile.identity.guild,
+                visual,
                 profile.user_state,
                 profile.is_group_open,
                 profile.equipment.len(),
@@ -104,7 +106,15 @@ pub(crate) fn render_json(
             else {
                 unreachable!("the protocol validates inspected player results")
             };
-            render_player_json(pid, request_id, round_trip_ms, status, *id, profile)
+            render_player_json(
+                pid,
+                request_id,
+                round_trip_ms,
+                status,
+                player.as_ref(),
+                *id,
+                profile,
+            )
         }
         CommandResult::Status(status) => {
             render_status_json(action, pid, request_id, round_trip_ms, status)
@@ -128,6 +138,7 @@ fn render_player_json(
     request_id: u32,
     round_trip_ms: u32,
     status: CommandStatus,
+    player: &WorldObject,
     id: u32,
     profile: &darpc_model::PlayerProfile,
 ) -> String {
@@ -136,7 +147,7 @@ fn render_player_json(
             "{{\"ok\":true,\"command\":\"inspect\",\"pid\":{},\"request_id\":{},",
             "\"round_trip_ms\":{},\"command_id\":{},\"player\":{{\"id\":{},",
             "\"identity\":{{\"nation\":{},\"title\":{},\"guild_rank\":{},",
-            "\"display_class\":{},\"guild\":{}}},\"user_state\":{},",
+            "\"display_class\":{},\"guild\":{}}},\"visual\":{},\"user_state\":{},",
             "\"is_group_open\":{},\"equipment_count\":{},\"legend_count\":{},",
             "\"inspected_tick_ms\":{}}}}}"
         ),
@@ -150,6 +161,7 @@ fn render_player_json(
         json_string(&profile.identity.guild_rank),
         json_string(&profile.identity.display_class),
         json_string(&profile.identity.guild),
+        crate::object_output::json_value(player)["visual"],
         json_string(&format!("{:?}", profile.user_state).to_ascii_lowercase()),
         profile.is_group_open,
         profile.equipment.len(),

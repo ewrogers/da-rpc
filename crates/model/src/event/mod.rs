@@ -1158,6 +1158,12 @@ mod tests {
             y,
             direction: crate::Direction::South,
             is_hidden: false,
+            visual: Some(crate::PlayerVisual::Creature {
+                sprite: 1,
+                color: 0,
+                boots_color: 0,
+                pants_color: 0,
+            }),
             profile: None,
         }
     }

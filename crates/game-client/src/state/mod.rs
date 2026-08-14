@@ -16,7 +16,10 @@ pub use groups::{
     GROUP_INVITATION_CAPACITY, GROUP_MEMBER_CAPACITY, GROUP_NAME_BYTES, RawGroupInvitation,
     RawGroupMember, RawGroupState,
 };
-pub use objects::{MAX_OBJECT_NAME_BYTES, MAX_WORLD_OBJECTS, RawObjects, RawWorldObject};
+pub use objects::{
+    MAX_OBJECT_NAME_BYTES, MAX_WORLD_OBJECTS, RawHumanVisual, RawObjects, RawPlayerVisual,
+    RawWorldObject,
+};
 pub use types::{
     MemoryReader, RawAppearance, RawCharacter, RawClientText, RawLifecycle, RawLocation,
     RawMapName, RawModifiers, RawPaneProgression, RawStateSnapshot, StateReadError,
@@ -331,6 +334,7 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
                     y,
                     direction,
                     is_hidden: self.capture_is_hidden(object)?,
+                    visual: Some(self.capture_player_visual(object)?),
                 }
             }
             2 => {
@@ -561,6 +565,45 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
     fn capture_is_hidden(&self, object: u32) -> Result<bool, StateReadError> {
         Ok(self.read_u8(add(object, PLAYER_HIDDEN_STATE_OFFSET)?)? != 0
             || self.read_u8(add(object, PLAYER_TRANSLUCENT_STATE_OFFSET)?)? != 0)
+    }
+
+    fn capture_player_visual(&self, object: u32) -> Result<RawPlayerVisual, StateReadError> {
+        let head_sprite = self.read_u16(add(object, 0xA6)?)?;
+        if head_sprite == u16::MAX {
+            return Ok(RawPlayerVisual::Creature {
+                sprite: self.read_u16(add(object, 0xAE)?)? & 0x3FFF,
+                color: self.read_u8(add(object, 0xA8)?)?,
+                boots_color: self.read_u8(add(object, 0xB2)?)?,
+                pants_color: self.read_u8(add(object, 0xB6)?)?,
+            });
+        }
+
+        Ok(RawPlayerVisual::Human(RawHumanVisual {
+            gender: self.read_u8(add(object, 0xA4)?)?,
+            head_sprite,
+            hair_color: self.read_u8(add(object, 0xA8)?)?,
+            body_sprite: self.read_u16(add(object, 0xAA)?)?,
+            skin_color: self.read_u8(add(object, 0xAC)?)?,
+            arms_sprite: self.read_u16(add(object, 0xAE)?)?,
+            boots_sprite: self.read_u16(add(object, 0xB0)?)?,
+            boots_color: self.read_u8(add(object, 0xB2)?)?,
+            pants_sprite: self.read_u16(add(object, 0xB4)?)?,
+            pants_color: self.read_u8(add(object, 0xB6)?)?,
+            armor_sprite: self.read_u16(add(object, 0xB8)?)?,
+            weapon_sprite: self.read_u16(add(object, 0xBE)?)?,
+            accessory1_sprite: self.read_u16(add(object, 0xC0)?)?,
+            accessory1_color: self.read_u8(add(object, 0xC2)?)?,
+            shield_sprite: self.read_u16(add(object, 0xC4)?)?,
+            overcoat_sprite: self.read_u16(add(object, 0xC6)?)?,
+            overcoat_color: self.read_u8(add(object, 0xC8)?)?,
+            accessory2_sprite: self.read_u16(add(object, 0xCA)?)?,
+            accessory2_color: self.read_u8(add(object, 0xCC)?)?,
+            accessory3_sprite: self.read_u16(add(object, 0xCE)?)?,
+            accessory3_color: self.read_u8(add(object, 0xD0)?)?,
+            rest_position: self.read_u8(add(object, 0xD1)?)?,
+            is_translucent: self.read_u8(add(object, 0xD2)?)? != 0,
+            face_shape: self.read_u8(add(object, 0xD3)?)?,
+        }))
     }
 
     fn capture_pane_progression(

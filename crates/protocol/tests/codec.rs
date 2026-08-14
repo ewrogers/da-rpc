@@ -7,10 +7,10 @@ use darpc_model::{
     DialogTarget, DialogUpdate, Direction, Effect, EffectDuration, EffectUpdate, Element,
     EntityUpdate, EquipmentItem, EquipmentSlot, ExchangeItem, ExchangeOffer, ExchangeParty,
     ExchangeState, ExchangeUpdate, Gender, GroupInvitation, GroupMember, GroupState, GroupUpdate,
-    InventoryItem, LegendIcon, LegendMark, LegendUpdate, LifecycleUpdate, LocationUpdate,
-    MapChange, MapExclusions, MapExclusionsUpdate, MapLocation, MessageKind, MovementUpdate,
-    Nation, ObjectUpdate, PlannedRoute, PlayerEquipmentItem, PlayerIdentity,
-    PlayerInspectionChanges, PlayerInspectionTrigger, PlayerProfile, PlayerUpdate,
+    HumanVisual, InventoryItem, LegendIcon, LegendMark, LegendUpdate, LifecycleUpdate,
+    LocationUpdate, MapChange, MapExclusions, MapExclusionsUpdate, MapLocation, MessageKind,
+    MovementUpdate, Nation, ObjectUpdate, PlannedRoute, PlayerEquipmentItem, PlayerIdentity,
+    PlayerInspectionChanges, PlayerInspectionTrigger, PlayerProfile, PlayerUpdate, PlayerVisual,
     ProgressionStatus, Skill, SlotUpdate, Spell, SpellCancellationSource, SpellCastArguments,
     SpellTargetType, StateEvent, StateUpdate, StatusUpdate, TilePosition, UserState, WalkMode,
     WhoList, WhoPlayer, WorldObject,
@@ -50,6 +50,35 @@ fn hello() -> Hello {
         executable_fingerprint: [0xa5; 32],
         client_version: 741,
     }
+}
+
+fn player_visual() -> PlayerVisual {
+    PlayerVisual::Human(HumanVisual {
+        gender: Gender::Female,
+        head_sprite: 101,
+        body_sprite: 2,
+        arms_sprite: 102,
+        boots_sprite: 103,
+        pants_sprite: 104,
+        armor_sprite: 105,
+        weapon_sprite: 106,
+        shield_sprite: 107,
+        overcoat_sprite: 108,
+        accessory1_sprite: 109,
+        accessory2_sprite: 110,
+        accessory3_sprite: 111,
+        hair_color: 3,
+        skin_color: 4,
+        boots_color: 5,
+        pants_color: 6,
+        overcoat_color: 7,
+        accessory1_color: 8,
+        accessory2_color: 9,
+        accessory3_color: 10,
+        rest_position: 11,
+        face_shape: 12,
+        is_translucent: false,
+    })
 }
 
 fn snapshot() -> ClientSnapshot {
@@ -175,6 +204,7 @@ fn snapshot() -> ClientSnapshot {
                 y: 30,
                 direction: Direction::East,
                 is_hidden: false,
+                visual: Some(player_visual()),
                 profile: None,
             },
             WorldObject::Creature {

@@ -464,6 +464,7 @@ impl MainThreadCache {
             y,
             direction,
             is_hidden,
+            visual: None,
         })
     }
 

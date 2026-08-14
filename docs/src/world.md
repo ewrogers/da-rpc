@@ -43,7 +43,7 @@ The response can contain four object kinds:
 
 | Kind | Available data |
 | --- | --- |
-| `player` | ID, optional name, x/y, direction, `is_hidden`, and optional inspected profile |
+| `player` | ID, optional name, x/y, direction, `is_hidden`, optional visual, and optional inspected profile |
 | `monster` | ID, optional sprite, x/y, and direction |
 | `mundane` | ID, optional name and sprite, x/y, and direction |
 | `item` | ID, sprite, x/y, and per-tile `z_index` |
@@ -62,7 +62,7 @@ WorldObjects {
 }
 
 WorldObject =
-    Player { id, name?, x, y, direction, is_hidden, profile? }
+    Player { id, name?, x, y, direction, is_hidden, visual?, profile? }
   | Monster { id, sprite?, x, y, direction }
   | Mundane { id, sprite?, name?, x, y, direction }
   | Item { id, sprite, x, y, z_index }
@@ -77,6 +77,39 @@ curl "http://127.0.0.1:2626/clients/ZiLo/objects?types=player,mundane,monster"
 Without `types`, the route returns every observed kind. An unknown type or
 malformed filter returns `400 Bad Request`.
 
+### Player visuals
+
+Opcode `0x33` supplies a `visual` block for each drawn player. A normal player
+uses `form: "human"` and exposes every sprite used by the client renderer:
+head, body, arms, boots, pants, armor, weapon, shield, overcoat, and three
+accessories. `hair_color` and `skin_color` are top-level visual fields, alongside
+the boots, pants, overcoat, and accessory dye colors. The block also includes
+gender, rest position, face shape, and translucency flag used by the renderer.
+
+```text
+HumanVisual {
+    form: "human",
+    gender,
+    head_sprite, body_sprite, arms_sprite, boots_sprite, pants_sprite,
+    armor_sprite, weapon_sprite, shield_sprite, overcoat_sprite,
+    accessory1_sprite, accessory2_sprite, accessory3_sprite,
+    hair_color, skin_color, boots_color, pants_color, overcoat_color,
+    accessory1_color, accessory2_color, accessory3_color,
+    rest_position, face_shape, is_translucent,
+}
+
+CreatureVisual {
+    form: "creature",
+    sprite, color, boots_color, pants_color,
+}
+```
+
+A transformed player uses `form: "creature"` and exposes the creature sprite
+plus the three color bytes carried by that packet layout. Creature-form draws
+are not treated as hidden. `visual: null` means the player was synthesized from
+partial retained state before a complete packet or memory appearance was
+available; no sprite or color defaults are invented.
+
 ### Player profiles
 
 When opcode `0x33` draws a human, daRPC automatically requests that player's
@@ -88,7 +121,7 @@ visible but the inspection has not completed.
 `is_hidden` is true when the draw has a zero body sprite or the packet marks
 the player translucent. Hidden draws can zero other fields, so daRPC merges
 them by entity ID and retains the last observed name plus inspected profile.
-Monster-form draws use a separate packet layout and are not classified as
+Monster-form draws use the `creature` visual layout and are not classified as
 hidden merely because they do not contain the normal human appearance block.
 
 The profile equipment uses the same slot, sprite, and dye-color names as local

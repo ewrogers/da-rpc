@@ -3,7 +3,7 @@ use crate::{
     DecodeError, EncodeError,
     message::{PayloadReader, push_bool, push_i32, push_u16, push_u32},
 };
-use darpc_model::{CreatureKind, Direction, WorldObject};
+use darpc_model::{CreatureKind, Direction, HumanVisual, PlayerVisual, WorldObject};
 
 const MAX_WORLD_OBJECTS: usize = 512;
 const MAX_OBJECT_NAME_LEN: usize = 63;
@@ -45,6 +45,7 @@ pub(crate) fn encode_object(output: &mut Vec<u8>, object: &WorldObject) -> Resul
             y,
             direction,
             is_hidden,
+            visual,
             ..
         } => {
             output.push(1);
@@ -53,6 +54,10 @@ pub(crate) fn encode_object(output: &mut Vec<u8>, object: &WorldObject) -> Resul
             push_i32(output, *y);
             output.push(direction.raw());
             push_bool(output, *is_hidden);
+            push_bool(output, visual.is_some());
+            if let Some(visual) = visual {
+                encode_player_visual(output, visual);
+            }
             encode_optional_string(output, name.as_deref(), MAX_OBJECT_NAME_LEN)?;
         }
         WorldObject::Creature {
@@ -138,6 +143,10 @@ pub(crate) fn decode_object(reader: &mut PayloadReader<'_>) -> Result<WorldObjec
                     actual: raw_direction,
                 })?;
             let is_hidden = reader.read_bool()?;
+            let visual = reader
+                .read_bool()?
+                .then(|| decode_player_visual(reader))
+                .transpose()?;
             let name = decode_optional_string(reader, MAX_OBJECT_NAME_LEN)?;
             WorldObject::Player {
                 id,
@@ -146,6 +155,7 @@ pub(crate) fn decode_object(reader: &mut PayloadReader<'_>) -> Result<WorldObjec
                 y,
                 direction,
                 is_hidden,
+                visual,
                 profile: None,
             }
         }
@@ -185,4 +195,86 @@ pub(crate) fn decode_object(reader: &mut PayloadReader<'_>) -> Result<WorldObjec
         actual => return Err(DecodeError::InvalidWorldObjectType { actual }),
     };
     Ok(object)
+}
+
+fn encode_player_visual(output: &mut Vec<u8>, visual: &PlayerVisual) {
+    match visual {
+        PlayerVisual::Human(visual) => {
+            output.push(1);
+            output.push(visual.gender.raw());
+            push_u16(output, visual.head_sprite);
+            push_u16(output, visual.body_sprite);
+            push_u16(output, visual.arms_sprite);
+            push_u16(output, visual.boots_sprite);
+            push_u16(output, visual.pants_sprite);
+            push_u16(output, visual.armor_sprite);
+            push_u16(output, visual.weapon_sprite);
+            push_u16(output, visual.shield_sprite);
+            push_u16(output, visual.overcoat_sprite);
+            push_u16(output, visual.accessory1_sprite);
+            push_u16(output, visual.accessory2_sprite);
+            push_u16(output, visual.accessory3_sprite);
+            output.push(visual.hair_color);
+            output.push(visual.skin_color);
+            output.push(visual.boots_color);
+            output.push(visual.pants_color);
+            output.push(visual.overcoat_color);
+            output.push(visual.accessory1_color);
+            output.push(visual.accessory2_color);
+            output.push(visual.accessory3_color);
+            output.push(visual.rest_position);
+            output.push(visual.face_shape);
+            push_bool(output, visual.is_translucent);
+        }
+        PlayerVisual::Creature {
+            sprite,
+            color,
+            boots_color,
+            pants_color,
+        } => {
+            output.push(2);
+            push_u16(output, *sprite);
+            output.push(*color);
+            output.push(*boots_color);
+            output.push(*pants_color);
+        }
+    }
+}
+
+fn decode_player_visual(reader: &mut PayloadReader<'_>) -> Result<PlayerVisual, DecodeError> {
+    match reader.read_u8()? {
+        1 => Ok(PlayerVisual::Human(HumanVisual {
+            gender: darpc_model::Gender::from_raw(reader.read_u8()?),
+            head_sprite: reader.read_u16()?,
+            body_sprite: reader.read_u16()?,
+            arms_sprite: reader.read_u16()?,
+            boots_sprite: reader.read_u16()?,
+            pants_sprite: reader.read_u16()?,
+            armor_sprite: reader.read_u16()?,
+            weapon_sprite: reader.read_u16()?,
+            shield_sprite: reader.read_u16()?,
+            overcoat_sprite: reader.read_u16()?,
+            accessory1_sprite: reader.read_u16()?,
+            accessory2_sprite: reader.read_u16()?,
+            accessory3_sprite: reader.read_u16()?,
+            hair_color: reader.read_u8()?,
+            skin_color: reader.read_u8()?,
+            boots_color: reader.read_u8()?,
+            pants_color: reader.read_u8()?,
+            overcoat_color: reader.read_u8()?,
+            accessory1_color: reader.read_u8()?,
+            accessory2_color: reader.read_u8()?,
+            accessory3_color: reader.read_u8()?,
+            rest_position: reader.read_u8()?,
+            face_shape: reader.read_u8()?,
+            is_translucent: reader.read_bool()?,
+        })),
+        2 => Ok(PlayerVisual::Creature {
+            sprite: reader.read_u16()?,
+            color: reader.read_u8()?,
+            boots_color: reader.read_u8()?,
+            pants_color: reader.read_u8()?,
+        }),
+        actual => Err(DecodeError::InvalidPlayerVisualType { actual }),
+    }
 }

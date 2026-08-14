@@ -4,6 +4,8 @@
 
 ### Added
 
+- Exposed complete human and transformed-player sprite and color visuals from
+  opcode `0x33` through snapshots, events, the REST API, and CLI JSON output.
 - Added group invitations by validated character name without requiring the
   target to be visible.
 - Added optional `cooldown_ms` total-duration metadata for active skill and
@@ -29,6 +31,8 @@
   and canceled superseded pull-request workflow runs.
 - Advanced the binary protocol from version 1.1 to 1.3 for cooldown timing,
   player replacement, and hidden-state fields and events.
+- Advanced the binary protocol from version 1.3 to 1.4 for complete
+  visible-player visual blocks.
 
 ### Fixed
 

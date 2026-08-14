@@ -328,6 +328,13 @@ pub(crate) struct ObjectChanged {
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
+pub(crate) struct PlayerReplaced {
+    pub(super) observation: EventObservation,
+    pub(super) previous: Vec<WorldObject>,
+    pub(super) current: WorldObject,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
 pub(crate) struct ObjectsCleared {
     pub(super) observation: EventObservation,
 }

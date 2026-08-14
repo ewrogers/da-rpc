@@ -564,6 +564,21 @@ impl ClientSnapshot {
                     .ok_or(ApplyEventError::ObjectsUnavailable)?;
                 match update {
                     ObjectUpdate::Appeared(object) => {
+                        if let crate::WorldObject::Player {
+                            name: Some(name), ..
+                        } = &object
+                        {
+                            objects.retain(|current| {
+                                !matches!(
+                                    current,
+                                    crate::WorldObject::Player {
+                                        id,
+                                        name: Some(current_name),
+                                        ..
+                                    } if *id != object.id() && current_name == name
+                                )
+                            });
+                        }
                         if let Some(current) = objects
                             .iter_mut()
                             .find(|current| current.id() == object.id())
@@ -1032,6 +1047,35 @@ mod tests {
         );
         assert_eq!(snapshot.event_sequence, 2);
         assert_eq!(snapshot.lifecycle, ClientLifecycle::InGame);
+    }
+
+    #[test]
+    fn appeared_player_replaces_a_stale_id_with_the_same_name() {
+        let mut snapshot = empty_snapshot(ClientLifecycle::InGame);
+        snapshot.objects = Some(vec![player(1, "Silo", 10, 20)]);
+        let replacement = player(2, "Silo", 11, 21);
+
+        snapshot
+            .apply_event(StateEvent {
+                sequence: 2,
+                revision: 2,
+                tick_ms: 20,
+                update: StateUpdate::Object(ObjectUpdate::Appeared(replacement.clone())),
+            })
+            .unwrap();
+
+        assert_eq!(snapshot.objects, Some(vec![replacement]));
+    }
+
+    fn player(id: u32, name: &str, x: i32, y: i32) -> crate::WorldObject {
+        crate::WorldObject::Player {
+            id,
+            name: Some(name.into()),
+            x,
+            y,
+            direction: crate::Direction::South,
+            profile: None,
+        }
     }
 
     #[test]

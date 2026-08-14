@@ -3,7 +3,7 @@ mod documentation;
 mod lifecycle;
 mod resources;
 
-use super::{ApiState, ClientList, LaunchOptions, resolve_client, router, start};
+use super::{ApiState, ClientList, LaunchOptions, replaced_players, resolve_client, router, start};
 use crate::{
     commands::{CommandReply, ROUTER_CAPACITY},
     event::DaemonEvent,
@@ -33,11 +33,12 @@ use darpc_model::{
     ExchangeOffer as ModelExchangeOffer, ExchangeState as ModelExchangeState, Gender,
     InventoryItem as ModelInventoryItem, LegendIcon as ModelLegendIcon,
     LegendMark as ModelLegendMark, MapExclusions as ModelMapExclusions, MapLocation,
-    MessageKind as ModelMessageKind, Nation as ModelNation, PlannedRoute as ModelPlannedRoute,
-    PlayerEquipmentItem as ModelPlayerEquipmentItem, PlayerIdentity as ModelPlayerIdentity,
-    PlayerProfile as ModelPlayerProfile, Skill as ModelSkill, Spell as ModelSpell,
-    SpellCastArguments as ModelSpellCastArguments, SpellTargetType as ModelSpellTargetType,
-    StateEvent, StateUpdate, TilePosition as ModelTilePosition, WorldObject as ModelWorldObject,
+    MessageKind as ModelMessageKind, Nation as ModelNation, ObjectUpdate,
+    PlannedRoute as ModelPlannedRoute, PlayerEquipmentItem as ModelPlayerEquipmentItem,
+    PlayerIdentity as ModelPlayerIdentity, PlayerProfile as ModelPlayerProfile,
+    Skill as ModelSkill, Spell as ModelSpell, SpellCastArguments as ModelSpellCastArguments,
+    SpellTargetType as ModelSpellTargetType, StateEvent, StateUpdate,
+    TilePosition as ModelTilePosition, WorldObject as ModelWorldObject,
 };
 use darpc_protocol::{
     Architecture, ChantText, CommandKind, CommandOperation, CommandResult, CommandState,
@@ -289,6 +290,33 @@ fn game_snapshot() -> ModelClientSnapshot {
             tiles: vec![ModelTilePosition { x: 40, y: 50 }],
         }],
     }
+}
+
+#[test]
+fn finds_every_player_replaced_by_a_same_name_appearance() {
+    let player = |id, x| ModelWorldObject::Player {
+        id,
+        name: Some("Monitor".into()),
+        x,
+        y: 20,
+        direction: ModelDirection::East,
+        profile: None,
+    };
+    let mut snapshot = game_snapshot();
+    snapshot.objects = Some(vec![player(1, 10), player(2, 11)]);
+
+    let replaced = replaced_players(
+        &snapshot,
+        &StateUpdate::Object(ObjectUpdate::Appeared(player(3, 12))),
+    );
+
+    assert_eq!(
+        replaced
+            .iter()
+            .map(ModelWorldObject::id)
+            .collect::<Vec<_>>(),
+        vec![1, 2]
+    );
 }
 
 fn exchange_snapshot() -> ModelClientSnapshot {

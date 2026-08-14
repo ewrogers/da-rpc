@@ -592,14 +592,27 @@ Read the currently retained view from `GET /clients/{client}/objects`. See
 [World](world.md) for object fields, view-range behavior, and map
 boundaries.
 
-Players, monsters, and Mundanes each publish the same four actions:
+Players, monsters, and Mundanes publish these object actions:
 
 ```text
 player.appeared             monster.appeared             mundane.appeared
+player.replaced
 player.disappeared          monster.disappeared          mundane.disappeared
 player.moved                monster.moved                mundane.moved
 player.direction_changed    monster.direction_changed    mundane.direction_changed
 player.inspected
+```
+
+`player.replaced` is published instead of `player.appeared` when a newly shown
+player has the same name as one or more retained players but a different object
+ID. Its payload contains every stale snapshot and the authoritative replacement:
+
+```text
+PlayerReplaced {
+    observation: EventObservation,
+    previous: WorldObject[],
+    current: WorldObject,
+}
 ```
 
 Ground items publish:
@@ -613,7 +626,7 @@ item.moved
 Their JSON discriminator replaces the dot with an underscore, such as
 `player_appeared`, `mundane_direction_changed`, or `item_moved`.
 
-Every event above uses this payload:
+The remaining object events use this payload:
 
 ```text
 ObjectChanged {

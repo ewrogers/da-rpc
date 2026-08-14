@@ -169,8 +169,18 @@ impl ApiState {
         *current = Arc::new(snapshot);
     }
 
-    #[cfg_attr(not(windows), allow(dead_code))]
+    #[cfg(test)]
     pub(crate) fn publish_connection_event(&self, event: &ConnectionEvent) {
+        let previous = self.snapshot();
+        self.publish_connection_event_from(event, &previous);
+    }
+
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub(crate) fn publish_connection_event_from(
+        &self,
+        event: &ConnectionEvent,
+        previous: &RegistrySnapshot,
+    ) {
         let observed_at_utc = Utc::now();
         self.messages
             .write()
@@ -188,11 +198,27 @@ impl ApiState {
                     .iter()
                     .find(|client| client.pid == *pid && client.identity == Some(*identity))
                     .and_then(|client| client.game_snapshot.as_ref());
+                let mut previous_game_snapshot = previous
+                    .clients
+                    .iter()
+                    .find(|client| client.pid == *pid && client.identity == Some(*identity))
+                    .and_then(|client| client.game_snapshot.clone());
                 let mut spell_feedback = self
                     .spell_feedback
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
                 for state_event in events {
+                    let replaced_players = previous_game_snapshot
+                        .as_ref()
+                        .map_or_else(Vec::new, |snapshot| {
+                            replaced_players(snapshot, &state_event.update)
+                        });
+                    if previous_game_snapshot
+                        .as_mut()
+                        .is_some_and(|snapshot| snapshot.apply_event(state_event.clone()).is_err())
+                    {
+                        previous_game_snapshot = None;
+                    }
                     let (ability_name, target_name) =
                         ability_context(game_snapshot, &state_event.update);
                     let feedback = spell_feedback.observe(
@@ -206,6 +232,7 @@ impl ApiState {
                         pid: *pid,
                         identity: *identity,
                         event: Box::new(state_event.clone()),
+                        replaced_players,
                         ability_name,
                         target_name,
                         feedback: feedback.map(Box::new),
@@ -334,6 +361,38 @@ impl ApiState {
         self.emit(DaemonEvent::CommandsReady)?;
         Ok(receiver)
     }
+}
+
+fn replaced_players(
+    snapshot: &darpc_model::ClientSnapshot,
+    update: &darpc_model::StateUpdate,
+) -> Vec<darpc_model::WorldObject> {
+    let darpc_model::StateUpdate::Object(darpc_model::ObjectUpdate::Appeared(
+        darpc_model::WorldObject::Player {
+            id,
+            name: Some(name),
+            ..
+        },
+    )) = update
+    else {
+        return Vec::new();
+    };
+    snapshot.objects.as_ref().map_or_else(Vec::new, |objects| {
+        objects
+            .iter()
+            .filter(|object| {
+                matches!(
+                    object,
+                    darpc_model::WorldObject::Player {
+                        id: current_id,
+                        name: Some(current_name),
+                        ..
+                    } if current_id != id && current_name == name
+                )
+            })
+            .cloned()
+            .collect()
+    })
 }
 
 fn ability_context(

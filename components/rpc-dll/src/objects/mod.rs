@@ -64,12 +64,48 @@ impl ObjectCache {
         self.entries[self.find(id)?]
     }
 
+    pub(crate) fn player_with_name(&self, observed: RawWorldObject) -> Option<u32> {
+        let RawWorldObject::Player {
+            id, name, name_len, ..
+        } = observed
+        else {
+            return None;
+        };
+        let name_len = usize::from(name_len);
+        if name_len == 0 {
+            return None;
+        }
+        self.entries.iter().flatten().find_map(|current| {
+            let RawWorldObject::Player {
+                id: current_id,
+                name: current_name,
+                name_len: current_name_len,
+                ..
+            } = current
+            else {
+                return None;
+            };
+            (*current_id != id
+                && usize::from(*current_name_len) == name_len
+                && current_name[..name_len] == name[..name_len])
+                .then_some(*current_id)
+        })
+    }
+
+    pub(crate) fn remove_player_with_name(&mut self, observed: RawWorldObject) -> Option<u32> {
+        let id = self.player_with_name(observed)?;
+        let index = self.find(id)?;
+        self.remove_at(index);
+        Some(id)
+    }
+
     #[cfg(not(test))]
     pub(crate) fn position(&self, id: u32) -> Option<(i32, i32)> {
         self.entries[self.find(id)?].map(object_position)
     }
 
     pub(crate) fn upsert(&mut self, mut object: RawWorldObject) -> Option<QueuedObjectUpdate> {
+        while self.remove_player_with_name(object).is_some() {}
         if let Some(index) = self.find(object_id(object)) {
             let current = self.entries[index].expect("located object entry is populated");
             if same_observation(current, object) {
@@ -395,6 +431,27 @@ mod tests {
     }
 
     #[test]
+    fn replaces_a_player_with_the_same_name_and_a_new_id() {
+        let mut cache = ObjectCache::empty();
+        let original = named_player(1, b"Silo", 10, 20, 0);
+        let duplicate = named_player(3, b"Silo", 12, 22, 2);
+        let replacement = named_player(2, b"Silo", 11, 21, 1);
+        let mut snapshot = RawObjects::empty();
+        assert!(snapshot.push(original));
+        assert!(snapshot.push(duplicate));
+        cache.replace(&snapshot);
+
+        assert_eq!(cache.player_with_name(replacement), Some(1));
+        assert_eq!(
+            cache.upsert(replacement),
+            Some(QueuedObjectUpdate::Appeared(replacement))
+        );
+        assert_eq!(cache.get(1), None);
+        assert_eq!(cache.get(3), None);
+        assert_eq!(cache.get(2), Some(replacement));
+    }
+
+    #[test]
     fn tracks_living_movement_direction_and_self_position() {
         let mut cache = ObjectCache::empty();
         cache.upsert(player(1, 10, 20, 0));
@@ -452,6 +509,19 @@ mod tests {
             id,
             name: [0; MAX_OBJECT_NAME_BYTES],
             name_len: 0,
+            x,
+            y,
+            direction,
+        }
+    }
+
+    fn named_player(id: u32, value: &[u8], x: i32, y: i32, direction: u8) -> RawWorldObject {
+        let mut name = [0; MAX_OBJECT_NAME_BYTES];
+        name[..value.len()].copy_from_slice(value);
+        RawWorldObject::Player {
+            id,
+            name,
+            name_len: u8::try_from(value.len()).unwrap(),
             x,
             y,
             direction,

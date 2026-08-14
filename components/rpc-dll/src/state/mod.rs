@@ -559,6 +559,12 @@ pub(crate) fn observe_world(update: WorldUpdate, objects: &RawObjects, tick_ms: 
                 .flatten()
                 .copied()
             {
+                // A player can log back in under the same name with a new
+                // object ID. Retire all ID-scoped inspection state before the
+                // object cache replaces the stale observation.
+                while let Some(id) = unsafe { OBJECTS.remove_player_with_name(object) } {
+                    crate::player::removed(id);
+                }
                 if let Some(update) = unsafe { OBJECTS.draw(object) } {
                     push_event(QueuedStateUpdate::Object(update), tick_ms);
                 }

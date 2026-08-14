@@ -5,14 +5,17 @@ mod world;
 
 use super::*;
 use darpc_model::{
-    AbilityUpdate, ActionUpdate, AudioUpdate, CharacterStats, ClientCommand as ModelClientCommand,
-    ClientLifecycle, ClientMessage, CollectionChange, CooldownStatus, CoreStatus, CurrentVitals,
-    Effect, EffectDuration, EffectUpdate, EntityUpdate, ExchangeItem as ModelExchangeItem,
+    AbilityUpdate, ActionUpdate, AudioUpdate, CharacterAppearance as ModelCharacterAppearance,
+    CharacterClass, CharacterProgression, CharacterSnapshot, CharacterStats, CharacterVitals,
+    ClientCommand as ModelClientCommand, ClientLifecycle, ClientMessage, ClientSnapshot,
+    CollectionChange, CooldownStatus, CoreStatus, CurrentVitals, Effect, EffectDuration,
+    EffectUpdate, EntityUpdate, ExchangeItem as ModelExchangeItem,
     ExchangeOffer as ModelExchangeOffer, ExchangeParty as ModelExchangeParty,
-    ExchangeState as ModelExchangeState, ExchangeUpdate, InventoryItem as ModelInventoryItem,
-    LegendIcon as ModelLegendIcon, LegendMark as ModelLegendMark, LegendUpdate, LifecycleUpdate,
-    LocationUpdate, MapChange, MessageKind, MovementUpdate, PlannedRoute, Skill as ModelSkill,
-    SlotUpdate, Spell as ModelSpell, SpellCancellationSource as ModelSpellCancellationSource,
+    ExchangeState as ModelExchangeState, ExchangeUpdate, Gender,
+    InventoryItem as ModelInventoryItem, LegendIcon as ModelLegendIcon,
+    LegendMark as ModelLegendMark, LegendUpdate, LifecycleUpdate, LocationUpdate, MapChange,
+    MessageKind, MovementUpdate, PlannedRoute, Skill as ModelSkill, SlotUpdate,
+    Spell as ModelSpell, SpellCancellationSource as ModelSpellCancellationSource,
     SpellCastArguments as ModelSpellCastArguments, SpellTargetType, StateUpdate, StatusUpdate,
     TilePosition as ModelTilePosition,
 };

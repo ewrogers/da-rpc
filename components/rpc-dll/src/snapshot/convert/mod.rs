@@ -64,6 +64,7 @@ fn objects(raw: &RawObjects) -> Vec<WorldObject> {
                 x,
                 y,
                 direction,
+                is_hidden,
             } => WorldObject::Player {
                 id,
                 name: client_text::decode(&name[..usize::from(name_len)]),
@@ -71,6 +72,7 @@ fn objects(raw: &RawObjects) -> Vec<WorldObject> {
                 y,
                 direction: Direction::from_raw(direction)
                     .expect("captured player direction is valid"),
+                is_hidden,
                 profile: crate::player::profile(id).map(Box::new),
             },
             RawWorldObject::Creature {
@@ -127,6 +129,7 @@ fn character_snapshot(raw: &RawCharacter, world_token: u32, tick_ms: u32) -> Cha
             body_sprite: appearance.body_sprite,
         }),
         class: CharacterClass::from_raw(raw.class),
+        is_hidden: raw.is_hidden,
         is_action_restricted: raw.is_action_restricted,
         is_blinded: raw.is_blinded,
         is_casting: raw.is_casting,

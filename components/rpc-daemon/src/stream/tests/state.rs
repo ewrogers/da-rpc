@@ -1,6 +1,116 @@
 use super::*;
 
 #[test]
+fn snapshot_recapture_emits_appearance_and_hidden_changes() {
+    let identity = ClientIdentity {
+        pid: 42,
+        process_creation_time: 100,
+        dll_instance_id: [1; 16],
+    };
+    let previous = character_snapshot(
+        Some(ModelCharacterAppearance {
+            gender: Gender::Male,
+            hair_style: 7,
+            hair_color: 2,
+            body_sprite: 1,
+        }),
+        false,
+        8,
+        9,
+    );
+    let current = character_snapshot(
+        Some(ModelCharacterAppearance {
+            gender: Gender::Female,
+            hair_style: 12,
+            hair_color: 4,
+            body_sprite: 2,
+        }),
+        true,
+        9,
+        10,
+    );
+
+    let events = snapshot_character_changes(42, identity, &previous, &current);
+    assert_eq!(
+        events.iter().map(ClientEvent::name).collect::<Vec<_>>(),
+        ["character.appearance_changed", "character.hidden_changed"]
+    );
+    let appearance = serde_json::to_value(&events[0]).unwrap();
+    assert_eq!(appearance["data"]["previous"]["hair_style"], 7);
+    assert_eq!(appearance["data"]["current"]["hair_style"], 12);
+    let hidden = serde_json::to_value(&events[1]).unwrap();
+    assert_eq!(hidden["data"]["previous"], false);
+    assert_eq!(hidden["data"]["current"], true);
+}
+
+fn character_snapshot(
+    appearance: Option<ModelCharacterAppearance>,
+    is_hidden: bool,
+    revision: u32,
+    event_sequence: u32,
+) -> ClientSnapshot {
+    ClientSnapshot {
+        revision,
+        event_sequence,
+        captured_tick_ms: 1,
+        updated_tick_ms: 2,
+        capture_duration_us: 3,
+        world_generation: 1,
+        lifecycle: ClientLifecycle::InGame,
+        character: Some(CharacterSnapshot {
+            id: Some(7),
+            name: Some("Monitor".into()),
+            identity: None,
+            appearance,
+            class: CharacterClass::Rogue,
+            is_hidden,
+            is_action_restricted: false,
+            is_blinded: false,
+            is_casting: false,
+            is_walking: false,
+            gold: 0,
+            weight: 0,
+            max_weight: 0,
+            progression: CharacterProgression {
+                level: 99,
+                ability_level: 0,
+                experience: 0,
+                ability_points: None,
+                experience_to_next_level: None,
+                ability_to_next_level: None,
+            },
+            stats: CharacterStats {
+                strength: 3,
+                intelligence: 3,
+                wisdom: 3,
+                constitution: 3,
+                dexterity: 3,
+            },
+            vitals: CharacterVitals {
+                health: 1,
+                max_health: 1,
+                mana: 1,
+                max_mana: 1,
+            },
+            modifiers: None,
+            location: None,
+            inventory: None,
+            equipment: None,
+            spellbook: None,
+            skillbook: None,
+            effects: None,
+        }),
+        objects: None,
+        dialog: None,
+        group: None,
+        exchange: None,
+        legend: None,
+        planned_route: None,
+        map_exclusions: Vec::new(),
+    }
+}
+
+#[test]
 fn client_commands_have_a_stable_public_event_shape() {
     let events = expand(
         42,

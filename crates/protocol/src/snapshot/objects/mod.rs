@@ -44,6 +44,7 @@ pub(crate) fn encode_object(output: &mut Vec<u8>, object: &WorldObject) -> Resul
             x,
             y,
             direction,
+            is_hidden,
             ..
         } => {
             output.push(1);
@@ -51,6 +52,7 @@ pub(crate) fn encode_object(output: &mut Vec<u8>, object: &WorldObject) -> Resul
             push_i32(output, *x);
             push_i32(output, *y);
             output.push(direction.raw());
+            push_bool(output, *is_hidden);
             encode_optional_string(output, name.as_deref(), MAX_OBJECT_NAME_LEN)?;
         }
         WorldObject::Creature {
@@ -131,16 +133,19 @@ pub(crate) fn decode_object(reader: &mut PayloadReader<'_>) -> Result<WorldObjec
     let object = match object_type {
         1 => {
             let raw_direction = reader.read_u8()?;
+            let direction =
+                Direction::from_raw(raw_direction).ok_or(DecodeError::InvalidDirection {
+                    actual: raw_direction,
+                })?;
+            let is_hidden = reader.read_bool()?;
+            let name = decode_optional_string(reader, MAX_OBJECT_NAME_LEN)?;
             WorldObject::Player {
                 id,
-                name: decode_optional_string(reader, MAX_OBJECT_NAME_LEN)?,
+                name,
                 x,
                 y,
-                direction: Direction::from_raw(raw_direction).ok_or(
-                    DecodeError::InvalidDirection {
-                        actual: raw_direction,
-                    },
-                )?,
+                direction,
+                is_hidden,
                 profile: None,
             }
         }

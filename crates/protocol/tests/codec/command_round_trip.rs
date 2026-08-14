@@ -149,6 +149,7 @@ fn command_messages_round_trip() {
                     x: 120,
                     y: 85,
                     direction: Direction::South,
+                    is_hidden: false,
                     profile: Some(Box::new(player_profile())),
                 }),
             },

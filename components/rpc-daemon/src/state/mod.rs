@@ -214,6 +214,7 @@ pub(crate) struct CharacterStatus {
     body_sprite: Option<u16>,
     class: CharacterClass,
     identity: Option<PlayerIdentity>,
+    is_hidden: bool,
     is_action_restricted: bool,
     is_blinded: bool,
     is_casting: bool,
@@ -247,6 +248,7 @@ impl CharacterStatus {
             body_sprite: value.appearance.map(|appearance| appearance.body_sprite),
             class: CharacterClass::from(value.class),
             identity: value.identity.as_ref().map(PlayerIdentity::from),
+            is_hidden: value.is_hidden,
             is_action_restricted: value.is_action_restricted,
             is_blinded: value.is_blinded,
             is_casting: value.is_casting,
@@ -291,7 +293,7 @@ impl CharacterStatus {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum CharacterGender {
     Male,

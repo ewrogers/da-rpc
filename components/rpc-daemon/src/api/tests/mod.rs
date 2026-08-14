@@ -98,6 +98,7 @@ fn game_snapshot() -> ModelClientSnapshot {
                 body_sprite: 1,
             }),
             class: CharacterClass::Wizard,
+            is_hidden: false,
             is_action_restricted: false,
             is_blinded: true,
             is_walking: false,
@@ -224,6 +225,7 @@ fn game_snapshot() -> ModelClientSnapshot {
                 x: 10,
                 y: 20,
                 direction: ModelDirection::North,
+                is_hidden: false,
                 profile: None,
             },
             ModelWorldObject::Creature {
@@ -300,6 +302,7 @@ fn finds_every_player_replaced_by_a_same_name_appearance() {
         x,
         y: 20,
         direction: ModelDirection::East,
+        is_hidden: false,
         profile: None,
     };
     let mut snapshot = game_snapshot();

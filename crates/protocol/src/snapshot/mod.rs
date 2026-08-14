@@ -371,6 +371,7 @@ fn encode_character(
         None => output.push(0),
     }
     output.push(character.class.raw());
+    push_bool(output, character.is_hidden);
     push_bool(output, character.is_action_restricted);
     push_bool(output, character.is_blinded);
     push_bool(output, character.is_casting);
@@ -448,6 +449,7 @@ fn decode_character(reader: &mut PayloadReader<'_>) -> Result<CharacterSnapshot,
         None
     };
     let class = CharacterClass::from_raw(reader.read_u8()?);
+    let is_hidden = reader.read_bool()?;
     let is_action_restricted = reader.read_bool()?;
     let is_blinded = reader.read_bool()?;
     let is_casting = reader.read_bool()?;
@@ -518,6 +520,7 @@ fn decode_character(reader: &mut PayloadReader<'_>) -> Result<CharacterSnapshot,
         identity: None,
         appearance,
         class,
+        is_hidden,
         is_action_restricted,
         is_blinded,
         is_casting,

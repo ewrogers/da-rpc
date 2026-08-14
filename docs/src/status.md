@@ -40,7 +40,8 @@ The character data includes:
 - Gold, weight, and maximum weight
 - Armor class, damage, hit, magic resistance, attack element, and defense
   element
-- `is_blinded`, `is_casting`, `is_walking`, and `is_action_restricted`
+- `is_hidden`, `is_blinded`, `is_casting`, `is_walking`, and
+  `is_action_restricted`
 - The last server-confirmed `is_group_open` setting and current `group_members`
 
 The map data includes its ID, available name, zero-based x/y position, width,
@@ -56,6 +57,7 @@ Character {
     body_sprite: u16?,
     class: CharacterClass,
     identity: PlayerIdentity?,
+    is_hidden: bool,
     is_action_restricted: bool,
     is_blinded: bool,
     is_casting: bool,
@@ -91,6 +93,32 @@ PlannedRoute {
 through the goal. It is replaced atomically after pathfinder rebuilds and as
 confirmed steps are consumed. See [Movement](movement.md#walking-events)
 for generation and empty-route behavior.
+
+## Hidden characters
+
+`is_hidden` identifies a character that is using Hide, including a hidden
+character that remains visible as a translucent sprite because of a detection
+spell. For the local character, `/status` reports the client object's hidden or
+translucent state. A transition emits `character.hidden_changed` on the SSE
+stream.
+
+Nearby players report `is_hidden` on their player objects. A player is treated
+as hidden when a `0x33` player draw has either a zero body sprite or the
+translucent/hidden flag. The resulting `player.appeared` event carries the
+current `is_hidden` value.
+
+Hidden draws are intentionally treated as sparse observations. They do not
+erase the local character's last complete human appearance, or a nearby
+player's last known name and profile, when those fields are omitted. Retained
+data is matched by entity ID. Inspecting a hidden player can still supply a
+profile, which is retained for later sparse observations of that same entity.
+Leaving the observed area still removes the player normally.
+
+Monster form is separate from Hide. A local monster form has no human
+appearance, reports `is_hidden: false`, and changing into or out of it emits
+`character.appearance_changed`. See
+[Hide and monster-form transitions](events.md#hide-and-monster-form-transitions)
+for the exact SSE payload changes in both directions.
 
 ## Client lifecycle
 

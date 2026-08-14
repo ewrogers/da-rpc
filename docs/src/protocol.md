@@ -47,6 +47,7 @@ let version: u16 = ((major as u16) << 8) | minor as u16;
 
 const VERSION_1_0: u16 = 0x0100;
 const VERSION_1_1: u16 = 0x0101;
+const VERSION_1_3: u16 = 0x0103;
 const VERSION_2_0: u16 = 0x0200;
 ```
 
@@ -56,10 +57,11 @@ advertises an inclusive, continuous range and the controller selects the
 highest version in the overlap. A peer must not advertise one continuous range
 across an incompatible major boundary. No overlap rejects the connection.
 
-The only currently supported version is 1.2 (`0x0102`). Version 1.1 added exact
-route and path-exclusion commands plus obstruction events. Version 1.2 adds
+The only currently supported version is 1.3 (`0x0103`). Version 1.1 added exact
+route and path-exclusion commands plus obstruction events. Version 1.2 added
 total ability cooldown duration to cooldown snapshots and collection updates.
-Peers advertise only 1.2 because these additions change message layouts or can
+Version 1.3 adds hidden-state fields to character and player snapshots. Peers
+advertise only 1.3 because these additions change message layouts or can
 introduce discriminants that earlier decoders cannot interpret safely.
 
 ## Message types
@@ -287,6 +289,7 @@ struct CharacterSnapshot {
     identity: Option<PlayerIdentity>;
     appearance: Option<CharacterAppearance>;
     class: CharacterClass;
+    is_hidden: bool;
     is_action_restricted: bool;
     is_blinded: bool;
     is_walking: bool;
@@ -412,6 +415,7 @@ enum WorldObject: u8 {
         x: i32;
         y: i32;
         direction: Direction;
+        is_hidden: bool;
         name: Option<utf8>;
         profile: Option<PlayerProfile>; // stored in the appended profile table
     },

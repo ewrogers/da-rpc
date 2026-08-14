@@ -1,8 +1,9 @@
 use super::panes::{EVENT_DISPATCHER_RVA, RECONNECT_DIALOG_VTABLE_RVA};
 use super::{
     CHARACTER_NAME_RVA, EQUIPMENT_PANE_RVA, GUI_BACK_PANE_ADJUSTMENT, GUI_BACK_PANE_RVA,
-    MAIN_MENU_PANE_RVA, MAIN_THREAD_ID_RVA, MAP_LOADING_PANE_RVA, MemoryReader, RawLifecycle,
-    RawObjects, RawStateSnapshot, RawWorldObject, StateReadError, StateWalker,
+    MAIN_MENU_PANE_RVA, MAIN_THREAD_ID_RVA, MAP_LOADING_PANE_RVA, MemoryReader,
+    PLAYER_TRANSLUCENT_STATE_OFFSET, RawLifecycle, RawObjects, RawStateSnapshot, RawWorldObject,
+    StateReadError, StateWalker,
 };
 use crate::{WORLD_PANE_ADJUSTMENT, WORLD_PANE_POINTER_RVA};
 
@@ -255,6 +256,7 @@ fn captures_the_scalar_gameplay_snapshot() {
     assert_eq!(appearance.hair_color, 6);
     assert_eq!(appearance.body_sprite, 1);
     assert_eq!(character.class, 3);
+    assert!(!character.is_hidden);
     assert!(character.is_action_restricted);
     assert!(character.is_blinded);
     assert_eq!(character.gold, 123_456);
@@ -338,6 +340,7 @@ fn captures_visible_world_objects_into_caller_storage() {
         x,
         y,
         direction,
+        is_hidden: _,
     }) = objects.entries[0]
     else {
         panic!("expected player object");
@@ -367,6 +370,26 @@ fn non_human_appearance_is_unavailable() {
     let snapshot = StateWalker::new(&memory, BASE).capture(THREAD_ID).unwrap();
     assert!(snapshot.character_available);
     assert!(snapshot.character.appearance.is_none());
+    assert!(!snapshot.character.is_hidden);
+}
+
+#[test]
+fn hidden_recapture_retains_the_last_visible_appearance() {
+    let mut memory = FakeMemory::gameplay();
+    let mut snapshot = RawStateSnapshot::empty();
+    StateWalker::new(&memory, BASE)
+        .capture_into(THREAD_ID, &mut snapshot)
+        .unwrap();
+    let visible = snapshot.character.appearance;
+
+    memory.u8(OBJECT + PLAYER_TRANSLUCENT_STATE_OFFSET, 1);
+    memory.u8(OBJECT + 0x104, 0);
+    StateWalker::new(&memory, BASE)
+        .capture_into(THREAD_ID, &mut snapshot)
+        .unwrap();
+
+    assert!(snapshot.character.is_hidden);
+    assert_eq!(snapshot.character.appearance, visible);
 }
 
 #[test]

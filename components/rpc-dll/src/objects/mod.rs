@@ -105,6 +105,23 @@ impl ObjectCache {
     }
 
     pub(crate) fn upsert(&mut self, mut object: RawWorldObject) -> Option<QueuedObjectUpdate> {
+        if let RawWorldObject::Player {
+            id,
+            is_hidden: true,
+            name,
+            name_len,
+            ..
+        } = &mut object
+            && *name_len == 0
+            && let Some(RawWorldObject::Player {
+                name: current_name,
+                name_len: current_name_len,
+                ..
+            }) = self.get(*id)
+        {
+            *name = current_name;
+            *name_len = current_name_len;
+        }
         while self.remove_player_with_name(object).is_some() {}
         if let Some(index) = self.find(object_id(object)) {
             let current = self.entries[index].expect("located object entry is populated");
@@ -298,12 +315,14 @@ pub(crate) fn object_model(raw: RawWorldObject) -> WorldObject {
             x,
             y,
             direction,
+            is_hidden,
         } => WorldObject::Player {
             id,
             name: decode_name(&name[..usize::from(name_len)]),
             x,
             y,
             direction: Direction::from_raw(direction).expect("observed player direction is valid"),
+            is_hidden,
             profile: None,
         },
         RawWorldObject::Creature {
@@ -494,6 +513,32 @@ mod tests {
         assert_eq!(cache.clear(), None);
     }
 
+    #[test]
+    fn hidden_player_observation_retains_the_last_known_name() {
+        let mut cache = ObjectCache::empty();
+        cache.upsert(named_player(7, b"Monitor", 10, 20, 1));
+        let mut hidden = player(7, 11, 20, 1);
+        let RawWorldObject::Player { is_hidden, .. } = &mut hidden else {
+            unreachable!();
+        };
+        *is_hidden = true;
+
+        let Some(QueuedObjectUpdate::Appeared(updated)) = cache.upsert(hidden) else {
+            panic!("expected hidden player update");
+        };
+        let RawWorldObject::Player {
+            name,
+            name_len,
+            is_hidden,
+            ..
+        } = updated
+        else {
+            panic!("expected player");
+        };
+        assert!(is_hidden);
+        assert_eq!(&name[..usize::from(name_len)], b"Monitor");
+    }
+
     fn item(id: u32, x: i32, y: i32) -> RawWorldObject {
         RawWorldObject::Item {
             id,
@@ -512,6 +557,7 @@ mod tests {
             x,
             y,
             direction,
+            is_hidden: false,
         }
     }
 
@@ -525,6 +571,7 @@ mod tests {
             x,
             y,
             direction,
+            is_hidden: false,
         }
     }
 

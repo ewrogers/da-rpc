@@ -10,6 +10,7 @@ pub enum RawWorldObject {
         x: i32,
         y: i32,
         direction: u8,
+        is_hidden: bool,
     },
     Creature {
         id: u32,
@@ -138,6 +139,7 @@ mod tests {
             x: 1,
             y: 2,
             direction: 0,
+            is_hidden: false,
         }));
 
         objects.name_player(7, b"Monitor");

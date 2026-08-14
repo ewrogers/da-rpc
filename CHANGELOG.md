@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Added
+
+- Added local and visible-player `is_hidden` state, including zero-body and
+  translucent player detection.
+- Added `character.appearance_changed` and `character.hidden_changed` SSE
+  events after authoritative snapshot recapture.
+
+### Changed
+
+- Preserve the last visible local appearance and remote player name and
+  inspected profile when a hidden draw omits those fields.
+- Advanced the binary protocol to version 1.3 for hidden-state snapshot and
+  world-object fields.
+
 ## 1.3.0 - 2026-08-13
 
 ### Added

@@ -427,6 +427,7 @@ fn object_updates_use_noun_action_event_names() {
         x: 10,
         y: 20,
         direction: Direction::East,
+        is_hidden: false,
         profile: None,
     };
     let monster = ModelWorldObject::Creature {
@@ -526,6 +527,7 @@ fn same_name_player_relog_uses_a_replacement_event() {
         x,
         y: 20,
         direction: Direction::East,
+        is_hidden: false,
         profile: None,
     };
     let current = player(3, 12);
@@ -568,6 +570,7 @@ fn entity_visual_updates_expose_packet_values() {
         x: 10,
         y: 20,
         direction: Direction::East,
+        is_hidden: false,
         profile: None,
     };
     let mundane = ModelWorldObject::Creature {

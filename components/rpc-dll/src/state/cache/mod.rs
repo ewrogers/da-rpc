@@ -79,6 +79,7 @@ pub(super) struct StateCache {
     pub(super) is_action_restricted: Option<bool>,
     pub(super) is_casting: Option<bool>,
     pub(super) is_walking: Option<bool>,
+    pub(super) is_hidden: Option<bool>,
     pub(super) map: Option<CachedMap>,
     pub(super) position: Option<(i32, i32)>,
     pub(super) pending_map: Option<QueuedMapChange>,
@@ -135,6 +136,7 @@ impl StateCache {
             is_action_restricted: Some(raw.is_action_restricted),
             is_casting: Some(raw.is_casting),
             is_walking: Some(raw.is_walking),
+            is_hidden: Some(raw.is_hidden),
             map: raw.location.map(|location| CachedMap {
                 id: location.map_id,
                 width: location.width,
@@ -407,6 +409,7 @@ impl MainThreadCache {
             is_action_restricted: None,
             is_casting: None,
             is_walking: None,
+            is_hidden: None,
             map: None,
             position: None,
             pending_map: None,
@@ -449,6 +452,7 @@ impl MainThreadCache {
         }
         let (x, y) = cache.position?;
         let direction = cache.self_direction?;
+        let is_hidden = cache.is_hidden?;
         let name_len = usize::from(cache.self_name_len).min(MAX_OBJECT_NAME_BYTES);
         let mut name = [0; MAX_OBJECT_NAME_BYTES];
         name[..name_len].copy_from_slice(&cache.self_name[..name_len]);
@@ -459,6 +463,7 @@ impl MainThreadCache {
             x,
             y,
             direction,
+            is_hidden,
         })
     }
 

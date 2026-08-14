@@ -43,7 +43,7 @@ The response can contain four object kinds:
 
 | Kind | Available data |
 | --- | --- |
-| `player` | ID, optional name, x/y, direction, and optional inspected profile |
+| `player` | ID, optional name, x/y, direction, `is_hidden`, and optional inspected profile |
 | `monster` | ID, optional sprite, x/y, and direction |
 | `mundane` | ID, optional name and sprite, x/y, and direction |
 | `item` | ID, sprite, x/y, and per-tile `z_index` |
@@ -62,7 +62,7 @@ WorldObjects {
 }
 
 WorldObject =
-    Player { id, name?, x, y, direction, profile? }
+    Player { id, name?, x, y, direction, is_hidden, profile? }
   | Monster { id, sprite?, x, y, direction }
   | Mundane { id, sprite?, name?, x, y, direction }
   | Item { id, sprite, x, y, z_index }
@@ -84,6 +84,12 @@ object information. The successful response fills `profile` with nation, title,
 guild rank, display class, guild, user state, `is_group_open`, worn equipment,
 legend marks, and `inspected_tick_ms`. `profile: null` means the player is
 visible but the inspection has not completed.
+
+`is_hidden` is true when the draw has a zero body sprite or the packet marks
+the player translucent. Hidden draws can zero other fields, so daRPC merges
+them by entity ID and retains the last observed name plus inspected profile.
+Monster-form draws use a separate packet layout and are not classified as
+hidden merely because they do not contain the normal human appearance block.
 
 The profile equipment uses the same slot, sprite, and dye-color names as local
 equipment. Other-player packets do not provide item names or durability, so

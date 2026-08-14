@@ -32,7 +32,7 @@ fn serves_health_and_client_resources() {
     );
     assert_eq!(
         clients["clients"][0]["connection"]["protocol_version"],
-        "1.2"
+        "1.3"
     );
     assert_eq!(
         clients["clients"][0]["connection"]["client_version"],
@@ -55,6 +55,7 @@ fn serves_health_and_client_resources() {
     assert_eq!(status["character"]["hair_style"], 17);
     assert_eq!(status["character"]["hair_color"], 6);
     assert_eq!(status["character"]["body_sprite"], 1);
+    assert_eq!(status["character"]["is_hidden"], false);
     assert_eq!(status["character"]["is_action_restricted"], false);
     assert_eq!(status["character"]["is_blinded"], true);
     assert_eq!(status["character"]["is_walking"], false);
@@ -254,6 +255,7 @@ fn filters_world_objects_by_type() {
         .map(|object| object["kind"].as_str().unwrap())
         .collect::<Vec<_>>();
     assert_eq!(kinds, ["player", "mundane"]);
+    assert_eq!(filtered["objects"][0]["is_hidden"], false);
 
     let invalid = response("/clients/silo/objects?types=dragon");
     assert_eq!(invalid.status(), StatusCode::BAD_REQUEST);

@@ -38,6 +38,8 @@ const BOTTOM_BUTTONS_PANE_RVA: u32 = 0x002D_9230;
 
 const GUI_BACK_PANE_ADJUSTMENT: u32 = 0x190;
 const GROUP_OPEN_OFFSET: u32 = 0x1C6;
+const PLAYER_HIDDEN_STATE_OFFSET: u32 = 0xD2;
+const PLAYER_TRANSLUCENT_STATE_OFFSET: u32 = 0xD5;
 const MAX_MAP_DIMENSION: i32 = 255;
 const MAX_TREE_DEPTH: usize = 64;
 
@@ -328,6 +330,7 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
                     x,
                     y,
                     direction,
+                    is_hidden: self.capture_is_hidden(object)?,
                 }
             }
             2 => {
@@ -428,16 +431,18 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
         } else {
             self.find_local_object(roots.world, self_id).ok().flatten()
         };
-        let (appearance, x, y, direction) = if let Some(object) = local_object {
+        let (appearance, is_hidden, x, y, direction) = if let Some(object) = local_object {
             let direction = self.read_u8(add(object, 0x192)?)?;
+            let is_hidden = self.capture_is_hidden(object)?;
             (
                 self.capture_appearance(object)?,
+                is_hidden,
                 Some(self.read_i32(add(object, 0x44)?)?),
                 Some(self.read_i32(add(object, 0x40)?)?),
                 (direction <= 3).then_some(direction),
             )
         } else {
-            (None, None, None, None)
+            (None, false, None, None, None)
         };
 
         let pane_progression = self.capture_pane_progression(roots.gui_back)?;
@@ -453,8 +458,11 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
         output.name = name;
         output.name_len = u8::try_from(name_len).expect("character name buffer length fits u8");
         output.direction = direction;
-        output.appearance = appearance;
+        if appearance.is_some() || !is_hidden || output.appearance.is_none() {
+            output.appearance = appearance;
+        }
         output.class = self.read_u8(add(world_user, 0x1089)?)?;
+        output.is_hidden = is_hidden;
         output.is_action_restricted = self.read_u8(add(world_user, 0x15C88)?)? & 0x01 != 0;
         output.is_blinded = self.read_u8(add(world_user, 0x108D)?)? == 0x08;
         output.is_casting = roots.spell_delay != 0
@@ -548,6 +556,11 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
             hair_color: self.read_u8(add(object, 0xA8)?)?,
             body_sprite: self.read_u16(add(object, 0xAA)?)?,
         }))
+    }
+
+    fn capture_is_hidden(&self, object: u32) -> Result<bool, StateReadError> {
+        Ok(self.read_u8(add(object, PLAYER_HIDDEN_STATE_OFFSET)?)? != 0
+            || self.read_u8(add(object, PLAYER_TRANSLUCENT_STATE_OFFSET)?)? != 0)
     }
 
     fn capture_pane_progression(

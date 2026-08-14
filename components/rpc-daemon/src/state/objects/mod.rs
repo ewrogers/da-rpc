@@ -62,6 +62,7 @@ pub(crate) enum WorldObject {
         x: i32,
         y: i32,
         direction: Direction,
+        is_hidden: bool,
         profile: Option<PlayerProfile>,
     },
     Monster {
@@ -109,6 +110,7 @@ impl From<&ModelWorldObject> for WorldObject {
                 x,
                 y,
                 direction,
+                is_hidden,
                 profile,
             } => Self::Player {
                 id: *id,
@@ -116,6 +118,7 @@ impl From<&ModelWorldObject> for WorldObject {
                 x: *x,
                 y: *y,
                 direction: (*direction).into(),
+                is_hidden: *is_hidden,
                 profile: profile.as_deref().map(PlayerProfile::from),
             },
             ModelWorldObject::Creature {

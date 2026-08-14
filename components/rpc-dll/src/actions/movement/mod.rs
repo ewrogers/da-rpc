@@ -281,7 +281,8 @@ pub(crate) fn observe_tick() {
     }
 
     if !REPLAN_PENDING.load(Ordering::Acquire) {
-        if movement.route_active() != Some(true) {
+        if movement.route_active() != Some(true) && !ROUTE_STEP_RETRY_VALID.load(Ordering::Acquire)
+        {
             return;
         }
         let deadline = REPLAN_DEADLINE_TICK.load(Ordering::Acquire);
@@ -310,16 +311,16 @@ pub(crate) fn observe_tick() {
             ROUTE_STEP_RETRY_DUE_TICK.store(tick_ms, Ordering::Relaxed);
             ROUTE_STEP_RETRY_VALID.store(true, Ordering::Release);
         }
-        // SAFETY: the validated route remains active on the client main
-        // thread, and the native helper retries its current queued step.
-        if unsafe { movement.advance_fn()(movement.world.as_ptr()) } != 0 {
-            clear_step_retry();
-            ROUTE_PROGRESS_TICK.store(tick_ms, Ordering::Release);
-            return;
-        }
+        let failures = ROUTE_STEP_RETRY_FAILURES.load(Ordering::Acquire);
+        // SAFETY: the validated WorldPane remains live on the client main
+        // thread. The native helper retries its queued step or reports that
+        // the route has already emptied.
+        unsafe { movement.advance_fn()(movement.world.as_ptr()) };
+        record_unconfirmed_retry(movement.world.as_ptr() as usize, failures, tick_ms);
         if !REPLAN_PENDING.load(Ordering::Acquire) {
             return;
         }
+        movement.reset();
     }
 
     if crate::wrapping_time::deadline_reached(tick_ms, REPLAN_DEADLINE_TICK.load(Ordering::Acquire))
@@ -350,18 +351,19 @@ pub(crate) fn observe_tick() {
     }
 }
 
-pub(crate) fn is_replan_pending() -> bool {
-    REPLAN_PENDING.load(Ordering::Acquire)
+pub(crate) fn is_recovery_pending() -> bool {
+    REPLAN_PENDING.load(Ordering::Acquire) || ROUTE_STEP_RETRY_VALID.load(Ordering::Acquire)
 }
 
 /// Records a queued-step result and returns the native reset mode to apply.
 ///
-/// A successful step needs no reset. A failed pursuit step preserves its
-/// native retry timer with mode 1. A failed native ground route retains its
-/// queued step for two one-second retries, then resets and replans. Exact
-/// routes reset immediately without replanning.
+/// An accepted native ground-route step arms a confirmation watchdog, which
+/// confirmed position progress clears. A failed pursuit step preserves its
+/// native retry timer with mode 1. An unconfirmed native ground step gets two
+/// one-second retries, then resets and replans. Exact routes reset immediately
+/// without replanning.
 pub(crate) fn queued_step_reset_mode(world: *mut c_void, direction: u8, moved: bool) -> Option<u8> {
-    if moved || world.is_null() {
+    if world.is_null() {
         return None;
     }
     let pursuit_target =
@@ -374,6 +376,19 @@ pub(crate) fn queued_step_reset_mode(world: *mut c_void, direction: u8, moved: b
     } else {
         WalkMode::NativeRoute
     };
+    if moved {
+        if mode == WalkMode::NativeRoute
+            && HAS_ROUTE_DESTINATION.load(Ordering::Acquire)
+            && !ROUTE_STEP_RETRY_VALID.load(Ordering::Acquire)
+        {
+            let tick_ms = darpc_win32::pipe::sender_tick_ms();
+            ROUTE_STEP_RETRY_FAILURES.store(1, Ordering::Relaxed);
+            ROUTE_STEP_RETRY_DUE_TICK
+                .store(route_retry::step_retry_due_tick(tick_ms), Ordering::Relaxed);
+            ROUTE_STEP_RETRY_VALID.store(true, Ordering::Release);
+        }
+        return None;
+    }
     publish_obstruction(world, Direction::from_raw(direction), mode);
     if pursuit_target != 0 {
         return Some(1);
@@ -415,6 +430,25 @@ fn start_replan(world: usize, tick_ms: u32) {
         REPLAN_ATTEMPT.store(0, Ordering::Relaxed);
     }
     REPLAN_PENDING.store(true, Ordering::Release);
+}
+
+fn record_unconfirmed_retry(world: usize, previous_failures: u32, tick_ms: u32) {
+    if REPLAN_PENDING.load(Ordering::Acquire)
+        || !ROUTE_STEP_RETRY_VALID.load(Ordering::Acquire)
+        || ROUTE_STEP_RETRY_FAILURES.load(Ordering::Acquire) != previous_failures
+    {
+        return;
+    }
+    match route_retry::after_step_failure(previous_failures, tick_ms) {
+        route_retry::StepFailureAction::Retry { failures, due_tick } => {
+            ROUTE_STEP_RETRY_FAILURES.store(failures, Ordering::Relaxed);
+            ROUTE_STEP_RETRY_DUE_TICK.store(due_tick, Ordering::Release);
+        }
+        route_retry::StepFailureAction::Replan => {
+            clear_step_retry();
+            start_replan(world, tick_ms);
+        }
+    }
 }
 
 fn schedule_next_replan(tick_ms: u32) {

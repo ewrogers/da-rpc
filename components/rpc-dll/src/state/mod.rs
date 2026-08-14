@@ -272,6 +272,7 @@ pub(crate) fn reset() {
     crate::legend::reset();
     crate::player::reset();
     crate::path_exclusions::reset();
+    crate::path_occupancy::clear();
 }
 
 #[must_use]
@@ -296,6 +297,7 @@ pub(crate) fn stage_map_transition(
     // available or remains pending until the authoritative position arrives.
     let map_changed = update.is_some() || map_transition_pending();
     if map_changed {
+        crate::path_occupancy::clear();
         #[cfg(all(windows, not(test)))]
         crate::actions::movement::clear_route_destination();
         crate::route::clear(tick_ms);
@@ -323,6 +325,12 @@ pub(crate) fn snapshot_boundary(
     // SAFETY: snapshot capture and event observation are serialized on the
     // client main thread.
     unsafe { OBJECTS.replace(objects) };
+    crate::path_occupancy::replace(
+        objects,
+        raw.character_available
+            .then_some(raw.character.id)
+            .flatten(),
+    );
     // SAFETY: snapshot capture and packet observation are serialized on the
     // client main thread.
     unsafe { COLLECTIONS.replace(raw, tick_ms) };
@@ -417,19 +425,6 @@ pub(crate) fn valid_tile(x: i32, y: i32) -> bool {
     unsafe { CACHE.valid_tile(x, y) }
 }
 
-#[must_use]
-pub(crate) fn player_occupied(x: i32, y: i32) -> bool {
-    // SAFETY: native route construction runs on the client main thread, which
-    // is the sole owner of the object cache.
-    unsafe { OBJECTS.player_occupied(x, y) }
-}
-
-pub(crate) fn refresh_player_occupancy() {
-    // SAFETY: native route construction runs on the client main thread, which
-    // is the sole owner of the object cache.
-    unsafe { OBJECTS.refresh_player_occupancy() };
-}
-
 pub(crate) fn observe_tick() {
     #[cfg(windows)]
     let tick_ms = sender_tick_ms();
@@ -457,7 +452,7 @@ pub(crate) fn observe_tick() {
         let destination = crate::actions::movement::route_destination();
         if let Some(update) = unsafe { CACHE.movement(is_walking, destination) } {
             if matches!(update, MovementUpdate::Stopped { .. })
-                && !crate::actions::movement::is_replan_pending()
+                && !crate::actions::movement::is_recovery_pending()
             {
                 crate::actions::movement::clear_route_destination();
             }
@@ -577,7 +572,12 @@ pub(crate) fn observe_world(update: WorldUpdate, objects: &RawObjects, tick_ms: 
                 // object cache replaces the stale observation.
                 while let Some(id) = unsafe { OBJECTS.remove_player_with_name(object) } {
                     crate::player::removed(id);
+                    crate::path_occupancy::remove(id);
                 }
+                // SAFETY: packet observation runs on the client main thread,
+                // which is the sole owner of the character cache.
+                let self_id = unsafe { CACHE.self_id() };
+                crate::path_occupancy::upsert(object, self_id);
                 if let Some(update) = unsafe { OBJECTS.draw(object) } {
                     push_event(QueuedStateUpdate::Object(update), tick_ms);
                 }
@@ -589,6 +589,7 @@ pub(crate) fn observe_world(update: WorldUpdate, objects: &RawObjects, tick_ms: 
             y,
             direction,
         } => {
+            crate::path_occupancy::move_player(id, x, y);
             if let Some(update) = unsafe { OBJECTS.move_object(id, x, y, direction) } {
                 push_event(QueuedStateUpdate::Object(update), tick_ms);
             }
@@ -600,6 +601,7 @@ pub(crate) fn observe_world(update: WorldUpdate, objects: &RawObjects, tick_ms: 
         }
         WorldUpdate::Remove { id } => {
             crate::player::removed(id);
+            crate::path_occupancy::remove(id);
             if let Some(update) = unsafe { OBJECTS.remove(id) } {
                 push_event(QueuedStateUpdate::Object(update), tick_ms);
             }
@@ -676,6 +678,7 @@ fn observe_self_position(x: i32, y: i32, tick_ms: u32) {
     while let Some(update) = unsafe { OBJECTS.take_outside(x, y) } {
         if let QueuedObjectUpdate::Disappeared(RawWorldObject::Player { id, .. }) = update {
             crate::player::removed(id);
+            crate::path_occupancy::remove(id);
         }
         push_event(QueuedStateUpdate::Object(update), tick_ms);
     }

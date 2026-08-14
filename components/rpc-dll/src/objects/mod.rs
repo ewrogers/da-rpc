@@ -1,11 +1,7 @@
 use darpc_game_client::{MAX_OBJECT_NAME_BYTES, MAX_WORLD_OBJECTS, RawObjects, RawWorldObject};
 use darpc_model::{CreatureKind, Direction, ObjectUpdate, WorldObject};
-use darpc_protocol::MAX_PATH_EXCLUSION_DIMENSION;
 
 const VIEW_DISTANCE: u32 = 18;
-const OCCUPANCY_BITS_PER_WORD: usize = u32::BITS as usize;
-const OCCUPANCY_WORDS: usize =
-    MAX_PATH_EXCLUSION_DIMENSION * MAX_PATH_EXCLUSION_DIMENSION / OCCUPANCY_BITS_PER_WORD;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum QueuedObjectUpdate {
@@ -31,7 +27,6 @@ impl QueuedObjectUpdate {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ObjectCache {
     entries: [Option<RawWorldObject>; MAX_WORLD_OBJECTS],
-    player_occupancy: [u32; OCCUPANCY_WORDS],
 }
 
 impl Default for ObjectCache {
@@ -44,7 +39,6 @@ impl ObjectCache {
     pub(crate) const fn empty() -> Self {
         Self {
             entries: [None; MAX_WORLD_OBJECTS],
-            player_occupancy: [0; OCCUPANCY_WORDS],
         }
     }
 
@@ -52,7 +46,6 @@ impl ObjectCache {
         for (destination, source) in self.entries.iter_mut().zip(objects.entries.iter()) {
             *destination = *source;
         }
-        self.refresh_player_occupancy();
     }
 
     pub(crate) fn name(&self, id: u32) -> Option<([u8; MAX_OBJECT_NAME_BYTES], u8)> {
@@ -69,15 +62,6 @@ impl ObjectCache {
 
     pub(crate) fn get(&self, id: u32) -> Option<RawWorldObject> {
         self.entries[self.find(id)?]
-    }
-
-    pub(crate) fn player_occupied(&self, x: i32, y: i32) -> bool {
-        let Some(index) = occupancy_index(x, y) else {
-            return false;
-        };
-        self.player_occupancy[index / OCCUPANCY_BITS_PER_WORD]
-            & (1 << (index % OCCUPANCY_BITS_PER_WORD))
-            != 0
     }
 
     pub(crate) fn player_with_name(&self, observed: RawWorldObject) -> Option<u32> {
@@ -151,9 +135,6 @@ impl ObjectCache {
         }
         let slot = self.entries.iter_mut().find(|entry| entry.is_none())?;
         *slot = Some(object);
-        if let RawWorldObject::Player { x, y, .. } = object {
-            self.set_player_occupied(x, y, true);
-        }
         Some(QueuedObjectUpdate::Appeared(object))
     }
 
@@ -192,20 +173,7 @@ impl ObjectCache {
             }
             RawWorldObject::Item { .. } => return None,
         }
-        let previous = self.entries[index].expect("located object entry is populated");
         self.entries[index] = Some(object);
-        if let (
-            RawWorldObject::Player {
-                x: previous_x,
-                y: previous_y,
-                ..
-            },
-            RawWorldObject::Player { x, y, .. },
-        ) = (previous, object)
-        {
-            self.refresh_player_occupied(previous_x, previous_y);
-            self.set_player_occupied(x, y, true);
-        }
         Some(QueuedObjectUpdate::Moved(object))
     }
 
@@ -231,17 +199,7 @@ impl ObjectCache {
             }
             _ => return None,
         }
-        let previous = self.entries[index].expect("located object entry is populated");
         self.entries[index] = Some(object);
-        if let RawWorldObject::Player {
-            x: previous_x,
-            y: previous_y,
-            ..
-        } = previous
-        {
-            self.refresh_player_occupied(previous_x, previous_y);
-            self.set_player_occupied(x, y, true);
-        }
         Some(QueuedObjectUpdate::Moved(object))
     }
 
@@ -298,7 +256,6 @@ impl ObjectCache {
             return None;
         }
         self.entries.fill(None);
-        self.player_occupancy.fill(0);
         Some(QueuedObjectUpdate::Cleared)
     }
 
@@ -309,11 +266,6 @@ impl ObjectCache {
     }
 
     fn remove_at(&mut self, index: usize) {
-        if let Some(RawWorldObject::Player { x, y, .. }) = self.entries[index] {
-            self.entries[index] = None;
-            self.refresh_player_occupied(x, y);
-            return;
-        }
         let Some(RawWorldObject::Item { x, y, z_index, .. }) = self.entries[index] else {
             self.entries[index] = None;
             return;
@@ -352,42 +304,6 @@ impl ObjectCache {
         )
         .unwrap_or(u16::MAX)
     }
-
-    pub(crate) fn refresh_player_occupancy(&mut self) {
-        self.player_occupancy.fill(0);
-        for index in 0..self.entries.len() {
-            if let Some(RawWorldObject::Player { x, y, .. }) = self.entries[index] {
-                self.set_player_occupied(x, y, true);
-            }
-        }
-    }
-
-    fn refresh_player_occupied(&mut self, x: i32, y: i32) {
-        let occupied = self.entries.iter().flatten().any(|object| {
-            matches!(object, RawWorldObject::Player { x: player_x, y: player_y, .. }
-                if (*player_x, *player_y) == (x, y))
-        });
-        self.set_player_occupied(x, y, occupied);
-    }
-
-    fn set_player_occupied(&mut self, x: i32, y: i32, occupied: bool) {
-        let Some(index) = occupancy_index(x, y) else {
-            return;
-        };
-        let bit = 1 << (index % OCCUPANCY_BITS_PER_WORD);
-        let word = &mut self.player_occupancy[index / OCCUPANCY_BITS_PER_WORD];
-        if occupied {
-            *word |= bit;
-        } else {
-            *word &= !bit;
-        }
-    }
-}
-
-fn occupancy_index(x: i32, y: i32) -> Option<usize> {
-    let (x, y) = (usize::try_from(x).ok()?, usize::try_from(y).ok()?);
-    (x < MAX_PATH_EXCLUSION_DIMENSION && y < MAX_PATH_EXCLUSION_DIMENSION)
-        .then_some(y * MAX_PATH_EXCLUSION_DIMENSION + x)
 }
 
 pub(crate) fn object_model(raw: RawWorldObject) -> WorldObject {
@@ -577,50 +493,6 @@ mod tests {
             Some(QueuedObjectUpdate::Moved(player(1, 11, 20, 0)))
         );
         assert_eq!(cache.move_self(Some(1), 11, 20), None);
-    }
-
-    #[test]
-    fn indexes_player_occupancy_without_treating_creatures_or_items_as_players() {
-        let mut cache = ObjectCache::empty();
-        cache.upsert(player(1, 10, 20, 0));
-        cache.upsert(creature(2, 12, 20, 1));
-        cache.upsert(item(3, 13, 20));
-
-        assert!(cache.player_occupied(10, 20));
-        assert!(!cache.player_occupied(12, 20));
-        assert!(!cache.player_occupied(13, 20));
-
-        cache.move_object(1, 11, 20, None).unwrap();
-        assert!(!cache.player_occupied(10, 20));
-        assert!(cache.player_occupied(11, 20));
-
-        cache.remove(1).unwrap();
-        assert!(!cache.player_occupied(11, 20));
-    }
-
-    #[test]
-    fn occupancy_survives_overlapping_observations_until_every_player_leaves() {
-        let mut cache = ObjectCache::empty();
-        cache.upsert(player(1, 10, 20, 0));
-        cache.upsert(player(2, 10, 20, 1));
-
-        cache.remove(1).unwrap();
-        assert!(cache.player_occupied(10, 20));
-        cache.move_object(2, 11, 20, None).unwrap();
-        assert!(!cache.player_occupied(10, 20));
-        assert!(cache.player_occupied(11, 20));
-    }
-
-    #[test]
-    fn refresh_rebuilds_player_occupancy_from_retained_objects() {
-        let mut cache = ObjectCache::empty();
-        cache.upsert(player(1, 10, 20, 0));
-        cache.set_player_occupied(10, 20, false);
-        assert!(!cache.player_occupied(10, 20));
-
-        cache.refresh_player_occupancy();
-
-        assert!(cache.player_occupied(10, 20));
     }
 
     #[test]

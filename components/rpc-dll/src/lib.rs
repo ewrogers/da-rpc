@@ -41,6 +41,8 @@ mod packet;
 #[cfg(any(windows, test))]
 mod path_exclusions;
 #[cfg(any(windows, test))]
+mod path_occupancy;
+#[cfg(any(windows, test))]
 mod player;
 #[cfg(windows)]
 mod process_memory;

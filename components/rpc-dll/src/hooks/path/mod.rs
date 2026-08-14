@@ -327,7 +327,7 @@ unsafe extern "thiscall" fn combined_route_can_move(
         let Some((destination_x, destination_y)) = step_destination(x, y, direction) else {
             return 0;
         };
-        if crate::state::player_occupied(destination_x, destination_y) {
+        if crate::path_occupancy::blocked(destination_x, destination_y) {
             return 0;
         }
         // SAFETY: the caller supplied the live complete WorldPane and the map
@@ -436,9 +436,6 @@ unsafe extern "thiscall" fn path_builder_detour(
     core::arch::naked_asm!(
         "lock inc dword ptr [{activity}]",
         "push ecx",
-        "call {prepare}",
-        "pop ecx",
-        "push ecx",
         "mov edx, esp",
         "push dword ptr [edx + 48]",
         "push dword ptr [edx + 44]",
@@ -463,14 +460,9 @@ unsafe extern "thiscall" fn path_builder_detour(
         "lock dec dword ptr [{activity}]",
         "ret 44",
         activity = sym PATH_HOOK_ACTIVITY,
-        prepare = sym prepare_path_search,
         trampoline = sym PATH_TRAMPOLINE,
         observe = sym observe_path,
     );
-}
-
-extern "C" fn prepare_path_search() {
-    let _ = panic::catch_unwind(crate::state::refresh_player_occupancy);
 }
 
 extern "C" fn observe_path(world: *const c_void, result: usize) {

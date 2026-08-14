@@ -167,11 +167,6 @@ request cannot select another file in or outside the configured directory.
 | `GET /clients/{client}/commands/{command_id}` | Read retained command status. |
 | `DELETE /clients/{client}/commands/{command_id}` | Cancel a command that has not started. |
 
-The stat route takes no request body. It returns HTTP 400 when the current
-snapshot reports zero available `stat_points`. Stat spends are limited to one
-request per character every 500 milliseconds; an earlier repeat returns HTTP
-429 without queuing a packet.
-
 Movement request bodies are documented in [Movement](movement.md). The complete
 map exclusion resource is documented in [Path exclusions](path-exclusions.md).
 Emote names and codes are documented in [Emotes](emotes.md).
@@ -185,6 +180,28 @@ in [NPC dialogs](dialogs.md). Group state, invitations, and roster confirmation
 are documented in [Groups](groups.md). Player offers, constraints, and exchange
 completion are documented in [Exchange](exchanges.md).
 Raw packet syntax and crash risks are documented in [Raw packets](raw.md).
+
+### Spend stat points
+
+Use `POST /clients/{client}/stats/{stat}` to spend one of the character's
+available `stat_points`. The request has no body. For example, this increases
+strength for the client named `ZiLo`:
+
+```console
+curl --request POST "http://127.0.0.1:2626/clients/ZiLo/stats/strength"
+```
+
+The short stat names work as aliases, so this request increases constitution:
+
+```console
+curl --request POST "http://127.0.0.1:2626/clients/ZiLo/stats/con"
+```
+
+The accepted path values are `strength` or `str`, `dexterity` or `dex`,
+`intelligence` or `int`, `wisdom` or `wis`, and `constitution` or `con`.
+The daemon returns HTTP 400 without sending a packet when the character has no
+available stat points. Wait at least 500 milliseconds between successful stat
+requests for the same character; an earlier request returns HTTP 429.
 
 ### Resynchronizing a client
 

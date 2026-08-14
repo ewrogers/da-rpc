@@ -322,7 +322,7 @@ pub(crate) fn stage_map_transition(
 
 pub(crate) fn snapshot_boundary(
     raw: &mut RawStateSnapshot,
-    objects: &RawObjects,
+    objects: &mut RawObjects,
     tick_ms: u32,
 ) -> SnapshotBoundary {
     // SAFETY: snapshot capture and packet observation are serialized on the
@@ -331,6 +331,9 @@ pub(crate) fn snapshot_boundary(
     // SAFETY: snapshot capture and event observation both run on the client
     // main thread, so cache mutation cannot overlap.
     unsafe { CACHE.replace(StateCache::from_raw(raw)) };
+    // SAFETY: snapshot capture and event observation are serialized on the
+    // client main thread.
+    unsafe { OBJECTS.merge_snapshot_sprites(objects) };
     // SAFETY: snapshot capture and event observation are serialized on the
     // client main thread.
     unsafe { OBJECTS.replace(objects) };
@@ -385,6 +388,18 @@ pub(crate) fn observe_action_delay(
 pub(crate) fn mark_resync_required() {
     let missing_sequence = next_nonzero(&EVENT_SEQUENCE);
     QUEUE.mark_resync_required(missing_sequence);
+}
+
+fn clear_world_objects(tick_ms: u32) {
+    // SAFETY: outgoing packet observation runs on the client main thread,
+    // which is the sole owner of the object cache.
+    unsafe { OBJECTS.clear() };
+    crate::player::cleared();
+    crate::path_occupancy::clear();
+    push_event(
+        QueuedStateUpdate::Object(QueuedObjectUpdate::Cleared),
+        tick_ms,
+    );
 }
 
 #[cfg(all(windows, not(test)))]

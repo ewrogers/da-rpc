@@ -60,6 +60,8 @@ static POSITION_SYNC_REPLAN: AtomicBool = AtomicBool::new(false);
 static ROUTE_STEP_RETRY_VALID: AtomicBool = AtomicBool::new(false);
 static ROUTE_STEP_RETRY_FAILURES: AtomicU32 = AtomicU32::new(0);
 static ROUTE_STEP_RETRY_DUE_TICK: AtomicU32 = AtomicU32::new(0);
+static ROUTE_OBSERVATION_VALID: AtomicBool = AtomicBool::new(false);
+static ROUTE_OBSERVATION_DUE_TICK: AtomicU32 = AtomicU32::new(0);
 
 pub(super) fn turn(direction: Direction) -> Result<(), CommandFailure> {
     clear_route_destination();
@@ -187,6 +189,8 @@ pub(crate) fn clear_route_destination() {
     POSITION_SYNC_REPLAN.store(false, Ordering::Release);
     ROUTE_PROGRESS_VALID.store(false, Ordering::Release);
     ROUTE_PROGRESS_TICK.store(0, Ordering::Release);
+    ROUTE_OBSERVATION_VALID.store(false, Ordering::Release);
+    ROUTE_OBSERVATION_DUE_TICK.store(0, Ordering::Release);
     clear_step_retry();
     clear_replan();
 }
@@ -224,6 +228,19 @@ pub(crate) fn observe_tick() {
         return;
     };
     let tick_ms = darpc_win32::pipe::sender_tick_ms();
+    if ROUTE_OBSERVATION_VALID.load(Ordering::Acquire)
+        && !crate::wrapping_time::deadline_reached(
+            tick_ms,
+            ROUTE_OBSERVATION_DUE_TICK.load(Ordering::Acquire),
+        )
+    {
+        return;
+    }
+    ROUTE_OBSERVATION_DUE_TICK.store(
+        route_retry::observation_due_tick(tick_ms),
+        Ordering::Relaxed,
+    );
+    ROUTE_OBSERVATION_VALID.store(true, Ordering::Release);
     let Ok(movement) = Movement::resolve() else {
         clear_route_destination();
         return;

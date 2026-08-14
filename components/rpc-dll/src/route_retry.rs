@@ -1,6 +1,7 @@
 const TIMEOUT_MS: u32 = 5_000;
 const STALL_TIMEOUT_MS: u32 = 1_000;
 const STEP_RETRY_DELAY_MS: u32 = 1_000;
+const OBSERVATION_INTERVAL_MS: u32 = 50;
 const DELAYS_MS: [u32; 5] = [250, 350, 500, 750, 1_000];
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -33,6 +34,10 @@ pub(crate) fn step_retry_due_tick(tick: u32) -> u32 {
     tick.wrapping_add(STEP_RETRY_DELAY_MS)
 }
 
+pub(crate) fn observation_due_tick(tick: u32) -> u32 {
+    tick.wrapping_add(OBSERVATION_INTERVAL_MS)
+}
+
 pub(crate) fn after_step_failure(failures: u32, tick: u32) -> StepFailureAction {
     if failures >= 2 {
         StepFailureAction::Replan
@@ -48,7 +53,7 @@ pub(crate) fn after_step_failure(failures: u32, tick: u32) -> StepFailureAction 
 mod tests {
     use super::{
         StepFailureAction, after_step_failure, deadline, deadline_after_progress, delay_ms,
-        stalled, step_retry_due_tick,
+        observation_due_tick, stalled, step_retry_due_tick,
     };
 
     #[test]
@@ -68,6 +73,7 @@ mod tests {
         assert!(stalled(1_000, 0));
         assert!(stalled(500, u32::MAX - 499));
         assert_eq!(step_retry_due_tick(u32::MAX - 499), 500);
+        assert_eq!(observation_due_tick(u32::MAX - 24), 25);
         assert_eq!(deadline_after_progress(true, 100), Some(5_100));
         assert_eq!(deadline_after_progress(false, 100), None);
     }

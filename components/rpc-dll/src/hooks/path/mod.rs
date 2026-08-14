@@ -327,6 +327,9 @@ unsafe extern "thiscall" fn combined_route_can_move(
         let Some((destination_x, destination_y)) = step_destination(x, y, direction) else {
             return 0;
         };
+        if crate::state::player_occupied(destination_x, destination_y) {
+            return 0;
+        }
         // SAFETY: the caller supplied the live complete WorldPane and the map
         // identifier offset is fixed by the supported executable fingerprint.
         let map_id = unsafe {

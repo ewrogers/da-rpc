@@ -38,7 +38,7 @@ The tick also:
   settling window
 - Detects when native pathfinding starts and stops
 - Detects confirmed steps that shorten the retained planned route
-- Replans a retained daRPC ground destination after a queued step is rejected
+- Replans a retained native ground destination after a queued step is rejected
 - Executes at most one queued action or diagnostic command
 - Publishes small health counters used by hook diagnostics
 

@@ -105,12 +105,17 @@ route. It does not choose a target, chase creatures, or attack automatically.
 The result is best effort because the world can change after a route is built
 and the server always has the final say about whether a step succeeds.
 
-The pathfinder checks two views of the map:
+Every destination request uses this same augmented native breadth-first search,
+whether it came from daRPC, a ground right-click, or a right-click pursuit. A
+pursuit supplies the four tiles adjacent to its moving target as goals; an
+ordinary walk supplies one destination. The pathfinder checks three inputs:
 
 - The complete map data prevents off-screen walls from being treated as open
   space just because the client has not drawn them yet.
-- The live world view accounts for visible occupants, doors, and other current
-  changes.
+- The live world view accounts for doors and other current changes.
+- A fixed-size daRPC occupancy grid prevents the client from treating a visible
+  player's tile as passable. Lookups are constant time during the search, and
+  object events update the grid outside the search loop.
 
 A route can therefore fail even when its destination is inside the map. When
 no route is available at command time, the command completes with
@@ -133,8 +138,10 @@ overload the client. A new movement request, a map change, invalid client state,
 confirmed progress, or the five-second limit ends that recovery attempt.
 
 This recovery applies to destination walks started by daRPC and native ground
-routes started directly in the game. Creature pursuits keep their normal client
-behavior.
+routes started directly in the game. Pursuits use the same augmented search but
+retain their normal moving-target timer, which repeatedly rebuilds the four
+adjacent goals as the target moves. Exact externally supplied routes remain
+caller-selected and are not replanned automatically.
 
 ## Resynchronizing position
 

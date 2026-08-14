@@ -190,14 +190,25 @@ pub(crate) fn request_self_look(tick_ms: u32) {
     let Some(id) = crate::state::self_id() else {
         return;
     };
-    if track_self_look(id, tick_ms) {
+    submit_self_look(
+        Pending {
+            id,
+            trigger: PlayerInspectionTrigger::Appeared,
+            command_id: 0,
+        },
+        tick_ms,
+    );
+}
+
+fn submit_self_look(pending: Pending, tick_ms: u32) {
+    if track_self_look(pending, tick_ms) {
         #[cfg(all(windows, not(test)))]
         {
             SUBMITTING_SELF_LOOK.store(true, Ordering::Release);
             let result = crate::actions::network::submit(&[0x2D]);
             SUBMITTING_SELF_LOOK.store(false, Ordering::Release);
             if result.is_err() {
-                cancel_self_look(id, tick_ms);
+                cancel_self_look(pending.id, tick_ms);
             }
         }
     }
@@ -211,19 +222,19 @@ pub(crate) fn observe_client_self_look(tick_ms: u32) {
     CLIENT_SELF_LOOK_PENDING.store(true, Ordering::Release);
 }
 
-fn track_self_look(id: u32, tick_ms: u32) -> bool {
+fn track_self_look(pending: Pending, tick_ms: u32) -> bool {
     if !request_tracking::ready_for_next(tick_ms) {
         return false;
     }
     push_origin(Origin {
         kind: ORIGIN_DARPC,
         response: ResponseKind::SelfLook,
-        id,
-        trigger: PlayerInspectionTrigger::Appeared,
-        command_id: 0,
+        id: pending.id,
+        trigger: pending.trigger,
+        command_id: pending.command_id,
         tick_ms,
     });
-    request_tracking::mark_in_flight(id, tick_ms);
+    request_tracking::mark_in_flight(pending.id, tick_ms);
     true
 }
 
@@ -276,6 +287,10 @@ pub(crate) fn observe_tick(tick_ms: u32) {
     if crate::state::observed_player(pending.id).is_none() {
         return;
     }
+    if pending_response_kind(pending, crate::state::self_id()) == ResponseKind::SelfLook {
+        submit_self_look(pending, tick_ms);
+        return;
+    }
     let mut body = [REQUEST_OPCODE, REQUEST_SUBTYPE, 0, 0, 0, 0];
     body[2..].copy_from_slice(&pending.id.to_be_bytes());
     SUBMIT_ID.store(pending.id, Ordering::Release);
@@ -292,6 +307,14 @@ pub(crate) fn observe_tick(tick_ms: u32) {
     SUBMIT_COMMAND_ID.store(0, Ordering::Release);
     if submitted && SUBMIT_OBSERVED.load(Ordering::Acquire) {
         request_tracking::mark_in_flight(pending.id, tick_ms);
+    }
+}
+
+fn pending_response_kind(pending: Pending, self_id: Option<u32>) -> ResponseKind {
+    if self_id == Some(pending.id) {
+        ResponseKind::SelfLook
+    } else {
+        ResponseKind::ObjectInfo
     }
 }
 
@@ -637,6 +660,14 @@ mod tests {
 
     static TEST_LOCK: Mutex<()> = Mutex::new(());
 
+    fn automatic_pending(id: u32) -> Pending {
+        Pending {
+            id,
+            trigger: PlayerInspectionTrigger::Appeared,
+            command_id: 0,
+        }
+    }
+
     fn object_info() -> Vec<u8> {
         let mut body = vec![0x34, 0, 0, 0, 7];
         for slot in EQUIPMENT_SLOTS {
@@ -911,12 +942,28 @@ mod tests {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         reset();
-        assert!(track_self_look(7, 10));
+        assert!(track_self_look(automatic_pending(7), 10));
 
         assert!(!intercept_response(&object_info(), 11));
         assert!(INTERCEPT_PENDING.load(Ordering::Acquire));
         assert!(complete_self_request(7, 12));
         assert!(!INTERCEPT_PENDING.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn routes_only_the_local_player_through_self_look() {
+        assert!(matches!(
+            pending_response_kind(automatic_pending(7), Some(7)),
+            ResponseKind::SelfLook
+        ));
+        assert!(matches!(
+            pending_response_kind(automatic_pending(8), Some(7)),
+            ResponseKind::ObjectInfo
+        ));
+        assert!(matches!(
+            pending_response_kind(automatic_pending(7), None),
+            ResponseKind::ObjectInfo
+        ));
     }
 
     #[test]
@@ -1009,8 +1056,8 @@ mod tests {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         reset();
         crate::group::reset();
-        assert!(track_self_look(7, 10));
-        assert!(!track_self_look(7, 10));
+        assert!(track_self_look(automatic_pending(7), 10));
+        assert!(!track_self_look(automatic_pending(7), 10));
 
         let body = self_look();
 

@@ -8,6 +8,8 @@
   before the initial in-game snapshot has populated the local character ID.
 - Avoided sending a redundant local-player inspection while the client is
   already performing its built-in login self-look request.
+- Routed local-player inspections through the client's canonical `0x2D`
+  self-look request instead of the other-player `0x43` object-info request.
 
 ## 1.4.0 - 2026-08-14
 

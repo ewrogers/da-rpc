@@ -140,6 +140,18 @@ pub(super) fn remove(id: u32) {
     }
 }
 
+pub(super) fn remove_automatic(id: u32) -> bool {
+    // SAFETY: packet and tick work are serialized on the client main thread.
+    let pending = unsafe { &mut *PENDING.0.get() };
+    let Some(index) = pending.entries[..pending.count].iter().position(|item| {
+        item.id == id && item.trigger == PlayerInspectionTrigger::Appeared && item.command_id == 0
+    }) else {
+        return false;
+    };
+    remove_pending(pending, index);
+    true
+}
+
 pub(super) fn clear_pending() {
     // SAFETY: clearing is observed on the client main thread.
     unsafe { (*PENDING.0.get()).count = 0 };
@@ -162,6 +174,11 @@ pub(super) fn mark_in_flight(id: u32, tick_ms: u32) {
     IN_FLIGHT_TICK.store(tick_ms, Ordering::Release);
 }
 
+pub(super) fn in_flight_id() -> Option<u32> {
+    let id = IN_FLIGHT_ID.load(Ordering::Acquire);
+    (id != 0).then_some(id)
+}
+
 pub(super) fn complete(id: u32) {
     if IN_FLIGHT_ID.load(Ordering::Acquire) == id {
         IN_FLIGHT_ID.store(0, Ordering::Release);
@@ -176,6 +193,14 @@ pub(super) fn pop_pending() -> Option<Pending> {
         remove_pending(queue, 0);
         value
     })
+}
+
+pub(super) fn next_is_automatic() -> bool {
+    // SAFETY: tick work is the sole consumer on the main thread.
+    let queue = unsafe { &*PENDING.0.get() };
+    queue.entries[..queue.count]
+        .first()
+        .is_some_and(|item| item.trigger == PlayerInspectionTrigger::Appeared)
 }
 
 fn remove_pending(queue: &mut PendingQueue, index: usize) {

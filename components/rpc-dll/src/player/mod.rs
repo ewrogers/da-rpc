@@ -49,6 +49,10 @@ static SUBMIT_ID: AtomicU32 = AtomicU32::new(0);
 static SUBMIT_TRIGGER: AtomicU8 = AtomicU8::new(0);
 static SUBMIT_COMMAND_ID: AtomicU32 = AtomicU32::new(0);
 static SUBMIT_OBSERVED: AtomicBool = AtomicBool::new(false);
+static SUBMITTING_SELF_LOOK: AtomicBool = AtomicBool::new(false);
+static CLIENT_SELF_LOOK_PENDING: AtomicBool = AtomicBool::new(false);
+static CLIENT_SELF_LOOK_TICK: AtomicU32 = AtomicU32::new(0);
+const CLIENT_SELF_LOOK_GRACE_MS: u32 = 5_000;
 #[derive(Clone, Copy)]
 struct RawPlayerEvent {
     player: RawWorldObject,
@@ -138,6 +142,9 @@ pub(crate) fn reset() {
     SUBMIT_TRIGGER.store(0, Ordering::Release);
     SUBMIT_COMMAND_ID.store(0, Ordering::Release);
     SUBMIT_OBSERVED.store(false, Ordering::Release);
+    SUBMITTING_SELF_LOOK.store(false, Ordering::Release);
+    CLIENT_SELF_LOOK_PENDING.store(false, Ordering::Release);
+    CLIENT_SELF_LOOK_TICK.store(0, Ordering::Release);
     INTERCEPT_PENDING.store(false, Ordering::Release);
     request_tracking::reset();
     profile_cache::reset();
@@ -156,6 +163,10 @@ pub(crate) fn appeared(player: RawWorldObject) {
         return;
     };
     clear_profile(id);
+    if CLIENT_SELF_LOOK_PENDING.load(Ordering::Acquire) && crate::state::self_id() == Some(id) {
+        CLIENT_SELF_LOOK_PENDING.store(false, Ordering::Release);
+        return;
+    }
     enqueue(Pending {
         id,
         trigger: PlayerInspectionTrigger::Appeared,
@@ -179,27 +190,51 @@ pub(crate) fn request_self_look(tick_ms: u32) {
     let Some(id) = crate::state::self_id() else {
         return;
     };
-    if track_self_look(id, tick_ms) {
+    submit_self_look(
+        Pending {
+            id,
+            trigger: PlayerInspectionTrigger::Appeared,
+            command_id: 0,
+        },
+        tick_ms,
+    );
+}
+
+fn submit_self_look(pending: Pending, tick_ms: u32) {
+    if track_self_look(pending, tick_ms) {
         #[cfg(all(windows, not(test)))]
-        if crate::actions::network::submit(&[0x2D]).is_err() {
-            cancel_self_look(id, tick_ms);
+        {
+            SUBMITTING_SELF_LOOK.store(true, Ordering::Release);
+            let result = crate::actions::network::submit(&[0x2D]);
+            SUBMITTING_SELF_LOOK.store(false, Ordering::Release);
+            if result.is_err() {
+                cancel_self_look(pending.id, tick_ms);
+            }
         }
     }
 }
 
-fn track_self_look(id: u32, tick_ms: u32) -> bool {
+pub(crate) fn observe_client_self_look(tick_ms: u32) {
+    if SUBMITTING_SELF_LOOK.load(Ordering::Acquire) {
+        return;
+    }
+    CLIENT_SELF_LOOK_TICK.store(tick_ms, Ordering::Release);
+    CLIENT_SELF_LOOK_PENDING.store(true, Ordering::Release);
+}
+
+fn track_self_look(pending: Pending, tick_ms: u32) -> bool {
     if !request_tracking::ready_for_next(tick_ms) {
         return false;
     }
     push_origin(Origin {
         kind: ORIGIN_DARPC,
         response: ResponseKind::SelfLook,
-        id,
-        trigger: PlayerInspectionTrigger::Appeared,
-        command_id: 0,
+        id: pending.id,
+        trigger: pending.trigger,
+        command_id: pending.command_id,
         tick_ms,
     });
-    request_tracking::mark_in_flight(id, tick_ms);
+    request_tracking::mark_in_flight(pending.id, tick_ms);
     true
 }
 
@@ -240,6 +275,9 @@ pub(crate) fn observe_tick(tick_ms: u32) {
     if crate::state::map_transition_pending() {
         return;
     }
+    if reconcile_client_self_look(crate::state::self_id(), tick_ms) {
+        return;
+    }
     if !request_tracking::ready_for_next(tick_ms) {
         return;
     }
@@ -247,6 +285,10 @@ pub(crate) fn observe_tick(tick_ms: u32) {
         return;
     };
     if crate::state::observed_player(pending.id).is_none() {
+        return;
+    }
+    if pending_response_kind(pending, crate::state::self_id()) == ResponseKind::SelfLook {
+        submit_self_look(pending, tick_ms);
         return;
     }
     let mut body = [REQUEST_OPCODE, REQUEST_SUBTYPE, 0, 0, 0, 0];
@@ -266,6 +308,33 @@ pub(crate) fn observe_tick(tick_ms: u32) {
     if submitted && SUBMIT_OBSERVED.load(Ordering::Acquire) {
         request_tracking::mark_in_flight(pending.id, tick_ms);
     }
+}
+
+fn pending_response_kind(pending: Pending, self_id: Option<u32>) -> ResponseKind {
+    if self_id == Some(pending.id) {
+        ResponseKind::SelfLook
+    } else {
+        ResponseKind::ObjectInfo
+    }
+}
+
+fn reconcile_client_self_look(self_id: Option<u32>, tick_ms: u32) -> bool {
+    if !CLIENT_SELF_LOOK_PENDING.load(Ordering::Acquire) {
+        return false;
+    }
+    if tick_ms.wrapping_sub(CLIENT_SELF_LOOK_TICK.load(Ordering::Acquire))
+        > CLIENT_SELF_LOOK_GRACE_MS
+    {
+        CLIENT_SELF_LOOK_PENDING.store(false, Ordering::Release);
+        return false;
+    }
+    let Some(id) = self_id else {
+        return request_tracking::next_is_automatic();
+    };
+    if request_tracking::remove_automatic(id) {
+        CLIENT_SELF_LOOK_PENDING.store(false, Ordering::Release);
+    }
+    false
 }
 
 pub(crate) fn observe_request(id: u32, tick_ms: u32) {
@@ -382,7 +451,15 @@ pub(crate) fn observe_self_look(body: &[u8], tick_ms: u32) {
 }
 
 pub(crate) fn intercept_self_response(body: &[u8], tick_ms: u32) -> bool {
-    let Some(id) = crate::state::self_id() else {
+    intercept_self_response_with_self_id(crate::state::self_id(), body, tick_ms)
+}
+
+fn intercept_self_response_with_self_id(self_id: Option<u32>, body: &[u8], tick_ms: u32) -> bool {
+    // The first login snapshot can still be in transition when the local
+    // player's 0x33 draw queues its automatic inspection. The resulting 0x39
+    // response has no target ID, so use that one active request until the
+    // state cache has captured the local character ID.
+    let Some(id) = self_id.or_else(request_tracking::in_flight_id) else {
         return false;
     };
     intercept_self_response_for(id, body, tick_ms)
@@ -583,6 +660,14 @@ mod tests {
 
     static TEST_LOCK: Mutex<()> = Mutex::new(());
 
+    fn automatic_pending(id: u32) -> Pending {
+        Pending {
+            id,
+            trigger: PlayerInspectionTrigger::Appeared,
+            command_id: 0,
+        }
+    }
+
     fn object_info() -> Vec<u8> {
         let mut body = vec![0x34, 0, 0, 0, 7];
         for slot in EQUIPMENT_SLOTS {
@@ -606,6 +691,28 @@ mod tests {
         body.extend_from_slice(&[4]);
         body.extend_from_slice(b"Done");
         body.extend_from_slice(&0_u16.to_be_bytes());
+        body
+    }
+
+    fn self_look() -> Vec<u8> {
+        let mut body = vec![0x39, 1, 4];
+        body.extend_from_slice(b"Rank");
+        body.extend_from_slice(&[5]);
+        body.extend_from_slice(b"Title");
+        let roster = b"Group members\n  Eidolon\n* ZiLo\nTotal 2";
+        body.push(u8::try_from(roster.len()).unwrap());
+        body.extend_from_slice(roster);
+        body.extend_from_slice(&[1, 1]);
+        for value in [b"Lead".as_slice(), b"Team", b"Note"] {
+            body.push(value.len() as u8);
+            body.extend_from_slice(value);
+        }
+        body.extend_from_slice(&[1, 99]);
+        body.extend_from_slice(&[0; 10]);
+        body.extend_from_slice(&[3, 1, 1, 8]);
+        body.extend_from_slice(b"Summoner");
+        body.extend_from_slice(&[5]);
+        body.extend_from_slice(b"Guild");
         body
     }
 
@@ -710,6 +817,104 @@ mod tests {
     }
 
     #[test]
+    fn login_self_look_uses_in_flight_id_before_initial_snapshot() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset();
+        crate::group::reset();
+        push_origin(Origin {
+            kind: ORIGIN_DARPC,
+            response: ResponseKind::ObjectInfo,
+            id: 7,
+            trigger: PlayerInspectionTrigger::Appeared,
+            command_id: 0,
+            tick_ms: 10,
+        });
+        request_tracking::mark_in_flight(7, 10);
+
+        assert!(intercept_self_response_with_self_id(None, &self_look(), 11));
+        assert!(request_tracking::ready_for_next(11));
+        assert!(!INTERCEPT_PENDING.load(Ordering::Acquire));
+        assert_eq!(self_identity().unwrap().display_class, "Summoner");
+    }
+
+    #[test]
+    fn client_login_self_look_defers_and_removes_automatic_self_inspection() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset();
+        observe_client_self_look(10);
+        enqueue(Pending {
+            id: 7,
+            trigger: PlayerInspectionTrigger::Appeared,
+            command_id: 0,
+        });
+
+        assert!(reconcile_client_self_look(None, 11));
+        assert!(!reconcile_client_self_look(Some(7), 12));
+        assert!(pop_pending().is_none());
+        assert!(!CLIENT_SELF_LOOK_PENDING.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn client_login_self_look_does_not_remove_manual_inspection() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset();
+        observe_client_self_look(10);
+        enqueue(Pending {
+            id: 7,
+            trigger: PlayerInspectionTrigger::Manual,
+            command_id: 42,
+        });
+
+        assert!(!reconcile_client_self_look(None, 11));
+        assert!(!reconcile_client_self_look(Some(7), 12));
+        let pending = pop_pending().expect("manual inspection remains queued");
+        assert_eq!(pending.id, 7);
+        assert_eq!(pending.trigger, PlayerInspectionTrigger::Manual);
+        assert_eq!(pending.command_id, 42);
+    }
+
+    #[test]
+    fn expired_client_self_look_does_not_block_automatic_inspection() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset();
+        observe_client_self_look(10);
+        enqueue(Pending {
+            id: 7,
+            trigger: PlayerInspectionTrigger::Appeared,
+            command_id: 0,
+        });
+
+        assert!(!reconcile_client_self_look(
+            None,
+            10 + CLIENT_SELF_LOOK_GRACE_MS + 1
+        ));
+        assert_eq!(pop_pending().expect("inspection remains queued").id, 7);
+    }
+
+    #[test]
+    fn pre_snapshot_self_look_without_internal_request_fails_open() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset();
+
+        assert!(!intercept_self_response_with_self_id(
+            None,
+            &self_look(),
+            11
+        ));
+        assert!(!INTERCEPT_PENDING.load(Ordering::Acquire));
+    }
+
+    #[test]
     fn self_look_response_does_not_consume_other_target_object_info_suppression() {
         let _guard = TEST_LOCK
             .lock()
@@ -737,12 +942,28 @@ mod tests {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         reset();
-        assert!(track_self_look(7, 10));
+        assert!(track_self_look(automatic_pending(7), 10));
 
         assert!(!intercept_response(&object_info(), 11));
         assert!(INTERCEPT_PENDING.load(Ordering::Acquire));
         assert!(complete_self_request(7, 12));
         assert!(!INTERCEPT_PENDING.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn routes_only_the_local_player_through_self_look() {
+        assert!(matches!(
+            pending_response_kind(automatic_pending(7), Some(7)),
+            ResponseKind::SelfLook
+        ));
+        assert!(matches!(
+            pending_response_kind(automatic_pending(8), Some(7)),
+            ResponseKind::ObjectInfo
+        ));
+        assert!(matches!(
+            pending_response_kind(automatic_pending(7), None),
+            ResponseKind::ObjectInfo
+        ));
     }
 
     #[test]
@@ -835,27 +1056,10 @@ mod tests {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         reset();
         crate::group::reset();
-        assert!(track_self_look(7, 10));
-        assert!(!track_self_look(7, 10));
+        assert!(track_self_look(automatic_pending(7), 10));
+        assert!(!track_self_look(automatic_pending(7), 10));
 
-        let mut body = vec![0x39, 1, 4];
-        body.extend_from_slice(b"Rank");
-        body.extend_from_slice(&[5]);
-        body.extend_from_slice(b"Title");
-        let roster = b"Group members\n  Eidolon\n* ZiLo\nTotal 2";
-        body.push(u8::try_from(roster.len()).unwrap());
-        body.extend_from_slice(roster);
-        body.extend_from_slice(&[1, 1]);
-        for value in [b"Lead".as_slice(), b"Team", b"Note"] {
-            body.push(value.len() as u8);
-            body.extend_from_slice(value);
-        }
-        body.extend_from_slice(&[1, 99]);
-        body.extend_from_slice(&[0; 10]);
-        body.extend_from_slice(&[3, 1, 1, 8]);
-        body.extend_from_slice(b"Summoner");
-        body.extend_from_slice(&[5]);
-        body.extend_from_slice(b"Guild");
+        let body = self_look();
 
         assert!(intercept_self_response_for(7, &body, 11));
 

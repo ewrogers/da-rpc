@@ -369,8 +369,9 @@ does not expose the temporary monster sprite identifier.
 For another visible player, a hidden `0x33` redraw updates the player's
 `is_hidden` field and is published through the normal `player.appeared` object
 event. The object retains the last known name and inspected profile by entity
-ID. Nearby-player monster sprite details are not currently part of the public
-world-object model, so consumers should not infer a remote monster form from
+ID. Its `visual` block distinguishes `human` from `creature`; transformed-player
+events include the creature sprite and transmitted color bytes. Consumers
+should use that discriminator rather than infer a remote monster form from
 `is_hidden` or missing profile data.
 
 `map` is present when the map itself changed. Position and map details are

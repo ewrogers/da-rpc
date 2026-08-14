@@ -261,6 +261,9 @@ pub enum DecodeError {
     InvalidWorldObjectType {
         actual: u8,
     },
+    InvalidPlayerVisualType {
+        actual: u8,
+    },
     InvalidCreatureKind {
         actual: u8,
     },
@@ -564,6 +567,9 @@ impl fmt::Display for DecodeError {
             }
             Self::InvalidWorldObjectType { actual } => {
                 write!(formatter, "invalid world object type {actual}")
+            }
+            Self::InvalidPlayerVisualType { actual } => {
+                write!(formatter, "invalid player visual type {actual}")
             }
             Self::InvalidCreatureKind { actual } => {
                 write!(formatter, "invalid creature kind {actual}")

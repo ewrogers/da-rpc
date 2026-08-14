@@ -65,6 +65,7 @@ fn objects(raw: &RawObjects) -> Vec<WorldObject> {
                 y,
                 direction,
                 is_hidden,
+                visual,
             } => WorldObject::Player {
                 id,
                 name: client_text::decode(&name[..usize::from(name_len)]),
@@ -73,6 +74,7 @@ fn objects(raw: &RawObjects) -> Vec<WorldObject> {
                 direction: Direction::from_raw(direction)
                     .expect("captured player direction is valid"),
                 is_hidden,
+                visual: visual.map(crate::objects::visual_model),
                 profile: crate::player::profile(id).map(Box::new),
             },
             RawWorldObject::Creature {

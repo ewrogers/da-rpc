@@ -2,6 +2,45 @@ pub const MAX_WORLD_OBJECTS: usize = 512;
 pub const MAX_OBJECT_NAME_BYTES: usize = 64;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RawHumanVisual {
+    pub resource_prefix: u8,
+    pub head_sprite: u16,
+    pub body_sprite: u16,
+    pub arms_sprite: u16,
+    pub boots_sprite: u16,
+    pub pants_sprite: u16,
+    pub armor_sprite: u16,
+    pub weapon_sprite: u16,
+    pub shield_sprite: u16,
+    pub overcoat_sprite: u16,
+    pub accessory1_sprite: u16,
+    pub accessory2_sprite: u16,
+    pub accessory3_sprite: u16,
+    pub hair_color: u8,
+    pub skin_color: u8,
+    pub boots_color: u8,
+    pub pants_color: u8,
+    pub overcoat_color: u8,
+    pub accessory1_color: u8,
+    pub accessory2_color: u8,
+    pub accessory3_color: u8,
+    pub rest_position: u8,
+    pub face_shape: u8,
+    pub is_translucent: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RawPlayerVisual {
+    Human(RawHumanVisual),
+    Creature {
+        sprite: u16,
+        color: u8,
+        boots_color: u8,
+        pants_color: u8,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RawWorldObject {
     Player {
         id: u32,
@@ -11,6 +50,7 @@ pub enum RawWorldObject {
         y: i32,
         direction: u8,
         is_hidden: bool,
+        visual: Option<RawPlayerVisual>,
     },
     Creature {
         id: u32,
@@ -140,6 +180,12 @@ mod tests {
             y: 2,
             direction: 0,
             is_hidden: false,
+            visual: Some(RawPlayerVisual::Creature {
+                sprite: 1,
+                color: 0,
+                boots_color: 0,
+                pants_color: 0,
+            }),
         }));
 
         objects.name_player(7, b"Monitor");

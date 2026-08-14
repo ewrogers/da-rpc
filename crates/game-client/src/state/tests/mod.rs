@@ -2,8 +2,8 @@ use super::panes::{EVENT_DISPATCHER_RVA, RECONNECT_DIALOG_VTABLE_RVA};
 use super::{
     CHARACTER_NAME_RVA, EQUIPMENT_PANE_RVA, GUI_BACK_PANE_ADJUSTMENT, GUI_BACK_PANE_RVA,
     MAIN_MENU_PANE_RVA, MAIN_THREAD_ID_RVA, MAP_LOADING_PANE_RVA, MemoryReader,
-    PLAYER_TRANSLUCENT_STATE_OFFSET, RawLifecycle, RawObjects, RawStateSnapshot, RawWorldObject,
-    StateReadError, StateWalker,
+    PLAYER_TRANSLUCENT_STATE_OFFSET, RawHumanVisual, RawLifecycle, RawObjects, RawPlayerVisual,
+    RawStateSnapshot, RawWorldObject, StateReadError, StateWalker,
 };
 use crate::{WORLD_PANE_ADJUSTMENT, WORLD_PANE_POINTER_RVA};
 
@@ -122,6 +122,26 @@ impl FakeMemory {
         memory.u16(OBJECT + 0xA6, 17);
         memory.u8(OBJECT + 0xA8, 6);
         memory.u16(OBJECT + 0xAA, 1);
+        memory.u8(OBJECT + 0xAC, 4);
+        memory.u16(OBJECT + 0xAE, 102);
+        memory.u16(OBJECT + 0xB0, 103);
+        memory.u8(OBJECT + 0xB2, 5);
+        memory.u16(OBJECT + 0xB4, 104);
+        memory.u8(OBJECT + 0xB6, 6);
+        memory.u16(OBJECT + 0xB8, 105);
+        memory.u16(OBJECT + 0xBE, 106);
+        memory.u16(OBJECT + 0xC0, 109);
+        memory.u8(OBJECT + 0xC2, 8);
+        memory.u16(OBJECT + 0xC4, 107);
+        memory.u16(OBJECT + 0xC6, 108);
+        memory.u8(OBJECT + 0xC8, 7);
+        memory.u16(OBJECT + 0xCA, 110);
+        memory.u8(OBJECT + 0xCC, 9);
+        memory.u16(OBJECT + 0xCE, 111);
+        memory.u8(OBJECT + 0xD0, 10);
+        memory.u8(OBJECT + 0xD1, 11);
+        memory.u8(OBJECT + 0xD2, 0);
+        memory.u8(OBJECT + 0xD3, 12);
         memory.u8(OBJECT + 0x104, 1);
         memory.i32(OBJECT + 0x40, 22);
         memory.i32(OBJECT + 0x44, 11);
@@ -341,6 +361,7 @@ fn captures_visible_world_objects_into_caller_storage() {
         y,
         direction,
         is_hidden: _,
+        visual,
     }) = objects.entries[0]
     else {
         panic!("expected player object");
@@ -348,6 +369,17 @@ fn captures_visible_world_objects_into_caller_storage() {
     assert_eq!(id, 0x1122_3344);
     assert_eq!(&name[..usize::from(name_len)], b"SiLo");
     assert_eq!((x, y, direction), (11, 22, 2));
+    assert!(matches!(
+        visual,
+        Some(RawPlayerVisual::Human(RawHumanVisual {
+            head_sprite: 17,
+            skin_color: 4,
+            weapon_sprite: 106,
+            accessory3_sprite: 111,
+            face_shape: 12,
+            ..
+        }))
+    ));
 }
 
 #[test]

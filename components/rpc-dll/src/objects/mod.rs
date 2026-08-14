@@ -1,5 +1,8 @@
-use darpc_game_client::{MAX_OBJECT_NAME_BYTES, MAX_WORLD_OBJECTS, RawObjects, RawWorldObject};
-use darpc_model::{CreatureKind, Direction, ObjectUpdate, WorldObject};
+use darpc_game_client::{
+    MAX_OBJECT_NAME_BYTES, MAX_WORLD_OBJECTS, RawHumanVisual, RawObjects, RawPlayerVisual,
+    RawWorldObject,
+};
+use darpc_model::{CreatureKind, Direction, HumanVisual, ObjectUpdate, PlayerVisual, WorldObject};
 
 const VIEW_DISTANCE: u32 = 18;
 
@@ -316,6 +319,7 @@ pub(crate) fn object_model(raw: RawWorldObject) -> WorldObject {
             y,
             direction,
             is_hidden,
+            visual,
         } => WorldObject::Player {
             id,
             name: decode_name(&name[..usize::from(name_len)]),
@@ -323,6 +327,7 @@ pub(crate) fn object_model(raw: RawWorldObject) -> WorldObject {
             y,
             direction: Direction::from_raw(direction).expect("observed player direction is valid"),
             is_hidden,
+            visual: visual.map(visual_model),
             profile: None,
         },
         RawWorldObject::Creature {
@@ -360,6 +365,73 @@ pub(crate) fn object_model(raw: RawWorldObject) -> WorldObject {
             x,
             y,
             z_index,
+        },
+    }
+}
+
+pub(crate) const fn visual_model(raw: RawPlayerVisual) -> PlayerVisual {
+    match raw {
+        RawPlayerVisual::Human(RawHumanVisual {
+            resource_prefix,
+            head_sprite,
+            body_sprite,
+            arms_sprite,
+            boots_sprite,
+            pants_sprite,
+            armor_sprite,
+            weapon_sprite,
+            shield_sprite,
+            overcoat_sprite,
+            accessory1_sprite,
+            accessory2_sprite,
+            accessory3_sprite,
+            hair_color,
+            skin_color,
+            boots_color,
+            pants_color,
+            overcoat_color,
+            accessory1_color,
+            accessory2_color,
+            accessory3_color,
+            rest_position,
+            face_shape,
+            is_translucent,
+        }) => PlayerVisual::Human(HumanVisual {
+            resource_prefix,
+            head_sprite,
+            body_sprite,
+            arms_sprite,
+            boots_sprite,
+            pants_sprite,
+            armor_sprite,
+            weapon_sprite,
+            shield_sprite,
+            overcoat_sprite,
+            accessory1_sprite,
+            accessory2_sprite,
+            accessory3_sprite,
+            hair_color,
+            skin_color,
+            boots_color,
+            pants_color,
+            overcoat_color,
+            accessory1_color,
+            accessory2_color,
+            accessory3_color,
+            rest_position,
+            face_shape,
+            is_translucent,
+        }),
+        RawPlayerVisual::Creature {
+            sprite,
+            color,
+            boots_color,
+            pants_color,
+        } => PlayerVisual::Creature {
+            sprite,
+            color,
+            boots_color,
+            pants_color,
         },
     }
 }
@@ -558,6 +630,7 @@ mod tests {
             y,
             direction,
             is_hidden: false,
+            visual: None,
         }
     }
 
@@ -572,6 +645,7 @@ mod tests {
             y,
             direction,
             is_hidden: false,
+            visual: None,
         }
     }
 

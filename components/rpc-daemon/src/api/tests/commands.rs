@@ -331,6 +331,7 @@ fn player_inspection_route_resolves_visible_name_and_returns_profile() {
         y: 20,
         direction: ModelDirection::North,
         is_hidden: false,
+        visual: None,
         profile: Some(Box::new(profile.clone())),
     };
     let worker = std::thread::spawn(move || {

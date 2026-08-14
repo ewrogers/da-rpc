@@ -36,6 +36,45 @@ pub enum CreatureKind {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct HumanVisual {
+    pub resource_prefix: u8,
+    pub head_sprite: u16,
+    pub body_sprite: u16,
+    pub arms_sprite: u16,
+    pub boots_sprite: u16,
+    pub pants_sprite: u16,
+    pub armor_sprite: u16,
+    pub weapon_sprite: u16,
+    pub shield_sprite: u16,
+    pub overcoat_sprite: u16,
+    pub accessory1_sprite: u16,
+    pub accessory2_sprite: u16,
+    pub accessory3_sprite: u16,
+    pub hair_color: u8,
+    pub skin_color: u8,
+    pub boots_color: u8,
+    pub pants_color: u8,
+    pub overcoat_color: u8,
+    pub accessory1_color: u8,
+    pub accessory2_color: u8,
+    pub accessory3_color: u8,
+    pub rest_position: u8,
+    pub face_shape: u8,
+    pub is_translucent: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum PlayerVisual {
+    Human(HumanVisual),
+    Creature {
+        sprite: u16,
+        color: u8,
+        boots_color: u8,
+        pants_color: u8,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub enum WorldObject {
     Player {
         id: u32,
@@ -44,6 +83,7 @@ pub enum WorldObject {
         y: i32,
         direction: Direction,
         is_hidden: bool,
+        visual: Option<PlayerVisual>,
         profile: Option<Box<crate::PlayerProfile>>,
     },
     Creature {

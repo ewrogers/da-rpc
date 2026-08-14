@@ -41,8 +41,9 @@ pub use legend::{MAX_LEGEND_MARKS, MAX_LEGEND_TAG_LEN, MAX_LEGEND_TEXT_LEN};
 pub use message::{
     Architecture, ComponentVersion, EchoRequest, EchoResponse, Hello, HelloAck, MAX_ECHO_TEXT_LEN,
     Message, MessageType, PROTOCOL_VERSION_1_0, PROTOCOL_VERSION_1_1, PROTOCOL_VERSION_1_2,
-    PROTOCOL_VERSION_1_3, Ping, Pong, SUPPORTED_VERSIONS, TickHealthRequest, TickHealthResponse,
-    VersionRange, protocol_version, protocol_version_major, protocol_version_minor,
+    PROTOCOL_VERSION_1_3, PROTOCOL_VERSION_1_4, Ping, Pong, SUPPORTED_VERSIONS, TickHealthRequest,
+    TickHealthResponse, VersionRange, protocol_version, protocol_version_major,
+    protocol_version_minor,
 };
 pub use player::{MAX_PLAYER_EQUIPMENT_ITEMS, MAX_PLAYER_IDENTITY_TEXT_LEN};
 pub use session::{

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Exposed complete human and transformed-player sprite and color visuals from
+  opcode `0x33` through snapshots, events, the REST API, and CLI JSON output.
+
 ## 1.4.0 - 2026-08-14
 
 ### Added

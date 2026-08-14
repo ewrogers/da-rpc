@@ -1,4 +1,4 @@
-use darpc_model::{CreatureKind, Direction, WorldObject};
+use darpc_model::{CreatureKind, Direction, HumanVisual, PlayerVisual, WorldObject};
 use serde_json::json;
 use std::fmt::Write as _;
 
@@ -17,11 +17,12 @@ pub(crate) fn render_human(output: &mut String, objects: Option<&[WorldObject]>)
                 y,
                 direction,
                 is_hidden,
+                visual,
                 ..
             } => {
                 let _ = write!(
                     output,
-                    "\n  player id={id} name={} x={x} y={y} direction={} is_hidden={is_hidden}",
+                    "\n  player id={id} name={} x={x} y={y} direction={} is_hidden={is_hidden} visual={visual:?}",
                     name.as_deref().unwrap_or("unavailable"),
                     direction_name(*direction),
                 );
@@ -72,10 +73,12 @@ pub(crate) fn json_value(object: &WorldObject) -> serde_json::Value {
             y,
             direction,
             is_hidden,
+            visual,
             ..
         } => json!({
             "kind": "player", "id": id, "name": name, "x": x, "y": y,
             "direction": direction_name(*direction), "is_hidden": is_hidden,
+            "visual": visual.as_ref().map(visual_json),
         }),
         WorldObject::Creature {
             id,
@@ -99,6 +102,60 @@ pub(crate) fn json_value(object: &WorldObject) -> serde_json::Value {
         } => json!({
             "kind": "item", "id": id, "sprite": sprite, "x": x, "y": y,
             "z_index": z_index,
+        }),
+    }
+}
+
+fn visual_json(visual: &PlayerVisual) -> serde_json::Value {
+    match visual {
+        PlayerVisual::Human(HumanVisual {
+            resource_prefix,
+            head_sprite,
+            body_sprite,
+            arms_sprite,
+            boots_sprite,
+            pants_sprite,
+            armor_sprite,
+            weapon_sprite,
+            shield_sprite,
+            overcoat_sprite,
+            accessory1_sprite,
+            accessory2_sprite,
+            accessory3_sprite,
+            hair_color,
+            skin_color,
+            boots_color,
+            pants_color,
+            overcoat_color,
+            accessory1_color,
+            accessory2_color,
+            accessory3_color,
+            rest_position,
+            face_shape,
+            is_translucent,
+        }) => json!({
+            "kind": "human", "resource_prefix": resource_prefix,
+            "head_sprite": head_sprite, "body_sprite": body_sprite,
+            "arms_sprite": arms_sprite, "boots_sprite": boots_sprite,
+            "pants_sprite": pants_sprite, "armor_sprite": armor_sprite,
+            "weapon_sprite": weapon_sprite, "shield_sprite": shield_sprite,
+            "overcoat_sprite": overcoat_sprite, "accessory1_sprite": accessory1_sprite,
+            "accessory2_sprite": accessory2_sprite, "accessory3_sprite": accessory3_sprite,
+            "hair_color": hair_color, "skin_color": skin_color,
+            "boots_color": boots_color, "pants_color": pants_color,
+            "overcoat_color": overcoat_color, "accessory1_color": accessory1_color,
+            "accessory2_color": accessory2_color, "accessory3_color": accessory3_color,
+            "rest_position": rest_position, "face_shape": face_shape,
+            "is_translucent": is_translucent,
+        }),
+        PlayerVisual::Creature {
+            sprite,
+            color,
+            boots_color,
+            pants_color,
+        } => json!({
+            "kind": "creature", "sprite": sprite, "color": color,
+            "boots_color": boots_color, "pants_color": pants_color,
         }),
     }
 }

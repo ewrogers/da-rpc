@@ -57,11 +57,12 @@ advertises an inclusive, continuous range and the controller selects the
 highest version in the overlap. A peer must not advertise one continuous range
 across an incompatible major boundary. No overlap rejects the connection.
 
-The only currently supported version is 1.3 (`0x0103`). Version 1.1 added exact
+The only currently supported version is 1.4 (`0x0104`). Version 1.1 added exact
 route and path-exclusion commands plus obstruction events. Version 1.2 added
 total ability cooldown duration to cooldown snapshots and collection updates.
-Version 1.3 adds hidden-state fields to character and player snapshots. Peers
-advertise only 1.3 because these additions change message layouts or can
+Version 1.3 added hidden-state fields to character and player snapshots.
+Version 1.4 adds complete visible-player visual blocks. Peers advertise only
+1.4 because these additions change message layouts or can
 introduce discriminants that earlier decoders cannot interpret safely.
 
 ## Message types
@@ -416,6 +417,7 @@ enum WorldObject: u8 {
         y: i32;
         direction: Direction;
         is_hidden: bool;
+        visual: Option<PlayerVisual>;
         name: Option<utf8>;
         profile: Option<PlayerProfile>; // stored in the appended profile table
     },
@@ -435,6 +437,43 @@ enum WorldObject: u8 {
         sprite: u16;
         z_index: u16;
     },
+}
+
+enum PlayerVisual: u8 {
+    Human = 1 HumanVisual,
+    Creature = 2 {
+        sprite: u16;
+        color: u8;
+        boots_color: u8;
+        pants_color: u8;
+    },
+}
+
+struct HumanVisual {
+    resource_prefix: u8;
+    head_sprite: u16;
+    body_sprite: u16;
+    arms_sprite: u16;
+    boots_sprite: u16;
+    pants_sprite: u16;
+    armor_sprite: u16;
+    weapon_sprite: u16;
+    shield_sprite: u16;
+    overcoat_sprite: u16;
+    accessory1_sprite: u16;
+    accessory2_sprite: u16;
+    accessory3_sprite: u16;
+    hair_color: u8;
+    skin_color: u8;
+    boots_color: u8;
+    pants_color: u8;
+    overcoat_color: u8;
+    accessory1_color: u8;
+    accessory2_color: u8;
+    accessory3_color: u8;
+    rest_position: u8;
+    face_shape: u8;
+    is_translucent: bool;
 }
 
 enum EffectDuration: u8 {
@@ -481,7 +520,8 @@ still contain character state when the underlying world remains valid.
 These snapshot-tail additions remain compatible with their protocol 1.0
 encoding. The command and event additions documented below require protocol
 1.1. Total cooldown duration requires protocol 1.2. Local-character and
-player-object hidden-state fields require protocol 1.3.
+player-object hidden-state fields require protocol 1.3. Player visual blocks
+require protocol 1.4.
 
 ## Event polling and state updates
 

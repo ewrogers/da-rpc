@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- Made loader detach reject an on-disk DLL whose Portable Executable identity
+  or lifecycle export layout differs from the module loaded in the client.
+
 ## 1.4.1 - 2026-08-14
 
 ### Fixed

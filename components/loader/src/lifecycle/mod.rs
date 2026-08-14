@@ -7,6 +7,9 @@ use crate::{
     process::{ProcessInspection, TargetProcess},
 };
 
+#[cfg(any(windows, test))]
+use crate::pe::LifecycleImageIdentity;
+
 #[cfg(windows)]
 use crate::process::ProcessModule;
 
@@ -14,12 +17,12 @@ use crate::process::ProcessModule;
 use std::{ffi::c_void, fs};
 
 #[cfg(windows)]
-use crate::{dll, remote};
+use crate::{dll, pe, remote};
 
 #[cfg(windows)]
 use darpc_win32::lifecycle::{ABI_VERSION, Status};
 
-#[cfg(windows)]
+#[cfg(any(windows, test))]
 const DARPC_MODULE_NAME: &str = "darpc.dll";
 
 pub(crate) struct LifecycleOutcome {
@@ -105,6 +108,47 @@ fn validate_loaded_dll(module: &ProcessModule, dll: &DarpcDll) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(any(windows, test))]
+fn ensure_matching_identity(
+    loaded: LifecycleImageIdentity,
+    selected: LifecycleImageIdentity,
+) -> Result<()> {
+    if loaded == selected {
+        return Ok(());
+    }
+    Err(LoaderError::new(
+        ErrorKind::InvalidDll,
+        format!(
+            "loaded {DARPC_MODULE_NAME} does not match the selected DLL binary identity: \
+            loaded={loaded:?} selected={selected:?}; refusing remote shutdown"
+        ),
+    ))
+}
+
+#[cfg(windows)]
+fn validate_loaded_dll_identity(
+    process: &TargetProcess,
+    module: usize,
+    dll: &DarpcDll,
+) -> Result<()> {
+    let loaded = pe::lifecycle_identity_from_mapped_image(|rva, size| {
+        let offset =
+            usize::try_from(rva).map_err(|_| "mapped image RVA does not fit usize".to_owned())?;
+        let address = module
+            .checked_add(offset)
+            .ok_or_else(|| "mapped image address overflow".to_owned())?;
+        remote::read(process, address, size).map_err(|error| error.to_string())
+    })
+    .map_err(|error| {
+        LoaderError::new(
+            ErrorKind::InvalidDll,
+            format!("failed to validate loaded {DARPC_MODULE_NAME} binary identity: {error}"),
+        )
+    })?;
+
+    ensure_matching_identity(loaded, dll.identity())
 }
 
 #[cfg(windows)]
@@ -248,6 +292,7 @@ pub(crate) fn detach(process: &TargetProcess, dll: &DarpcDll) -> Result<Lifecycl
 
     validate_loaded_dll(observed_module, dll)?;
     let module = observed_module.base;
+    validate_loaded_dll_identity(process, module, dll)?;
 
     eprintln!(
         "Detach preflight complete: pid={pid} creation_time={} module=0x{module:08X}",
@@ -295,4 +340,44 @@ pub(crate) fn detach(_process: &TargetProcess, _dll: &DarpcDll) -> Result<Lifecy
         ErrorKind::UnsupportedPlatform,
         "loader requires Windows",
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ensure_matching_identity;
+    use crate::pe::LifecycleImageIdentity;
+
+    #[test]
+    fn detach_rejects_a_selected_dll_with_different_export_layout() {
+        let loaded = LifecycleImageIdentity {
+            initialize_rva: 0xF320,
+            shutdown_rva: 0xF560,
+            timestamp: 0x6A7F_3FC7,
+            size_of_image: 0x56_0000,
+        };
+        let selected = LifecycleImageIdentity {
+            initialize_rva: 0xF860,
+            shutdown_rva: 0xFAA0,
+            timestamp: 0x6A7F_4A10,
+            size_of_image: 0x57_0000,
+        };
+
+        let error = ensure_matching_identity(loaded, selected)
+            .expect_err("mismatched DLL identity must fail closed");
+        assert!(error.message().contains("refusing remote shutdown"));
+        assert!(error.message().contains("shutdown_rva: 62816"));
+        assert!(error.message().contains("shutdown_rva: 64160"));
+    }
+
+    #[test]
+    fn detach_accepts_the_matching_loaded_dll_identity() {
+        let identity = LifecycleImageIdentity {
+            initialize_rva: 0xF860,
+            shutdown_rva: 0xFAA0,
+            timestamp: 0x6A7F_4A10,
+            size_of_image: 0x57_0000,
+        };
+
+        ensure_matching_identity(identity, identity).expect("matching identity is safe");
+    }
 }

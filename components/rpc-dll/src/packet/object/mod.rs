@@ -13,6 +13,7 @@ const SPRITE_MASK: u16 = 0x3FFF;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum WorldUpdate {
     Draw,
+    DrawPlayer,
     Move {
         id: u32,
         x: i32,
@@ -35,7 +36,9 @@ pub(crate) fn update(
     objects.clear();
     match body.first().copied() {
         Some(DRAW_OBJECTS_OPCODE) => parse_objects(body, objects).map(|()| Some(WorldUpdate::Draw)),
-        Some(DRAW_PLAYER_OPCODE) => parse_player(body, objects).map(|()| Some(WorldUpdate::Draw)),
+        Some(DRAW_PLAYER_OPCODE) => {
+            parse_player(body, objects).map(|()| Some(WorldUpdate::DrawPlayer))
+        }
         Some(MOVE_OBJECT_OPCODE) => parse_move(body).map(Some),
         Some(REMOVE_OBJECT_OPCODE) => parse_remove(body).map(Some),
         Some(CHANGE_DIRECTION_OPCODE) => parse_direction(body).map(Some),
@@ -279,7 +282,7 @@ mod tests {
         player.extend_from_slice(&[0; 28]);
         player.extend_from_slice(&[0, 4, b'S', b'i', b'L', b'o', 0]);
         let draw = update(&player, &mut objects).unwrap().unwrap();
-        assert_eq!(draw, WorldUpdate::Draw);
+        assert_eq!(draw, WorldUpdate::DrawPlayer);
         let Some(RawWorldObject::Player {
             id,
             name,
@@ -302,7 +305,7 @@ mod tests {
         player.extend_from_slice(&[0; 10]);
         player.extend_from_slice(&[0, 0, 0]);
         let draw = update(&player, &mut objects).unwrap().unwrap();
-        assert_eq!(draw, WorldUpdate::Draw);
+        assert_eq!(draw, WorldUpdate::DrawPlayer);
         assert_eq!(objects.count, 1);
 
         let draw = update(

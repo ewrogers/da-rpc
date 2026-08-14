@@ -551,7 +551,7 @@ pub(crate) fn observe_effect(icon: u16, duration: Option<EffectDuration>, tick_m
 
 pub(crate) fn observe_world(update: WorldUpdate, objects: &RawObjects, tick_ms: u32) {
     match update {
-        WorldUpdate::Draw => {
+        WorldUpdate::Draw | WorldUpdate::DrawPlayer => {
             for object in objects
                 .entries
                 .iter()

@@ -9,6 +9,7 @@ pub(crate) mod movement;
 pub(crate) mod network;
 mod skill;
 pub(crate) mod spell;
+mod stat;
 
 use darpc_protocol::{CommandFailure, CommandKind, WalkTarget};
 use std::ptr;
@@ -48,6 +49,7 @@ pub(crate) fn execute(command: CommandKind) -> Result<(), CommandFailure> {
         CommandKind::SetPathExclusions(exclusions) => movement::set_path_exclusions(exclusions),
         CommandKind::RemovePathExclusions { map_id } => movement::remove_path_exclusions(map_id),
         CommandKind::ClearPathExclusions => movement::clear_path_exclusions(),
+        CommandKind::AddStat(stat) => stat::add(stat),
     }
 }
 

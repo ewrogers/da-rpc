@@ -61,6 +61,7 @@ darpc snapshot --pid <pid>
 darpc diagnostic --pid <pid>
 darpc raw send --pid <pid> <client|server> <NN|0xNN> [hex-payload]
 darpc assail --pid <pid>
+darpc stat <strength|dexterity|intelligence|wisdom|constitution> --pid <pid>
 darpc turn --pid <pid> <north|east|south|west>
 darpc walk --pid <pid> <north|east|south|west>
 darpc walk --pid <pid> <x> <y>
@@ -142,6 +143,9 @@ and connection lifecycle. Their behavior is:
   client main-thread ID.
 - `assail` submits the client's native `0x13` basic-attack packet. The resulting
   client observations can emit `player.animated` and `sound.played` events.
+- `stat` spends one available stat point by sending native packet `0x47` with
+  the selected strength, dexterity, intelligence, wisdom, or constitution flag.
+  The corresponding short aliases are `str`, `dex`, `int`, `wis`, and `con`.
 - `turn` cancels any queued native route and asks the client to face one of the
   four cardinal directions.
 - `walk` with a direction cancels any queued route and attempts one native,

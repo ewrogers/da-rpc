@@ -276,6 +276,7 @@ impl CharacterStatus {
                 ability_to_next_level: value.progression.ability_to_next_level,
             },
             stats: CharacterStats {
+                stat_points: value.stats.stat_points,
                 strength: value.stats.strength,
                 intelligence: value.stats.intelligence,
                 wisdom: value.stats.wisdom,
@@ -349,6 +350,7 @@ pub(crate) struct CharacterProgression {
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
 pub(crate) struct CharacterStats {
+    stat_points: u8,
     strength: u16,
     intelligence: u16,
     wisdom: u16,

@@ -183,6 +183,7 @@ pub(crate) struct SkillSlotChanged {
 #[derive(Clone, Debug, Serialize, ToSchema)]
 pub(crate) struct StatsChanged {
     pub(super) observation: EventObservation,
+    pub(super) stat_points: u8,
     pub(super) strength: u16,
     pub(super) intelligence: u16,
     pub(super) wisdom: u16,

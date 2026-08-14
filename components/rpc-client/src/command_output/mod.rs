@@ -235,6 +235,7 @@ fn kind(kind: CommandKind) -> &'static str {
         CommandKind::SetPathExclusions(_) => "set_path_exclusions",
         CommandKind::RemovePathExclusions { .. } => "remove_path_exclusions",
         CommandKind::ClearPathExclusions => "clear_path_exclusions",
+        CommandKind::AddStat(_) => "add_stat",
     }
 }
 

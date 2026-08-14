@@ -16,9 +16,9 @@ use darpc_model::{
     WhoList, WhoPlayer, WorldObject,
 };
 use darpc_protocol::{
-    Architecture, ChantText, CommandFailure, CommandKind, CommandOperation, CommandRequest,
-    CommandResponse, CommandResult, CommandState, CommandStatus, ComponentVersion, DecodeError,
-    DialogAction, DialogCommand, DialogText, EchoRequest, EchoResponse, EncodeError,
+    Architecture, ChantText, CharacterStat, CommandFailure, CommandKind, CommandOperation,
+    CommandRequest, CommandResponse, CommandResult, CommandState, CommandStatus, ComponentVersion,
+    DecodeError, DialogAction, DialogCommand, DialogText, EchoRequest, EchoResponse, EncodeError,
     EventPollRequest, EventPollResponse, EventPollResult, ExchangeCommand, FRAME_HEADER_LEN,
     FRAME_MAGIC, FRAME_VERSION, Frame, FrameHeader, GoldTransfer, GroupCommand,
     GroupInvitationAction, GroupText, Hello, HelloAck, ItemSlot, ItemTransfer,
@@ -118,6 +118,7 @@ fn snapshot() -> ClientSnapshot {
                 ability_to_next_level: Some(55_000),
             },
             stats: CharacterStats {
+                stat_points: 3,
                 strength: 30,
                 intelligence: 34,
                 wisdom: 32,

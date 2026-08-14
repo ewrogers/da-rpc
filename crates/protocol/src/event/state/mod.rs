@@ -271,6 +271,7 @@ fn decode_destination(reader: &mut PayloadReader<'_>) -> Result<Option<TilePosit
 }
 
 fn encode_stats(output: &mut Vec<u8>, stats: CharacterStats) {
+    output.push(stats.stat_points);
     push_u16(output, stats.strength);
     push_u16(output, stats.intelligence);
     push_u16(output, stats.wisdom);
@@ -287,6 +288,7 @@ fn decode_core(reader: &mut PayloadReader<'_>) -> Result<CoreStatus, DecodeError
         weight: reader.read_u32()?,
         max_weight: reader.read_u32()?,
         stats: CharacterStats {
+            stat_points: reader.read_u8()?,
             strength: reader.read_u16()?,
             intelligence: reader.read_u16()?,
             wisdom: reader.read_u16()?,

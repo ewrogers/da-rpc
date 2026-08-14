@@ -171,6 +171,10 @@ through a monster-disguise image.
 Readable names are used for gender, class, and elements. Raw client identifiers
 and memory addresses are not exposed.
 
+`stats.stat_points` is the current number of unspent character stat points.
+The five attribute values remain `strength`, `dexterity`, `intelligence`,
+`wisdom`, and `constitution`.
+
 ## Live status events
 
 The complete payload structures and recovery route are in
@@ -180,7 +184,7 @@ Listen on `GET /clients/{client}/events`. These events update status:
 
 | Event | What changed |
 | --- | --- |
-| `stats.changed` | All five character attributes |
+| `stats.changed` | Available stat points and all five character attributes |
 | `vitals.changed` | One or more health or mana values |
 | `progression.changed` | Level, ability level, experience, or remaining progress |
 | `gold.changed` | Carried gold |

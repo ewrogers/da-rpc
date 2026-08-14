@@ -147,6 +147,7 @@ request cannot select another file in or outside the configured directory.
 | `POST /clients/{client}/emote` | Perform an emote by confirmed name or client code. |
 | `POST /clients/{client}/raw/send` | Send a bounded custom client packet or dispatch a synthetic server packet. |
 | `POST /clients/{client}/assail` | Submit the client's native basic-attack packet. |
+| `POST /clients/{client}/stats/{stat}` | Spend one available point on `strength`/`str`, `dexterity`/`dex`, `intelligence`/`int`, `wisdom`/`wis`, or `constitution`/`con`. |
 | `POST /clients/{client}/interact` | Start a conversation with a visible Mundane. |
 | `POST /clients/{client}/dialog/select` | Select a row in the current NPC dialog. |
 | `POST /clients/{client}/dialog/input` | Answer the current text prompt. |
@@ -165,6 +166,11 @@ request cannot select another file in or outside the configured directory.
 | `POST /clients/{client}/commands/diagnostic` | Run a no-op main-thread command for testing. |
 | `GET /clients/{client}/commands/{command_id}` | Read retained command status. |
 | `DELETE /clients/{client}/commands/{command_id}` | Cancel a command that has not started. |
+
+The stat route takes no request body. It returns HTTP 400 when the current
+snapshot reports zero available `stat_points`. Stat spends are limited to one
+request per character every 500 milliseconds; an earlier repeat returns HTTP
+429 without queuing a packet.
 
 Movement request bodies are documented in [Movement](movement.md). The complete
 map exclusion resource is documented in [Path exclusions](path-exclusions.md).

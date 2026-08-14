@@ -67,6 +67,7 @@ fn serves_health_and_client_resources() {
     assert!(status["character"].get("spellbook").is_none());
     assert!(status["character"].get("skillbook").is_none());
     assert_eq!(status["character"]["progression"]["level"], 50);
+    assert_eq!(status["character"]["stats"]["stat_points"], 3);
     assert_eq!(status["map"]["x"], 11);
     assert_eq!(status["planned_route"]["generation"], 17);
     assert_eq!(status["planned_route"]["tiles"][1]["x"], 12);

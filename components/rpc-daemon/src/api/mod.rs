@@ -57,6 +57,7 @@ use darpc_model::SequenceNumber;
 use darpc_protocol::{Hello, protocol_version_major, protocol_version_minor};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::HashMap,
     io,
     net::{SocketAddrV4, TcpListener},
     path::PathBuf,
@@ -66,6 +67,7 @@ use std::{
         mpsc::{self, Sender, SyncSender, TrySendError},
     },
     thread::{self, JoinHandle},
+    time::{Duration, Instant},
 };
 use tokio::sync::{broadcast, oneshot};
 use utoipa::{IntoParams, OpenApi, ToSchema};
@@ -98,6 +100,7 @@ pub(crate) struct ApiState {
     spell_feedback: Arc<Mutex<SpellFeedbackTrackers>>,
     maps_directory: Arc<RwLock<Option<PathBuf>>>,
     internal_message_sequence: Arc<AtomicU32>,
+    stat_spends: Arc<Mutex<HashMap<u32, Instant>>>,
 }
 
 impl ApiState {
@@ -120,6 +123,7 @@ impl ApiState {
             spell_feedback: Arc::new(Mutex::new(SpellFeedbackTrackers::default())),
             maps_directory: Arc::new(RwLock::new(None)),
             internal_message_sequence: Arc::new(AtomicU32::new(0)),
+            stat_spends: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -341,6 +345,21 @@ impl ApiState {
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clone()
+    }
+
+    pub(crate) fn reserve_stat_spend(&self, pid: u32) -> bool {
+        let now = Instant::now();
+        let cooldown = Duration::from_millis(500);
+        let mut spends = self
+            .stat_spends
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        spends.retain(|_, spent_at| now.duration_since(*spent_at) < cooldown);
+        if spends.contains_key(&pid) {
+            return false;
+        }
+        spends.insert(pid, now);
+        true
     }
 
     fn emit(&self, event: DaemonEvent) -> Result<(), ApiError> {
@@ -663,6 +682,10 @@ fn router(state: ApiState) -> Router {
             post(crate::commands::assail::assail),
         )
         .route(
+            "/clients/{client}/stats/{stat}",
+            post(crate::commands::stat::add),
+        )
+        .route(
             "/clients/{client}/resync",
             post(crate::commands::resync::resync),
         )
@@ -852,6 +875,7 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         crate::commands::interaction::emote,
         crate::commands::raw::send,
         crate::commands::assail::assail,
+        crate::commands::stat::add,
         crate::commands::resync::resync,
         crate::commands::message::send,
         internal_messages::send,

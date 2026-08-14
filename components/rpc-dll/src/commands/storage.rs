@@ -245,6 +245,7 @@ pub(super) fn stored_kind(kind: CommandKind) -> (u8, u32, u32, u32, Option<Store
         ),
         CommandKind::RemovePathExclusions { map_id } => (48, map_id, 0, 0, None),
         CommandKind::ClearPathExclusions => (49, 0, 0, 0, None),
+        CommandKind::AddStat(stat) => (50, u32::from(stat.flag()), 0, 0, None),
     }
 }
 
@@ -482,6 +483,9 @@ pub(super) fn kind_from_value(
             .unwrap_or(CommandKind::Diagnostic),
         48 => CommandKind::RemovePathExclusions { map_id: argument_x },
         49 => CommandKind::ClearPathExclusions,
+        50 => CharacterStat::from_flag(argument_x as u8)
+            .map(CommandKind::AddStat)
+            .unwrap_or(CommandKind::Diagnostic),
         _ => CommandKind::Diagnostic,
     }
 }

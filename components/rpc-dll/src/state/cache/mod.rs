@@ -113,6 +113,7 @@ impl StateCache {
                 weight: raw.weight,
                 max_weight: raw.max_weight,
                 stats: CharacterStats {
+                    stat_points: 0,
                     strength: raw.strength,
                     intelligence: raw.intelligence,
                     wisdom: raw.wisdom,
@@ -171,6 +172,20 @@ impl StateCache {
             ),
             is_casting: changed(&mut self.is_casting, update.is_casting),
         }
+    }
+
+    #[cfg_attr(
+        test,
+        expect(dead_code, reason = "called by the production-only stat action")
+    )]
+    pub(super) fn stat_points(&self) -> Option<u8> {
+        self.core.map(|core| core.stats.stat_points)
+    }
+
+    pub(super) fn core_with_stat_points(&self, stat_points: u8) -> Option<CoreStatus> {
+        let mut core = self.core?;
+        core.stats.stat_points = stat_points;
+        Some(core)
     }
 
     pub(super) fn lifecycle(&mut self, current: ClientLifecycle) -> Option<LifecycleUpdate> {
@@ -431,6 +446,20 @@ impl MainThreadCache {
     pub(super) unsafe fn gold(&self) -> Option<u32> {
         // SAFETY: the caller guarantees exclusive main-thread access.
         unsafe { (&*self.0.get()).gold }
+    }
+
+    #[cfg_attr(
+        test,
+        expect(dead_code, reason = "called by the production-only stat action")
+    )]
+    pub(super) unsafe fn stat_points(&self) -> Option<u8> {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&*self.0.get()).stat_points() }
+    }
+
+    pub(super) unsafe fn core_with_stat_points(&self, stat_points: u8) -> Option<CoreStatus> {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&*self.0.get()).core_with_stat_points(stat_points) }
     }
 
     pub(super) unsafe fn merge_position(&self, raw: &mut RawCharacter) {

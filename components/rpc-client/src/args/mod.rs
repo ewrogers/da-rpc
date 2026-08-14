@@ -4,12 +4,12 @@ use crate::{
 };
 use darpc_model::{Direction, EquipmentSlot, emote_code, is_client_emote_code};
 use darpc_protocol::{
-    ChantText, DialogAction, DialogCommand, DialogText, ExchangeCommand, GoldTransfer,
-    GroupCommand, GroupInvitationAction, GroupText, ItemSlot, ItemTransfer, MAX_DIALOG_INPUT_LEN,
-    MAX_ECHO_TEXT_LEN, MAX_ITEM_SLOT, MAX_RAW_PACKET_PAYLOAD_LEN, MAX_SKILL_SLOT,
-    MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT, RawPacket, RawPacketDirection, SkillSlot, SlotSwap,
-    SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition, TransferTarget,
-    WalkTarget,
+    ChantText, CharacterStat, DialogAction, DialogCommand, DialogText, ExchangeCommand,
+    GoldTransfer, GroupCommand, GroupInvitationAction, GroupText, ItemSlot, ItemTransfer,
+    MAX_DIALOG_INPUT_LEN, MAX_ECHO_TEXT_LEN, MAX_ITEM_SLOT, MAX_RAW_PACKET_PAYLOAD_LEN,
+    MAX_SKILL_SLOT, MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT, RawPacket, RawPacketDirection, SkillSlot,
+    SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition,
+    TransferTarget, WalkTarget,
 };
 use std::ffi::OsString;
 
@@ -23,6 +23,7 @@ usage:
     darpc [--output <table|json>] diagnostic --pid <pid>
     darpc [--output <table|json>] raw send --pid <pid> <client|server> <NN|0xNN> [hex-payload]
     darpc [--output <table|json>] assail --pid <pid>
+    darpc [--output <table|json>] stat <strength|dexterity|intelligence|wisdom|constitution> --pid <pid>
     darpc [--output <table|json>] turn --pid <pid> <north|east|south|west>
     darpc [--output <table|json>] walk --pid <pid> <north|east|south|west>
     darpc [--output <table|json>] walk --pid <pid> <x> <y>
@@ -88,6 +89,7 @@ pub(crate) enum Operation {
     Diagnostic,
     Raw(RawPacket),
     Assail,
+    AddStat(CharacterStat),
     Turn(Direction),
     Walk(WalkTarget),
     UseSkill(SkillSlot),
@@ -152,6 +154,7 @@ impl Command {
             Operation::Diagnostic => "diagnostic",
             Operation::Raw(_) => "raw send",
             Operation::Assail => "assail",
+            Operation::AddStat(_) => "stat",
             Operation::Turn(_) => "turn",
             Operation::Walk(_) => "walk",
             Operation::UseSkill(_) => "skill use",
@@ -256,6 +259,9 @@ pub(crate) fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
         "diagnostic" => Operation::Diagnostic,
         "raw send" => Operation::Raw(parse_raw_packet(&mut arguments)?),
         "assail" => Operation::Assail,
+        action if action.starts_with("stat ") => {
+            Operation::AddStat(parse_stat(action.strip_prefix("stat ").unwrap())?)
+        }
         "turn" => Operation::Turn(parse_direction(arguments.next())?),
         "walk" => Operation::Walk(parse_walk_target(&mut arguments)?),
         "skill use" => Operation::UseSkill(parse_skill_slot(arguments.next())?),
@@ -407,6 +413,18 @@ fn parse_action(arguments: &mut impl Iterator<Item = OsString>) -> Result<String
         "exchange" => &["item", "gold", "accept", "cancel"],
         "command" => &["status", "cancel"],
         "raw" => &["send"],
+        "stat" => &[
+            "strength",
+            "str",
+            "dexterity",
+            "dex",
+            "intelligence",
+            "int",
+            "wisdom",
+            "wis",
+            "constitution",
+            "con",
+        ],
         _ => return Ok(command),
     };
     let subcommand = arguments
@@ -419,6 +437,17 @@ fn parse_action(arguments: &mut impl Iterator<Item = OsString>) -> Result<String
         )));
     }
     Ok(format!("{command} {subcommand}"))
+}
+
+fn parse_stat(stat: &str) -> Result<CharacterStat> {
+    match stat {
+        "strength" | "str" => Ok(CharacterStat::Strength),
+        "dexterity" | "dex" => Ok(CharacterStat::Dexterity),
+        "intelligence" | "int" => Ok(CharacterStat::Intelligence),
+        "wisdom" | "wis" => Ok(CharacterStat::Wisdom),
+        "constitution" | "con" => Ok(CharacterStat::Constitution),
+        _ => Err(invalid_arguments("invalid character stat")),
+    }
 }
 
 fn parse_direction(argument: Option<OsString>) -> Result<Direction> {
@@ -804,9 +833,9 @@ mod tests {
     use super::{ChantAction, Command, Operation, OutputFormat, parse};
     use darpc_model::Direction;
     use darpc_protocol::{
-        ChantText, DialogAction, DialogCommand, DialogText, GroupCommand, GroupInvitationAction,
-        GroupText, ItemSlot, RawPacket, RawPacketDirection, SkillSlot, SlotSwap, SpellArguments,
-        SpellCast, SpellInput, SpellSlot, SpellTarget, WalkTarget,
+        ChantText, CharacterStat, DialogAction, DialogCommand, DialogText, GroupCommand,
+        GroupInvitationAction, GroupText, ItemSlot, RawPacket, RawPacketDirection, SkillSlot,
+        SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget, WalkTarget,
     };
     use std::ffi::OsString;
 
@@ -856,6 +885,29 @@ mod tests {
                 }
             )
         );
+        for (name, stat) in [
+            ("strength", CharacterStat::Strength),
+            ("str", CharacterStat::Strength),
+            ("dexterity", CharacterStat::Dexterity),
+            ("dex", CharacterStat::Dexterity),
+            ("intelligence", CharacterStat::Intelligence),
+            ("int", CharacterStat::Intelligence),
+            ("wisdom", CharacterStat::Wisdom),
+            ("wis", CharacterStat::Wisdom),
+            ("constitution", CharacterStat::Constitution),
+            ("con", CharacterStat::Constitution),
+        ] {
+            assert_eq!(
+                parse(arguments(&["stat", name, "--pid", "42"])).unwrap(),
+                (
+                    OutputFormat::Table,
+                    Command {
+                        pid: 42,
+                        operation: Operation::AddStat(stat),
+                    }
+                )
+            );
+        }
         assert_eq!(
             parse(arguments(&[
                 "--output", "json", "echo", "--pid", "7", "hello"
@@ -1239,6 +1291,7 @@ mod tests {
         assert!(parse(arguments(&["walk", "--pid", "1", "10"])).is_err());
         assert!(parse(arguments(&["walk", "--pid", "1", "north", "extra"])).is_err());
         assert!(parse(arguments(&["emote", "--pid", "1", "unknown"])).is_err());
+        assert!(parse(arguments(&["stat", "luck", "--pid", "1"])).is_err());
         assert!(parse(arguments(&["emote", "--pid", "1", "9"])).is_err());
         assert!(parse(arguments(&["skill", "use", "--pid", "1", "0"])).is_err());
         assert!(parse(arguments(&["skill", "use", "--pid", "1", "91"])).is_err());

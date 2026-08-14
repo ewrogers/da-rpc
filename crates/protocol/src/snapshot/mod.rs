@@ -398,6 +398,7 @@ fn encode_character(
         push_u32(output, ability_to_next_level);
     }
 
+    output.push(character.stats.stat_points);
     push_u16(output, character.stats.strength);
     push_u16(output, character.stats.intelligence);
     push_u16(output, character.stats.wisdom);
@@ -470,6 +471,7 @@ fn decode_character(reader: &mut PayloadReader<'_>) -> Result<CharacterSnapshot,
         (None, None, None)
     };
     let stats = CharacterStats {
+        stat_points: reader.read_u8()?,
         strength: reader.read_u16()?,
         intelligence: reader.read_u16()?,
         wisdom: reader.read_u16()?,

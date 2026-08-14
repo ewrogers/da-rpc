@@ -80,6 +80,7 @@ fn character_snapshot(
                 ability_to_next_level: None,
             },
             stats: CharacterStats {
+                stat_points: 3,
                 strength: 3,
                 intelligence: 3,
                 wisdom: 3,
@@ -248,6 +249,7 @@ fn expands_one_atomic_status_update_into_semantic_events() {
                 weight: 25,
                 max_weight: 60,
                 stats: CharacterStats {
+                    stat_points: 3,
                     strength: 10,
                     intelligence: 11,
                     wisdom: 12,
@@ -265,7 +267,7 @@ fn expands_one_atomic_status_update_into_semantic_events() {
             ..StatusUpdate::default()
         }),
     };
-    let names = expand(
+    let events = expand(
         42,
         ClientIdentity {
             pid: 42,
@@ -276,10 +278,10 @@ fn expands_one_atomic_status_update_into_semantic_events() {
         None,
         None,
         observed_at(),
-    )
-    .iter()
-    .map(ClientEvent::name)
-    .collect::<Vec<_>>();
+    );
+    let stats = serde_json::to_value(&events[0]).unwrap();
+    assert_eq!(stats["data"]["stat_points"], 3);
+    let names = events.iter().map(ClientEvent::name).collect::<Vec<_>>();
     assert_eq!(
         names,
         [

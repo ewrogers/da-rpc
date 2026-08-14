@@ -34,6 +34,39 @@ pub enum RawPacketDirection {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CharacterStat {
+    Strength,
+    Dexterity,
+    Intelligence,
+    Wisdom,
+    Constitution,
+}
+
+impl CharacterStat {
+    #[must_use]
+    pub const fn flag(self) -> u8 {
+        match self {
+            Self::Strength => 0x01,
+            Self::Dexterity => 0x02,
+            Self::Intelligence => 0x04,
+            Self::Wisdom => 0x08,
+            Self::Constitution => 0x10,
+        }
+    }
+
+    pub const fn from_flag(flag: u8) -> Option<Self> {
+        match flag {
+            0x01 => Some(Self::Strength),
+            0x02 => Some(Self::Dexterity),
+            0x04 => Some(Self::Intelligence),
+            0x08 => Some(Self::Wisdom),
+            0x10 => Some(Self::Constitution),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RawPacket {
     direction: RawPacketDirection,
     command: u8,
@@ -102,6 +135,7 @@ pub enum CommandKind {
     SetPathExclusions(PathExclusions),
     RemovePathExclusions { map_id: u32 },
     ClearPathExclusions,
+    AddStat(CharacterStat),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -831,6 +865,10 @@ pub(super) fn encode_kind(output: &mut Vec<u8>, kind: CommandKind) {
             push_u32(output, map_id);
         }
         CommandKind::ClearPathExclusions => output.push(28),
+        CommandKind::AddStat(stat) => {
+            output.push(29);
+            output.push(stat.flag());
+        }
     }
 }
 
@@ -1096,6 +1134,12 @@ pub(super) fn decode_kind(reader: &mut PayloadReader<'_>) -> Result<CommandKind,
             Ok(CommandKind::RemovePathExclusions { map_id })
         }
         28 => Ok(CommandKind::ClearPathExclusions),
+        29 => {
+            let flag = reader.read_u8()?;
+            CharacterStat::from_flag(flag)
+                .map(CommandKind::AddStat)
+                .ok_or(DecodeError::InvalidCharacterStat { actual: flag })
+        }
         actual => Err(DecodeError::InvalidCommandKind { actual }),
     }
 }
@@ -1196,9 +1240,9 @@ fn decode_direction(reader: &mut PayloadReader<'_>) -> Result<Direction, DecodeE
 #[cfg(test)]
 mod tests {
     use super::{
-        ChantText, CommandKind, ItemSlot, MAX_MESSAGE_CONTENT_LEN, MAX_RAW_PACKET_PAYLOAD_LEN,
-        MessageCommand, MessageContent, MessageRecipient, RawPacket, RawPacketDirection, SkillSlot,
-        SlotSwap, SpellSlot, encode_kind,
+        ChantText, CharacterStat, CommandKind, ItemSlot, MAX_MESSAGE_CONTENT_LEN,
+        MAX_RAW_PACKET_PAYLOAD_LEN, MessageCommand, MessageContent, MessageRecipient, RawPacket,
+        RawPacketDirection, SkillSlot, SlotSwap, SpellSlot, encode_kind,
     };
 
     #[test]
@@ -1253,6 +1297,21 @@ mod tests {
         let mut encoded = Vec::new();
         encode_kind(&mut encoded, CommandKind::Resync);
         assert_eq!(encoded, [24]);
+    }
+
+    #[test]
+    fn add_stat_commands_have_stable_wire_flags() {
+        for (stat, flag) in [
+            (CharacterStat::Strength, 0x01),
+            (CharacterStat::Dexterity, 0x02),
+            (CharacterStat::Intelligence, 0x04),
+            (CharacterStat::Wisdom, 0x08),
+            (CharacterStat::Constitution, 0x10),
+        ] {
+            let mut encoded = Vec::new();
+            encode_kind(&mut encoded, CommandKind::AddStat(stat));
+            assert_eq!(encoded, [29, flag]);
+        }
     }
 
     #[test]

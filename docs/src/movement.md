@@ -115,7 +115,9 @@ ordinary walk supplies one destination. The pathfinder checks three inputs:
 - The live world view accounts for doors and other current changes.
 - A fixed-size daRPC occupancy grid prevents the client from treating a visible
   player's tile as passable. Lookups are constant time during the search, and
-  object events update the grid outside the search loop.
+  object events update the grid outside the search loop. The grid is rebuilt
+  from at most 512 retained objects once before each route search so a stale
+  incremental update cannot affect the result.
 
 A route can therefore fail even when its destination is inside the map. When
 no route is available at command time, the command completes with

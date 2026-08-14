@@ -10,6 +10,8 @@
 - Retried blocked native ground-route steps twice at one-second intervals, then
   replanned from the latest confirmed tile, using a bounded observation cadence
   to avoid affecting client animation timing.
+- Kept recovery active when a rebuilt route's first step was immediately
+  rejected, and refreshed visible-player occupancy before every native search.
 
 ## 1.4.0 - 2026-08-14
 

@@ -424,6 +424,12 @@ pub(crate) fn player_occupied(x: i32, y: i32) -> bool {
     unsafe { OBJECTS.player_occupied(x, y) }
 }
 
+pub(crate) fn refresh_player_occupancy() {
+    // SAFETY: native route construction runs on the client main thread, which
+    // is the sole owner of the object cache.
+    unsafe { OBJECTS.refresh_player_occupancy() };
+}
+
 pub(crate) fn observe_tick() {
     #[cfg(windows)]
     let tick_ms = sender_tick_ms();

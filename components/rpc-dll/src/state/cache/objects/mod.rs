@@ -34,6 +34,11 @@ impl MainThreadObjects {
         unsafe { (&*self.0.get()).player_occupied(x, y) }
     }
 
+    pub(in crate::state) unsafe fn refresh_player_occupancy(&self) {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&mut *self.0.get()).refresh_player_occupancy() };
+    }
+
     pub(in crate::state) unsafe fn remove_player_with_name(
         &self,
         observed: RawWorldObject,

@@ -345,7 +345,7 @@ pub(crate) fn observe_tick() {
             clear_pending_replan();
             ROUTE_PROGRESS_TICK.store(tick_ms, Ordering::Release);
         }
-        Err(CommandFailure::NoPath) => schedule_next_replan(tick_ms),
+        Err(CommandFailure::NoPath | CommandFailure::Rejected) => schedule_next_replan(tick_ms),
         Err(_) => clear_route_destination(),
     }
 }

@@ -436,6 +436,9 @@ unsafe extern "thiscall" fn path_builder_detour(
     core::arch::naked_asm!(
         "lock inc dword ptr [{activity}]",
         "push ecx",
+        "call {prepare}",
+        "pop ecx",
+        "push ecx",
         "mov edx, esp",
         "push dword ptr [edx + 48]",
         "push dword ptr [edx + 44]",
@@ -460,9 +463,14 @@ unsafe extern "thiscall" fn path_builder_detour(
         "lock dec dword ptr [{activity}]",
         "ret 44",
         activity = sym PATH_HOOK_ACTIVITY,
+        prepare = sym prepare_path_search,
         trampoline = sym PATH_TRAMPOLINE,
         observe = sym observe_path,
     );
+}
+
+extern "C" fn prepare_path_search() {
+    let _ = panic::catch_unwind(crate::state::refresh_player_occupancy);
 }
 
 extern "C" fn observe_path(world: *const c_void, result: usize) {

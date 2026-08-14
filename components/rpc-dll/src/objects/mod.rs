@@ -52,7 +52,7 @@ impl ObjectCache {
         for (destination, source) in self.entries.iter_mut().zip(objects.entries.iter()) {
             *destination = *source;
         }
-        self.rebuild_player_occupancy();
+        self.refresh_player_occupancy();
     }
 
     pub(crate) fn name(&self, id: u32) -> Option<([u8; MAX_OBJECT_NAME_BYTES], u8)> {
@@ -353,7 +353,7 @@ impl ObjectCache {
         .unwrap_or(u16::MAX)
     }
 
-    fn rebuild_player_occupancy(&mut self) {
+    pub(crate) fn refresh_player_occupancy(&mut self) {
         self.player_occupancy.fill(0);
         for index in 0..self.entries.len() {
             if let Some(RawWorldObject::Player { x, y, .. }) = self.entries[index] {
@@ -609,6 +609,18 @@ mod tests {
         cache.move_object(2, 11, 20, None).unwrap();
         assert!(!cache.player_occupied(10, 20));
         assert!(cache.player_occupied(11, 20));
+    }
+
+    #[test]
+    fn refresh_rebuilds_player_occupancy_from_retained_objects() {
+        let mut cache = ObjectCache::empty();
+        cache.upsert(player(1, 10, 20, 0));
+        cache.set_player_occupied(10, 20, false);
+        assert!(!cache.player_occupied(10, 20));
+
+        cache.refresh_player_occupancy();
+
+        assert!(cache.player_occupied(10, 20));
     }
 
     #[test]

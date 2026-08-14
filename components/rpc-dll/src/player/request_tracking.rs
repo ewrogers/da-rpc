@@ -7,9 +7,16 @@ pub(super) const ORIGIN_TTL_MS: u32 = 30_000;
 pub(super) const ORIGIN_USER: u8 = 1;
 pub(super) const ORIGIN_DARPC: u8 = 2;
 
+#[derive(Clone, Copy, Eq, PartialEq)]
+pub(super) enum ResponseKind {
+    ObjectInfo,
+    SelfLook,
+}
+
 #[derive(Clone, Copy)]
 pub(super) struct Origin {
     pub(super) kind: u8,
+    pub(super) response: ResponseKind,
     pub(super) id: u32,
     pub(super) trigger: PlayerInspectionTrigger,
     pub(super) command_id: u32,
@@ -18,6 +25,7 @@ pub(super) struct Origin {
 
 const EMPTY_ORIGIN: Origin = Origin {
     kind: 0,
+    response: ResponseKind::ObjectInfo,
     id: 0,
     trigger: PlayerInspectionTrigger::User,
     command_id: 0,
@@ -97,10 +105,11 @@ pub(super) fn enqueue(value: Pending) {
 pub(super) fn upgrade(id: u32, command_id: u32) -> bool {
     // SAFETY: commands execute on the same client main thread as the producer.
     let origins = unsafe { &mut *ORIGINS.0.get() };
-    if let Some(origin) = origins.entries[..origins.count]
-        .iter_mut()
-        .find(|origin| origin.kind == ORIGIN_DARPC && origin.id == id)
-    {
+    if let Some(origin) = origins.entries[..origins.count].iter_mut().find(|origin| {
+        origin.kind == ORIGIN_DARPC
+            && origin.response == ResponseKind::ObjectInfo
+            && origin.id == id
+    }) {
         origin.trigger = PlayerInspectionTrigger::Manual;
         origin.command_id = command_id;
         return true;
@@ -187,23 +196,27 @@ pub(super) fn push_origin(origin: Origin) {
     update_intercept_pending(queue);
 }
 
-pub(super) fn take_origin(id: u32, tick_ms: u32) -> Option<Origin> {
+pub(super) fn take_origin(response: ResponseKind, id: u32, tick_ms: u32) -> Option<Origin> {
     prune_origins(tick_ms);
     // SAFETY: event interception is serialized on the client main thread.
     let queue = unsafe { &mut *ORIGINS.0.get() };
     let index = queue.entries[..queue.count]
         .iter()
-        .position(|origin| origin.id == id)?;
+        .position(|origin| origin.response == response && origin.id == id)?;
     Some(remove_origin(queue, index))
 }
 
-pub(super) fn take_internal_origin(id: u32, tick_ms: u32) -> Option<Origin> {
+pub(super) fn take_internal_origin(
+    response: ResponseKind,
+    id: u32,
+    tick_ms: u32,
+) -> Option<Origin> {
     prune_origins(tick_ms);
     // SAFETY: event observation is serialized on the client main thread.
     let queue = unsafe { &mut *ORIGINS.0.get() };
-    let index = queue.entries[..queue.count]
-        .iter()
-        .position(|origin| origin.kind == ORIGIN_DARPC && origin.id == id)?;
+    let index = queue.entries[..queue.count].iter().position(|origin| {
+        origin.kind == ORIGIN_DARPC && origin.response == response && origin.id == id
+    })?;
     Some(remove_origin(queue, index))
 }
 

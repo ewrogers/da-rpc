@@ -54,6 +54,7 @@ pub(crate) enum PublishedEvent {
         pid: u32,
         identity: ClientIdentity,
         event: Box<StateEvent>,
+        replaced_players: Vec<darpc_model::WorldObject>,
         ability_name: Option<String>,
         target_name: Option<String>,
         feedback: Option<Box<SpellFeedback>>,
@@ -129,6 +130,7 @@ pub(crate) enum ClientEvent {
     Emoted(Emoted),
     Turned(Turned),
     PlayerAppeared(ObjectChanged),
+    PlayerReplaced(PlayerReplaced),
     PlayerInspected(PlayerInspected),
     PlayerDisappeared(ObjectChanged),
     PlayerMoved(ObjectChanged),
@@ -240,6 +242,7 @@ impl ClientEvent {
             Self::Emoted(_) => "character.emoted",
             Self::Turned(_) => "character.turned",
             Self::PlayerAppeared(_) => "player.appeared",
+            Self::PlayerReplaced(_) => "player.replaced",
             Self::PlayerInspected(_) => "player.inspected",
             Self::PlayerDisappeared(_) => "player.disappeared",
             Self::PlayerMoved(_) => "player.moved",
@@ -366,6 +369,7 @@ impl ClientEvent {
             | Self::ItemAppeared(value)
             | Self::ItemDisappeared(value)
             | Self::ItemMoved(value) => value.observation.event_sequence,
+            Self::PlayerReplaced(value) => value.observation.event_sequence,
             Self::PlayerInspected(value) => value.observation.event_sequence,
             Self::PlayerAnimated(value)
             | Self::MonsterAnimated(value)
@@ -474,6 +478,26 @@ impl EventObservation {
     }
 }
 
+fn replace_player_appearance(
+    events: Vec<ClientEvent>,
+    replaced_players: &[darpc_model::WorldObject],
+) -> Vec<ClientEvent> {
+    if replaced_players.is_empty() {
+        return events;
+    }
+    events
+        .into_iter()
+        .map(|event| match event {
+            ClientEvent::PlayerAppeared(changed) => ClientEvent::PlayerReplaced(PlayerReplaced {
+                observation: changed.observation,
+                previous: replaced_players.iter().map(WorldObject::from).collect(),
+                current: changed.object,
+            }),
+            other => other,
+        })
+        .collect()
+}
+
 pub(crate) fn response(
     pid: u32,
     identity: ClientIdentity,
@@ -503,6 +527,7 @@ pub(crate) fn response(
                     pid: event_pid,
                     identity: event_identity,
                     event,
+                    replaced_players,
                     ability_name,
                     target_name,
                     feedback,
@@ -533,6 +558,7 @@ pub(crate) fn response(
                         target_name,
                         observed_at_utc,
                     );
+                    api_events = replace_player_appearance(api_events, &replaced_players);
                     if let Some(feedback) = feedback {
                         api_events.push((*feedback).into_event(feedback_observation));
                     }

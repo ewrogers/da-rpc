@@ -386,9 +386,10 @@ fn publish_event(
     api_state: &api::ApiState,
     event: &registry::ConnectionEvent,
 ) {
+    let previous = api_state.snapshot();
     if registry.apply(event) {
         api_state.publish(registry.snapshot());
-        api_state.publish_connection_event(event);
+        api_state.publish_connection_event_from(event, &previous);
         println!("{}", registry::render_event(event));
         let _ = std::io::Write::flush(&mut std::io::stdout());
     }

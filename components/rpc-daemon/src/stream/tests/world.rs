@@ -512,6 +512,48 @@ fn object_updates_use_noun_action_event_names() {
 }
 
 #[test]
+fn same_name_player_relog_uses_a_replacement_event() {
+    use darpc_model::{Direction, WorldObject as ModelWorldObject};
+
+    let identity = ClientIdentity {
+        pid: 42,
+        process_creation_time: 100,
+        dll_instance_id: [1; 16],
+    };
+    let player = |id, x| ModelWorldObject::Player {
+        id,
+        name: Some("Monitor".into()),
+        x,
+        y: 20,
+        direction: Direction::East,
+        profile: None,
+    };
+    let current = player(3, 12);
+    let events = expand(
+        42,
+        identity,
+        StateEvent {
+            sequence: 1,
+            revision: 1,
+            tick_ms: 1,
+            update: StateUpdate::Object(ObjectUpdate::Appeared(current)),
+        },
+        None,
+        None,
+        observed_at(),
+    );
+    let events = replace_player_appearance(events, &[player(1, 10), player(2, 11)]);
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].name(), "player.replaced");
+    let event = serde_json::to_value(&events[0]).unwrap();
+    assert_eq!(event["type"], "player_replaced");
+    assert_eq!(event["data"]["previous"][0]["id"], 1);
+    assert_eq!(event["data"]["previous"][1]["id"], 2);
+    assert_eq!(event["data"]["current"]["id"], 3);
+}
+
+#[test]
 fn entity_visual_updates_expose_packet_values() {
     use darpc_model::{Direction, WorldObject as ModelWorldObject};
 

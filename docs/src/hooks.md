@@ -38,7 +38,7 @@ The tick also:
   settling window
 - Detects when native pathfinding starts and stops
 - Detects confirmed steps that shorten the retained planned route
-- Replans a retained daRPC ground destination after a queued step is rejected
+- Replans a retained native ground destination after a queued step is rejected
 - Executes at most one queued action or diagnostic command
 - Publishes small health counters used by hook diagnostics
 
@@ -138,12 +138,12 @@ active during a map transition. The hook only reads the last complete bitset,
 without locking, allocation, or a registry lookup.
 
 The failed-step wrapper checks the result that the stock queued-route code
-ignores and publishes the rejected edge as `walking.obstructed`. It performs
-the native full reset for a ground route, preserves the timed retry generation
-for entity pursuit, and retains a daRPC-requested native destination for a
-next-tick replan. An injected exact route is cancelled without native
-replanning. Replanning is deferred so breadth-first search is never entered
-recursively from the movement validator.
+ignores and publishes the rejected edge as `walking.obstructed`. It retains a
+native ground route for two one-second queued-step retries before a full reset
+and replan, preserves the timed retry generation for entity pursuit, and
+cancels an injected exact route without native replanning. Replanning is
+deferred so breadth-first search is never entered recursively from the movement
+validator.
 
 The path-builder entry hook runs after the client's breadth-first search succeeds.
 It reads the retained 12-byte step records, reverses their goal-to-start queue

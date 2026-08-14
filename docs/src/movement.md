@@ -105,12 +105,18 @@ route. It does not choose a target, chase creatures, or attack automatically.
 The result is best effort because the world can change after a route is built
 and the server always has the final say about whether a step succeeds.
 
-The pathfinder checks two views of the map:
+Every destination request uses this same augmented native breadth-first search,
+whether it came from daRPC, a ground right-click, or a right-click pursuit. A
+pursuit supplies the four tiles adjacent to its moving target as goals; an
+ordinary walk supplies one destination. The pathfinder checks three inputs:
 
 - The complete map data prevents off-screen walls from being treated as open
   space just because the client has not drawn them yet.
-- The live world view accounts for visible occupants, doors, and other current
-  changes.
+- The live world view accounts for doors and other current changes.
+- A fixed-size daRPC occupancy grid prevents the client from treating a visible
+  player's tile as passable. Lookups are constant time during the search.
+  Snapshots rebuild the grid, while player draw, move, and remove events update
+  only the affected tiles outside the search loop.
 
 A route can therefore fail even when its destination is inside the map. When
 no route is available at command time, the command completes with
@@ -118,10 +124,13 @@ no route is available at command time, the command completes with
 
 ### Recalculating a route
 
-daRPC keeps the requested destination while it is walking. It recalculates the
-route from the character's latest confirmed tile when a step is blocked, when
-an accepted step makes no confirmed progress for 1.2 seconds, or when the
-server sends an authoritative position correction.
+daRPC keeps the destination while a destination route is active, including a
+route started by right-clicking in the game. When a queued step is blocked, it
+keeps the route and retries that step after one second, then once more after
+another second. If the second retry also fails, it recalculates the route from
+the character's latest confirmed tile. The same retry sequence begins when an
+accepted step makes no confirmed progress for one second. An authoritative
+server position correction still causes an immediate recalculation.
 
 Every submitted step still passes the client's normal live safety check. If a
 new obstacle leaves no path at that moment, daRPC retries for up to five seconds.
@@ -129,9 +138,11 @@ The delay grows from 250 milliseconds to one second so repeated attempts do not
 overload the client. A new movement request, a map change, invalid client state,
 confirmed progress, or the five-second limit ends that recovery attempt.
 
-This recovery only applies to destination walks started by daRPC, because those
-have a known goal. Routes and creature pursuits started directly in the game
-keep their normal client behavior.
+This recovery applies to destination walks started by daRPC and native ground
+routes started directly in the game. Pursuits use the same augmented search but
+retain their normal moving-target timer, which repeatedly rebuilds the four
+adjacent goals as the target moves. Exact externally supplied routes remain
+caller-selected and are not replanned automatically.
 
 ## Resynchronizing position
 

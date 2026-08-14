@@ -327,6 +327,9 @@ unsafe extern "thiscall" fn combined_route_can_move(
         let Some((destination_x, destination_y)) = step_destination(x, y, direction) else {
             return 0;
         };
+        if crate::path_occupancy::blocked(destination_x, destination_y) {
+            return 0;
+        }
         // SAFETY: the caller supplied the live complete WorldPane and the map
         // identifier offset is fixed by the supported executable fingerprint.
         let map_id = unsafe {
@@ -465,7 +468,13 @@ unsafe extern "thiscall" fn path_builder_detour(
 extern "C" fn observe_path(world: *const c_void, result: usize) {
     let _ = panic::catch_unwind(|| {
         if result != 0 {
-            crate::route::observe(world, darpc_win32::pipe::sender_tick_ms());
+            let tick_ms = darpc_win32::pipe::sender_tick_ms();
+            if let Some(destination) = crate::route::observe(world, tick_ms) {
+                #[cfg(not(test))]
+                crate::actions::movement::observe_native_route(world, destination);
+                #[cfg(test)]
+                let _ = destination;
+            }
         }
     });
 }

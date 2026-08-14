@@ -164,7 +164,9 @@ ClientResync {
 ```
 
 This event means the client requested fresh server state. It does not mean the
-server has responded or that resynchronization has completed.
+server has responded or that resynchronization has completed. The request also
+clears the retained visible-object set before the server redraws it, publishing
+`objects.cleared` before the new object appearances.
 
 Begin speech with `//` to escape interception. The DLL removes one slash before
 submission, so `//walk x,y` is spoken as `/walk x,y` and does not publish a

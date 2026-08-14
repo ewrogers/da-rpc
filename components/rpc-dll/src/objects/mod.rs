@@ -51,6 +51,34 @@ impl ObjectCache {
         }
     }
 
+    pub(crate) fn merge_snapshot_sprites(&self, objects: &mut RawObjects) {
+        for object in objects
+            .entries
+            .iter_mut()
+            .take(usize::from(objects.count))
+            .flatten()
+        {
+            let RawWorldObject::Creature {
+                id, is_npc, sprite, ..
+            } = object
+            else {
+                continue;
+            };
+            if sprite.is_some() {
+                continue;
+            }
+            if let Some(RawWorldObject::Creature {
+                is_npc: current_is_npc,
+                sprite: Some(current_sprite),
+                ..
+            }) = self.get(*id)
+                && *is_npc == current_is_npc
+            {
+                *sprite = Some(current_sprite);
+            }
+        }
+    }
+
     pub(crate) fn name(&self, id: u32) -> Option<([u8; MAX_OBJECT_NAME_BYTES], u8)> {
         match self.entries[self.find(id)?]? {
             RawWorldObject::Player { name, name_len, .. }
@@ -583,6 +611,34 @@ mod tests {
         assert_eq!(cache.take_outside(10, 10), None);
         assert_eq!(cache.clear(), Some(QueuedObjectUpdate::Cleared));
         assert_eq!(cache.clear(), None);
+    }
+
+    #[test]
+    fn snapshot_retains_a_packet_observed_creature_sprite() {
+        let mut cache = ObjectCache::empty();
+        cache.upsert(creature(2, 12, 20, 1));
+        let mut captured = creature(2, 13, 20, 2);
+        let RawWorldObject::Creature { sprite, .. } = &mut captured else {
+            unreachable!();
+        };
+        *sprite = None;
+        let mut snapshot = RawObjects::empty();
+        assert!(snapshot.push(captured));
+
+        cache.merge_snapshot_sprites(&mut snapshot);
+
+        let Some(RawWorldObject::Creature {
+            sprite,
+            x,
+            y,
+            direction,
+            ..
+        }) = snapshot.entries[0]
+        else {
+            panic!("expected creature");
+        };
+        assert_eq!(sprite, Some(5));
+        assert_eq!((x, y, direction), (13, 20, 2));
     }
 
     #[test]

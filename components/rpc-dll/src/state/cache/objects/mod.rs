@@ -16,6 +16,11 @@ impl MainThreadObjects {
         unsafe { (&mut *self.0.get()).replace(objects) };
     }
 
+    pub(in crate::state) unsafe fn merge_snapshot_sprites(&self, objects: &mut RawObjects) {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&*self.0.get()).merge_snapshot_sprites(objects) };
+    }
+
     pub(in crate::state) unsafe fn name(
         &self,
         id: u32,

@@ -146,7 +146,7 @@ impl PublicationWriter<'_> {
         // SAFETY: this writer still owns exclusive access to both buffers.
         let raw = unsafe { &mut (*self.slot.snapshot.get()).raw };
         // SAFETY: this writer still owns exclusive access to both buffers.
-        let objects = unsafe { &*self.slot.objects.get() };
+        let objects = unsafe { &mut *self.slot.objects.get() };
         let previous = LAST_WORLD_TOKEN.swap(raw.world_token, Ordering::AcqRel);
         let world_generation = if previous == raw.world_token {
             WORLD_GENERATION.load(Ordering::Acquire)

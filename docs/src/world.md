@@ -160,7 +160,9 @@ route can return `504` when the game server does not respond.
 The initial baseline walks the client's retained object collection. A creature
 name or numeric sprite can be unavailable after a late attach when the client
 no longer retains the original draw details. Pressing the normal client refresh
-key causes the server to redraw nearby objects and fills those details again.
+key clears the retained visible-object set before the server redraws nearby
+objects. Numeric creature sprites learned from those draw packets are retained
+through the follow-up snapshot.
 
 ## Object events
 
@@ -191,7 +193,7 @@ item.moved
 
 Each object event carries the complete public object after the change.
 Disappearance carries the last retained object. `objects.cleared` marks a map
-or world boundary and carries no object.
+or world boundary, including an explicit client refresh, and carries no object.
 
 The server normally sends draw events for objects entering view but may not send
 an explicit removal when the local character simply walks out of range. After

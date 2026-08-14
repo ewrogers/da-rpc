@@ -164,8 +164,8 @@ exit codes are:
 The loader keeps its current responsibilities in small, domain-specific
 modules:
 
-- `pe.rs` validates the selected `darpc.dll` file and produces a `DarpcDll`
-  descriptor containing its canonical path and required lifecycle export
+- `pe.rs` validates the selected `darpc.dll` file and loaded module image and
+  produces their Portable Executable identity and required lifecycle export
   relative virtual addresses (RVAs).
 - `process.rs` owns target process handles, architecture inspection, process
   identity, executable-path discovery, and loaded-module discovery.
@@ -214,10 +214,16 @@ The implemented detach path:
 1. Validates the selected DLL and opens the x86 target.
 2. Finds the loaded `darpc.dll` through target module enumeration and verifies
    that its path matches the selected DLL.
-3. Calls `darpc_shutdown(0)` at the validated shutdown relative virtual
-   address.
-4. Calls `FreeLibrary` only after shutdown returns success.
-5. Re-inspects the target and reports success only when `darpc.dll` is absent.
+3. Reads the loaded module's bounded Portable Executable headers and export
+   table, then requires its timestamp, image size, and lifecycle export RVAs to
+   match the selected DLL exactly.
+4. Calls `darpc_shutdown(0)` only after that identity check succeeds.
+5. Calls `FreeLibrary` only after shutdown returns success.
+6. Re-inspects the target and reports success only when `darpc.dll` is absent.
+
+If the DLL file is replaced while an older build remains mapped in the client,
+detach fails before creating a remote thread. Restore the matching file at the
+same path to unload that build safely, or restart the client.
 
 A shutdown failure or uncertain completion leaves the DLL loaded. Every remote
 thread wait is bounded to 10 seconds. A timeout is reported separately and the

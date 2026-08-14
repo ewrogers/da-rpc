@@ -1,3 +1,4 @@
+mod action_delay;
 pub(crate) mod audio;
 pub(crate) mod message;
 pub(crate) mod object;
@@ -5,6 +6,7 @@ mod state;
 pub(crate) mod visual;
 
 use self::{
+    action_delay::ActionDelay,
     audio::AudioUpdate,
     message::ParsedMessage,
     object::WorldUpdate,
@@ -152,6 +154,7 @@ impl<'a> PacketReader<'a> {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum ServerUpdate<'a> {
+    ActionDelay(ActionDelay),
     Audio(AudioUpdate),
     Status(StatusUpdate),
     UserAppearance(UserAppearance),
@@ -172,6 +175,9 @@ pub(crate) fn update<'a>(
     body: &'a [u8],
     objects: &mut RawObjects,
 ) -> Result<Option<ServerUpdate<'a>>, ParseError> {
+    if let Some(update) = action_delay::update(body)? {
+        return Ok(Some(ServerUpdate::ActionDelay(update)));
+    }
     if matches!(body.first(), Some(0x2F | 0x30)) {
         if body.len() < 2 {
             return Err(ParseError::truncated(1, 1, body.len().saturating_sub(1)));

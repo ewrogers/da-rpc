@@ -144,7 +144,7 @@ impl PublicationWriter<'_> {
 
     pub(super) fn publish_ready(mut self, request_generation: u32, duration_us: u32) {
         // SAFETY: this writer still owns exclusive access to both buffers.
-        let raw = unsafe { &(*self.slot.snapshot.get()).raw };
+        let raw = unsafe { &mut (*self.slot.snapshot.get()).raw };
         // SAFETY: this writer still owns exclusive access to both buffers.
         let objects = unsafe { &*self.slot.objects.get() };
         let previous = LAST_WORLD_TOKEN.swap(raw.world_token, Ordering::AcqRel);

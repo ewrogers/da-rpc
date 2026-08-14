@@ -310,10 +310,13 @@ pub(crate) fn stage_map_transition(
 }
 
 pub(crate) fn snapshot_boundary(
-    raw: &RawStateSnapshot,
+    raw: &mut RawStateSnapshot,
     objects: &RawObjects,
     tick_ms: u32,
 ) -> SnapshotBoundary {
+    // SAFETY: snapshot capture and packet observation are serialized on the
+    // client main thread.
+    unsafe { COLLECTIONS.merge_snapshot(raw, tick_ms) };
     // SAFETY: snapshot capture and event observation both run on the client
     // main thread, so cache mutation cannot overlap.
     unsafe { CACHE.replace(StateCache::from_raw(raw)) };
@@ -348,6 +351,18 @@ pub(crate) fn watch_ability_cooldown(kind: CollectionKind, slot: u8, tick_ms: u3
     // SAFETY: outgoing ability observation runs on the client main thread,
     // which is the sole collection producer.
     unsafe { COLLECTIONS.watch_cooldown(kind, slot, tick_ms) };
+}
+
+pub(crate) fn observe_action_delay(
+    kind: CollectionKind,
+    slot: u8,
+    duration_seconds: u32,
+    tick_ms: u32,
+) {
+    let duration_ms = duration_seconds.checked_mul(1_000);
+    // SAFETY: decoded server events run on the client main thread, which is
+    // the sole collection producer.
+    unsafe { COLLECTIONS.observe_action_delay(kind, slot, duration_ms, tick_ms) };
 }
 
 pub(crate) fn mark_resync_required() {

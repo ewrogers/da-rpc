@@ -29,6 +29,8 @@ pub struct RawSkill {
     pub cooldown_ends_at: u32,
     pub cooldown_visual_active: bool,
     pub action_delay_active: bool,
+    pub action_delay_duration_ms: u32,
+    pub action_delay_timing_available: bool,
     pub name_suffix_left: i32,
     pub base_name_length: i32,
 }
@@ -56,6 +58,9 @@ pub struct RawSpell {
     pub prompt: Option<RawClientText<128>>,
     pub cast_lines: u8,
     pub action_delay_active: bool,
+    pub action_delay_started_at: u32,
+    pub action_delay_ends_at: u32,
+    pub action_delay_timing_available: bool,
     pub name_suffix_left: i32,
     pub base_name_length: i32,
 }
@@ -114,6 +119,8 @@ impl<M: MemoryReader> StateWalker<'_, M> {
                 cooldown_ends_at: u32_at(&bytes, 0x18C),
                 cooldown_visual_active: bytes[0x190] != 0,
                 action_delay_active: bytes[0x192] != 0,
+                action_delay_duration_ms: 0,
+                action_delay_timing_available: false,
                 name_suffix_left: i32_at(&bytes, 0x1AC),
                 base_name_length: i32_at(&bytes, 0x1B4),
             });
@@ -152,6 +159,9 @@ impl<M: MemoryReader> StateWalker<'_, M> {
                 },
                 cast_lines: bytes[0x105],
                 action_delay_active: bytes[0x107] != 0,
+                action_delay_started_at: 0,
+                action_delay_ends_at: 0,
+                action_delay_timing_available: false,
                 name_suffix_left: i32_at(&bytes, 0x120),
                 base_name_length: i32_at(&bytes, 0x128),
             });

@@ -28,8 +28,10 @@ Each occupied slot includes:
 - Cooldown activity plus optional total and exact remaining durations
 
 The prompt is only present for text-input spells. A cooldown can be known to be
-active without exact `cooldown_ms` or `remaining_ms` values. The currently
-supported client exposes only the active flag for spells.
+active without exact `cooldown_ms` or `remaining_ms` values. daRPC retains exact
+timing from live server action-delay packets. A spell already cooling when the
+DLL attaches exposes only its active flag because the spellbook retains no
+start or end timestamp.
 
 ```text
 Spellbook {
@@ -219,10 +221,11 @@ Spellbook changes use `batch_index`, `batch_count`, `slot`, `before`, and
 `after`. Moving or swapping spells can create several frames in one batch. The
 daemon applies the full batch before it broadcasts the first frame.
 
-`spell.changed` is not emitted for a cooldown-only transition. Spell cooldowns
-do not currently expose an exact remaining duration, so daRPC polls only the
-watched active spell slot until it can emit `spell.ready`. Both cooldown events
-include `observation`, the one-based `slot`, and the spell `name` when known.
+`spell.changed` is not emitted for a cooldown-only transition. A live
+action-delay packet supplies `cooldown_ms` and `remaining_ms` on
+`spell.cooldown`. On late attach those fields remain absent, but daRPC polls the
+active slot until it can emit `spell.ready`. Both cooldown events include
+`observation`, the one-based `slot`, and the spell `name` when known.
 
 ## Availability
 

@@ -409,6 +409,14 @@ extern "C" fn observe_event(event: *const core::ffi::c_void) {
         };
         EVENT_COUNT.fetch_add(1, Ordering::Relaxed);
         match update {
+            packet::ServerUpdate::ActionDelay(update) => {
+                state::observe_action_delay(
+                    update.kind,
+                    update.slot,
+                    update.duration_seconds,
+                    tick_ms,
+                );
+            }
             packet::ServerUpdate::Audio(update) => {
                 state::observe_audio(update, tick_ms);
             }

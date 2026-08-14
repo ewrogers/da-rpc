@@ -1,19 +1,5 @@
 # Changelog
 
-## Unreleased
-
-### Fixed
-
-- Unified daRPC destinations, in-game ground clicks, and pursuits on the same
-  augmented native pathfinder, including constant-time visible-player
-  occupancy checks that route around occupied tiles.
-- Retried blocked native ground-route steps twice at one-second intervals, then
-  replanned from the latest confirmed tile, using a bounded observation cadence
-  to avoid affecting client animation timing.
-- Kept recovery active when a rebuilt route's first step was immediately
-  rejected, and separated visible-player path occupancy from general object
-  cache reconciliation.
-
 ## 1.4.0 - 2026-08-14
 
 ### Added
@@ -46,6 +32,15 @@
 
 ### Fixed
 
+- Unified daRPC destinations, in-game ground clicks, and pursuits on the same
+  augmented native pathfinder, including constant-time visible-player
+  occupancy checks that route around occupied tiles.
+- Retried blocked native ground-route steps twice at one-second intervals, then
+  replanned from the latest confirmed tile, using a bounded observation cadence
+  to avoid affecting client animation timing.
+- Kept recovery active when a rebuilt route's first step was immediately
+  rejected, and separated visible-player path occupancy from general object
+  cache reconciliation.
 - Accepted group invitation and toggle request bodies at the HTTP routing
   boundary.
 - Kept skill cooldown snapshots advancing to ready when elapsed remaining time

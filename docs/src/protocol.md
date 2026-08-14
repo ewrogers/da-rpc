@@ -450,7 +450,7 @@ enum PlayerVisual: u8 {
 }
 
 struct HumanVisual {
-    resource_prefix: u8;
+    gender: u8;
     head_sprite: u16;
     body_sprite: u16;
     arms_sprite: u16;

@@ -37,7 +37,7 @@ pub enum CreatureKind {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct HumanVisual {
-    pub resource_prefix: u8,
+    pub gender: crate::snapshot::Gender,
     pub head_sprite: u16,
     pub body_sprite: u16,
     pub arms_sprite: u16,

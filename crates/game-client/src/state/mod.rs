@@ -579,7 +579,7 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
         }
 
         Ok(RawPlayerVisual::Human(RawHumanVisual {
-            resource_prefix: self.read_u8(add(object, 0xA4)?)?,
+            gender: self.read_u8(add(object, 0xA4)?)?,
             head_sprite,
             hair_color: self.read_u8(add(object, 0xA8)?)?,
             body_sprite: self.read_u16(add(object, 0xAA)?)?,

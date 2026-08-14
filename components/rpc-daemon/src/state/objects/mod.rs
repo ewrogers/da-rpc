@@ -1,4 +1,4 @@
-use super::ObservationMetadata;
+use super::{CharacterGender, ObservationMetadata};
 use darpc_model::{
     CreatureKind as ModelCreatureKind, Direction as ModelDirection,
     HumanVisual as ModelHumanVisual, PlayerVisual as ModelPlayerVisual,
@@ -178,7 +178,7 @@ impl From<&ModelWorldObject> for WorldObject {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum PlayerVisual {
     Human {
-        resource_prefix: u8,
+        gender: CharacterGender,
         head_sprite: u16,
         body_sprite: u16,
         arms_sprite: u16,
@@ -215,7 +215,7 @@ impl From<&ModelPlayerVisual> for PlayerVisual {
     fn from(visual: &ModelPlayerVisual) -> Self {
         match visual {
             ModelPlayerVisual::Human(ModelHumanVisual {
-                resource_prefix,
+                gender,
                 head_sprite,
                 body_sprite,
                 arms_sprite,
@@ -240,7 +240,7 @@ impl From<&ModelPlayerVisual> for PlayerVisual {
                 face_shape,
                 is_translucent,
             }) => Self::Human {
-                resource_prefix: *resource_prefix,
+                gender: (*gender).into(),
                 head_sprite: *head_sprite,
                 body_sprite: *body_sprite,
                 arms_sprite: *arms_sprite,

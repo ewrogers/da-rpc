@@ -372,7 +372,7 @@ pub(crate) fn object_model(raw: RawWorldObject) -> WorldObject {
 pub(crate) const fn visual_model(raw: RawPlayerVisual) -> PlayerVisual {
     match raw {
         RawPlayerVisual::Human(RawHumanVisual {
-            resource_prefix,
+            gender,
             head_sprite,
             body_sprite,
             arms_sprite,
@@ -397,7 +397,7 @@ pub(crate) const fn visual_model(raw: RawPlayerVisual) -> PlayerVisual {
             face_shape,
             is_translucent,
         }) => PlayerVisual::Human(HumanVisual {
-            resource_prefix,
+            gender: darpc_model::Gender::from_raw(gender),
             head_sprite,
             body_sprite,
             arms_sprite,

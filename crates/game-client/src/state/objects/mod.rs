@@ -3,7 +3,7 @@ pub const MAX_OBJECT_NAME_BYTES: usize = 64;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct RawHumanVisual {
-    pub resource_prefix: u8,
+    pub gender: u8,
     pub head_sprite: u16,
     pub body_sprite: u16,
     pub arms_sprite: u16,

@@ -140,11 +140,10 @@ fn parse_player(body: &[u8], objects: &mut RawObjects) -> Result<(), ParseError>
         let skin_color = reader.u8()?;
         let packet_translucent = reader.u8()? != 0;
         let face_shape = reader.u8()?;
-        let (resource_prefix, body_sprite, style_translucent) =
-            decode_body_style(body_and_pants >> 4);
+        let (gender, body_sprite, style_translucent) = decode_body_style(body_and_pants >> 4);
         let pants_color = body_and_pants & 0x0F;
         RawPlayerVisual::Human(RawHumanVisual {
-            resource_prefix,
+            gender,
             head_sprite,
             body_sprite,
             arms_sprite,
@@ -468,7 +467,7 @@ mod tests {
         assert_eq!(
             visual,
             RawPlayerVisual::Human(RawHumanVisual {
-                resource_prefix: 1,
+                gender: 1,
                 head_sprite: 0x0123,
                 body_sprite: 2,
                 arms_sprite: 0x0203,

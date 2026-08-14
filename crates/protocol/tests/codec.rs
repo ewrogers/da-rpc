@@ -54,7 +54,7 @@ fn hello() -> Hello {
 
 fn player_visual() -> PlayerVisual {
     PlayerVisual::Human(HumanVisual {
-        resource_prefix: 1,
+        gender: Gender::Female,
         head_sprite: 101,
         body_sprite: 2,
         arms_sprite: 102,

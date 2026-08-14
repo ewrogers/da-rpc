@@ -201,7 +201,7 @@ fn encode_player_visual(output: &mut Vec<u8>, visual: &PlayerVisual) {
     match visual {
         PlayerVisual::Human(visual) => {
             output.push(1);
-            output.push(visual.resource_prefix);
+            output.push(visual.gender.raw());
             push_u16(output, visual.head_sprite);
             push_u16(output, visual.body_sprite);
             push_u16(output, visual.arms_sprite);
@@ -244,7 +244,7 @@ fn encode_player_visual(output: &mut Vec<u8>, visual: &PlayerVisual) {
 fn decode_player_visual(reader: &mut PayloadReader<'_>) -> Result<PlayerVisual, DecodeError> {
     match reader.read_u8()? {
         1 => Ok(PlayerVisual::Human(HumanVisual {
-            resource_prefix: reader.read_u8()?,
+            gender: darpc_model::Gender::from_raw(reader.read_u8()?),
             head_sprite: reader.read_u16()?,
             body_sprite: reader.read_u16()?,
             arms_sprite: reader.read_u16()?,

@@ -109,7 +109,7 @@ pub(crate) fn json_value(object: &WorldObject) -> serde_json::Value {
 fn visual_json(visual: &PlayerVisual) -> serde_json::Value {
     match visual {
         PlayerVisual::Human(HumanVisual {
-            resource_prefix,
+            gender,
             head_sprite,
             body_sprite,
             arms_sprite,
@@ -134,7 +134,7 @@ fn visual_json(visual: &PlayerVisual) -> serde_json::Value {
             face_shape,
             is_translucent,
         }) => json!({
-            "kind": "human", "resource_prefix": resource_prefix,
+            "kind": "human", "gender": gender_name(*gender),
             "head_sprite": head_sprite, "body_sprite": body_sprite,
             "arms_sprite": arms_sprite, "boots_sprite": boots_sprite,
             "pants_sprite": pants_sprite, "armor_sprite": armor_sprite,
@@ -157,6 +157,14 @@ fn visual_json(visual: &PlayerVisual) -> serde_json::Value {
             "kind": "creature", "sprite": sprite, "color": color,
             "boots_color": boots_color, "pants_color": pants_color,
         }),
+    }
+}
+
+const fn gender_name(gender: darpc_model::Gender) -> &'static str {
+    match gender {
+        darpc_model::Gender::Male => "male",
+        darpc_model::Gender::Female => "female",
+        darpc_model::Gender::Unknown(_) => "unknown",
     }
 }
 

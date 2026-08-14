@@ -228,7 +228,7 @@ fn game_snapshot() -> ModelClientSnapshot {
                 direction: ModelDirection::North,
                 is_hidden: false,
                 visual: Some(ModelPlayerVisual::Human(ModelHumanVisual {
-                    resource_prefix: 1,
+                    gender: darpc_model::Gender::Female,
                     head_sprite: 101,
                     body_sprite: 2,
                     arms_sprite: 102,

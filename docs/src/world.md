@@ -84,8 +84,7 @@ uses `kind: "human"` and exposes every sprite used by the client renderer:
 head, body, arms, boots, pants, armor, weapon, shield, overcoat, and three
 accessories. `hair_color` and `skin_color` are top-level visual fields, alongside
 the boots, pants, overcoat, and accessory dye colors. The block also includes
-the resource prefix, rest position, face shape, and translucency flag used by
-the renderer.
+gender, rest position, face shape, and translucency flag used by the renderer.
 
 A transformed player uses `kind: "creature"` and exposes the creature sprite
 plus the three color bytes carried by that packet layout. Creature-form draws

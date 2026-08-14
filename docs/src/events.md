@@ -535,9 +535,12 @@ SpellReceived {
 }
 ```
 
-The skill cooldown events use the same `CooldownStarted` and `AbilityReady`
-payloads. `cooldown_ms` is the stable total duration and `remaining_ms` is the
-time left at observation; each is present only when retained by the client.
+Skill cooldown events use the same `CooldownStarted` and `AbilityReady`
+payloads. `cooldown_ms` is the stable total duration from the live action-delay
+packet and `remaining_ms` is the time left at observation. Skills also retain
+start and end timestamps in client memory, which restores exact timing after a
+late attach. Spells do not, so both fields can be absent after a late attach
+even while the active cooldown and eventual ready transition remain observable.
 When both are present, `remaining_ms` does not exceed `cooldown_ms`. A consumer
 can calculate progress from both values but should treat `*.ready` as the
 authoritative completion signal rather than relying only on a local countdown.

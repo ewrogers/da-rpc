@@ -12,6 +12,7 @@ use darpc_model::{
 mod convert;
 mod cooldown;
 
+use crate::wrapping_time::deadline_reached;
 use convert::trim_ascii;
 pub(crate) use convert::{inventory_item, skill_model, spell};
 use cooldown::CooldownWatch;
@@ -19,6 +20,12 @@ use cooldown::CooldownWatch;
 const MAX_INVENTORY_CHANGES: usize = INVENTORY_SLOT_COUNT * 2;
 const MAX_ABILITY_CHANGES: usize = ABILITY_SLOT_COUNT * 2;
 const SETTLE_MS: u32 = 5;
+
+#[derive(Clone, Copy)]
+struct ActionDelayTiming {
+    started_at: u32,
+    ends_at: u32,
+}
 
 pub(crate) struct CollectionTracker {
     inventory: RawInventory,
@@ -32,6 +39,8 @@ pub(crate) struct CollectionTracker {
     spellbook_dirty: [bool; ABILITY_SLOT_COUNT],
     skill_cooldowns: [CooldownWatch; ABILITY_SLOT_COUNT],
     spell_cooldowns: [CooldownWatch; ABILITY_SLOT_COUNT],
+    skill_action_delays: [Option<ActionDelayTiming>; ABILITY_SLOT_COUNT],
+    spell_action_delays: [Option<ActionDelayTiming>; ABILITY_SLOT_COUNT],
     inventory_tick_ms: u32,
     skillbook_tick_ms: u32,
     spellbook_tick_ms: u32,
@@ -51,6 +60,8 @@ impl CollectionTracker {
             spellbook_dirty: [false; ABILITY_SLOT_COUNT],
             skill_cooldowns: [CooldownWatch::Idle; ABILITY_SLOT_COUNT],
             spell_cooldowns: [CooldownWatch::Idle; ABILITY_SLOT_COUNT],
+            skill_action_delays: [None; ABILITY_SLOT_COUNT],
+            spell_action_delays: [None; ABILITY_SLOT_COUNT],
             inventory_tick_ms: 0,
             skillbook_tick_ms: 0,
             spellbook_tick_ms: 0,
@@ -83,12 +94,14 @@ impl CollectionTracker {
         self.spell_cooldowns.fill(CooldownWatch::Idle);
         reconcile_skill_cooldowns(
             &mut self.skill_cooldowns,
+            &mut self.skill_action_delays,
             &self.skillbook.skills,
             &[true; ABILITY_SLOT_COUNT],
             tick_ms,
         );
         reconcile_spell_cooldowns(
             &mut self.spell_cooldowns,
+            &mut self.spell_action_delays,
             &self.spellbook.spells,
             &[true; ABILITY_SLOT_COUNT],
             tick_ms,
@@ -130,6 +143,49 @@ impl CollectionTracker {
                 self.mark(kind, slot, tick_ms);
             }
             _ => {}
+        }
+    }
+
+    pub(crate) fn observe_action_delay(
+        &mut self,
+        kind: CollectionKind,
+        slot: u8,
+        duration_ms: Option<u32>,
+        tick_ms: u32,
+    ) {
+        self.watch_cooldown(kind, slot, tick_ms);
+        let Some(index) = usize::from(slot).checked_sub(1) else {
+            return;
+        };
+        if index < ABILITY_SLOT_COUNT
+            && let Some(duration_ms) = duration_ms
+        {
+            let timing = Some(ActionDelayTiming {
+                started_at: tick_ms,
+                ends_at: tick_ms.wrapping_add(duration_ms),
+            });
+            match kind {
+                CollectionKind::Skillbook => self.skill_action_delays[index] = timing,
+                CollectionKind::Spellbook => self.spell_action_delays[index] = timing,
+                _ => {}
+            }
+        }
+    }
+
+    pub(crate) fn merge_snapshot(&self, raw: &mut RawStateSnapshot, tick_ms: u32) {
+        if raw.character_available && raw.character.spellbook_available {
+            apply_spell_action_delays(
+                &mut raw.character.spellbook,
+                &self.spell_action_delays,
+                tick_ms,
+            );
+        }
+        if raw.character_available && raw.character.skillbook_available {
+            apply_skill_action_delays(
+                &mut raw.character.skillbook,
+                &self.skill_action_delays,
+                tick_ms,
+            );
         }
     }
 
@@ -191,6 +247,11 @@ impl CollectionTracker {
             )
         {
             if skills_available && skills_ready {
+                apply_skill_action_delays(
+                    &mut self.skillbook_scratch,
+                    &self.skill_action_delays,
+                    current_tick_ms,
+                );
                 emit_updates::<_, _, ABILITY_SLOT_COUNT, MAX_ABILITY_CHANGES>(
                     &self.skillbook.skills,
                     &self.skillbook_scratch.skills,
@@ -201,6 +262,7 @@ impl CollectionTracker {
                 );
                 reconcile_skill_cooldowns(
                     &mut self.skill_cooldowns,
+                    &mut self.skill_action_delays,
                     &self.skillbook_scratch.skills,
                     &self.skillbook_dirty,
                     current_tick_ms,
@@ -212,6 +274,11 @@ impl CollectionTracker {
                 );
             }
             if spells_available && spells_ready {
+                apply_spell_action_delays(
+                    &mut self.spellbook_scratch,
+                    &self.spell_action_delays,
+                    current_tick_ms,
+                );
                 emit_updates::<_, _, ABILITY_SLOT_COUNT, MAX_ABILITY_CHANGES>(
                     &self.spellbook.spells,
                     &self.spellbook_scratch.spells,
@@ -222,6 +289,7 @@ impl CollectionTracker {
                 );
                 reconcile_spell_cooldowns(
                     &mut self.spell_cooldowns,
+                    &mut self.spell_action_delays,
                     &self.spellbook_scratch.spells,
                     &self.spellbook_dirty,
                     current_tick_ms,
@@ -264,6 +332,7 @@ fn schedule_cooldown_polls<const N: usize>(
 
 fn reconcile_skill_cooldowns(
     watches: &mut [CooldownWatch; ABILITY_SLOT_COUNT],
+    timings: &mut [Option<ActionDelayTiming>; ABILITY_SLOT_COUNT],
     skills: &[Option<RawSkill>; ABILITY_SLOT_COUNT],
     observed: &[bool; ABILITY_SLOT_COUNT],
     now_ms: u32,
@@ -280,11 +349,36 @@ fn reconcile_skill_cooldowns(
             .filter(|skill| skill.cooldown_visual_active)
             .map(|skill| skill.cooldown_ends_at);
         *watch = watch.observed(active, exact_end_ms, now_ms);
+        if !active && matches!(*watch, CooldownWatch::Idle) {
+            timings[index] = None;
+        }
+    }
+}
+
+fn apply_skill_action_delays(
+    skillbook: &mut RawSkillbook,
+    timings: &[Option<ActionDelayTiming>; ABILITY_SLOT_COUNT],
+    now_ms: u32,
+) {
+    for (skill, timing) in skillbook.skills.iter_mut().zip(timings) {
+        let Some(skill) = skill else {
+            continue;
+        };
+        skill.action_delay_timing_available = false;
+        let Some(timing) = timing.filter(|timing| {
+            (skill.cooldown_visual_active || skill.action_delay_active)
+                && !deadline_reached(now_ms, timing.ends_at)
+        }) else {
+            continue;
+        };
+        skill.action_delay_duration_ms = timing.ends_at.wrapping_sub(timing.started_at);
+        skill.action_delay_timing_available = true;
     }
 }
 
 fn reconcile_spell_cooldowns(
     watches: &mut [CooldownWatch; ABILITY_SLOT_COUNT],
+    timings: &mut [Option<ActionDelayTiming>; ABILITY_SLOT_COUNT],
     spells: &[Option<RawSpell>; ABILITY_SLOT_COUNT],
     observed: &[bool; ABILITY_SLOT_COUNT],
     now_ms: u32,
@@ -294,8 +388,42 @@ fn reconcile_spell_cooldowns(
         .enumerate()
         .filter(|(index, _)| observed[*index])
     {
-        let active = spells[index].is_some_and(|spell| spell.action_delay_active);
-        *watch = watch.observed(active, None, now_ms);
+        let timing = timings[index];
+        let timing_active = timing.is_some_and(|timing| !deadline_reached(now_ms, timing.ends_at));
+        let active = timing.map_or_else(
+            || spells[index].is_some_and(|spell| spell.action_delay_active),
+            |_| timing_active,
+        );
+        let exact_end_ms = timing
+            .filter(|_| timing_active)
+            .map(|timing| timing.ends_at);
+        *watch = watch.observed(active, exact_end_ms, now_ms);
+        if !active && matches!(*watch, CooldownWatch::Idle) {
+            timings[index] = None;
+        }
+    }
+}
+
+fn apply_spell_action_delays(
+    spellbook: &mut RawSpellbook,
+    timings: &[Option<ActionDelayTiming>; ABILITY_SLOT_COUNT],
+    now_ms: u32,
+) {
+    for (spell, timing) in spellbook.spells.iter_mut().zip(timings) {
+        let Some(spell) = spell else {
+            continue;
+        };
+        spell.action_delay_timing_available = false;
+        let Some(timing) = timing else {
+            continue;
+        };
+        spell.action_delay_active = !deadline_reached(now_ms, timing.ends_at);
+        if !spell.action_delay_active {
+            continue;
+        }
+        spell.action_delay_started_at = timing.started_at;
+        spell.action_delay_ends_at = timing.ends_at;
+        spell.action_delay_timing_available = true;
     }
 }
 
@@ -345,8 +473,8 @@ impl QueuedCollectionUpdate {
                 batch_count: update.batch_count,
                 change: update.change,
                 slot: update.slot,
-                before: update.before.map(spell),
-                after: update.after.map(spell),
+                before: update.before.map(|raw| spell(raw, tick_ms)),
+                after: update.after.map(|raw| spell(raw, tick_ms)),
             }),
             Self::Skillbook(update) => StateUpdate::Skillbook(SkillbookUpdate {
                 batch_index: update.batch_index,
@@ -782,17 +910,23 @@ mod tests {
         let converted = inventory_item(item_with_name(1, 10, 3, b"Dark Belt [ 3 ]"));
         assert_eq!(converted.name.as_deref(), Some("Dark Belt"));
 
-        let spell = spell(RawSpell {
-            slot: 1,
-            icon: 20,
-            name: text(b"Fas Spiorad (Lev:3/5)"),
-            argument_type: 1,
-            prompt: Some(text(b"Target \xFFname?")),
-            cast_lines: 4,
-            action_delay_active: false,
-            name_suffix_left: 0,
-            base_name_length: 0,
-        });
+        let spell = spell(
+            RawSpell {
+                slot: 1,
+                icon: 20,
+                name: text(b"Fas Spiorad (Lev:3/5)"),
+                argument_type: 1,
+                prompt: Some(text(b"Target \xFFname?")),
+                cast_lines: 4,
+                action_delay_active: false,
+                action_delay_started_at: 0,
+                action_delay_ends_at: 0,
+                action_delay_timing_available: false,
+                name_suffix_left: 0,
+                base_name_length: 0,
+            },
+            100,
+        );
         assert_eq!(spell.name.as_deref(), Some("Fas Spiorad"));
         assert_eq!(spell.level, 3);
         assert_eq!(spell.max_level, 5);
@@ -810,6 +944,8 @@ mod tests {
                 cooldown_ends_at: 46_006,
                 cooldown_visual_active: true,
                 action_delay_active: false,
+                action_delay_duration_ms: 0,
+                action_delay_timing_available: false,
                 name_suffix_left: 0,
                 base_name_length: 0,
             },
@@ -835,11 +971,14 @@ mod tests {
             cooldown_ends_at: 1_000,
             cooldown_visual_active: true,
             action_delay_active: false,
+            action_delay_duration_ms: 0,
+            action_delay_timing_available: false,
             name_suffix_left: 0,
             base_name_length: 0,
         });
         reconcile_skill_cooldowns(
             &mut tracker.skill_cooldowns,
+            &mut tracker.skill_action_delays,
             &skills,
             &tracker.skillbook_dirty,
             105,
@@ -866,6 +1005,7 @@ mod tests {
     #[test]
     fn active_spell_without_exact_expiry_uses_targeted_polling() {
         let mut watches = [CooldownWatch::Idle; ABILITY_SLOT_COUNT];
+        let mut timings = [None; ABILITY_SLOT_COUNT];
         let mut spells = [None; ABILITY_SLOT_COUNT];
         let mut observed = [false; ABILITY_SLOT_COUNT];
         spells[3] = Some(RawSpell {
@@ -876,14 +1016,121 @@ mod tests {
             prompt: None,
             cast_lines: 0,
             action_delay_active: true,
+            action_delay_started_at: 0,
+            action_delay_ends_at: 0,
+            action_delay_timing_available: false,
             name_suffix_left: 0,
             base_name_length: 0,
         });
         observed[3] = true;
-        reconcile_spell_cooldowns(&mut watches, &spells, &observed, 200);
+        reconcile_spell_cooldowns(&mut watches, &mut timings, &spells, &observed, 200);
         assert!(!watches[3].due(224));
         assert!(watches[3].due(225));
         assert_eq!(watches[2], CooldownWatch::Idle);
+    }
+
+    #[test]
+    fn action_delay_timing_populates_spell_total_and_remaining_time() {
+        let mut spellbook = RawSpellbook::empty();
+        spellbook.spells[37] = Some(RawSpell {
+            slot: 38,
+            icon: 173,
+            name: text(b"Mud Wall"),
+            argument_type: 0,
+            prompt: None,
+            cast_lines: 0,
+            action_delay_active: true,
+            action_delay_started_at: 0,
+            action_delay_ends_at: 0,
+            action_delay_timing_available: false,
+            name_suffix_left: 0,
+            base_name_length: 0,
+        });
+        let mut timings = [None; ABILITY_SLOT_COUNT];
+        timings[37] = Some(ActionDelayTiming {
+            started_at: 1_000,
+            ends_at: 13_000,
+        });
+
+        apply_spell_action_delays(&mut spellbook, &timings, 2_000);
+        let converted = spell(spellbook.spells[37].unwrap(), 2_000);
+
+        assert_eq!(converted.cooldown.cooldown_ms, Some(12_000));
+        assert_eq!(converted.cooldown.remaining_ms, Some(11_000));
+    }
+
+    #[test]
+    fn action_delay_timing_authoritatively_completes_spell_cooldown() {
+        let mut spellbook = RawSpellbook::empty();
+        spellbook.spells[37] = Some(RawSpell {
+            slot: 38,
+            icon: 173,
+            name: text(b"Mud Wall"),
+            argument_type: 0,
+            prompt: None,
+            cast_lines: 0,
+            action_delay_active: true,
+            action_delay_started_at: 0,
+            action_delay_ends_at: 0,
+            action_delay_timing_available: false,
+            name_suffix_left: 0,
+            base_name_length: 0,
+        });
+        let mut timings = [None; ABILITY_SLOT_COUNT];
+        timings[37] = Some(ActionDelayTiming {
+            started_at: 1_000,
+            ends_at: 13_000,
+        });
+
+        apply_spell_action_delays(&mut spellbook, &timings, 13_000);
+        let raw = spellbook.spells[37].unwrap();
+        assert!(!raw.action_delay_active);
+        assert!(!raw.action_delay_timing_available);
+
+        let mut watches = [CooldownWatch::Idle; ABILITY_SLOT_COUNT];
+        watches[37] = CooldownWatch::Active {
+            next_poll_ms: 13_000,
+        };
+        let mut observed = [false; ABILITY_SLOT_COUNT];
+        observed[37] = true;
+        reconcile_spell_cooldowns(
+            &mut watches,
+            &mut timings,
+            &spellbook.spells,
+            &observed,
+            13_000,
+        );
+        assert_eq!(watches[37], CooldownWatch::Idle);
+        assert!(timings[37].is_none());
+    }
+
+    #[test]
+    fn action_delay_total_is_authoritative_for_live_skill_timing() {
+        let mut skillbook = RawSkillbook::empty();
+        skillbook.skills[10] = Some(RawSkill {
+            slot: 11,
+            icon: 91,
+            name: text(b"Throw"),
+            cooldown_started_at: 1_050,
+            cooldown_ends_at: 46_050,
+            cooldown_visual_active: true,
+            action_delay_active: true,
+            action_delay_duration_ms: 0,
+            action_delay_timing_available: false,
+            name_suffix_left: 0,
+            base_name_length: 0,
+        });
+        let mut timings = [None; ABILITY_SLOT_COUNT];
+        timings[10] = Some(ActionDelayTiming {
+            started_at: 1_000,
+            ends_at: 47_000,
+        });
+
+        apply_skill_action_delays(&mut skillbook, &timings, 2_000);
+        let converted = skill_model(skillbook.skills[10].unwrap(), 2_000);
+
+        assert_eq!(converted.cooldown.cooldown_ms, Some(46_000));
+        assert_eq!(converted.cooldown.remaining_ms, Some(44_050));
     }
 
     fn inventory_updates(

@@ -13,10 +13,16 @@ pub(crate) fn inventory_item(item: RawInventoryItem) -> InventoryItem {
     }
 }
 
-pub(crate) fn spell(raw: RawSpell) -> Spell {
+pub(crate) fn spell(raw: RawSpell, tick_ms: u32) -> Spell {
     let (name, level, max_level) =
         parsed_ability_name(raw.name, raw.name_suffix_left, raw.base_name_length);
     let target_type = SpellTargetType::from_raw(raw.argument_type);
+    let cooldown_ms = (raw.action_delay_active && raw.action_delay_timing_available).then(|| {
+        raw.action_delay_ends_at
+            .wrapping_sub(raw.action_delay_started_at)
+    });
+    let remaining_ms =
+        cooldown_ms.map(|duration| raw.action_delay_ends_at.wrapping_sub(tick_ms).min(duration));
     Spell {
         slot: raw.slot,
         icon: raw.icon,
@@ -32,8 +38,8 @@ pub(crate) fn spell(raw: RawSpell) -> Spell {
         },
         cooldown: CooldownStatus {
             active: raw.action_delay_active,
-            cooldown_ms: None,
-            remaining_ms: None,
+            cooldown_ms,
+            remaining_ms,
         },
     }
 }
@@ -41,10 +47,13 @@ pub(crate) fn spell(raw: RawSpell) -> Spell {
 pub(crate) fn skill_model(raw: RawSkill, tick_ms: u32) -> Skill {
     let (name, level, max_level) =
         parsed_ability_name(raw.name, raw.name_suffix_left, raw.base_name_length);
-    let cooldown_ms = raw
-        .cooldown_visual_active
-        .then(|| raw.cooldown_ends_at.wrapping_sub(raw.cooldown_started_at))
-        .filter(|duration| *duration <= i32::MAX as u32);
+    let cooldown_ms = if raw.action_delay_active && raw.action_delay_timing_available {
+        Some(raw.action_delay_duration_ms)
+    } else {
+        raw.cooldown_visual_active
+            .then(|| raw.cooldown_ends_at.wrapping_sub(raw.cooldown_started_at))
+            .filter(|duration| *duration <= i32::MAX as u32)
+    };
     let remaining_ms = raw
         .cooldown_visual_active
         .then(|| raw.cooldown_ends_at.wrapping_sub(tick_ms))

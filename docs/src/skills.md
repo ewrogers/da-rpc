@@ -28,7 +28,9 @@ Each occupied slot includes:
 - Optional `cooldown.remaining_ms` when the client retains an exact expiry
 
 A cooldown can be known to be active even when the exact remaining time is not
-available.
+available. Live action-delay packets are authoritative for the total duration.
+The skillbook's retained start and end timestamps provide current progress and
+recover exact timing after a late attach.
 
 ```text
 Skillbook {
@@ -143,7 +145,8 @@ updates are ignored.
 contains `observation`, the one-based `slot`, optional `name`, optional
 `cooldown_ms`, and optional `remaining_ms`. `cooldown_ms` is the stable total
 duration, while `remaining_ms` is the time left at observation and never
-exceeds the total when both are present. A ready event
+exceeds the total when both are present. The live packet supplies the total;
+the retained skill timestamps supply progress. A ready event
 contains `observation`, `slot`, and optional `name`. When the client exposes an
 exact skill expiry, daRPC schedules a read at that deadline. Otherwise it polls
 only the watched active slot until the skill is ready.

@@ -154,7 +154,9 @@ fn character_snapshot(raw: &RawCharacter, world_token: u32, tick_ms: u32) -> Cha
             .map(|location| map_location(location, world_token)),
         inventory: raw.inventory_available.then(|| inventory(&raw.inventory)),
         equipment: raw.equipment_available.then(|| equipment(&raw.equipment)),
-        spellbook: raw.spellbook_available.then(|| spellbook(&raw.spellbook)),
+        spellbook: raw
+            .spellbook_available
+            .then(|| spellbook(&raw.spellbook, tick_ms)),
         skillbook: raw
             .skillbook_available
             .then(|| skillbook(&raw.skillbook, tick_ms)),
@@ -238,12 +240,12 @@ fn equipment(raw: &RawEquipment) -> Vec<EquipmentItem> {
         .collect()
 }
 
-fn spellbook(raw: &RawSpellbook) -> Vec<Spell> {
+fn spellbook(raw: &RawSpellbook, tick_ms: u32) -> Vec<Spell> {
     raw.spells
         .iter()
         .copied()
         .flatten()
-        .map(collections::spell)
+        .map(|spell| collections::spell(spell, tick_ms))
         .collect()
 }
 

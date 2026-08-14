@@ -57,8 +57,8 @@ highest version in the overlap. A peer must not advertise one continuous range
 across an incompatible major boundary. No overlap rejects the connection.
 
 The only currently supported version is 1.2 (`0x0102`). Version 1.1 added exact
-route and path-exclusion commands plus obstruction events. Version 1.2 adds the
-total skill cooldown duration to cooldown snapshots and collection updates.
+route and path-exclusion commands plus obstruction events. Version 1.2 adds
+total ability cooldown duration to cooldown snapshots and collection updates.
 Peers advertise only 1.2 because these additions change message layouts or can
 introduce discriminants that earlier decoders cannot interpret safely.
 

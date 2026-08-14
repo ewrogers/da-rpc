@@ -36,6 +36,24 @@ impl MainThreadCollections {
         unsafe { &mut *self.0.get() }.watch_cooldown(kind, slot, tick_ms);
     }
 
+    /// The caller must serialize access on the client main thread.
+    pub(in crate::state) unsafe fn observe_action_delay(
+        &self,
+        kind: CollectionKind,
+        slot: u8,
+        duration_ms: Option<u32>,
+        tick_ms: u32,
+    ) {
+        // SAFETY: upheld by the caller.
+        unsafe { &mut *self.0.get() }.observe_action_delay(kind, slot, duration_ms, tick_ms);
+    }
+
+    /// The caller must serialize access on the client main thread.
+    pub(in crate::state) unsafe fn merge_snapshot(&self, raw: &mut RawStateSnapshot, tick_ms: u32) {
+        // SAFETY: upheld by the caller.
+        unsafe { &mut *self.0.get() }.merge_snapshot(raw, tick_ms);
+    }
+
     pub(in crate::state) unsafe fn observe_tick(
         &self,
         tick_ms: u32,

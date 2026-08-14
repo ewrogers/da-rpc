@@ -47,7 +47,9 @@ let version: u16 = ((major as u16) << 8) | minor as u16;
 
 const VERSION_1_0: u16 = 0x0100;
 const VERSION_1_1: u16 = 0x0101;
+const VERSION_1_2: u16 = 0x0102;
 const VERSION_1_3: u16 = 0x0103;
+const VERSION_1_4: u16 = 0x0104;
 const VERSION_2_0: u16 = 0x0200;
 ```
 

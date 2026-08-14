@@ -388,9 +388,14 @@ fn reconcile_spell_cooldowns(
         .enumerate()
         .filter(|(index, _)| observed[*index])
     {
-        let active = spells[index].is_some_and(|spell| spell.action_delay_active);
-        let exact_end_ms = timings[index]
-            .filter(|timing| !deadline_reached(now_ms, timing.ends_at))
+        let timing = timings[index];
+        let timing_active = timing.is_some_and(|timing| !deadline_reached(now_ms, timing.ends_at));
+        let active = timing.map_or_else(
+            || spells[index].is_some_and(|spell| spell.action_delay_active),
+            |_| timing_active,
+        );
+        let exact_end_ms = timing
+            .filter(|_| timing_active)
             .map(|timing| timing.ends_at);
         *watch = watch.observed(active, exact_end_ms, now_ms);
         if !active && matches!(*watch, CooldownWatch::Idle) {
@@ -409,11 +414,13 @@ fn apply_spell_action_delays(
             continue;
         };
         spell.action_delay_timing_available = false;
-        let Some(timing) = timing.filter(|timing| {
-            spell.action_delay_active && !deadline_reached(now_ms, timing.ends_at)
-        }) else {
+        let Some(timing) = timing else {
             continue;
         };
+        spell.action_delay_active = !deadline_reached(now_ms, timing.ends_at);
+        if !spell.action_delay_active {
+            continue;
+        }
         spell.action_delay_started_at = timing.started_at;
         spell.action_delay_ends_at = timing.ends_at;
         spell.action_delay_timing_available = true;
@@ -1050,6 +1057,51 @@ mod tests {
 
         assert_eq!(converted.cooldown.cooldown_ms, Some(12_000));
         assert_eq!(converted.cooldown.remaining_ms, Some(11_000));
+    }
+
+    #[test]
+    fn action_delay_timing_authoritatively_completes_spell_cooldown() {
+        let mut spellbook = RawSpellbook::empty();
+        spellbook.spells[37] = Some(RawSpell {
+            slot: 38,
+            icon: 173,
+            name: text(b"Mud Wall"),
+            argument_type: 0,
+            prompt: None,
+            cast_lines: 0,
+            action_delay_active: true,
+            action_delay_started_at: 0,
+            action_delay_ends_at: 0,
+            action_delay_timing_available: false,
+            name_suffix_left: 0,
+            base_name_length: 0,
+        });
+        let mut timings = [None; ABILITY_SLOT_COUNT];
+        timings[37] = Some(ActionDelayTiming {
+            started_at: 1_000,
+            ends_at: 13_000,
+        });
+
+        apply_spell_action_delays(&mut spellbook, &timings, 13_000);
+        let raw = spellbook.spells[37].unwrap();
+        assert!(!raw.action_delay_active);
+        assert!(!raw.action_delay_timing_available);
+
+        let mut watches = [CooldownWatch::Idle; ABILITY_SLOT_COUNT];
+        watches[37] = CooldownWatch::Active {
+            next_poll_ms: 13_000,
+        };
+        let mut observed = [false; ABILITY_SLOT_COUNT];
+        observed[37] = true;
+        reconcile_spell_cooldowns(
+            &mut watches,
+            &mut timings,
+            &spellbook.spells,
+            &observed,
+            13_000,
+        );
+        assert_eq!(watches[37], CooldownWatch::Idle);
+        assert!(timings[37].is_none());
     }
 
     #[test]

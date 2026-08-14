@@ -159,6 +159,7 @@ pub struct CharacterSnapshot {
     pub identity: Option<crate::PlayerIdentity>,
     pub appearance: Option<CharacterAppearance>,
     pub class: CharacterClass,
+    pub is_hidden: bool,
     pub is_action_restricted: bool,
     pub is_blinded: bool,
     pub is_casting: bool,

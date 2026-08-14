@@ -564,6 +564,7 @@ impl ClientSnapshot {
                     .ok_or(ApplyEventError::ObjectsUnavailable)?;
                 match update {
                     ObjectUpdate::Appeared(object) => {
+                        let mut object = object;
                         if let crate::WorldObject::Player {
                             name: Some(name), ..
                         } = &object
@@ -583,6 +584,7 @@ impl ClientSnapshot {
                             .iter_mut()
                             .find(|current| current.id() == object.id())
                         {
+                            merge_player_observation(current, &mut object);
                             *current = object;
                         } else {
                             objects.push(object);
@@ -597,10 +599,12 @@ impl ClientSnapshot {
                     }
                     ObjectUpdate::Moved(object) | ObjectUpdate::DirectionChanged(object) => {
                         let id = object.id();
+                        let mut object = object;
                         let current = objects
                             .iter_mut()
                             .find(|current| current.id() == id)
                             .ok_or(ApplyEventError::ObjectNotFound { id })?;
+                        merge_player_observation(current, &mut object);
                         *current = object;
                     }
                     ObjectUpdate::Cleared => objects.clear(),
@@ -732,6 +736,26 @@ impl ClientSnapshot {
         self.event_sequence = event.sequence;
         self.updated_tick_ms = event.tick_ms;
         Ok(())
+    }
+}
+
+fn merge_player_observation(current: &crate::WorldObject, observed: &mut crate::WorldObject) {
+    let (
+        crate::WorldObject::Player {
+            name: current_name,
+            profile: current_profile,
+            ..
+        },
+        crate::WorldObject::Player { name, profile, .. },
+    ) = (current, observed)
+    else {
+        return;
+    };
+    if name.is_none() {
+        *name = current_name.clone();
+    }
+    if profile.is_none() {
+        *profile = current_profile.clone();
     }
 }
 
@@ -1067,6 +1091,65 @@ mod tests {
         assert_eq!(snapshot.objects, Some(vec![replacement]));
     }
 
+    #[test]
+    fn sparse_hidden_player_observation_retains_name_and_profile() {
+        let mut snapshot = empty_snapshot(ClientLifecycle::InGame);
+        let mut current = player(7, "Monitor", 10, 20);
+        let crate::WorldObject::Player { profile, .. } = &mut current else {
+            unreachable!();
+        };
+        *profile = Some(Box::new(crate::PlayerProfile {
+            identity: crate::PlayerIdentity {
+                nation: crate::Nation::Rucesion,
+                title: String::new(),
+                guild_rank: String::new(),
+                display_class: "Master".into(),
+                guild: String::new(),
+            },
+            user_state: crate::UserState::Awake,
+            is_group_open: true,
+            equipment: Vec::new(),
+            legend: Vec::new(),
+            inspected_tick_ms: 10,
+        }));
+        let expected_profile = match &current {
+            crate::WorldObject::Player { profile, .. } => profile.clone(),
+            _ => unreachable!(),
+        };
+        snapshot.objects = Some(vec![current.clone()]);
+        let mut hidden = player(7, "", 11, 20);
+        let crate::WorldObject::Player {
+            name, is_hidden, ..
+        } = &mut hidden
+        else {
+            unreachable!();
+        };
+        *name = None;
+        *is_hidden = true;
+
+        snapshot
+            .apply_event(StateEvent {
+                sequence: 2,
+                revision: 2,
+                tick_ms: 20,
+                update: StateUpdate::Object(ObjectUpdate::Appeared(hidden)),
+            })
+            .unwrap();
+
+        let crate::WorldObject::Player {
+            name,
+            profile,
+            is_hidden,
+            ..
+        } = &snapshot.objects.as_ref().unwrap()[0]
+        else {
+            panic!("expected player");
+        };
+        assert_eq!(name.as_deref(), Some("Monitor"));
+        assert_eq!(profile, &expected_profile);
+        assert!(*is_hidden);
+    }
+
     fn player(id: u32, name: &str, x: i32, y: i32) -> crate::WorldObject {
         crate::WorldObject::Player {
             id,
@@ -1074,6 +1157,7 @@ mod tests {
             x,
             y,
             direction: crate::Direction::South,
+            is_hidden: false,
             profile: None,
         }
     }
@@ -1087,6 +1171,7 @@ mod tests {
             identity: None,
             appearance: None,
             class: crate::CharacterClass::Warrior,
+            is_hidden: false,
             is_action_restricted: false,
             is_blinded: false,
             is_casting: false,

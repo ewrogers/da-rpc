@@ -510,6 +510,7 @@ mod tests {
                 identity: None,
                 appearance: None,
                 class: CharacterClass::Warrior,
+                is_hidden: false,
                 is_action_restricted: false,
                 is_blinded: false,
                 is_walking: false,

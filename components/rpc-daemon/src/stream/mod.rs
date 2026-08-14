@@ -50,6 +50,13 @@ pub(crate) enum PublishedEvent {
         message: Message,
     },
     #[cfg_attr(not(windows), allow(dead_code))]
+    Snapshot {
+        pid: u32,
+        identity: ClientIdentity,
+        previous: Box<darpc_model::ClientSnapshot>,
+        current: Box<darpc_model::ClientSnapshot>,
+    },
+    #[cfg_attr(not(windows), allow(dead_code))]
     State {
         pid: u32,
         identity: ClientIdentity,
@@ -95,6 +102,8 @@ pub(crate) enum ClientEvent {
     WalkingRouteChanged(WalkingRouteChanged),
     MapExclusionsChanged(MapExclusionsChanged),
     ActionRestrictionChanged(ActionRestrictionChanged),
+    CharacterAppearanceChanged(CharacterAppearanceChanged),
+    CharacterHiddenChanged(CharacterHiddenChanged),
     CharacterProfileChanged(CharacterProfileChanged),
     EffectAdded(EffectAdded),
     EffectRemoved(EffectRemoved),
@@ -207,6 +216,8 @@ impl ClientEvent {
             Self::WalkingRouteChanged(_) => "walking.route_changed",
             Self::MapExclusionsChanged(_) => "map.exclusions_changed",
             Self::ActionRestrictionChanged(_) => "action_restriction.changed",
+            Self::CharacterAppearanceChanged(_) => "character.appearance_changed",
+            Self::CharacterHiddenChanged(_) => "character.hidden_changed",
             Self::CharacterProfileChanged(_) => "character.profile_changed",
             Self::EffectAdded(_) => "effect.added",
             Self::EffectRemoved(_) => "effect.removed",
@@ -353,6 +364,8 @@ impl ClientEvent {
             Self::EquipmentUnequipped(value) => value.observation.event_sequence,
             Self::Emoted(value) => value.observation.event_sequence,
             Self::Turned(value) => value.observation.event_sequence,
+            Self::CharacterAppearanceChanged(value) => value.observation.event_sequence,
+            Self::CharacterHiddenChanged(value) => value.observation.event_sequence,
             Self::CharacterProfileChanged(value) => value.observation.event_sequence,
             Self::PlayerAppeared(value)
             | Self::PlayerDisappeared(value)
@@ -476,6 +489,20 @@ impl EventObservation {
             tick_ms: event.tick_ms,
         }
     }
+
+    fn from_snapshot(
+        pid: u32,
+        identity: ClientIdentity,
+        snapshot: &darpc_model::ClientSnapshot,
+    ) -> Self {
+        Self {
+            pid,
+            instance_id: hex(&identity.dll_instance_id),
+            revision: snapshot.revision,
+            event_sequence: snapshot.event_sequence,
+            tick_ms: snapshot.updated_tick_ms,
+        }
+    }
 }
 
 fn replace_player_appearance(
@@ -496,6 +523,40 @@ fn replace_player_appearance(
             other => other,
         })
         .collect()
+}
+
+fn snapshot_character_changes(
+    pid: u32,
+    identity: ClientIdentity,
+    previous: &darpc_model::ClientSnapshot,
+    current: &darpc_model::ClientSnapshot,
+) -> Vec<ClientEvent> {
+    let (Some(previous_character), Some(current_character)) =
+        (&previous.character, &current.character)
+    else {
+        return Vec::new();
+    };
+    let observation = EventObservation::from_snapshot(pid, identity, current);
+    let mut events = Vec::with_capacity(2);
+    if previous_character.appearance != current_character.appearance {
+        events.push(ClientEvent::CharacterAppearanceChanged(
+            CharacterAppearanceChanged {
+                observation: observation.clone(),
+                previous: previous_character.appearance.map(Into::into),
+                current: current_character.appearance.map(Into::into),
+            },
+        ));
+    }
+    if previous_character.is_hidden != current_character.is_hidden {
+        events.push(ClientEvent::CharacterHiddenChanged(
+            CharacterHiddenChanged {
+                observation,
+                previous: previous_character.is_hidden,
+                current: current_character.is_hidden,
+            },
+        ));
+    }
+    events
 }
 
 pub(crate) fn response(
@@ -522,6 +583,27 @@ pub(crate) fn response(
                     message,
                 }) if recipients.contains(&identity) => {
                     yield Ok(ClientEvent::Message(message).into_internal_sse());
+                }
+                Ok(PublishedEvent::Snapshot {
+                    pid: event_pid,
+                    identity: event_identity,
+                    previous,
+                    current,
+                }) if event_pid == pid && event_identity == identity => {
+                    if !SequenceNumber::new(current.event_sequence)
+                        .is_after(SequenceNumber::new(last_sequence))
+                    {
+                        continue;
+                    }
+                    last_sequence = current.event_sequence;
+                    for api_event in snapshot_character_changes(
+                        pid,
+                        identity,
+                        &previous,
+                        &current,
+                    ) {
+                        yield Ok(api_event.into_sse());
+                    }
                 }
                 Ok(PublishedEvent::State {
                     pid: event_pid,

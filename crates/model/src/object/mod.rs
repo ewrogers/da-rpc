@@ -43,6 +43,7 @@ pub enum WorldObject {
         x: i32,
         y: i32,
         direction: Direction,
+        is_hidden: bool,
         profile: Option<Box<crate::PlayerProfile>>,
     },
     Creature {

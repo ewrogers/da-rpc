@@ -183,7 +183,7 @@ HTTP API listening on http://127.0.0.1:2626
 client pid=3780 status=connecting
 client pid=3780 status=not_loaded
 client pid=3780 status=initializing
-client pid=3780 status=connected creation_time=... instance=... protocol=1.2 ...
+client pid=3780 status=connected creation_time=... instance=... protocol=1.3 ...
 client pid=3780 status=disconnected instance=... reason="..."
 client pid=3780 status=busy
 client pid=3780 status=incompatible instance=... reason="..."

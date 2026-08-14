@@ -187,6 +187,34 @@ impl ApiState {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .observe(event, observed_at_utc);
         match event {
+            ConnectionEvent::Snapshot {
+                pid,
+                identity,
+                snapshot,
+            } => {
+                let previous_snapshot = previous
+                    .clients
+                    .iter()
+                    .find(|client| client.pid == *pid && client.identity == Some(*identity))
+                    .and_then(|client| client.game_snapshot.as_ref());
+                if let Some(previous_snapshot) = previous_snapshot
+                    && previous_snapshot
+                        .character
+                        .as_ref()
+                        .map(|value| (value.appearance, value.is_hidden))
+                        != snapshot
+                            .character
+                            .as_ref()
+                            .map(|value| (value.appearance, value.is_hidden))
+                {
+                    let _ = self.published_events.send(PublishedEvent::Snapshot {
+                        pid: *pid,
+                        identity: *identity,
+                        previous: Box::new(previous_snapshot.clone()),
+                        current: snapshot.clone(),
+                    });
+                }
+            }
             ConnectionEvent::StateEvents {
                 pid,
                 identity,
@@ -956,6 +984,9 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         crate::stream::SoundPlayed,
         crate::stream::MusicStarted,
         crate::stream::MusicStopped,
+        crate::stream::CharacterAppearanceChanged,
+        crate::stream::CharacterAppearance,
+        crate::stream::CharacterHiddenChanged,
         crate::stream::WalkingObstructed,
         crate::stream::WalkingMode,
         crate::stream::MapExclusionsChanged,

@@ -19,6 +19,39 @@ pub(crate) struct ClientLifecycleChanged {
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
+pub(crate) struct CharacterAppearanceChanged {
+    pub(super) observation: EventObservation,
+    pub(super) previous: Option<CharacterAppearance>,
+    pub(super) current: Option<CharacterAppearance>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, ToSchema)]
+pub(crate) struct CharacterAppearance {
+    gender: crate::state::CharacterGender,
+    hair_style: u16,
+    hair_color: u8,
+    body_sprite: u16,
+}
+
+impl From<darpc_model::CharacterAppearance> for CharacterAppearance {
+    fn from(value: darpc_model::CharacterAppearance) -> Self {
+        Self {
+            gender: value.gender.into(),
+            hair_style: value.hair_style,
+            hair_color: value.hair_color,
+            body_sprite: value.body_sprite,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub(crate) struct CharacterHiddenChanged {
+    pub(super) observation: EventObservation,
+    pub(super) previous: bool,
+    pub(super) current: bool,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
 pub(crate) struct SoundPlayed {
     pub(super) observation: EventObservation,
     pub(super) effect: u8,

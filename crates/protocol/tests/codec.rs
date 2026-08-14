@@ -72,6 +72,7 @@ fn snapshot() -> ClientSnapshot {
                 body_sprite: 1,
             }),
             class: CharacterClass::Wizard,
+            is_hidden: false,
             is_action_restricted: false,
             is_blinded: true,
             is_walking: false,
@@ -173,6 +174,7 @@ fn snapshot() -> ClientSnapshot {
                 x: 40,
                 y: 30,
                 direction: Direction::East,
+                is_hidden: false,
                 profile: None,
             },
             WorldObject::Creature {

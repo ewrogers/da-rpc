@@ -274,6 +274,8 @@ Read the current values from `GET /clients/{client}/status`. See
 | `location.changed` | `location_changed` | `x`, `y`, and optional changed map details |
 | `blind.changed` | `blind_changed` | `is_blinded` |
 | `action_restriction.changed` | `action_restriction_changed` | `is_action_restricted` |
+| `character.appearance_changed` | `character_appearance_changed` | Optional complete `previous` and `current` appearances |
+| `character.hidden_changed` | `character_hidden_changed` | Boolean `previous` and `current` hidden state |
 
 ```text
 StatsChanged {
@@ -326,7 +328,45 @@ MapChanged {
     width: i32,
     height: i32,
 }
+
+CharacterAppearanceChanged {
+    observation: EventObservation,
+    previous: CharacterAppearance?,
+    current: CharacterAppearance?,
+}
+
+CharacterHiddenChanged {
+    observation: EventObservation,
+    previous: bool,
+    current: bool,
+}
 ```
+
+Appearance and hidden changes are emitted after an authoritative snapshot
+recapture, including the `0x33` self redraw used when Hide begins or ends.
+
+### Hide and monster-form transitions
+
+Hide and monster form are separate, mutually exclusive states. Consumers
+should use `is_hidden`, not nullable appearance fields, to detect Hide.
+
+| Local transition | SSE event | `/status` result |
+| --- | --- | --- |
+| Visible human to hidden | `character.hidden_changed` with `false` to `true` | `is_hidden: true`; the last complete gender, hair, and body fields remain available |
+| Hidden to visible human | `character.hidden_changed` with `true` to `false` | `is_hidden: false`; gender, hair, and body contain the current visible appearance |
+| Human to monster form | `character.appearance_changed` with a complete human `previous` and `current: null` | `gender`, `hair_style`, `hair_color`, and `body_sprite` are null; `is_hidden` remains false |
+| Monster form to human | `character.appearance_changed` with `previous: null` and a complete human `current` | The four human appearance fields repopulate; `is_hidden` remains false |
+
+A monster-form transition does not publish `character.hidden_changed`. The
+local character model currently represents the normal human appearance but
+does not expose the temporary monster sprite identifier.
+
+For another visible player, a hidden `0x33` redraw updates the player's
+`is_hidden` field and is published through the normal `player.appeared` object
+event. The object retains the last known name and inspected profile by entity
+ID. Nearby-player monster sprite details are not currently part of the public
+world-object model, so consumers should not infer a remote monster form from
+`is_hidden` or missing profile data.
 
 `map` is present when the map itself changed. Position and map details are
 published together so consumers never observe coordinates from one map paired
@@ -894,7 +934,7 @@ trying to infer state from only the changed field.
 | Stream | `stream.ready`, `stream.resync_required`, `stream.closed` | Reread every resource the consumer uses. |
 | Client lifecycle | `client.logged_in`, `client.disconnected` | `/status` |
 | Client requests | `client.command`, `client.resync` | None; transient events are not replayed. |
-| Status | `stats.changed`, `vitals.changed`, `progression.changed`, `gold.changed`, `weight.changed`, `modifiers.changed`, `location.changed`, `blind.changed`, `action_restriction.changed`, `character.profile_changed` | `/status` |
+| Status | `stats.changed`, `vitals.changed`, `progression.changed`, `gold.changed`, `weight.changed`, `modifiers.changed`, `location.changed`, `blind.changed`, `action_restriction.changed`, `character.appearance_changed`, `character.hidden_changed`, `character.profile_changed` | `/status` |
 | Map policy | `map.exclusions_changed` | `/maps/path-exclusions`, then the map item resource if needed |
 | Walking | `walking.started`, `walking.stopped`, `walking.obstructed`, `walking.route_changed`, `character.turned`, `character.emoted` | `/status` |
 | Inventory | `item.added`, `item.removed`, `item.changed`, `item.used`, `item.dropped`, `item.given`, `item.picked_up`, `gold.dropped`, `gold.given` | `/items`, then `/status` for gold |

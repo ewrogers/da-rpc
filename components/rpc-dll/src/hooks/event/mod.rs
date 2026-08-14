@@ -441,10 +441,11 @@ extern "C" fn observe_event(event: *const core::ffi::c_void) {
             }
             packet::ServerUpdate::World(update) => {
                 state::observe_world(update, &scratch.objects, tick_ms);
-                if scratch.body[0] == 0x33
-                    && let Some(player) = scratch.objects.entries[0]
-                {
-                    crate::player::appeared(player);
+                if matches!(update, packet::object::WorldUpdate::DrawPlayer) {
+                    state::mark_resync_required();
+                    if let Some(player) = scratch.objects.entries[0] {
+                        crate::player::appeared(player);
+                    }
                 }
             }
             packet::ServerUpdate::Message(message) => {

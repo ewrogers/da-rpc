@@ -16,11 +16,12 @@ pub(crate) fn render_human(output: &mut String, objects: Option<&[WorldObject]>)
                 x,
                 y,
                 direction,
+                is_hidden,
                 ..
             } => {
                 let _ = write!(
                     output,
-                    "\n  player id={id} name={} x={x} y={y} direction={}",
+                    "\n  player id={id} name={} x={x} y={y} direction={} is_hidden={is_hidden}",
                     name.as_deref().unwrap_or("unavailable"),
                     direction_name(*direction),
                 );
@@ -70,10 +71,11 @@ pub(crate) fn json_value(object: &WorldObject) -> serde_json::Value {
             x,
             y,
             direction,
+            is_hidden,
             ..
         } => json!({
             "kind": "player", "id": id, "name": name, "x": x, "y": y,
-            "direction": direction_name(*direction),
+            "direction": direction_name(*direction), "is_hidden": is_hidden,
         }),
         WorldObject::Creature {
             id,

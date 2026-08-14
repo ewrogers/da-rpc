@@ -13,6 +13,7 @@ const SPRITE_MASK: u16 = 0x3FFF;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum WorldUpdate {
     Draw,
+    DrawPlayer,
     Move {
         id: u32,
         x: i32,
@@ -35,7 +36,9 @@ pub(crate) fn update(
     objects.clear();
     match body.first().copied() {
         Some(DRAW_OBJECTS_OPCODE) => parse_objects(body, objects).map(|()| Some(WorldUpdate::Draw)),
-        Some(DRAW_PLAYER_OPCODE) => parse_player(body, objects).map(|()| Some(WorldUpdate::Draw)),
+        Some(DRAW_PLAYER_OPCODE) => {
+            parse_player(body, objects).map(|()| Some(WorldUpdate::DrawPlayer))
+        }
         Some(MOVE_OBJECT_OPCODE) => parse_move(body).map(Some),
         Some(REMOVE_OBJECT_OPCODE) => parse_remove(body).map(Some),
         Some(CHANGE_DIRECTION_OPCODE) => parse_direction(body).map(Some),
@@ -101,11 +104,16 @@ fn parse_player(body: &[u8], objects: &mut RawObjects) -> Result<(), ParseError>
     let direction = reader.direction()?;
     let id = reader.u32_be()?;
     let head_sprite = reader.u16_be()?;
-    if head_sprite == u16::MAX {
+    let is_hidden = if head_sprite == u16::MAX {
         reader.skip(10)?;
+        false
     } else {
-        reader.skip(28)?;
-    }
+        let body_sprite = reader.u8()?;
+        reader.skip(25)?;
+        let translucent = reader.u8()? != 0;
+        reader.skip(1)?;
+        body_sprite == 0 || translucent
+    };
     reader.skip(1)?;
     let (name, name_len) = reader.name()?;
     reader.skip_string8()?;
@@ -117,6 +125,7 @@ fn parse_player(body: &[u8], objects: &mut RawObjects) -> Result<(), ParseError>
         x,
         y,
         direction,
+        is_hidden,
     });
     debug_assert!(pushed);
     Ok(())
@@ -279,7 +288,7 @@ mod tests {
         player.extend_from_slice(&[0; 28]);
         player.extend_from_slice(&[0, 4, b'S', b'i', b'L', b'o', 0]);
         let draw = update(&player, &mut objects).unwrap().unwrap();
-        assert_eq!(draw, WorldUpdate::Draw);
+        assert_eq!(draw, WorldUpdate::DrawPlayer);
         let Some(RawWorldObject::Player {
             id,
             name,
@@ -287,11 +296,13 @@ mod tests {
             x,
             y,
             direction,
+            is_hidden,
         }) = objects.entries[0]
         else {
             panic!("expected player object");
         };
         assert_eq!((id, x, y, direction), (7, 10, 20, 1));
+        assert!(is_hidden);
         assert_eq!(&name[..usize::from(name_len)], b"SiLo");
     }
 
@@ -302,8 +313,15 @@ mod tests {
         player.extend_from_slice(&[0; 10]);
         player.extend_from_slice(&[0, 0, 0]);
         let draw = update(&player, &mut objects).unwrap().unwrap();
-        assert_eq!(draw, WorldUpdate::Draw);
+        assert_eq!(draw, WorldUpdate::DrawPlayer);
         assert_eq!(objects.count, 1);
+        assert!(matches!(
+            objects.entries[0],
+            Some(RawWorldObject::Player {
+                is_hidden: false,
+                ..
+            })
+        ));
 
         let draw = update(
             &[
@@ -319,6 +337,28 @@ mod tests {
         assert!(matches!(
             objects.entries[0],
             Some(RawWorldObject::Item { id: 2, .. })
+        ));
+    }
+
+    #[test]
+    fn parses_translucent_players_as_hidden() {
+        let mut objects = RawObjects::empty();
+        let mut player = vec![0x33, 0, 10, 0, 20, 1, 0, 0, 0, 7, 0, 1];
+        player.extend_from_slice(&[0; 28]);
+        player[12] = 80;
+        player[38] = 1;
+        player.extend_from_slice(&[0, 0, 0]);
+
+        assert_eq!(
+            update(&player, &mut objects).unwrap(),
+            Some(WorldUpdate::DrawPlayer)
+        );
+        assert!(matches!(
+            objects.entries[0],
+            Some(RawWorldObject::Player {
+                is_hidden: true,
+                ..
+            })
         ));
     }
 

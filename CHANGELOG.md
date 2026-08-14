@@ -16,6 +16,11 @@
 - Advanced the binary protocol to version 1.3 for hidden-state snapshot and
   world-object fields.
 
+### Fixed
+
+- Suppressed the self-look panel produced when the local player's `0x33`
+  login draw triggers automatic profile inspection.
+
 ## 1.3.0 - 2026-08-13
 
 ### Added

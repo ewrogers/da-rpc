@@ -415,7 +415,13 @@ fn observe_self_identity(current: RawIdentity, tick_ms: u32) {
 
 fn complete_self_request(id: u32, tick_ms: u32) -> bool {
     request_tracking::remove(id);
-    let Some(origin) = take_internal_origin(ResponseKind::SelfLook, id, tick_ms) else {
+    // The server answers an object-info request for the local player with a
+    // self-look response. This occurs for the automatic inspection queued by
+    // the local player's 0x33 login draw, so accept either tracked response
+    // kind for the same entity while retaining ID-scoped isolation.
+    let Some(origin) = take_internal_origin(ResponseKind::SelfLook, id, tick_ms)
+        .or_else(|| take_internal_origin(ResponseKind::ObjectInfo, id, tick_ms))
+    else {
         return false;
     };
     request_tracking::complete(id);
@@ -683,7 +689,7 @@ mod tests {
     }
 
     #[test]
-    fn self_look_response_does_not_consume_object_info_suppression() {
+    fn self_look_response_consumes_same_target_object_info_suppression() {
         let _guard = TEST_LOCK
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -698,7 +704,28 @@ mod tests {
         });
         request_tracking::mark_in_flight(7, 10);
 
-        assert!(!complete_self_request(7, 11));
+        assert!(complete_self_request(7, 11));
+        assert!(!INTERCEPT_PENDING.load(Ordering::Acquire));
+        assert!(!intercept_response(&object_info(), 12));
+    }
+
+    #[test]
+    fn self_look_response_does_not_consume_other_target_object_info_suppression() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset();
+        push_origin(Origin {
+            kind: ORIGIN_DARPC,
+            response: ResponseKind::ObjectInfo,
+            id: 7,
+            trigger: PlayerInspectionTrigger::Appeared,
+            command_id: 0,
+            tick_ms: 10,
+        });
+        request_tracking::mark_in_flight(7, 10);
+
+        assert!(!complete_self_request(8, 11));
         assert!(INTERCEPT_PENDING.load(Ordering::Acquire));
         assert!(intercept_response(&object_info(), 12));
         assert!(!INTERCEPT_PENDING.load(Ordering::Acquire));

@@ -2,8 +2,13 @@
 
 ## Unreleased
 
+## 1.4.2 - 2026-08-14
+
 ### Fixed
 
+- Cleared retained world entities before an explicit client resync and
+  preserved packet-observed monster and Mundane sprite IDs through the
+  follow-up snapshot.
 - Made loader detach reject an on-disk DLL whose Portable Executable identity
   or lifecycle export layout differs from the module loaded in the client.
 

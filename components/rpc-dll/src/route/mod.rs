@@ -54,6 +54,16 @@ impl RawRoute {
     fn length(&self) -> usize {
         usize::try_from(self.length).expect("route length fits usize")
     }
+
+    fn destination(&self) -> Option<TilePosition> {
+        self.available()
+            .then(|| self.tiles[..self.length()].last())
+            .flatten()
+            .map(|tile| TilePosition {
+                x: i32::from(tile.x),
+                y: i32::from(tile.y),
+            })
+    }
 }
 
 struct CurrentRoute(UnsafeCell<RawRoute>);
@@ -132,17 +142,17 @@ pub(crate) fn observe_current(tick_ms: u32) {
     let Some(world) = world_pane() else {
         return;
     };
-    observe(world, tick_ms);
+    let _ = observe(world, tick_ms);
 }
 
 #[cfg(windows)]
-pub(crate) fn observe(world: *const core::ffi::c_void, tick_ms: u32) {
+pub(crate) fn observe(world: *const core::ffi::c_void, tick_ms: u32) -> Option<TilePosition> {
     if world.is_null() {
-        return;
+        return None;
     }
     let Some((index, slot)) = claim_event() else {
         crate::state::mark_resync_required();
-        return;
+        return None;
     };
     // SAFETY: WRITING gives the main-thread producer exclusive access to this
     // event buffer, and `world` is the live receiver of the hooked native
@@ -150,8 +160,11 @@ pub(crate) fn observe(world: *const core::ffi::c_void, tick_ms: u32) {
     let captured = unsafe { capture(world.cast::<u8>(), &mut *slot.route.get()) };
     if !captured {
         slot.state.store(EMPTY, Ordering::Release);
-        return;
+        return None;
     }
+    // SAFETY: WRITING still gives this producer exclusive access to the
+    // captured route until the slot is published below.
+    let destination = unsafe { (&*slot.route.get()).destination() };
     // SAFETY: route observation and current-route snapshot publication are
     // serialized on the client main thread.
     let changed = unsafe {
@@ -166,13 +179,14 @@ pub(crate) fn observe(world: *const core::ffi::c_void, tick_ms: u32) {
     };
     if !changed {
         slot.state.store(EMPTY, Ordering::Release);
-        return;
+        return destination;
     }
     slot.state.store(READY, Ordering::Release);
     let queued = QueuedRoute(u8::try_from(index).expect("route event index fits u8"));
     if !crate::state::observe_route(queued, tick_ms) {
         release(queued);
     }
+    destination
 }
 
 fn claim_event() -> Option<(usize, &'static EventSlot)> {
@@ -419,6 +433,7 @@ mod tests {
                 TilePosition { x: 6, y: 6 },
             ]
         );
+        assert_eq!(output.destination(), Some(TilePosition { x: 6, y: 6 }));
     }
 
     #[test]

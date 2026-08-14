@@ -118,10 +118,13 @@ no route is available at command time, the command completes with
 
 ### Recalculating a route
 
-daRPC keeps the requested destination while it is walking. It recalculates the
-route from the character's latest confirmed tile when a step is blocked, when
-an accepted step makes no confirmed progress for 1.2 seconds, or when the
-server sends an authoritative position correction.
+daRPC keeps the destination while a destination route is active, including a
+route started by right-clicking in the game. When a queued step is blocked, it
+keeps the route and retries that step after one second, then once more after
+another second. If the second retry also fails, it recalculates the route from
+the character's latest confirmed tile. The same retry sequence begins when an
+accepted step makes no confirmed progress for one second. An authoritative
+server position correction still causes an immediate recalculation.
 
 Every submitted step still passes the client's normal live safety check. If a
 new obstacle leaves no path at that moment, daRPC retries for up to five seconds.
@@ -129,9 +132,9 @@ The delay grows from 250 milliseconds to one second so repeated attempts do not
 overload the client. A new movement request, a map change, invalid client state,
 confirmed progress, or the five-second limit ends that recovery attempt.
 
-This recovery only applies to destination walks started by daRPC, because those
-have a known goal. Routes and creature pursuits started directly in the game
-keep their normal client behavior.
+This recovery applies to destination walks started by daRPC and native ground
+routes started directly in the game. Creature pursuits keep their normal client
+behavior.
 
 ## Resynchronizing position
 

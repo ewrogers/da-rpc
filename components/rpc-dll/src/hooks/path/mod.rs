@@ -465,7 +465,13 @@ unsafe extern "thiscall" fn path_builder_detour(
 extern "C" fn observe_path(world: *const c_void, result: usize) {
     let _ = panic::catch_unwind(|| {
         if result != 0 {
-            crate::route::observe(world, darpc_win32::pipe::sender_tick_ms());
+            let tick_ms = darpc_win32::pipe::sender_tick_ms();
+            if let Some(destination) = crate::route::observe(world, tick_ms) {
+                #[cfg(not(test))]
+                crate::actions::movement::observe_native_route(world, destination);
+                #[cfg(test)]
+                let _ = destination;
+            }
         }
     });
 }

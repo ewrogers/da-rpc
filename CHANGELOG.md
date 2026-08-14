@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- Retried blocked native ground-route steps twice at one-second intervals, then
+  replanned routes started by daRPC or by right-clicking in the game.
+
 ## 1.4.0 - 2026-08-14
 
 ### Added

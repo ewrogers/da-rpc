@@ -1,6 +1,15 @@
 use super::*;
 
 #[test]
+fn character_stat_flags_match_the_client_packet() {
+    assert_eq!(CharacterStat::Strength.flag(), 0x01);
+    assert_eq!(CharacterStat::Dexterity.flag(), 0x02);
+    assert_eq!(CharacterStat::Intelligence.flag(), 0x04);
+    assert_eq!(CharacterStat::Wisdom.flag(), 0x08);
+    assert_eq!(CharacterStat::Constitution.flag(), 0x10);
+}
+
+#[test]
 fn command_messages_round_trip() {
     assert!(PathExclusions::new(65_536, &[RouteTile { x: 1, y: 1 }]).is_none());
     assert!(PathExclusions::new(1, &[RouteTile { x: 400, y: 1 }]).is_none());
@@ -82,6 +91,14 @@ fn command_messages_round_trip() {
             request_id: 173,
             operation: CommandOperation::Submit {
                 kind: CommandKind::ClearPathExclusions,
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 174,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::AddStat(CharacterStat::Constitution),
                 timeout_ms: 1_000,
                 wait_ms: 50,
             },

@@ -423,6 +423,9 @@ extern "C" fn observe_event(event: *const core::ffi::c_void) {
             packet::ServerUpdate::Status(update) => {
                 state::observe_status(update, tick_ms);
             }
+            packet::ServerUpdate::StatPoints(stat_points) => {
+                state::observe_stat_points(stat_points, tick_ms);
+            }
             packet::ServerUpdate::UserAppearance(update) => {
                 state::observe_status(update.status, tick_ms);
                 if update.is_full {

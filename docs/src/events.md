@@ -270,7 +270,7 @@ no `player.hidden_changed` event.
 
 | SSE event | JSON type | Payload after `observation` |
 | --- | --- | --- |
-| `stats.changed` | `stats_changed` | `strength`, `intelligence`, `wisdom`, `constitution`, `dexterity` |
+| `stats.changed` | `stats_changed` | `stat_points`, `strength`, `intelligence`, `wisdom`, `constitution`, `dexterity` |
 | `vitals.changed` | `vitals_changed` | Nullable `health`, `max_health`, `mana`, `max_mana` |
 | `progression.changed` | `progression_changed` | Nullable level, ability, and experience fields |
 | `gold.changed` | `gold_changed` | `gold` |
@@ -285,6 +285,7 @@ no `player.hidden_changed` event.
 ```text
 StatsChanged {
     observation: EventObservation,
+    stat_points: u8,
     strength: u16,
     intelligence: u16,
     wisdom: u16,

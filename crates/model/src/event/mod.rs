@@ -1194,6 +1194,7 @@ mod tests {
                 ability_to_next_level: None,
             },
             stats: CharacterStats {
+                stat_points: 0,
                 strength: 3,
                 intelligence: 3,
                 wisdom: 3,

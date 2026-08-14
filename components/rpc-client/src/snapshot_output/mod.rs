@@ -93,8 +93,13 @@ pub(crate) fn render_human(
     let stats = character.stats;
     let _ = write!(
         output,
-        "\nstats: strength={} intelligence={} wisdom={} constitution={} dexterity={}",
-        stats.strength, stats.intelligence, stats.wisdom, stats.constitution, stats.dexterity,
+        "\nstats: stat_points={} strength={} intelligence={} wisdom={} constitution={} dexterity={}",
+        stats.stat_points,
+        stats.strength,
+        stats.intelligence,
+        stats.wisdom,
+        stats.constitution,
+        stats.dexterity,
     );
     let vitals = character.vitals;
     let _ = write!(
@@ -289,6 +294,7 @@ fn character_value(character: &CharacterSnapshot) -> serde_json::Value {
             "ability_to_next_level": progression.ability_to_next_level,
         },
         "stats": {
+            "stat_points": stats.stat_points,
             "strength": stats.strength,
             "intelligence": stats.intelligence,
             "wisdom": stats.wisdom,

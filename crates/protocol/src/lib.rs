@@ -14,18 +14,18 @@ mod session;
 mod snapshot;
 
 pub use command::{
-    ChantText, CommandFailure, CommandKind, CommandOperation, CommandRequest, CommandResponse,
-    CommandResult, CommandState, CommandStatus, DEFAULT_COMMAND_TIMEOUT_MS, DialogAction,
-    DialogCommand, DialogText, ExchangeCommand, GoldTransfer, GroupCommand, GroupInvitationAction,
-    GroupText, ItemSlot, ItemTransfer, MAX_CHANT_TEXT_LEN, MAX_COMMAND_TIMEOUT_MS,
-    MAX_COMMAND_WAIT_MS, MAX_DIALOG_INPUT_LEN, MAX_GROUP_NAME_LEN, MAX_ITEM_SLOT,
-    MAX_MESSAGE_CONTENT_LEN, MAX_MESSAGE_RECIPIENT_LEN, MAX_PATH_EXCLUSION_DIMENSION,
-    MAX_PATH_EXCLUSION_MAPS, MAX_PATH_EXCLUSION_TILES, MAX_PATH_EXCLUSION_TOTAL_TILES,
-    MAX_RAW_PACKET_PAYLOAD_LEN, MAX_SKILL_SLOT, MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT,
-    MAX_WALK_ROUTE_TILES, MAX_WHO_NAME_LEN, MAX_WHO_PLAYERS, MAX_WHO_TITLE_LEN, MessageCommand,
-    MessageContent, MessageRecipient, PathExclusions, RawPacket, RawPacketDirection, RouteTile,
-    SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget,
-    TilePosition, TransferTarget, WalkRoute, WalkTarget,
+    ChantText, CharacterStat, CommandFailure, CommandKind, CommandOperation, CommandRequest,
+    CommandResponse, CommandResult, CommandState, CommandStatus, DEFAULT_COMMAND_TIMEOUT_MS,
+    DialogAction, DialogCommand, DialogText, ExchangeCommand, GoldTransfer, GroupCommand,
+    GroupInvitationAction, GroupText, ItemSlot, ItemTransfer, MAX_CHANT_TEXT_LEN,
+    MAX_COMMAND_TIMEOUT_MS, MAX_COMMAND_WAIT_MS, MAX_DIALOG_INPUT_LEN, MAX_GROUP_NAME_LEN,
+    MAX_ITEM_SLOT, MAX_MESSAGE_CONTENT_LEN, MAX_MESSAGE_RECIPIENT_LEN,
+    MAX_PATH_EXCLUSION_DIMENSION, MAX_PATH_EXCLUSION_MAPS, MAX_PATH_EXCLUSION_TILES,
+    MAX_PATH_EXCLUSION_TOTAL_TILES, MAX_RAW_PACKET_PAYLOAD_LEN, MAX_SKILL_SLOT,
+    MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT, MAX_WALK_ROUTE_TILES, MAX_WHO_NAME_LEN, MAX_WHO_PLAYERS,
+    MAX_WHO_TITLE_LEN, MessageCommand, MessageContent, MessageRecipient, PathExclusions, RawPacket,
+    RawPacketDirection, RouteTile, SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput,
+    SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkRoute, WalkTarget,
 };
 pub use error::{DecodeError, EncodeError};
 pub use event::{

@@ -377,6 +377,16 @@ fn player_inspection_route_resolves_visible_name_and_returns_profile() {
 #[test]
 fn routes_typed_actions() {
     assert_routes_action("/clients/42/assail", "", CommandKind::Assail);
+    assert_routes_action(
+        "/clients/42/stats/strength",
+        "",
+        CommandKind::AddStat(CharacterStat::Strength),
+    );
+    assert_routes_action(
+        "/clients/42/stats/con",
+        "",
+        CommandKind::AddStat(CharacterStat::Constitution),
+    );
     assert_routes_action("/clients/42/resync", "", CommandKind::Resync);
     assert_routes_action(
         "/clients/42/group/toggle",
@@ -696,6 +706,27 @@ fn routes_typed_actions() {
             revision: 7,
             action: DialogAction::Close,
         }),
+    );
+}
+
+#[test]
+fn add_stat_rejects_characters_without_points() {
+    let mut snapshot = game_snapshot();
+    snapshot.character.as_mut().unwrap().stats.stat_points = 0;
+    let response = post_empty(state_with_snapshot(snapshot), "/clients/42/stats/strength");
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert_eq!(response_json(response)["error"]["code"], "invalid_action");
+}
+
+#[test]
+fn add_stat_rejects_requests_within_500_milliseconds() {
+    let state = state();
+    assert!(state.reserve_stat_spend(42));
+    let response = post_empty(state, "/clients/42/stats/wisdom");
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(
+        response_json(response)["error"]["code"],
+        "stat_spend_too_fast"
     );
 }
 

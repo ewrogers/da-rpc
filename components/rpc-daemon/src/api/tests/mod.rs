@@ -42,12 +42,12 @@ use darpc_model::{
     TilePosition as ModelTilePosition, WorldObject as ModelWorldObject,
 };
 use darpc_protocol::{
-    Architecture, ChantText, CommandKind, CommandOperation, CommandResult, CommandState,
-    CommandStatus, ComponentVersion, DialogAction, DialogCommand, ExchangeCommand, GoldTransfer,
-    GroupCommand, GroupText, Hello, ItemSlot, ItemTransfer, MessageCommand, MessageContent,
-    MessageRecipient, PathExclusions, RawPacket, RawPacketDirection, RouteTile, SUPPORTED_VERSIONS,
-    SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget,
-    TilePosition, TransferTarget, WalkRoute, WalkTarget,
+    Architecture, ChantText, CharacterStat, CommandKind, CommandOperation, CommandResult,
+    CommandState, CommandStatus, ComponentVersion, DialogAction, DialogCommand, ExchangeCommand,
+    GoldTransfer, GroupCommand, GroupText, Hello, ItemSlot, ItemTransfer, MessageCommand,
+    MessageContent, MessageRecipient, PathExclusions, RawPacket, RawPacketDirection, RouteTile,
+    SUPPORTED_VERSIONS, SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot,
+    SpellTarget, TilePosition, TransferTarget, WalkRoute, WalkTarget,
 };
 use serde_json::Value;
 use std::{
@@ -116,6 +116,7 @@ fn game_snapshot() -> ModelClientSnapshot {
                 ability_to_next_level: Some(30),
             },
             stats: CharacterStats {
+                stat_points: 3,
                 strength: 3,
                 intelligence: 7,
                 wisdom: 6,

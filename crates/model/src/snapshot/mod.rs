@@ -199,6 +199,7 @@ pub struct CharacterProgression {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CharacterStats {
+    pub stat_points: u8,
     pub strength: u16,
     pub intelligence: u16,
     pub wisdom: u16,

@@ -64,6 +64,15 @@ pub(crate) fn current_gold() -> Option<u32> {
     unsafe { CACHE.gold() }
 }
 
+#[cfg_attr(
+    test,
+    expect(dead_code, reason = "called by the production-only stat action")
+)]
+pub(crate) fn current_stat_points() -> Option<u8> {
+    // SAFETY: commands run on the client main thread, which owns the cache.
+    unsafe { CACHE.stat_points() }
+}
+
 pub(crate) fn observe_exchange(update: crate::exchange::QueuedExchange, tick_ms: u32) -> bool {
     push_event(QueuedStateUpdate::Exchange(update), tick_ms)
 }
@@ -507,6 +516,21 @@ pub(crate) fn observe_status(update: StatusUpdate, tick_ms: u32) {
         return;
     }
     push_event(QueuedStateUpdate::Status(update), tick_ms);
+}
+
+pub(crate) fn observe_stat_points(stat_points: u8, tick_ms: u32) {
+    // SAFETY: the event hook runs on the client main thread, which is the sole
+    // cache producer.
+    let Some(core) = (unsafe { CACHE.core_with_stat_points(stat_points) }) else {
+        return;
+    };
+    observe_status(
+        StatusUpdate {
+            core: Some(core),
+            ..StatusUpdate::default()
+        },
+        tick_ms,
+    );
 }
 
 pub(crate) fn observe_user_position(x: i32, y: i32, tick_ms: u32) {

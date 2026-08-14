@@ -157,6 +157,7 @@ pub(crate) enum ServerUpdate<'a> {
     ActionDelay(ActionDelay),
     Audio(AudioUpdate),
     Status(StatusUpdate),
+    StatPoints(u8),
     UserAppearance(UserAppearance),
     UserPosition(Position),
     Move(Position),
@@ -212,6 +213,7 @@ impl From<StatePacketUpdate> for ServerUpdate<'_> {
     fn from(update: StatePacketUpdate) -> Self {
         match update {
             StatePacketUpdate::Status(value) => Self::Status(value),
+            StatePacketUpdate::StatPoints(value) => Self::StatPoints(value),
             StatePacketUpdate::UserAppearance(value) => Self::UserAppearance(value),
             StatePacketUpdate::UserPosition(value) => Self::UserPosition(value),
             StatePacketUpdate::Move(value) => Self::Move(value),

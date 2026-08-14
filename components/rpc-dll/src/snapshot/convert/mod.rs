@@ -141,6 +141,7 @@ fn character_snapshot(raw: &RawCharacter, world_token: u32, tick_ms: u32) -> Cha
         max_weight: raw.max_weight,
         progression: progression(raw, raw.pane_progression),
         stats: CharacterStats {
+            stat_points: 0,
             strength: raw.strength,
             intelligence: raw.intelligence,
             wisdom: raw.wisdom,

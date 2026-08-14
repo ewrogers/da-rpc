@@ -63,8 +63,9 @@ The only currently supported version is 1.4 (`0x0104`). Version 1.1 added exact
 route and path-exclusion commands plus obstruction events. Version 1.2 added
 total ability cooldown duration to cooldown snapshots and collection updates.
 Version 1.3 added hidden-state fields to character and player snapshots.
-Version 1.4 adds complete visible-player visual blocks. Peers advertise only
-1.4 because these additions change message layouts or can
+Version 1.4 adds complete visible-player visual blocks, character stat-point
+state, and the add-stat command. Peers advertise only 1.4 because these
+additions change message layouts or can
 introduce discriminants that earlier decoders cannot interpret safely.
 
 ## Message types
@@ -523,7 +524,8 @@ These snapshot-tail additions remain compatible with their protocol 1.0
 encoding. The command and event additions documented below require protocol
 1.1. Total cooldown duration requires protocol 1.2. Local-character and
 player-object hidden-state fields require protocol 1.3. Player visual blocks
-require protocol 1.4.
+require protocol 1.4. Character stat points and stat spending also require
+protocol 1.4.
 
 ## Event polling and state updates
 
@@ -973,6 +975,8 @@ enum CommandKind: u8 {
     } = 26,
     RemovePathExclusions { map_id: u32 } = 27, // 0 through 65,535
     ClearPathExclusions = 28,
+    AddStat { flag: u8 } = 29, // strength=1, dexterity=2, intelligence=4,
+                              // wisdom=8, constitution=16
 }
 
 enum MessageCommand: u8 {

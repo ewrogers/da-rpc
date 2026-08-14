@@ -8,6 +8,7 @@ pub(super) fn expand(
     if let Some(core) = update.core {
         events.push(ClientEvent::StatsChanged(StatsChanged {
             observation: observation.clone(),
+            stat_points: core.stats.stat_points,
             strength: core.stats.strength,
             intelligence: core.stats.intelligence,
             wisdom: core.stats.wisdom,

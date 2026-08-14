@@ -7,6 +7,7 @@ use darpc_model::{
 const USER_APPEARANCE_OPCODE: u8 = 0x05;
 const USER_POSITION_OPCODE: u8 = 0x04;
 const STATUS_OPCODE: u8 = 0x08;
+const LEVEL_POINT_OPCODE: u8 = 0x3D;
 const MOVE_OPCODE: u8 = 0x0B;
 const ADD_INVENTORY_OPCODE: u8 = 0x0F;
 const REMOVE_INVENTORY_OPCODE: u8 = 0x10;
@@ -20,6 +21,7 @@ const SPELL_DELAY_CANCEL_OPCODE: u8 = 0x48;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum StatePacketUpdate {
     Status(StatusUpdate),
+    StatPoints(u8),
     UserAppearance(UserAppearance),
     UserPosition(Position),
     Move(Position),
@@ -61,6 +63,9 @@ pub(crate) fn update(body: &[u8]) -> Result<Option<StatePacketUpdate>, ParseErro
             .map(StatePacketUpdate::UserAppearance)
             .map(Some),
         Some(STATUS_OPCODE) => parse_status(body).map(StatePacketUpdate::Status).map(Some),
+        Some(LEVEL_POINT_OPCODE) => parse_level_point(body)
+            .map(StatePacketUpdate::StatPoints)
+            .map(Some),
         Some(MOVE_OPCODE) => parse_move(body).map(|position| position.map(StatePacketUpdate::Move)),
         Some(ADD_INVENTORY_OPCODE) => parse_add_inventory(body).map(Some),
         Some(REMOVE_INVENTORY_OPCODE) => {
@@ -206,13 +211,19 @@ fn parse_status(body: &[u8]) -> Result<StatusUpdate, ParseError> {
         let max_health = reader.u32_be()?;
         let max_mana = reader.u32_be()?;
         let stats = CharacterStats {
+            stat_points: 0,
             strength: u16::from(reader.u8()?),
             intelligence: u16::from(reader.u8()?),
             wisdom: u16::from(reader.u8()?),
             constitution: u16::from(reader.u8()?),
             dexterity: u16::from(reader.u8()?),
         };
-        reader.skip(2)?;
+        reader.u8()?;
+        let stat_points = reader.u8()?;
+        let stats = CharacterStats {
+            stat_points,
+            ..stats
+        };
         let max_weight = u32::from(reader.u16_be()?);
         let weight = u32::from(reader.u16_be()?);
         reader.skip(4)?;
@@ -291,6 +302,13 @@ fn parse_status(body: &[u8]) -> Result<StatusUpdate, ParseError> {
         is_action_restricted: None,
         is_casting: None,
     })
+}
+
+fn parse_level_point(body: &[u8]) -> Result<u8, ParseError> {
+    let mut reader = Reader::new(body);
+    reader.expect(LEVEL_POINT_OPCODE)?;
+    reader.u8()?;
+    reader.u8()
 }
 
 fn parse_user_appearance(body: &[u8]) -> Result<UserAppearance, ParseError> {
@@ -439,6 +457,7 @@ mod tests {
         assert_eq!(update.core.unwrap().level, 99);
         assert_eq!(update.core.unwrap().weight, 50);
         assert_eq!(update.core.unwrap().max_weight, 100);
+        assert_eq!(update.core.unwrap().stats.stat_points, 4);
         assert_eq!(update.vitals.unwrap().health, 900);
         assert_eq!(update.progression.unwrap().ability_points, 30);
         assert_eq!(update.gold, Some(60));
@@ -446,6 +465,15 @@ mod tests {
         assert_eq!(update.modifiers.unwrap().magic_resistance, 60);
         assert_eq!(update.is_blinded, Some(true));
         assert_eq!(update.is_action_restricted, None);
+    }
+
+    #[test]
+    fn parses_level_point_updates() {
+        assert_eq!(
+            update(&[0x3D, 1, 4]).unwrap(),
+            Some(StatePacketUpdate::StatPoints(4))
+        );
+        assert!(update(&[0x3D, 1]).is_err());
     }
 
     #[test]

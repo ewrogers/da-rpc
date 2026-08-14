@@ -382,6 +382,9 @@ pub enum DecodeError {
     InvalidCommandKind {
         actual: u8,
     },
+    InvalidCharacterStat {
+        actual: u8,
+    },
     InvalidRawPacketDirection {
         actual: u8,
     },
@@ -700,6 +703,9 @@ impl fmt::Display for DecodeError {
             }
             Self::InvalidCommandKind { actual } => {
                 write!(formatter, "invalid command kind {actual}")
+            }
+            Self::InvalidCharacterStat { actual } => {
+                write!(formatter, "invalid character stat flag {actual}")
             }
             Self::InvalidRawPacketDirection { actual } => {
                 write!(formatter, "invalid raw packet direction {actual}")

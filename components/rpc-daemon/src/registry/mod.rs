@@ -527,6 +527,7 @@ mod tests {
                     ability_to_next_level: Some(800),
                 },
                 stats: CharacterStats {
+                    stat_points: 3,
                     strength: 10,
                     intelligence: 3,
                     wisdom: 3,

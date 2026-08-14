@@ -203,6 +203,9 @@ pub(crate) fn execute(pid: u32, operation: Operation) -> Result<CommandResult> {
             },
         ),
         Operation::Assail => request_action(&mut session, pid, "assail", CommandKind::Assail),
+        Operation::AddStat(stat) => {
+            request_action(&mut session, pid, "stat", CommandKind::AddStat(stat))
+        }
         Operation::Turn(direction) => request_command(
             &mut session,
             pid,

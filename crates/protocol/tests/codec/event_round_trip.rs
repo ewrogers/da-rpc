@@ -61,6 +61,7 @@ fn event_messages_round_trip() {
                             weight: 88,
                             max_weight: 120,
                             stats: CharacterStats {
+                                stat_points: 3,
                                 strength: 11,
                                 intelligence: 12,
                                 wisdom: 13,

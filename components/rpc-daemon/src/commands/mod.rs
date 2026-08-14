@@ -39,6 +39,7 @@ pub(crate) mod movement;
 pub(crate) mod player;
 pub(crate) mod raw;
 pub(crate) mod resync;
+pub(crate) mod stat;
 pub(crate) mod who;
 
 pub(crate) use ability::{
@@ -307,6 +308,7 @@ pub(crate) enum CommandKind {
     Resync,
     Message,
     PathExclusions,
+    AddStat,
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
@@ -670,6 +672,7 @@ impl From<ProtocolKind> for CommandKind {
             ProtocolKind::SetPathExclusions(_)
             | ProtocolKind::RemovePathExclusions { .. }
             | ProtocolKind::ClearPathExclusions => Self::PathExclusions,
+            ProtocolKind::AddStat(_) => Self::AddStat,
         }
     }
 }

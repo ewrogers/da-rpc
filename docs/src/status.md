@@ -105,7 +105,9 @@ stream.
 Nearby players report `is_hidden` on their player objects. A player is treated
 as hidden when a `0x33` player draw has either a zero body sprite or the
 translucent/hidden flag. The resulting `player.appeared` event carries the
-current `is_hidden` value.
+current `is_hidden` value. There is no `player.hidden_changed` event: the
+`character.*` namespace is reserved for the local character, while nearby
+players use the world-object events described in [World](world.md#object-events).
 
 Hidden draws are intentionally treated as sparse observations. They do not
 erase the local character's last complete human appearance, or a nearby
@@ -186,6 +188,8 @@ Listen on `GET /clients/{client}/events`. These events update status:
 | `modifiers.changed` | Combat modifiers or elements |
 | `blind.changed` | `is_blinded` |
 | `action_restriction.changed` | `is_action_restricted` |
+| `character.appearance_changed` | The local character entered or left a non-human appearance |
+| `character.hidden_changed` | The local character entered or left Hide |
 | `character.profile_changed` | Nation, title, guild rank, display class, or guild |
 | `location.changed` | Absolute x/y and, when applicable, an atomic map change |
 | `walking.started` | Native pathfinding began a queued route |

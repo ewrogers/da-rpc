@@ -134,15 +134,19 @@ key causes the server to redraw nearby objects and fills those details again.
 The complete object and visual payload structures are in
 [World object events](events.md#world-object-events).
 
-Players, monsters, and Mundanes each use these actions:
+Players, monsters, and Mundanes publish the same core object actions. Players
+also publish two events for identity and profile changes:
 
-```text
-player.appeared              monster.appeared              mundane.appeared
-player.disappeared           monster.disappeared           mundane.disappeared
-player.moved                 monster.moved                 mundane.moved
-player.direction_changed     monster.direction_changed     mundane.direction_changed
-player.inspected
-```
+| Object | Events |
+| --- | --- |
+| Player | `player.appeared`, `player.replaced`, `player.inspected`, `player.disappeared`, `player.moved`, `player.direction_changed` |
+| Monster | `monster.appeared`, `monster.disappeared`, `monster.moved`, `monster.direction_changed` |
+| Mundane | `mundane.appeared`, `mundane.disappeared`, `mundane.moved`, `mundane.direction_changed` |
+
+`player.replaced` is emitted instead of `player.appeared` when a newly drawn
+player has the same name as one or more retained players but a different
+object ID. Its payload contains every stale player snapshot in `previous` and
+the authoritative replacement in `current`.
 
 Ground items use:
 

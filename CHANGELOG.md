@@ -2,8 +2,17 @@
 
 ## Unreleased
 
+## 1.4.0 - 2026-08-14
+
 ### Added
 
+- Added group invitations by validated character name without requiring the
+  target to be visible.
+- Added optional `cooldown_ms` total-duration metadata for active skill and
+  spell cooldowns, including authoritative live spell timing from server
+  action-delay packets.
+- Added `player.replaced` SSE events and automatic removal of stale same-name
+  player objects when a relog assigns a new object ID.
 - Added local and visible-player `is_hidden` state, including zero-body and
   translucent player detection.
 - Added `character.appearance_changed` and `character.hidden_changed` SSE
@@ -11,13 +20,28 @@
 
 ### Changed
 
-- Preserve the last visible local appearance and remote player name and
+- Leaving or disbanding a group now reopens invitations by default. The group
+  toggle endpoint accepts `{"leave_open": false}` to retain the original
+  single-toggle behavior.
+- Clamped remaining cooldown time to the total duration so reported progress
+  stays within its valid range.
+- Preserved the last visible local appearance and remote player name and
   inspected profile when a hidden draw omits those fields.
-- Advanced the binary protocol to version 1.3 for hidden-state snapshot and
-  world-object fields.
+- Replaced the Windows build-output cache with a dependency-focused Rust cache
+  and canceled superseded pull-request workflow runs.
+- Advanced the binary protocol from version 1.1 to 1.3 for cooldown timing,
+  player replacement, and hidden-state fields and events.
 
 ### Fixed
 
+- Accepted group invitation and toggle request bodies at the HTTP routing
+  boundary.
+- Kept skill cooldown snapshots advancing to ready when elapsed remaining time
+  differs from the daemon's retained baseline.
+- Isolated automatic self-look and object-info response suppression so one
+  response family cannot consume the other's pending inspection.
+- Corrected the native spell-denial calling convention to prevent access
+  violations when casting spells.
 - Suppressed the self-look panel produced when the local player's `0x33`
   login draw triggers automatic profile inspection.
 

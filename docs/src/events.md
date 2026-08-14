@@ -263,6 +263,11 @@ reread the matching REST route after receiving any event in that domain.
 Read the current values from `GET /clients/{client}/status`. See
 [Character status](status.md) for field meaning and lifecycle behavior.
 
+The `character.*` namespace describes the local character. Nearby players use
+`player.*` events in the [world object](#world-object-events) domain. In
+particular, the local Hide transition is `character.hidden_changed`; there is
+no `player.hidden_changed` event.
+
 | SSE event | JSON type | Payload after `observation` |
 | --- | --- | --- |
 | `stats.changed` | `stats_changed` | `strength`, `intelligence`, `wisdom`, `constitution`, `dexterity` |
@@ -942,7 +947,8 @@ trying to infer state from only the changed field.
 | Skills | `skill.added`, `skill.removed`, `skill.changed`, `skill.cooldown`, `skill.ready`, `skill.used` | `/skills` |
 | Spells | `spell.added`, `spell.removed`, `spell.changed`, `spell.cooldown`, `spell.ready`, `spell.begin`, `spell.chant`, `spell.cast`, `spell.cancelled`, `spell.succeeded`, `spell.failed`, `spell.received` | `/spells`, then `/status` for casting state |
 | Effects | `effect.added`, `effect.removed`, `effect.changed` | `/effects` |
-| World | Player, monster, Mundane, ground-item, visual, damage, and `objects.cleared` events | `/objects` |
+| World objects | `player.appeared`, `player.replaced`, `player.inspected`, `player.disappeared`, `player.moved`, `player.direction_changed`; the corresponding appeared, disappeared, moved, and direction events for monsters and Mundanes; `item.appeared`, `item.disappeared`, `item.moved`; `objects.cleared` | `/objects` |
+| World visuals | `player.animated`, `player.effect`, `player.damaged`, and the corresponding monster and Mundane events | None; transient events are not replayed. |
 | Audio | `sound.played`, `music.started`, `music.stopped` | None; transient events are not replayed. |
 | Messages | `message.say`, `message.shout`, `message.chant`, `message.whisper`, `message.guild`, `message.group`, `message.system`, `message.world`, `message.internal` | `/messages`, except transient chants |
 | NPC dialogs | `dialog.opened`, `dialog.changed`, `dialog.submitted`, `dialog.closed` | `/dialog` |

@@ -6,6 +6,8 @@ pub(crate) enum DaemonEvent {
     #[cfg(windows)]
     Connection(ConnectionEvent),
     #[cfg(windows)]
+    Timing(String),
+    #[cfg(windows)]
     AutoLoadFinished {
         pid: u32,
         attempt: u64,

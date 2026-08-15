@@ -213,6 +213,10 @@ fn run(options: Options) -> Result<(), String> {
                     }
                 }
             }
+            Ok(DaemonEvent::Timing(message)) => {
+                println!("{message}");
+                let _ = std::io::Write::flush(&mut std::io::stdout());
+            }
             Ok(DaemonEvent::Status(event)) => {
                 if workers.contains_key(&event.pid()) {
                     if matches!(event, registry::ConnectionEvent::Initializing { .. }) {

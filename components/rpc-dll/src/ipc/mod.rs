@@ -152,19 +152,6 @@ fn serve_connection(server: &PipeServer, hello: &Hello, log: &mut File) -> io::R
             }),
             Message::TickHealthRequest(message) => {
                 let health = tick::health();
-                let sample_tick_ms = sender_tick_ms();
-                let _ = writeln!(
-                    log,
-                    concat!(
-                        "event=hook_health hook={} installed={} relocated_bytes={} ",
-                        "ticks={} sample_tick_ms={}"
-                    ),
-                    tick::NAME,
-                    health.installed,
-                    health.relocated_bytes,
-                    health.tick_count,
-                    sample_tick_ms
-                );
                 Message::TickHealthResponse(TickHealthResponse {
                     request_id: message.request_id,
                     installed: health.installed,

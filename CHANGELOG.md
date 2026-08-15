@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+
+- Added sustained dispatcher-rate degradation and recovery logging in the
+  daemon using the existing atomic tick-health counter.
+
 ### Fixed
 
 - Allow spell casts 10 percent tolerance on the one-second command start

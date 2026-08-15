@@ -225,6 +225,11 @@ the request to the matching per-client worker. The returned status includes
 the DLL instance ID, client tick timing, execution duration, and game
 main-thread ID.
 
+Each connected worker also samples the existing tick-hook health counter once
+per second. Three consecutive samples below 60 ticks per second produce one
+`tick_rate_degraded` daemon log entry. The next healthy sample produces one
+`tick_rate_recovered` entry, avoiding continuous warnings during one incident.
+
 See the [Web API](web-api.md) chapter for routes, request models, responses, and
 failure behavior.
 

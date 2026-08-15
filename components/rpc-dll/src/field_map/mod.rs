@@ -117,28 +117,41 @@ pub(crate) fn reset() {
 }
 
 pub(crate) fn observe_server(body: &[u8]) -> Option<QueuedFieldMap> {
+    observe_server_state(body, pane_is_open())
+}
+
+fn observe_server_state(body: &[u8], open: bool) -> Option<QueuedFieldMap> {
     if body.first() != Some(&0x2E)
         || body.len() > MAX_FIELD_MAP_PACKET_BYTES
         || validate_server_packet(body).is_none()
-        || !pane_is_open()
     {
         return None;
     }
     let current = current_mut();
-    let opened = !current.active();
-    let revision = next_nonzero(&REVISION);
+    let previous = *current;
     let length = u16::try_from(body.len()).ok()?;
     let mut next = RawFieldMap::empty();
-    next.revision = revision;
     next.length = length;
-    next.open = true;
+    next.open = open;
     next.bytes[..body.len()].copy_from_slice(body);
+    if open {
+        next.revision = next_nonzero(&REVISION);
+    }
     *current = next;
+    if !open {
+        if !previous.active() {
+            return None;
+        }
+        return EVENTS.push(RawFieldMapEvent {
+            kind: EventKind::Closed,
+            field_map: previous,
+        });
+    }
     EVENTS.push(RawFieldMapEvent {
-        kind: if opened {
-            EventKind::Opened
-        } else {
+        kind: if previous.active() {
             EventKind::Changed
+        } else {
+            EventKind::Opened
         },
         field_map: next,
     })
@@ -465,5 +478,23 @@ mod tests {
         assert_ne!(state.revision, first_revision);
         assert_eq!(state.field_name, "field001");
         assert_eq!(state.selection, None);
+    }
+
+    #[test]
+    fn packet_received_before_pane_open_is_cached_until_visibility() {
+        let _guard = LOCK.lock().unwrap();
+        reset();
+
+        assert!(observe_server_state(&packet(), false).is_none());
+        assert!(current_mut().available());
+        assert!(!current_mut().active());
+        assert!(decode_current(&*current_mut()).is_none());
+
+        let opened = observe_pane_state(true).unwrap();
+        let Some(FieldMapUpdate::Opened(state)) = take(opened) else {
+            panic!("expected cached field map to open");
+        };
+        assert_eq!(state.field_name, "field001");
+        assert_ne!(state.revision, 0);
     }
 }

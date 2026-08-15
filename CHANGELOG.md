@@ -9,6 +9,8 @@
 
 ### Changed
 
+- Cache validated field-map packets that arrive before the native pane becomes
+  visible, then publish them only after the pane is confirmed open.
 - Reopen retained field-map definitions when the native client reuses its
   cached pane without sending another field-map packet.
 - Refresh field-map reads and selections from a live DLL snapshot so unrelated

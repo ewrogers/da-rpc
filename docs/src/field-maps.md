@@ -3,7 +3,8 @@
 Field maps are the native world-map panels opened by a map warp tile. daRPC
 exposes the panel only while an exact `FieldMapPane` is registered and visible
 in the supported client. Receiving the server packet alone does not make the
-resource active.
+resource active. The DLL caches a validated packet that arrives before the
+client registers the pane, then publishes it when the pane becomes visible.
 
 ## Reading the active field map
 

@@ -305,6 +305,7 @@ pub(super) fn run(
     dll: &DarpcDll,
     patches: LaunchPatches,
     apply_default_patches: bool,
+    initialize_options: darpc_win32::lifecycle::InitializeOptions,
 ) -> Result<LaunchOutcome> {
     let (executable, current_directory) = validate_executable(executable_path)?;
     let mut child = SuspendedChild::create(&executable, &current_directory, arguments)?;
@@ -314,7 +315,7 @@ pub(super) fn run(
         return Err(cleanup_launch_error(&mut child, error));
     }
 
-    let outcome = match lifecycle::attach_created(child.process(), dll) {
+    let outcome = match lifecycle::attach_created(child.process(), dll, initialize_options) {
         Ok(outcome) => outcome,
         Err(error) => return Err(cleanup_launch_error(&mut child, error)),
     };

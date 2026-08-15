@@ -1,6 +1,7 @@
 //! Binary interprocess communication protocol for daRPC.
 
 mod command;
+mod diagnostics;
 mod dialog;
 mod error;
 mod event;
@@ -28,6 +29,10 @@ pub use command::{
     RawPacketDirection, RouteTile, SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput,
     SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkRoute, WalkTarget,
 };
+pub use diagnostics::{
+    DiagnosticsMode, DiagnosticsOperation, HOOK_TIMING_STAGE_COUNT, HookTimingRecord,
+    HookTimingStage,
+};
 pub use error::{DecodeError, EncodeError};
 pub use event::{
     EventPollRequest, EventPollResponse, EventPollResult, MAX_EVENT_POLL_WAIT_MS,
@@ -41,11 +46,11 @@ pub use frame::{
 };
 pub use legend::{MAX_LEGEND_MARKS, MAX_LEGEND_TAG_LEN, MAX_LEGEND_TEXT_LEN};
 pub use message::{
-    Architecture, ComponentVersion, EchoRequest, EchoResponse, Hello, HelloAck, MAX_ECHO_TEXT_LEN,
-    Message, MessageType, PROTOCOL_VERSION_1_0, PROTOCOL_VERSION_1_1, PROTOCOL_VERSION_1_2,
-    PROTOCOL_VERSION_1_3, PROTOCOL_VERSION_1_4, PROTOCOL_VERSION_1_5, Ping, Pong,
-    SUPPORTED_VERSIONS, TickHealthRequest, TickHealthResponse, VersionRange, protocol_version,
-    protocol_version_major, protocol_version_minor,
+    Architecture, ComponentVersion, DiagnosticsRequest, DiagnosticsResponse, EchoRequest,
+    EchoResponse, Hello, HelloAck, MAX_ECHO_TEXT_LEN, Message, MessageType, PROTOCOL_VERSION_1_0,
+    PROTOCOL_VERSION_1_1, PROTOCOL_VERSION_1_2, PROTOCOL_VERSION_1_3, PROTOCOL_VERSION_1_4,
+    PROTOCOL_VERSION_1_5, Ping, Pong, SUPPORTED_VERSIONS, TickHealthRequest, TickHealthResponse,
+    VersionRange, protocol_version, protocol_version_major, protocol_version_minor,
 };
 pub use player::{MAX_PLAYER_EQUIPMENT_ITEMS, MAX_PLAYER_IDENTITY_TEXT_LEN};
 pub use session::{

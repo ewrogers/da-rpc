@@ -223,6 +223,15 @@ pub enum DecodeError {
     InvalidArchitecture {
         actual: u8,
     },
+    InvalidDiagnosticsOperation {
+        actual: u8,
+    },
+    InvalidDiagnosticsMode {
+        actual: u8,
+    },
+    InvalidHookTimingStage {
+        actual: u8,
+    },
     InvalidBoolean {
         actual: u8,
     },
@@ -539,6 +548,15 @@ impl fmt::Display for DecodeError {
             }
             Self::InvalidArchitecture { actual } => {
                 write!(formatter, "invalid architecture value {actual}")
+            }
+            Self::InvalidDiagnosticsOperation { actual } => {
+                write!(formatter, "invalid diagnostics operation {actual}")
+            }
+            Self::InvalidDiagnosticsMode { actual } => {
+                write!(formatter, "invalid diagnostics mode {actual}")
+            }
+            Self::InvalidHookTimingStage { actual } => {
+                write!(formatter, "invalid hook-timing stage {actual}")
             }
             Self::InvalidBoolean { actual } => {
                 write!(formatter, "invalid Boolean value {actual}")

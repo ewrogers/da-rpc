@@ -165,6 +165,19 @@ try {
     Assert-True ($TickHealth.relocated_bytes -eq 0) "controlled target reported relocated tick bytes"
     Assert-True ($TickHealth.tick_count -eq 0) "controlled target reported game ticks"
 
+    $Diagnostics = Invoke-Darpc -CommandArgs @("diagnostics", "hooks", "--pid", "$($Process.Id)")
+    Assert-True ($Diagnostics.mode -eq "disabled") "hook timing was not disabled by default"
+    Assert-True ($Diagnostics.hook_timings.Count -eq 7) "hook timing did not report seven stages"
+    Assert-True ($Diagnostics.hook_timings[6].stage -eq "event") "hook timing omitted incoming events"
+
+    $Diagnostics = Invoke-Darpc -CommandArgs @("diagnostics", "enable", "--pid", "$($Process.Id)")
+    Assert-True ($Diagnostics.mode -eq "hook_timing") "hook timing did not enable over IPC"
+    $Diagnostics = Invoke-Darpc -CommandArgs @("diagnostics", "reset", "--pid", "$($Process.Id)")
+    Assert-True ($Diagnostics.mode -eq "hook_timing") "counter reset changed the diagnostics mode"
+    Assert-True ($Diagnostics.hook_timings[0].call_count -eq 0) "counter reset retained tick calls"
+    $Diagnostics = Invoke-Darpc -CommandArgs @("diagnostics", "disable", "--pid", "$($Process.Id)")
+    Assert-True ($Diagnostics.mode -eq "disabled") "hook timing did not disable over IPC"
+
     $Log = Get-Content -Raw -LiteralPath $LogPath
     Assert-True ($Log -match "event=hook_skipped") "DLL log did not record the controlled hook skip"
 

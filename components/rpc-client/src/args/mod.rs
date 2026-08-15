@@ -4,9 +4,9 @@ use crate::{
 };
 use darpc_model::{Direction, EquipmentSlot, emote_code, is_client_emote_code};
 use darpc_protocol::{
-    ChantText, CharacterStat, DialogAction, DialogCommand, DialogText, ExchangeCommand,
-    FieldMapSelectionCommand, GoldTransfer, GroupCommand, GroupInvitationAction, GroupText,
-    ItemSlot, ItemTransfer, MAX_DIALOG_INPUT_LEN, MAX_ECHO_TEXT_LEN, MAX_ITEM_SLOT,
+    ChantText, CharacterStat, DiagnosticsOperation, DialogAction, DialogCommand, DialogText,
+    ExchangeCommand, FieldMapSelectionCommand, GoldTransfer, GroupCommand, GroupInvitationAction,
+    GroupText, ItemSlot, ItemTransfer, MAX_DIALOG_INPUT_LEN, MAX_ECHO_TEXT_LEN, MAX_ITEM_SLOT,
     MAX_RAW_PACKET_PAYLOAD_LEN, MAX_SKILL_SLOT, MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT, RawPacket,
     RawPacketDirection, SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot,
     SpellTarget, TilePosition, TransferTarget, WalkTarget,
@@ -21,6 +21,7 @@ usage:
     darpc [--output <table|json>] snapshot --pid <pid>
     darpc [--output <table|json>] echo --pid <pid> <text>
     darpc [--output <table|json>] diagnostic --pid <pid>
+    darpc [--output <table|json>] diagnostics <hooks|enable|disable|reset> --pid <pid>
     darpc [--output <table|json>] raw send --pid <pid> <client|server> <NN|0xNN> [hex-payload]
     darpc [--output <table|json>] assail --pid <pid>
     darpc [--output <table|json>] stat <strength|dexterity|intelligence|wisdom|constitution> --pid <pid>
@@ -88,6 +89,7 @@ pub(crate) enum Operation {
     Snapshot,
     Echo(String),
     Diagnostic,
+    Diagnostics(DiagnosticsOperation),
     Raw(RawPacket),
     Assail,
     AddStat(CharacterStat),
@@ -154,6 +156,10 @@ impl Command {
             Operation::Snapshot => "snapshot",
             Operation::Echo(_) => "echo",
             Operation::Diagnostic => "diagnostic",
+            Operation::Diagnostics(DiagnosticsOperation::Query) => "diagnostics hooks",
+            Operation::Diagnostics(DiagnosticsOperation::EnableHookTiming) => "diagnostics enable",
+            Operation::Diagnostics(DiagnosticsOperation::Disable) => "diagnostics disable",
+            Operation::Diagnostics(DiagnosticsOperation::Reset) => "diagnostics reset",
             Operation::Raw(_) => "raw send",
             Operation::Assail => "assail",
             Operation::AddStat(_) => "stat",
@@ -260,6 +266,10 @@ pub(crate) fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
         "tick health" => Operation::TickHealth,
         "snapshot" => Operation::Snapshot,
         "diagnostic" => Operation::Diagnostic,
+        "diagnostics hooks" => Operation::Diagnostics(DiagnosticsOperation::Query),
+        "diagnostics enable" => Operation::Diagnostics(DiagnosticsOperation::EnableHookTiming),
+        "diagnostics disable" => Operation::Diagnostics(DiagnosticsOperation::Disable),
+        "diagnostics reset" => Operation::Diagnostics(DiagnosticsOperation::Reset),
         "raw send" => Operation::Raw(parse_raw_packet(&mut arguments)?),
         "assail" => Operation::Assail,
         action if action.starts_with("stat ") => {
@@ -399,6 +409,7 @@ fn parse_action(arguments: &mut impl Iterator<Item = OsString>) -> Result<String
         .ok_or_else(|| ClientError::new(ErrorKind::InvalidArguments, USAGE))?;
     let subcommands: &[&str] = match command.as_str() {
         "tick" => &["health"],
+        "diagnostics" => &["hooks", "enable", "disable", "reset"],
         "skill" => &["use", "swap"],
         "spell" => &["cast", "swap"],
         "item" => &[
@@ -840,6 +851,7 @@ fn invalid_arguments(message: impl Into<String>) -> ClientError {
 mod tests {
     use super::{ChantAction, Command, Operation, OutputFormat, parse};
     use darpc_model::Direction;
+    use darpc_protocol::DiagnosticsOperation;
     use darpc_protocol::{
         ChantText, CharacterStat, DialogAction, DialogCommand, DialogText,
         FieldMapSelectionCommand, GroupCommand, GroupInvitationAction, GroupText, ItemSlot,
@@ -947,6 +959,16 @@ mod tests {
                 Command {
                     pid: 9,
                     operation: Operation::Diagnostic,
+                }
+            )
+        );
+        assert_eq!(
+            parse(arguments(&["diagnostics", "enable", "--pid", "9"])).unwrap(),
+            (
+                OutputFormat::Table,
+                Command {
+                    pid: 9,
+                    operation: Operation::Diagnostics(DiagnosticsOperation::EnableHookTiming),
                 }
             )
         );

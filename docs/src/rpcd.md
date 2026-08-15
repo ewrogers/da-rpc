@@ -230,6 +230,12 @@ per second. Three consecutive samples below 60 ticks per second produce one
 `tick_rate_degraded` daemon log entry. The next healthy sample produces one
 `tick_rate_recovered` entry, avoiding continuous warnings during one incident.
 
+For DLL component 1.5.2 and later, the worker also queries hook timing once per
+second. Disabled responses are silent. When an over-budget counter advances,
+the daemon writes one `hook_budget_exceeded` entry with the client PID, stage,
+budget, delta, total, maximum, and last duration. HTTP callers can query,
+enable, disable, or reset the same counters without reconnecting the client.
+
 See the [Web API](web-api.md) chapter for routes, request models, responses, and
 failure behavior.
 

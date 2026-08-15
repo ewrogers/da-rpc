@@ -1,6 +1,7 @@
 use crate::{
     DecodeError, EncodeError,
     command::{self, CommandRequest, CommandResponse},
+    diagnostics::{self, DiagnosticsMode, DiagnosticsOperation, HookTimingRecord},
     event::{self, EventPollRequest, EventPollResponse},
     snapshot::{
         self, SnapshotRequest, SnapshotResponse, SnapshotResult, SnapshotUnavailableReason,
@@ -151,6 +152,19 @@ pub struct TickHealthResponse {
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DiagnosticsRequest {
+    pub request_id: u32,
+    pub operation: DiagnosticsOperation,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DiagnosticsResponse {
+    pub request_id: u32,
+    pub mode: DiagnosticsMode,
+    pub hook_timings: [HookTimingRecord; diagnostics::HOOK_TIMING_STAGE_COUNT],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u16)]
 pub enum MessageType {
     Hello = 1,
@@ -167,6 +181,8 @@ pub enum MessageType {
     EventPollResponse = 12,
     CommandRequest = 13,
     CommandResponse = 14,
+    DiagnosticsRequest = 15,
+    DiagnosticsResponse = 16,
 }
 
 impl MessageType {
@@ -191,6 +207,8 @@ impl MessageType {
             12 => Ok(Self::EventPollResponse),
             13 => Ok(Self::CommandRequest),
             14 => Ok(Self::CommandResponse),
+            15 => Ok(Self::DiagnosticsRequest),
+            16 => Ok(Self::DiagnosticsResponse),
             actual => Err(DecodeError::UnknownMessageType { actual }),
         }
     }
@@ -212,6 +230,8 @@ pub enum Message {
     EventPollResponse(EventPollResponse),
     CommandRequest(CommandRequest),
     CommandResponse(CommandResponse),
+    DiagnosticsRequest(DiagnosticsRequest),
+    DiagnosticsResponse(DiagnosticsResponse),
 }
 
 impl Message {
@@ -232,6 +252,8 @@ impl Message {
             Self::EventPollResponse(_) => MessageType::EventPollResponse,
             Self::CommandRequest(_) => MessageType::CommandRequest,
             Self::CommandResponse(_) => MessageType::CommandResponse,
+            Self::DiagnosticsRequest(_) => MessageType::DiagnosticsRequest,
+            Self::DiagnosticsResponse(_) => MessageType::DiagnosticsResponse,
         }
     }
 
@@ -297,6 +319,10 @@ impl Message {
             Self::EventPollResponse(message) => event::encode_response(&mut output, message)?,
             Self::CommandRequest(message) => command::encode_request(&mut output, *message)?,
             Self::CommandResponse(message) => command::encode_response(&mut output, message)?,
+            Self::DiagnosticsRequest(message) => diagnostics::encode_request(&mut output, *message),
+            Self::DiagnosticsResponse(message) => {
+                diagnostics::encode_response(&mut output, message)?
+            }
         }
         Ok(output)
     }
@@ -381,6 +407,12 @@ impl Message {
             MessageType::CommandResponse => {
                 Self::CommandResponse(command::decode_response(&mut reader)?)
             }
+            MessageType::DiagnosticsRequest => {
+                Self::DiagnosticsRequest(diagnostics::decode_request(&mut reader)?)
+            }
+            MessageType::DiagnosticsResponse => {
+                Self::DiagnosticsResponse(diagnostics::decode_response(&mut reader)?)
+            }
         };
         reader.finish()?;
         Ok(message)
@@ -435,7 +467,7 @@ pub(crate) fn push_u32(output: &mut Vec<u8>, value: u32) {
     output.extend_from_slice(&value.to_le_bytes());
 }
 
-fn push_u64(output: &mut Vec<u8>, value: u64) {
+pub(crate) fn push_u64(output: &mut Vec<u8>, value: u64) {
     output.extend_from_slice(&value.to_le_bytes());
 }
 
@@ -485,7 +517,7 @@ impl<'a> PayloadReader<'a> {
         Ok(i32::from_le_bytes(bytes))
     }
 
-    fn read_u64(&mut self) -> Result<u64, DecodeError> {
+    pub(crate) fn read_u64(&mut self) -> Result<u64, DecodeError> {
         let bytes = self.read_array()?;
         Ok(u64::from_le_bytes(bytes))
     }

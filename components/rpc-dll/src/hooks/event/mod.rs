@@ -1,5 +1,6 @@
 use darpc_game_client::{EVENT_DISPATCH_ENTRY, EVENT_DISPATCH_RVA, RawObjects};
 use darpc_hook::{DetourActivity, InstallError, InstalledDetour};
+use darpc_protocol::HookTimingStage;
 use darpc_win32::pipe::sender_tick_ms;
 use std::{
     cell::UnsafeCell,
@@ -9,7 +10,7 @@ use std::{
 };
 
 use super::support;
-use crate::{packet, process_memory::read_exact, state};
+use crate::{diagnostics, packet, process_memory::read_exact, state};
 
 pub(crate) const NAME: &str = "event_dispatch";
 
@@ -339,145 +340,148 @@ fn intercept_event_inner(event: *const core::ffi::c_void) -> bool {
 
 extern "C" fn observe_event(event: *const core::ffi::c_void) {
     let _ = panic::catch_unwind(|| {
-        if event.is_null() {
-            return;
-        }
-        EVENT_OBSERVATION_COUNT.fetch_add(1, Ordering::Relaxed);
-        let mut view = [0_u8; EVENT_VIEW_LENGTH];
-        let Some(address) = (event as usize).checked_add(EVENT_TYPE_OFFSET) else {
-            return;
-        };
-        if !read_exact(address, &mut view) {
-            EVENT_READ_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed);
-            return;
-        }
-        if view[0] != SERVER_EVENT_TYPE {
-            return;
-        }
-        SERVER_EVENT_COUNT.fetch_add(1, Ordering::Relaxed);
-        let body_address = u32::from_le_bytes(
-            view[EVENT_BODY_OFFSET - EVENT_TYPE_OFFSET..EVENT_BODY_OFFSET - EVENT_TYPE_OFFSET + 4]
-                .try_into()
-                .expect("event body pointer is four bytes"),
-        );
-        let body_length = u32::from_le_bytes(
-            view[EVENT_BODY_LENGTH_OFFSET - EVENT_TYPE_OFFSET
-                ..EVENT_BODY_LENGTH_OFFSET - EVENT_TYPE_OFFSET + 4]
-                .try_into()
-                .expect("event body length is four bytes"),
-        ) as usize;
-        if body_address == 0 || body_length == 0 || body_length > MAX_OBSERVED_BODY_LENGTH {
-            EVENT_INVALID_BODY_COUNT.fetch_add(1, Ordering::Relaxed);
-            return;
-        }
-        if EVENT_SCRATCH_IN_USE
-            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-            .is_err()
-        {
-            return;
-        }
-        let _scratch_guard = EventScratchGuard;
-        // SAFETY: the successful compare_exchange above gives this invocation
-        // exclusive access until _scratch_guard releases the flag.
-        let scratch = unsafe { &mut *EVENT_SCRATCH.0.get() };
-        if !read_exact(body_address as usize, &mut scratch.body[..body_length]) {
-            EVENT_READ_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed);
-            return;
-        }
-        let tick_ms = sender_tick_ms();
-        if scratch.body[0] == 0x34 {
-            crate::player::observe_user_response(&scratch.body[..body_length], tick_ms);
-            EVENT_COUNT.fetch_add(1, Ordering::Relaxed);
-            return;
-        }
-        let update = match packet::update(&scratch.body[..body_length], &mut scratch.objects) {
-            Ok(Some(update)) => update,
-            Ok(None) => return,
-            Err(error) => {
-                EVENT_PARSE_ERROR_COUNT.fetch_add(1, Ordering::Relaxed);
-                LAST_PARSE_OPCODE.store(u32::from(scratch.body[0]), Ordering::Relaxed);
-                LAST_PARSE_FIELDS.store(
-                    u32::from(scratch.body.get(1).copied().unwrap_or_default()),
-                    Ordering::Relaxed,
-                );
-                LAST_PARSE_BODY_LENGTH.store(body_length as u32, Ordering::Relaxed);
-                LAST_PARSE_OFFSET.store(error.offset() as u32, Ordering::Relaxed);
-                LAST_PARSE_NEEDED.store(error.needed() as u32, Ordering::Relaxed);
-                LAST_PARSE_REMAINING.store(error.remaining() as u32, Ordering::Relaxed);
-                return;
-            }
-        };
-        EVENT_COUNT.fetch_add(1, Ordering::Relaxed);
-        match update {
-            packet::ServerUpdate::ActionDelay(update) => {
-                state::observe_action_delay(
-                    update.kind,
-                    update.slot,
-                    update.duration_seconds,
-                    tick_ms,
-                );
-            }
-            packet::ServerUpdate::Audio(update) => {
-                state::observe_audio(update, tick_ms);
-            }
-            packet::ServerUpdate::Status(update) => {
-                state::observe_status(update, tick_ms);
-            }
-            packet::ServerUpdate::StatPoints(stat_points) => {
-                state::observe_stat_points(stat_points, tick_ms);
-            }
-            packet::ServerUpdate::UserAppearance(update) => {
-                state::observe_status(update.status, tick_ms);
-                if update.is_full {
-                    state::mark_resync_required();
-                }
-            }
-            packet::ServerUpdate::UserPosition(position) => {
-                state::observe_user_position(position.x, position.y, tick_ms);
-                state::schedule_position_sync_replan();
-            }
-            packet::ServerUpdate::Move(position) => {
-                state::observe_move(position.x, position.y, tick_ms);
-            }
-            packet::ServerUpdate::Effect(effect) => {
-                state::observe_effect(effect.icon, effect.duration, tick_ms);
-            }
-            packet::ServerUpdate::World(update) => {
-                state::observe_world(update, &scratch.objects, tick_ms);
-                if matches!(update, packet::object::WorldUpdate::DrawPlayer) {
-                    state::mark_resync_required();
-                    if let Some(player) = scratch.objects.entries[0] {
-                        crate::player::appeared(player);
-                    }
-                }
-            }
-            packet::ServerUpdate::Message(message) => {
-                state::observe_message(message, tick_ms);
-            }
-            packet::ServerUpdate::Collection(collection) => {
-                state::mark_collection_dirty(collection.kind, collection.slot, tick_ms);
-            }
-            packet::ServerUpdate::SpellCancelled => {
-                state::observe_spell_cancelled(tick_ms);
-            }
-            packet::ServerUpdate::Visual(update) => {
-                state::observe_visual(update, tick_ms);
-            }
-            packet::ServerUpdate::FieldMap(body) => {
-                state::observe_field_map(body, tick_ms);
-            }
-            packet::ServerUpdate::Dialog(body) => {
-                state::observe_dialog(body, tick_ms);
-            }
-            packet::ServerUpdate::Group(body) => {
-                crate::player::observe_self_look(body, tick_ms);
-                crate::group::observe_packet(body, tick_ms);
-            }
-            packet::ServerUpdate::Exchange(body) => {
-                crate::exchange::observe_server(body, tick_ms);
-            }
+        if diagnostics::hook_timing_enabled() {
+            diagnostics::measure(HookTimingStage::Event, || observe_event_inner(event));
+        } else {
+            observe_event_inner(event);
         }
     });
+}
+
+fn observe_event_inner(event: *const core::ffi::c_void) {
+    if event.is_null() {
+        return;
+    }
+    EVENT_OBSERVATION_COUNT.fetch_add(1, Ordering::Relaxed);
+    let mut view = [0_u8; EVENT_VIEW_LENGTH];
+    let Some(address) = (event as usize).checked_add(EVENT_TYPE_OFFSET) else {
+        return;
+    };
+    if !read_exact(address, &mut view) {
+        EVENT_READ_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed);
+        return;
+    }
+    if view[0] != SERVER_EVENT_TYPE {
+        return;
+    }
+    SERVER_EVENT_COUNT.fetch_add(1, Ordering::Relaxed);
+    let body_address = u32::from_le_bytes(
+        view[EVENT_BODY_OFFSET - EVENT_TYPE_OFFSET..EVENT_BODY_OFFSET - EVENT_TYPE_OFFSET + 4]
+            .try_into()
+            .expect("event body pointer is four bytes"),
+    );
+    let body_length = u32::from_le_bytes(
+        view[EVENT_BODY_LENGTH_OFFSET - EVENT_TYPE_OFFSET
+            ..EVENT_BODY_LENGTH_OFFSET - EVENT_TYPE_OFFSET + 4]
+            .try_into()
+            .expect("event body length is four bytes"),
+    ) as usize;
+    if body_address == 0 || body_length == 0 || body_length > MAX_OBSERVED_BODY_LENGTH {
+        EVENT_INVALID_BODY_COUNT.fetch_add(1, Ordering::Relaxed);
+        return;
+    }
+    if EVENT_SCRATCH_IN_USE
+        .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+        .is_err()
+    {
+        return;
+    }
+    let _scratch_guard = EventScratchGuard;
+    // SAFETY: the successful compare_exchange above gives this invocation
+    // exclusive access until _scratch_guard releases the flag.
+    let scratch = unsafe { &mut *EVENT_SCRATCH.0.get() };
+    if !read_exact(body_address as usize, &mut scratch.body[..body_length]) {
+        EVENT_READ_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed);
+        return;
+    }
+    let tick_ms = sender_tick_ms();
+    if scratch.body[0] == 0x34 {
+        crate::player::observe_user_response(&scratch.body[..body_length], tick_ms);
+        EVENT_COUNT.fetch_add(1, Ordering::Relaxed);
+        return;
+    }
+    let update = match packet::update(&scratch.body[..body_length], &mut scratch.objects) {
+        Ok(Some(update)) => update,
+        Ok(None) => return,
+        Err(error) => {
+            EVENT_PARSE_ERROR_COUNT.fetch_add(1, Ordering::Relaxed);
+            LAST_PARSE_OPCODE.store(u32::from(scratch.body[0]), Ordering::Relaxed);
+            LAST_PARSE_FIELDS.store(
+                u32::from(scratch.body.get(1).copied().unwrap_or_default()),
+                Ordering::Relaxed,
+            );
+            LAST_PARSE_BODY_LENGTH.store(body_length as u32, Ordering::Relaxed);
+            LAST_PARSE_OFFSET.store(error.offset() as u32, Ordering::Relaxed);
+            LAST_PARSE_NEEDED.store(error.needed() as u32, Ordering::Relaxed);
+            LAST_PARSE_REMAINING.store(error.remaining() as u32, Ordering::Relaxed);
+            return;
+        }
+    };
+    EVENT_COUNT.fetch_add(1, Ordering::Relaxed);
+    match update {
+        packet::ServerUpdate::ActionDelay(update) => {
+            state::observe_action_delay(update.kind, update.slot, update.duration_seconds, tick_ms);
+        }
+        packet::ServerUpdate::Audio(update) => {
+            state::observe_audio(update, tick_ms);
+        }
+        packet::ServerUpdate::Status(update) => {
+            state::observe_status(update, tick_ms);
+        }
+        packet::ServerUpdate::StatPoints(stat_points) => {
+            state::observe_stat_points(stat_points, tick_ms);
+        }
+        packet::ServerUpdate::UserAppearance(update) => {
+            state::observe_status(update.status, tick_ms);
+            if update.is_full {
+                state::mark_resync_required();
+            }
+        }
+        packet::ServerUpdate::UserPosition(position) => {
+            state::observe_user_position(position.x, position.y, tick_ms);
+            state::schedule_position_sync_replan();
+        }
+        packet::ServerUpdate::Move(position) => {
+            state::observe_move(position.x, position.y, tick_ms);
+        }
+        packet::ServerUpdate::Effect(effect) => {
+            state::observe_effect(effect.icon, effect.duration, tick_ms);
+        }
+        packet::ServerUpdate::World(update) => {
+            state::observe_world(update, &scratch.objects, tick_ms);
+            if matches!(update, packet::object::WorldUpdate::DrawPlayer) {
+                state::mark_resync_required();
+                if let Some(player) = scratch.objects.entries[0] {
+                    crate::player::appeared(player);
+                }
+            }
+        }
+        packet::ServerUpdate::Message(message) => {
+            state::observe_message(message, tick_ms);
+        }
+        packet::ServerUpdate::Collection(collection) => {
+            state::mark_collection_dirty(collection.kind, collection.slot, tick_ms);
+        }
+        packet::ServerUpdate::SpellCancelled => {
+            state::observe_spell_cancelled(tick_ms);
+        }
+        packet::ServerUpdate::Visual(update) => {
+            state::observe_visual(update, tick_ms);
+        }
+        packet::ServerUpdate::FieldMap(body) => {
+            state::observe_field_map(body, tick_ms);
+        }
+        packet::ServerUpdate::Dialog(body) => {
+            state::observe_dialog(body, tick_ms);
+        }
+        packet::ServerUpdate::Group(body) => {
+            crate::player::observe_self_look(body, tick_ms);
+            crate::group::observe_packet(body, tick_ms);
+        }
+        packet::ServerUpdate::Exchange(body) => {
+            crate::exchange::observe_server(body, tick_ms);
+        }
+    }
 }
 
 #[cfg(test)]

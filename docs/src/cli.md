@@ -59,6 +59,10 @@ darpc echo --pid <pid> "hello"
 darpc tick health --pid <pid>
 darpc snapshot --pid <pid>
 darpc diagnostic --pid <pid>
+darpc diagnostics hooks --pid <pid>
+darpc diagnostics enable --pid <pid>
+darpc diagnostics disable --pid <pid>
+darpc diagnostics reset --pid <pid>
 darpc raw send --pid <pid> <client|server> <NN|0xNN> [hex-payload]
 darpc assail --pid <pid>
 darpc stat <strength|dexterity|intelligence|wisdom|constitution> --pid <pid>
@@ -142,6 +146,11 @@ and connection lifecycle. Their behavior is:
 - `diagnostic` submits a no-op command to the bounded main-thread queue, waits
   up to one second, and reports its state, queue delay, execution duration, and
   client main-thread ID.
+- `diagnostics hooks` queries runtime hook timing. `diagnostics enable` and
+  `diagnostics disable` change the mode without reinjection. `diagnostics reset`
+  clears counters without changing the current mode. Each stage reports its
+  budget, calls, total, average, maximum, last duration, and over-budget count
+  in microseconds.
 - `assail` submits the client's native `0x13` basic-attack packet. The resulting
   client observations can emit `player.animated` and `sound.played` events.
 - `stat` spends one available stat point by sending native packet `0x47` with

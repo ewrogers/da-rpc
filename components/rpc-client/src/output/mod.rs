@@ -1,8 +1,8 @@
 use crate::{command_output, error::ClientError, snapshot_output};
 use darpc_model::ClientSnapshot;
 use darpc_protocol::{
-    Architecture, CommandResult as ProtocolCommandResult, Hello, protocol_version_major,
-    protocol_version_minor,
+    Architecture, CommandResult as ProtocolCommandResult, DiagnosticsMode, DiagnosticsResponse,
+    Hello, HookTimingStage, protocol_version_major, protocol_version_minor,
 };
 use std::fmt::Write as _;
 
@@ -54,6 +54,10 @@ pub(crate) enum CommandResult {
         request_id: u32,
         text: String,
         round_trip_ms: u32,
+    },
+    Diagnostics {
+        pid: u32,
+        response: DiagnosticsResponse,
     },
     Command {
         pid: u32,
@@ -159,6 +163,25 @@ impl CommandResult {
                 text.len(),
                 json_string(text)
             ),
+            Self::Diagnostics { pid, response } => {
+                let mut output = format!(
+                    "diagnostics succeeded: pid={pid} mode={}",
+                    diagnostics_mode(response.mode)
+                );
+                for timing in response.hook_timings {
+                    let average_us = timing
+                        .total_duration_us
+                        .checked_div(timing.call_count)
+                        .unwrap_or(0);
+                    write!(
+                        output,
+                        "\nstage={} budget_us={} calls={} average_us={} maximum_us={} over_budget={} last_us={}",
+                        hook_stage(timing.stage), timing.budget_us, timing.call_count, average_us,
+                        timing.maximum_duration_us, timing.over_budget_count, timing.last_duration_us,
+                    ).expect("writing to String cannot fail");
+                }
+                output
+            }
             Self::Command {
                 pid,
                 action,
@@ -275,6 +298,31 @@ impl CommandResult {
                 round_trip_ms,
                 json_string(text),
             ),
+            Self::Diagnostics { pid, response } => {
+                let records = response
+                    .hook_timings
+                    .map(|timing| {
+                        format!(
+                            concat!(
+                                "{{\"stage\":{},\"budget_us\":{},\"call_count\":{},",
+                                "\"total_duration_us\":{},\"maximum_duration_us\":{},",
+                                "\"over_budget_count\":{},\"last_duration_us\":{}}}"
+                            ),
+                            json_string(hook_stage(timing.stage)),
+                            timing.budget_us,
+                            timing.call_count,
+                            timing.total_duration_us,
+                            timing.maximum_duration_us,
+                            timing.over_budget_count,
+                            timing.last_duration_us,
+                        )
+                    })
+                    .join(",");
+                format!(
+                    "{{\"ok\":true,\"command\":\"diagnostics\",\"pid\":{pid},\"mode\":{},\"hook_timings\":[{records}]}}",
+                    json_string(diagnostics_mode(response.mode)),
+                )
+            }
             Self::Command {
                 pid,
                 action,
@@ -326,6 +374,25 @@ fn architecture(architecture: Architecture) -> &'static str {
     match architecture {
         Architecture::X86 => "x86",
         Architecture::X86_64 => "x86_64",
+    }
+}
+
+fn diagnostics_mode(mode: DiagnosticsMode) -> &'static str {
+    match mode {
+        DiagnosticsMode::Disabled => "disabled",
+        DiagnosticsMode::HookTiming => "hook_timing",
+    }
+}
+
+fn hook_stage(stage: HookTimingStage) -> &'static str {
+    match stage {
+        HookTimingStage::Tick => "tick",
+        HookTimingStage::Movement => "movement",
+        HookTimingStage::Commands => "commands",
+        HookTimingStage::Player => "player",
+        HookTimingStage::State => "state",
+        HookTimingStage::Snapshot => "snapshot",
+        HookTimingStage::Event => "event",
     }
 }
 

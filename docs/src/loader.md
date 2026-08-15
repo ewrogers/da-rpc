@@ -53,9 +53,9 @@ The command surface is:
 
 ```text
 loader [--json] inspect <pid>
-loader [--json] attach <pid> <dll-path>
+loader [--json] attach [--diagnostics hook-timing] <pid> <dll-path>
 loader [--json] detach <pid> <dll-path>
-loader [--json] launch [--allow-multiple] [--server <host[:port]>] \
+loader [--json] launch [--allow-multiple] [--diagnostics hook-timing] [--server <host[:port]>] \
     [--skip-intro] [--skip-notice] [--skip-exchange-alerts] \
     <executable-path> <dll-path> [-- <argument>...]
 ```
@@ -102,6 +102,11 @@ patched.
 | `--skip-intro` | Enters the client's normal post-video state directly. |
 | `--skip-notice` | Hides both notice-window paths, enables early title-menu pointer input, and removes the fixed one-second transfer delay while preserving normal notice and transfer processing. |
 | `--skip-exchange-alerts` | Replaces the one-button alert shown after a player exchange completes or is cancelled with the same text in the floating game-message bar. Exchange state and item or gold transfers are unchanged. |
+
+`--diagnostics hook-timing` enables runtime hook timing before the DLL installs
+its hooks. It is accepted by both `attach` and `launch`. The same mode can be
+enabled or disabled later over IPC, so reinjection is not required for routine
+diagnosis. Omitting the option keeps timing disabled.
 
 ### Standard launch profile
 

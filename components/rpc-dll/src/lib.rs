@@ -11,6 +11,8 @@ mod collections;
 #[cfg(any(windows, test))]
 mod commands;
 #[cfg(any(windows, test))]
+mod diagnostics;
+#[cfg(any(windows, test))]
 mod dialog;
 #[cfg(any(windows, test))]
 mod event_queue;
@@ -70,7 +72,7 @@ use windows_sys::{
 };
 
 #[cfg(windows)]
-use darpc_win32::lifecycle::{ABI_VERSION, InitializeFn, ShutdownFn, Status};
+use darpc_win32::lifecycle::{InitializeFn, InitializeOptions, ShutdownFn, Status};
 
 #[cfg(windows)]
 #[unsafe(no_mangle)]
@@ -90,13 +92,16 @@ pub unsafe extern "system" fn DllMain(
 
 #[cfg(windows)]
 #[unsafe(no_mangle)]
-pub extern "system" fn darpc_initialize(abi_version: u32) -> Status {
+pub extern "system" fn darpc_initialize(options: u32) -> Status {
     std::panic::catch_unwind(|| {
-        if abi_version != ABI_VERSION {
+        let Some(options) = InitializeOptions::decode(options) else {
             return Status::UNSUPPORTED_ABI_VERSION;
-        }
+        };
+
+        diagnostics::initialize(options.hook_timing());
 
         if let Err(error) = lifecycle::initialize() {
+            diagnostics::disable();
             return if error.unload_is_safe() {
                 Status::INTERNAL_ERROR
             } else {
@@ -120,6 +125,8 @@ pub extern "system" fn darpc_shutdown(reserved: u32) -> Status {
         if lifecycle::shutdown().is_err() {
             return Status::INTERNAL_ERROR;
         }
+
+        diagnostics::disable();
 
         Status::OK
     })

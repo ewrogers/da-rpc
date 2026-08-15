@@ -1,4 +1,5 @@
 mod commands;
+mod diagnostics;
 mod documentation;
 mod lifecycle;
 mod resources;

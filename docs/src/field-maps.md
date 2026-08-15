@@ -5,6 +5,9 @@ exposes the panel only while an exact `FieldMapPane` is registered and visible
 in the supported client. Receiving the server packet alone does not make the
 resource active. The DLL caches a validated packet that arrives before the
 client registers the pane, then publishes it when the pane becomes visible.
+Pane visibility polling begins only after a validated definition is cached and
+runs at most once every 100 milliseconds. Packet observation remains immediate,
+and destination selection still validates the live pane before submission.
 The 7.41 client ignores bounded bytes after the declared destination records;
 daRPC does the same while still bounds-checking every known field.
 

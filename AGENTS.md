@@ -212,6 +212,28 @@ memory boundaries. Treat those boundaries as small audited interfaces.
   `DllMain` minimal and defer initialization and cleanup appropriately.
 - A daemon, client, or consumer disconnect must not terminate the game process.
 
+Treat detours and every per-tick or per-packet observer as performance-critical
+hot paths.
+
+- Keep work per invocation strictly bounded. Do not allocate, log, perform IPC,
+  sleep, block on a lock, scan an unbounded client collection, or repeat a
+  validated memory walk on every tick or packet.
+- Cache stable lookups and rate-limit polling when immediate observation is not
+  required. Move parsing, conversion, and publication work outside the hook
+  whenever the captured data can remain pointer-free and bounded.
+- Scope hook activity tracking to code that will return to the DLL. A detour
+  that needs no post-call work should finish DLL bookkeeping and tail-jump to
+  the trampoline so a long-lived client call cannot prevent safe unload.
+- Any change that adds a hook or adds work to an existing tick, packet, or
+  observation path must include basic native Windows performance evidence when
+  a live client is available. Compare the unchanged and candidate builds over
+  equivalent windows using diagnostic command queue delay and timeout counts,
+  tick-health progress, process CPU, and unexpected log growth. Report p50,
+  p95, and maximum queue delay where the available tooling permits.
+- Run the focused hook and IPC harnesses for these changes. If native live
+  testing is unavailable, state that limitation and preserve a clear manual
+  A/B procedure for the next Windows verification pass.
+
 ## Protocol and IPC
 
 - Treat all pipe input as untrusted, including input from the local machine.

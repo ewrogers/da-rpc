@@ -497,7 +497,7 @@ pub(crate) fn observe_tick() {
         observe_dialog_closed(darpc_model::DialogCloseReason::Client, tick_ms);
     }
     #[cfg(all(windows, not(test)))]
-    if let Some(field_map) = crate::field_map::observe_pane()
+    if let Some(field_map) = crate::field_map::observe_pane(tick_ms)
         && !push_event(QueuedStateUpdate::FieldMap(field_map), tick_ms)
     {
         crate::field_map::release(field_map);

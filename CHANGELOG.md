@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.5.0 - 2026-08-15
+
 ### Added
 
 - Added authoritative active field-map state, lifecycle and submitted-selection
@@ -9,6 +11,8 @@
 
 ### Changed
 
+- Treat `You failed to concentrate.` as failed `Fas Spiorad` feedback while
+  preserving other queued casts.
 - Cache validated field-map packets that arrive before the native pane becomes
   visible, then publish them only after the pane is confirmed open.
 - Accept bounded trailing field-map extension bytes after the declared

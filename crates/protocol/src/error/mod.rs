@@ -32,6 +32,7 @@ pub enum EncodeError {
     InvalidPathExclusionMapOrder { map_id: u32 },
     InvalidPathExclusionMapCount { actual: u16 },
     InvalidPathExclusionTile { x: i32, y: i32 },
+    InvalidFieldMapIndex { actual: u8, expected: u8 },
     WhoListTooLong { length: usize, max: usize },
     WhoStringTooLong { length: usize, max: usize },
     PayloadTooLarge { length: usize, max: usize },
@@ -153,6 +154,10 @@ impl fmt::Display for EncodeError {
             Self::InvalidPathExclusionTile { x, y } => write!(
                 formatter,
                 "path-exclusion tile ({x}, {y}) exceeds the supported map dimensions"
+            ),
+            Self::InvalidFieldMapIndex { actual, expected } => write!(
+                formatter,
+                "field-map destination index {actual} is invalid; expected {expected}"
             ),
             Self::WhoListTooLong { length, max } => {
                 write!(formatter, "Who list has {length} players; maximum is {max}")
@@ -320,6 +325,17 @@ pub enum DecodeError {
     },
     InvalidStateUpdateType {
         actual: u8,
+    },
+    InvalidFieldMapField {
+        actual: u8,
+    },
+    InvalidFieldMapIndex {
+        actual: u8,
+        count: u8,
+    },
+    InvalidFieldMapDestinationIndex {
+        index: u8,
+        expected: u8,
     },
     InvalidDialogField {
         actual: u8,
@@ -635,6 +651,17 @@ impl fmt::Display for DecodeError {
             Self::InvalidStateUpdateType { actual } => {
                 write!(formatter, "invalid state update type {actual}")
             }
+            Self::InvalidFieldMapField { actual } => {
+                write!(formatter, "invalid field-map field value {actual}")
+            }
+            Self::InvalidFieldMapIndex { actual, count } => write!(
+                formatter,
+                "field-map index {actual} is outside the {count} destinations"
+            ),
+            Self::InvalidFieldMapDestinationIndex { index, expected } => write!(
+                formatter,
+                "field-map destination index {index} is out of order; expected {expected}"
+            ),
             Self::InvalidDialogField { actual } => {
                 write!(formatter, "invalid dialog field value {actual}")
             }

@@ -6,10 +6,11 @@ use darpc_model::{
     DialogInteraction, DialogKind, DialogNavigation, DialogSpeaker, DialogSpriteType, DialogState,
     DialogTarget, DialogUpdate, Direction, Effect, EffectDuration, EffectUpdate, Element,
     EntityUpdate, EquipmentItem, EquipmentSlot, ExchangeItem, ExchangeOffer, ExchangeParty,
-    ExchangeState, ExchangeUpdate, Gender, GroupInvitation, GroupMember, GroupState, GroupUpdate,
-    HumanVisual, InventoryItem, LegendIcon, LegendMark, LegendUpdate, LifecycleUpdate,
-    LocationUpdate, MapChange, MapExclusions, MapExclusionsUpdate, MapLocation, MessageKind,
-    MovementUpdate, Nation, ObjectUpdate, PlannedRoute, PlayerEquipmentItem, PlayerIdentity,
+    ExchangeState, ExchangeUpdate, FieldMapDestination, FieldMapSelection, FieldMapState,
+    FieldMapUpdate, Gender, GroupInvitation, GroupMember, GroupState, GroupUpdate, HumanVisual,
+    InventoryItem, LegendIcon, LegendMark, LegendUpdate, LifecycleUpdate, LocationUpdate,
+    MapChange, MapExclusions, MapExclusionsUpdate, MapLocation, MessageKind, MovementUpdate,
+    Nation, ObjectUpdate, PlannedRoute, PlayerEquipmentItem, PlayerIdentity,
     PlayerInspectionChanges, PlayerInspectionTrigger, PlayerProfile, PlayerUpdate, PlayerVisual,
     ProgressionStatus, Skill, SlotUpdate, Spell, SpellCancellationSource, SpellCastArguments,
     SpellTargetType, StateEvent, StateUpdate, StatusUpdate, TilePosition, UserState, WalkMode,
@@ -20,8 +21,8 @@ use darpc_protocol::{
     CommandRequest, CommandResponse, CommandResult, CommandState, CommandStatus, ComponentVersion,
     DecodeError, DialogAction, DialogCommand, DialogText, EchoRequest, EchoResponse, EncodeError,
     EventPollRequest, EventPollResponse, EventPollResult, ExchangeCommand, FRAME_HEADER_LEN,
-    FRAME_MAGIC, FRAME_VERSION, Frame, FrameHeader, GoldTransfer, GroupCommand,
-    GroupInvitationAction, GroupText, Hello, HelloAck, ItemSlot, ItemTransfer,
+    FRAME_MAGIC, FRAME_VERSION, FieldMapSelectionCommand, Frame, FrameHeader, GoldTransfer,
+    GroupCommand, GroupInvitationAction, GroupText, Hello, HelloAck, ItemSlot, ItemTransfer,
     MAX_COMMAND_TIMEOUT_MS, MAX_COMMAND_WAIT_MS, MAX_ECHO_TEXT_LEN, MAX_PAYLOAD_LEN, Message,
     MessageCommand, MessageContent, MessageRecipient, MessageType, PROTOCOL_VERSION_1_0,
     PathExclusions, Ping, Pong, RawPacket, RawPacketDirection, RouteTile, SkillSlot, SlotSwap,
@@ -226,6 +227,7 @@ fn snapshot() -> ClientSnapshot {
             },
         ]),
         dialog: Some(dialog_state()),
+        active_field_map: Some(field_map_state()),
         group: Some(group_state()),
         exchange: Some(exchange_state()),
         legend: Some(vec![LegendMark {
@@ -319,6 +321,39 @@ fn exchange_state() -> ExchangeState {
             accepted: false,
         },
         other: ExchangeOffer::default(),
+    }
+}
+
+fn field_map_state() -> FieldMapState {
+    FieldMapState {
+        revision: 14,
+        field_name: "field001".into(),
+        current_node_index: Some(0),
+        destinations: vec![
+            FieldMapDestination {
+                index: 0,
+                screen_x: 125,
+                screen_y: 90,
+                name: "Mileth".into(),
+                checksum: 0x1234,
+                map_id: 100,
+                map_x: 10,
+                map_y: 20,
+            },
+            FieldMapDestination {
+                index: 1,
+                screen_x: 250,
+                screen_y: 180,
+                name: "Suomi".into(),
+                checksum: 0x5678,
+                map_id: 200,
+                map_x: 30,
+                map_y: 40,
+            },
+        ],
+        selection: Some(FieldMapSelection {
+            destination_index: 1,
+        }),
     }
 }
 

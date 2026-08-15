@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Added
+
+- Added authoritative active field-map state, lifecycle and submitted-selection
+  events, a revision-checked REST action, and direct CLI selection.
+
+### Changed
+
+- Moved stat-point endpoint guidance into the Character status documentation.
+
 ## 1.4.2 - 2026-08-14
 
 ### Fixed

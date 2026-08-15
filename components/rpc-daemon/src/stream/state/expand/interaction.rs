@@ -27,6 +27,26 @@ pub(super) fn expand(observation: EventObservation, update: StateUpdate) -> Vec<
             });
             events
         }
+        StateUpdate::FieldMap(update) => {
+            events.push(match update {
+                darpc_model::FieldMapUpdate::Opened(field_map) => {
+                    ClientEvent::FieldMapOpened(FieldMapOpened::new(observation, field_map))
+                }
+                darpc_model::FieldMapUpdate::Changed(field_map) => {
+                    ClientEvent::FieldMapChanged(FieldMapChanged::new(observation, field_map))
+                }
+                darpc_model::FieldMapUpdate::SelectionSubmitted(field_map) => {
+                    ClientEvent::FieldMapSelectionSubmitted(FieldMapSelectionSubmitted::new(
+                        observation,
+                        field_map,
+                    ))
+                }
+                darpc_model::FieldMapUpdate::Closed { previous } => {
+                    ClientEvent::FieldMapClosed(FieldMapClosed::new(observation, previous))
+                }
+            });
+            events
+        }
         StateUpdate::Group(update) => {
             events.push(match update {
                 darpc_model::GroupUpdate::SettingsChanged { state } => {

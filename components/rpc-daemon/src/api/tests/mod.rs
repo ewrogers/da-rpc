@@ -30,7 +30,8 @@ use darpc_model::{
     DialogTarget as ModelDialogTarget, Direction as ModelDirection, Effect as ModelEffect,
     EffectDuration as ModelEffectDuration, EquipmentItem as ModelEquipmentItem,
     EquipmentSlot as ModelEquipmentSlot, ExchangeItem as ModelExchangeItem,
-    ExchangeOffer as ModelExchangeOffer, ExchangeState as ModelExchangeState, Gender,
+    ExchangeOffer as ModelExchangeOffer, ExchangeState as ModelExchangeState,
+    FieldMapDestination as ModelFieldMapDestination, FieldMapState as ModelFieldMapState, Gender,
     HumanVisual as ModelHumanVisual, InventoryItem as ModelInventoryItem,
     LegendIcon as ModelLegendIcon, LegendMark as ModelLegendMark,
     MapExclusions as ModelMapExclusions, MapLocation, MessageKind as ModelMessageKind,
@@ -44,10 +45,11 @@ use darpc_model::{
 use darpc_protocol::{
     Architecture, ChantText, CharacterStat, CommandKind, CommandOperation, CommandResult,
     CommandState, CommandStatus, ComponentVersion, DialogAction, DialogCommand, ExchangeCommand,
-    GoldTransfer, GroupCommand, GroupText, Hello, ItemSlot, ItemTransfer, MessageCommand,
-    MessageContent, MessageRecipient, PathExclusions, RawPacket, RawPacketDirection, RouteTile,
-    SUPPORTED_VERSIONS, SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot,
-    SpellTarget, TilePosition, TransferTarget, WalkRoute, WalkTarget,
+    FieldMapSelectionCommand, GoldTransfer, GroupCommand, GroupText, Hello, ItemSlot, ItemTransfer,
+    MessageCommand, MessageContent, MessageRecipient, PathExclusions, RawPacket,
+    RawPacketDirection, RouteTile, SUPPORTED_VERSIONS, SkillSlot, SlotSwap, SpellArguments,
+    SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkRoute,
+    WalkTarget,
 };
 use serde_json::Value;
 use std::{
@@ -304,6 +306,22 @@ fn game_snapshot() -> ModelClientSnapshot {
                 index: 0,
                 text: "Tell me more".into(),
             }]),
+        }),
+        active_field_map: Some(ModelFieldMapState {
+            revision: 11,
+            field_name: "field001".into(),
+            current_node_index: Some(0),
+            destinations: vec![ModelFieldMapDestination {
+                index: 0,
+                screen_x: 120,
+                screen_y: 80,
+                name: "Mileth".into(),
+                checksum: 0x1234,
+                map_id: 100,
+                map_x: 10,
+                map_y: 20,
+            }],
+            selection: None,
         }),
         group: None,
         exchange: None,

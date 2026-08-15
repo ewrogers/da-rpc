@@ -50,6 +50,7 @@ const VERSION_1_1: u16 = 0x0101;
 const VERSION_1_2: u16 = 0x0102;
 const VERSION_1_3: u16 = 0x0103;
 const VERSION_1_4: u16 = 0x0104;
+const VERSION_1_5: u16 = 0x0105;
 const VERSION_2_0: u16 = 0x0200;
 ```
 
@@ -59,12 +60,13 @@ advertises an inclusive, continuous range and the controller selects the
 highest version in the overlap. A peer must not advertise one continuous range
 across an incompatible major boundary. No overlap rejects the connection.
 
-The only currently supported version is 1.4 (`0x0104`). Version 1.1 added exact
+The only currently supported version is 1.5 (`0x0105`). Version 1.1 added exact
 route and path-exclusion commands plus obstruction events. Version 1.2 added
 total ability cooldown duration to cooldown snapshots and collection updates.
 Version 1.3 added hidden-state fields to character and player snapshots.
-Version 1.4 adds complete visible-player visual blocks, character stat-point
-state, and the add-stat command. Peers advertise only 1.4 because these
+Version 1.4 added complete visible-player visual blocks, character stat-point
+state, and the add-stat command. Version 1.5 adds field-map state, lifecycle
+events, and destination selection. Peers advertise only 1.5 because these
 additions change message layouts or can
 introduce discriminants that earlier decoders cannot interpret safely.
 
@@ -228,6 +230,30 @@ struct ClientSnapshot {
     legend: Option<Vec<LegendMark>>;
     planned_route: Option<PlannedRoute>;
     map_exclusions: Vec<MapExclusions>;     // u16 count, maximum 1,024
+    active_field_map: Option<FieldMapState>;
+}
+
+struct FieldMapState {
+    revision: u32;
+    field_name: string8;                   // maximum 255 UTF-8 bytes
+    current_node_index: Option<u8>;
+    destinations: Vec<FieldMapDestination>; // u8 count, maximum 255
+    selection: Option<FieldMapSelection>;
+}
+
+struct FieldMapDestination {
+    index: u8;                             // contiguous, zero-based
+    screen_x: u16;
+    screen_y: u16;
+    name: string8;                         // maximum 255 UTF-8 bytes
+    checksum: u16;
+    map_id: u16;
+    map_x: u16;
+    map_y: u16;
+}
+
+struct FieldMapSelection {
+    destination_index: u8;
 }
 
 struct PlannedRoute {
@@ -520,12 +546,12 @@ timeout, and a failed state walk. A ready response may still contain absent
 groups when the client lifecycle or validated pointers do not expose them.
 `Disconnected` means that the client has an active reconnect dialog. It may
 still contain character state when the underlying world remains valid.
-These snapshot-tail additions remain compatible with their protocol 1.0
-encoding. The command and event additions documented below require protocol
+Earlier snapshot-tail additions remain decodable when absent from old payloads.
+The command and event additions documented below require protocol
 1.1. Total cooldown duration requires protocol 1.2. Local-character and
 player-object hidden-state fields require protocol 1.3. Player visual blocks
 require protocol 1.4. Character stat points and stat spending also require
-protocol 1.4.
+protocol 1.4. Field-map state and interaction require protocol 1.5.
 
 ## Event polling and state updates
 
@@ -586,6 +612,14 @@ enum StateUpdate: u8 {
     CharacterProfile(CharacterProfileUpdate) = 21,
     PlannedRoute(PlannedRoute) = 22,
     MapExclusions(MapExclusionsUpdate) = 23,
+    FieldMap(FieldMapUpdate) = 24,
+}
+
+enum FieldMapUpdate: u8 {
+    Opened(FieldMapState) = 1,
+    Changed(FieldMapState) = 2,
+    SelectionSubmitted(FieldMapState) = 3,
+    Closed { previous: FieldMapState } = 4,
 }
 
 enum MapExclusionsUpdate: u8 {
@@ -977,6 +1011,10 @@ enum CommandKind: u8 {
     ClearPathExclusions = 28,
     AddStat { flag: u8 } = 29, // strength=1, dexterity=2, intelligence=4,
                               // wisdom=8, constitution=16
+    SelectFieldMapDestination {
+        revision: u32;
+        destination_index: u8;
+    } = 30,
 }
 
 enum MessageCommand: u8 {
@@ -1001,6 +1039,14 @@ actions are controller-side formatters and use this same typed command.
 `Message` accepts 1 through 100 ASCII content bytes. Whisper recipients accept
 1 through 15 non-whitespace ASCII bytes. Say and shout become `0x0E` packets
 with modes `0` and `1`. Whisper becomes `0x19 string8-recipient string8-content`.
+
+`SelectFieldMapDestination` accepts only the current field-map revision and a
+zero-based retained destination index. The DLL revalidates both against a live,
+registered, visible `FieldMapPane` and constructs client packet `0x3F` from the
+retained checksum, map ID, and map coordinates. Callers cannot supply those
+four travel fields. The resulting `SelectionSubmitted` update is emitted only
+when the outgoing packet is observed; it does not imply server acceptance or
+close the field map.
 Guild and group use that same directed-message packet with fixed recipients `!`
 and `!!`.
 

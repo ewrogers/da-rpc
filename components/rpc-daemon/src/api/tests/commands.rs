@@ -707,6 +707,14 @@ fn routes_typed_actions() {
             action: DialogAction::Close,
         }),
     );
+    assert_routes_action(
+        "/clients/42/field-map/select",
+        r#"{"revision":11,"destination_index":0}"#,
+        CommandKind::SelectFieldMapDestination(FieldMapSelectionCommand {
+            revision: 11,
+            destination_index: 0,
+        }),
+    );
 }
 
 #[test]
@@ -886,6 +894,22 @@ fn serves_dialog_state_and_rejects_stale_actions() {
     );
     assert_eq!(response.status(), StatusCode::CONFLICT);
     assert_eq!(response_json(response)["error"]["code"], "stale_dialog");
+}
+
+#[test]
+fn serves_field_map_state_and_rejects_stale_actions() {
+    let body = json("/clients/42/field-map");
+    assert_eq!(body["field_map"]["revision"], 11);
+    assert_eq!(body["field_map"]["field_name"], "field001");
+    assert_eq!(body["field_map"]["destinations"][0]["name"], "Mileth");
+
+    let response = post_json(
+        state(),
+        "/clients/42/field-map/select",
+        r#"{"revision":10,"destination_index":0}"#,
+    );
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    assert_eq!(response_json(response)["error"]["code"], "stale_field_map");
 }
 
 #[test]

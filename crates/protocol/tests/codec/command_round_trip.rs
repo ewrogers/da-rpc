@@ -534,6 +534,17 @@ fn command_messages_round_trip() {
                 wait_ms: 50,
             },
         }),
+        Message::CommandRequest(CommandRequest {
+            request_id: 52,
+            operation: CommandOperation::Submit {
+                kind: CommandKind::SelectFieldMapDestination(FieldMapSelectionCommand {
+                    revision: 9,
+                    destination_index: 2,
+                }),
+                timeout_ms: 1_000,
+                wait_ms: 50,
+            },
+        }),
     ];
 
     for message in messages {

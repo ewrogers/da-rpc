@@ -828,6 +828,24 @@ response actions, and complete event payloads.
 | `dialog.submitted` | `dialog_submitted` | A daRPC action answered or navigated the current page. |
 | `dialog.closed` | `dialog_closed` | The dialog ended locally, remotely, during a map change, or during recovery. |
 
+## Field-map events
+
+Read current state from `GET /clients/{client}/field-map`. The
+[Field maps](field-maps.md) chapter documents pane detection, destinations,
+revision checks, selection, and complete payload fields.
+
+| SSE event | JSON type | Meaning |
+| --- | --- | --- |
+| `field_map.opened` | `field_map_opened` | A validated native field-map panel became active. |
+| `field_map.changed` | `field_map_changed` | The active field map and destination list were replaced. |
+| `field_map.selection_submitted` | `field_map_selection_submitted` | The client sent the retained destination's canonical selection packet. |
+| `field_map.closed` | `field_map_closed` | The native panel was no longer registered and visible. |
+
+Opened, changed, and selection-submitted events contain `field_map` with the
+complete `FieldMapState`. Closed contains the complete state as `previous`.
+There is no selection-started event: a native click can animate before sending,
+and only the observed outgoing packet is authoritative for submission.
+
 ## Group events
 
 Read current membership and invitations from `GET /clients/{client}/group`.
@@ -956,6 +974,7 @@ trying to infer state from only the changed field.
 | Audio | `sound.played`, `music.started`, `music.stopped` | None; transient events are not replayed. |
 | Messages | `message.say`, `message.shout`, `message.chant`, `message.whisper`, `message.guild`, `message.group`, `message.system`, `message.world`, `message.internal` | `/messages`, except transient chants |
 | NPC dialogs | `dialog.opened`, `dialog.changed`, `dialog.submitted`, `dialog.closed` | `/dialog` |
+| Field maps | `field_map.opened`, `field_map.changed`, `field_map.selection_submitted`, `field_map.closed` | `/field-map` |
 | Groups | `group.settings_changed`, `group.invitation_sent`, `group.invitation_received`, `group.invitation_closed`, `group.joined`, `group.member_joined`, `group.member_left`, `group.disbanded` | `/group`, then `/status` for convenience fields |
 | Exchange | `exchange.opened`, `exchange.item_added`, `exchange.gold_changed`, `exchange.accepted`, `exchange.completed`, `exchange.cancelled` | `/exchange`, then `/status` for `is_in_exchange` |
 | Legend | `legend.mark_added`, `legend.mark_changed`, `legend.mark_removed` | `/legend` |

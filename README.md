@@ -18,7 +18,7 @@ shortest path to a working installation.
 ## Overview
 
 daRPC provides typed access to character state, inventory, equipment, skills,
-spells, effects, world objects, dialogs, groups, exchanges, online players,
+spells, effects, world objects, dialogs, field maps, groups, exchanges, online players,
 legend marks, chat, movement, and supported client actions. Applications can
 use a direct command-line interface or a local REST and Server-Sent Events API.
 

@@ -64,6 +64,26 @@ pub(super) async fn client_dialog(
 
 #[utoipa::path(
     get,
+    path = "/clients/{client}/field-map",
+    params(("client" = String, Path, description = "Process ID or current in-game character name")),
+    responses(
+        (status = 200, description = "The active field map, or null when its native panel is not up", body = FieldMapSnapshot),
+        (status = 400, body = ErrorState),
+        (status = 404, body = ErrorState),
+        (status = 503, body = ErrorState)
+    )
+)]
+pub(super) async fn client_field_map(
+    Path(identifier): Path<String>,
+    State(state): State<ApiState>,
+) -> Result<Json<FieldMapSnapshot>, ApiError> {
+    let registry = state.snapshot();
+    let (pid, snapshot) = resolve_game_snapshot(&registry, &identifier)?;
+    Ok(Json(FieldMapSnapshot::from_model(pid, snapshot)))
+}
+
+#[utoipa::path(
+    get,
     path = "/clients/{client}/group",
     params(("client" = String, Path, description = "Process ID or current in-game character name")),
     responses(

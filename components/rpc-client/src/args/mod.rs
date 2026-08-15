@@ -5,11 +5,11 @@ use crate::{
 use darpc_model::{Direction, EquipmentSlot, emote_code, is_client_emote_code};
 use darpc_protocol::{
     ChantText, CharacterStat, DialogAction, DialogCommand, DialogText, ExchangeCommand,
-    GoldTransfer, GroupCommand, GroupInvitationAction, GroupText, ItemSlot, ItemTransfer,
-    MAX_DIALOG_INPUT_LEN, MAX_ECHO_TEXT_LEN, MAX_ITEM_SLOT, MAX_RAW_PACKET_PAYLOAD_LEN,
-    MAX_SKILL_SLOT, MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT, RawPacket, RawPacketDirection, SkillSlot,
-    SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition,
-    TransferTarget, WalkTarget,
+    FieldMapSelectionCommand, GoldTransfer, GroupCommand, GroupInvitationAction, GroupText,
+    ItemSlot, ItemTransfer, MAX_DIALOG_INPUT_LEN, MAX_ECHO_TEXT_LEN, MAX_ITEM_SLOT,
+    MAX_RAW_PACKET_PAYLOAD_LEN, MAX_SKILL_SLOT, MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT, RawPacket,
+    RawPacketDirection, SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot,
+    SpellTarget, TilePosition, TransferTarget, WalkTarget,
 };
 use std::ffi::OsString;
 
@@ -56,6 +56,7 @@ usage:
     darpc [--output <table|json>] dialog previous --pid <pid> <revision>
     darpc [--output <table|json>] dialog next --pid <pid> <revision>
     darpc [--output <table|json>] dialog close --pid <pid> <revision>
+    darpc [--output <table|json>] field-map select --pid <pid> <revision> <destination-index>
     darpc [--output <table|json>] group toggle --pid <pid>
     darpc [--output <table|json>] group invite --pid <pid> <player>
     darpc [--output <table|json>] group accept --pid <pid> <invitation-id>
@@ -105,6 +106,7 @@ pub(crate) enum Operation {
     Emote(u8),
     Interact(std::num::NonZeroU32),
     Dialog(DialogCommand),
+    FieldMapSelect(FieldMapSelectionCommand),
     Group(GroupCommand),
     Exchange(ExchangeCommand),
     Chant {
@@ -191,6 +193,7 @@ impl Command {
                 action: DialogAction::Close,
                 ..
             }) => "dialog close",
+            Operation::FieldMapSelect(_) => "field-map select",
             Operation::Group(GroupCommand::Toggle) => "group toggle",
             Operation::Group(GroupCommand::Invite(_)) => "group invite",
             Operation::Group(GroupCommand::Respond {
@@ -331,6 +334,10 @@ pub(crate) fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
             arguments.next(),
             DialogAction::Close,
         )?),
+        "field-map select" => Operation::FieldMapSelect(FieldMapSelectionCommand {
+            revision: parse_u32(arguments.next(), "field-map revision")?,
+            destination_index: parse_u8(arguments.next(), "field-map destination index")?,
+        }),
         "group toggle" => Operation::Group(GroupCommand::Toggle),
         "group invite" => {
             Operation::Group(GroupCommand::Invite(parse_group_name(arguments.next())?))
@@ -409,6 +416,7 @@ fn parse_action(arguments: &mut impl Iterator<Item = OsString>) -> Result<String
         ],
         "gold" => &["drop", "give"],
         "dialog" => &["select", "input", "previous", "next", "close"],
+        "field-map" => &["select"],
         "group" => &["toggle", "invite", "accept", "decline"],
         "exchange" => &["item", "gold", "accept", "cancel"],
         "command" => &["status", "cancel"],
@@ -833,9 +841,10 @@ mod tests {
     use super::{ChantAction, Command, Operation, OutputFormat, parse};
     use darpc_model::Direction;
     use darpc_protocol::{
-        ChantText, CharacterStat, DialogAction, DialogCommand, DialogText, GroupCommand,
-        GroupInvitationAction, GroupText, ItemSlot, RawPacket, RawPacketDirection, SkillSlot,
-        SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget, WalkTarget,
+        ChantText, CharacterStat, DialogAction, DialogCommand, DialogText,
+        FieldMapSelectionCommand, GroupCommand, GroupInvitationAction, GroupText, ItemSlot,
+        RawPacket, RawPacketDirection, SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput,
+        SpellSlot, SpellTarget, WalkTarget,
     };
     use std::ffi::OsString;
 
@@ -1329,5 +1338,25 @@ mod tests {
     fn rejects_echo_over_the_wire_limit() {
         let text = "a".repeat(darpc_protocol::MAX_ECHO_TEXT_LEN + 1);
         assert!(parse(vec!["echo".into(), "--pid".into(), "1".into(), text.into(),]).is_err());
+    }
+
+    #[test]
+    fn parses_field_map_selection_by_revision_and_index() {
+        let (_, command) = parse(arguments(&[
+            "field-map",
+            "select",
+            "--pid",
+            "42",
+            "11",
+            "2",
+        ]))
+        .unwrap();
+        assert_eq!(
+            command.operation,
+            Operation::FieldMapSelect(FieldMapSelectionCommand {
+                revision: 11,
+                destination_index: 2,
+            })
+        );
     }
 }

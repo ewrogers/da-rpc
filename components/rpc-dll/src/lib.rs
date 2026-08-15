@@ -17,6 +17,8 @@ mod event_queue;
 #[cfg(any(windows, test))]
 mod exchange;
 #[cfg(any(windows, test))]
+mod field_map;
+#[cfg(any(windows, test))]
 mod group;
 #[cfg(any(windows, test))]
 mod heartbeat_priority;

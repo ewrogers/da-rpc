@@ -1,7 +1,7 @@
 use darpc_model::{
     CharacterClass, CharacterSnapshot, ClientLifecycle, ClientSnapshot, DialogInteraction,
     DialogKind, DialogSlot, DialogSpriteType, DialogState, Effect, EffectDuration, Element,
-    EquipmentItem, Gender, GroupState, InventoryItem, Skill, Spell, SpellTargetType,
+    EquipmentItem, FieldMapState, Gender, GroupState, InventoryItem, Skill, Spell, SpellTargetType,
 };
 use serde_json::json;
 use std::fmt::Write as _;
@@ -44,6 +44,7 @@ pub(crate) fn render_human(
         output.push_str("\ncharacter: unavailable");
         render_group(&mut output, snapshot.group.as_ref());
         render_dialog(&mut output, snapshot.dialog.as_ref());
+        render_field_map(&mut output, snapshot.active_field_map.as_ref());
         render_exchange(&mut output, snapshot.exchange.as_ref());
         crate::object_output::render_human(&mut output, snapshot.objects.as_deref());
         return output;
@@ -141,6 +142,7 @@ pub(crate) fn render_human(
     render_collections(&mut output, character);
     render_group(&mut output, snapshot.group.as_ref());
     render_dialog(&mut output, snapshot.dialog.as_ref());
+    render_field_map(&mut output, snapshot.active_field_map.as_ref());
     render_exchange(&mut output, snapshot.exchange.as_ref());
     crate::object_output::render_human(&mut output, snapshot.objects.as_deref());
     output
@@ -177,6 +179,7 @@ fn snapshot_value(snapshot: &ClientSnapshot) -> serde_json::Value {
             objects.iter().map(crate::object_output::json_value).collect::<Vec<_>>()
         }),
         "dialog": snapshot.dialog.as_ref().map(dialog_value),
+        "active_field_map": snapshot.active_field_map.as_ref().map(field_map_value),
         "group": snapshot.group.as_ref().map(group_value),
         "exchange": snapshot.exchange.as_ref().map(exchange_value),
         "planned_route": snapshot.planned_route.as_ref().map(|route| json!({
@@ -185,6 +188,61 @@ fn snapshot_value(snapshot: &ClientSnapshot) -> serde_json::Value {
                 "x": tile.x,
                 "y": tile.y,
             })).collect::<Vec<_>>(),
+        })),
+    })
+}
+
+fn render_field_map(output: &mut String, field_map: Option<&FieldMapState>) {
+    let Some(field_map) = field_map else {
+        output.push_str("\nfield_map: unavailable");
+        return;
+    };
+    let selection = field_map.selection.map_or_else(
+        || "none".into(),
+        |value| value.destination_index.to_string(),
+    );
+    let _ = write!(
+        output,
+        "\nfield_map: revision={} field_name={} current_node_index={} destinations={} selection={}",
+        field_map.revision,
+        json_string(&field_map.field_name),
+        optional_number(field_map.current_node_index),
+        field_map.destinations.len(),
+        selection,
+    );
+    for destination in &field_map.destinations {
+        let _ = write!(
+            output,
+            "\nfield_map_destination: index={} screen_x={} screen_y={} name={} checksum={} map_id={} x={} y={}",
+            destination.index,
+            destination.screen_x,
+            destination.screen_y,
+            json_string(&destination.name),
+            destination.checksum,
+            destination.map_id,
+            destination.map_x,
+            destination.map_y,
+        );
+    }
+}
+
+fn field_map_value(field_map: &FieldMapState) -> serde_json::Value {
+    json!({
+        "revision": field_map.revision,
+        "field_name": field_map.field_name,
+        "current_node_index": field_map.current_node_index,
+        "destinations": field_map.destinations.iter().map(|destination| json!({
+            "index": destination.index,
+            "screen_x": destination.screen_x,
+            "screen_y": destination.screen_y,
+            "name": destination.name,
+            "checksum": destination.checksum,
+            "map_id": destination.map_id,
+            "map_x": destination.map_x,
+            "map_y": destination.map_y,
+        })).collect::<Vec<_>>(),
+        "selection": field_map.selection.map(|selection| json!({
+            "destination_index": selection.destination_index,
         })),
     })
 }

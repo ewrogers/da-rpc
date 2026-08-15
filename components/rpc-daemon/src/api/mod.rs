@@ -12,6 +12,10 @@ use crate::{
         ExchangeItemAdded, ExchangeOffer, ExchangeOpened, ExchangeParty, ExchangeSnapshot,
         ExchangeState,
     },
+    field_map::{
+        FieldMapChanged, FieldMapClosed, FieldMapDestination, FieldMapOpened, FieldMapSelection,
+        FieldMapSelectionSubmitted, FieldMapSnapshot, FieldMapState,
+    },
     group::{
         GroupDisbanded, GroupInvitation, GroupInvitationCloseReason, GroupInvitationClosed,
         GroupInvitationReceived, GroupInvitationSent, GroupJoined, GroupMember, GroupMemberChanged,
@@ -542,6 +546,11 @@ fn router(state: ApiState) -> Router {
             post(crate::commands::message::send),
         )
         .route("/clients/{client}/dialog", get(client_dialog))
+        .route("/clients/{client}/field-map", get(client_field_map))
+        .route(
+            "/clients/{client}/field-map/select",
+            post(crate::commands::field_map::select),
+        )
         .route("/clients/{client}/group", get(client_group))
         .route("/clients/{client}/exchange", get(client_exchange))
         .route(
@@ -798,7 +807,8 @@ async fn reject_request_body(request: Request<Body>, next: Next) -> Response {
             || request.uri().path().ends_with("/dialog/input")
             || request.uri().path().ends_with("/dialog/previous")
             || request.uri().path().ends_with("/dialog/next")
-            || request.uri().path().ends_with("/dialog/close")))
+            || request.uri().path().ends_with("/dialog/close")
+            || request.uri().path().ends_with("/field-map/select")))
         || (request.method() == Method::PUT && request.uri().path().ends_with("/path-exclusions"))
     {
         return next.run(request).await;
@@ -835,6 +845,7 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         clients,
         client_status,
         client_dialog,
+        client_field_map,
         client_group,
         client_exchange,
         crate::commands::who::who,
@@ -892,6 +903,7 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         crate::commands::dialog::previous,
         crate::commands::dialog::next,
         crate::commands::dialog::close,
+        crate::commands::field_map::select,
         crate::commands::group::invite,
         crate::commands::group::toggle,
         crate::commands::group::accept,
@@ -963,6 +975,15 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         DialogClosed,
         DialogSubmission,
         DialogCloseReason,
+        crate::commands::field_map::FieldMapSelectOptions,
+        FieldMapSnapshot,
+        FieldMapState,
+        FieldMapDestination,
+        FieldMapSelection,
+        FieldMapOpened,
+        FieldMapChanged,
+        FieldMapSelectionSubmitted,
+        FieldMapClosed,
         GroupSnapshot,
         GroupState,
         GroupMember,

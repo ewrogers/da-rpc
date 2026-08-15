@@ -103,6 +103,7 @@ fn character_snapshot(
         }),
         objects: None,
         dialog: None,
+        active_field_map: None,
         group: None,
         exchange: None,
         legend: None,

@@ -2,6 +2,7 @@ mod ability;
 mod chant;
 pub(crate) mod dialog;
 pub(crate) mod exchange;
+pub(crate) mod field_map;
 pub(crate) mod group;
 mod interaction;
 mod message;
@@ -50,6 +51,7 @@ pub(crate) fn execute(command: CommandKind) -> Result<(), CommandFailure> {
         CommandKind::RemovePathExclusions { map_id } => movement::remove_path_exclusions(map_id),
         CommandKind::ClearPathExclusions => movement::clear_path_exclusions(),
         CommandKind::AddStat(stat) => stat::add(stat),
+        CommandKind::SelectFieldMapDestination(command) => field_map::submit(command),
     }
 }
 

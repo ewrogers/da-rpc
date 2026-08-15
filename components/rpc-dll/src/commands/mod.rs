@@ -5,11 +5,11 @@ use darpc_model::{Direction, EquipmentSlot};
 use darpc_protocol::{
     ChantText, CharacterStat, CommandFailure, CommandKind, CommandOperation, CommandResult,
     CommandState, CommandStatus, DialogAction, DialogCommand, DialogText, ExchangeCommand,
-    GoldTransfer, GroupCommand, GroupInvitationAction, GroupText, ItemSlot, ItemTransfer,
-    MAX_MESSAGE_CONTENT_LEN, MAX_MESSAGE_RECIPIENT_LEN, MAX_WALK_ROUTE_TILES, MessageCommand,
-    MessageContent, MessageRecipient, PathExclusions, RawPacket, RawPacketDirection, RouteTile,
-    SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget,
-    TilePosition, TransferTarget, WalkRoute, WalkTarget,
+    FieldMapSelectionCommand, GoldTransfer, GroupCommand, GroupInvitationAction, GroupText,
+    ItemSlot, ItemTransfer, MAX_MESSAGE_CONTENT_LEN, MAX_MESSAGE_RECIPIENT_LEN,
+    MAX_WALK_ROUTE_TILES, MessageCommand, MessageContent, MessageRecipient, PathExclusions,
+    RawPacket, RawPacketDirection, RouteTile, SkillSlot, SlotSwap, SpellArguments, SpellCast,
+    SpellInput, SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkRoute, WalkTarget,
 };
 use std::{
     num::NonZeroU32,

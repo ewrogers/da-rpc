@@ -167,6 +167,7 @@ pub(crate) enum ServerUpdate<'a> {
     Collection(CollectionDirty),
     SpellCancelled,
     Visual(VisualUpdate),
+    FieldMap(&'a [u8]),
     Dialog(&'a [u8]),
     Group(&'a [u8]),
     Exchange(&'a [u8]),
@@ -178,6 +179,9 @@ pub(crate) fn update<'a>(
 ) -> Result<Option<ServerUpdate<'a>>, ParseError> {
     if let Some(update) = action_delay::update(body)? {
         return Ok(Some(ServerUpdate::ActionDelay(update)));
+    }
+    if body.first() == Some(&0x2E) {
+        return Ok(Some(ServerUpdate::FieldMap(body)));
     }
     if matches!(body.first(), Some(0x2F | 0x30)) {
         if body.len() < 2 {

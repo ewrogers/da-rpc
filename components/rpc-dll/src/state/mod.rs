@@ -49,6 +49,11 @@ pub(crate) fn observe_outgoing(body: &[u8], tick_ms: u32) {
     ability::observe_outgoing(body, tick_ms);
     action::observe_outgoing(body, tick_ms);
     crate::exchange::observe_outgoing(body, tick_ms);
+    if let Some(field_map) = crate::field_map::observe_outgoing(body)
+        && !push_event(QueuedStateUpdate::FieldMap(field_map), tick_ms)
+    {
+        crate::field_map::release(field_map);
+    }
 }
 
 pub(crate) fn observe_audio(update: AudioUpdate, tick_ms: u32) {
@@ -86,6 +91,14 @@ pub(crate) fn observe_dialog(body: &[u8], tick_ms: u32) {
         && !push_event(QueuedStateUpdate::Dialog(dialog), tick_ms)
     {
         crate::dialog::release(dialog);
+    }
+}
+
+pub(crate) fn observe_field_map(body: &[u8], tick_ms: u32) {
+    if let Some(field_map) = crate::field_map::observe_server(body)
+        && !push_event(QueuedStateUpdate::FieldMap(field_map), tick_ms)
+    {
+        crate::field_map::release(field_map);
     }
 }
 
@@ -279,6 +292,7 @@ pub(crate) fn reset() {
     // SAFETY: reset has the same exclusive lifecycle access described above.
     unsafe { COLLECTIONS.reset() };
     crate::legend::reset();
+    crate::field_map::reset();
     crate::player::reset();
     crate::path_exclusions::reset();
     crate::path_occupancy::clear();
@@ -461,6 +475,12 @@ pub(crate) fn observe_tick() {
     #[cfg(all(windows, not(test)))]
     if crate::dialog::is_active() && !crate::actions::dialog::is_open() {
         observe_dialog_closed(darpc_model::DialogCloseReason::Client, tick_ms);
+    }
+    #[cfg(all(windows, not(test)))]
+    if let Some(field_map) = crate::field_map::observe_pane()
+        && !push_event(QueuedStateUpdate::FieldMap(field_map), tick_ms)
+    {
+        crate::field_map::release(field_map);
     }
     #[cfg(all(windows, not(test)))]
     crate::actions::group::observe_tick(tick_ms);

@@ -31,6 +31,7 @@ pub(crate) mod assail;
 pub(crate) mod chant;
 pub(crate) mod dialog;
 pub(crate) mod exchange;
+pub(crate) mod field_map;
 pub(crate) mod group;
 pub(crate) mod interaction;
 pub(crate) mod legend;
@@ -309,6 +310,7 @@ pub(crate) enum CommandKind {
     Message,
     PathExclusions,
     AddStat,
+    SelectFieldMapDestination,
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
@@ -673,6 +675,7 @@ impl From<ProtocolKind> for CommandKind {
             | ProtocolKind::RemovePathExclusions { .. }
             | ProtocolKind::ClearPathExclusions => Self::PathExclusions,
             ProtocolKind::AddStat(_) => Self::AddStat,
+            ProtocolKind::SelectFieldMapDestination(_) => Self::SelectFieldMapDestination,
         }
     }
 }

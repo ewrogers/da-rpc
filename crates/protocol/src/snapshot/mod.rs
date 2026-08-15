@@ -81,9 +81,8 @@ pub(crate) fn encode(output: &mut Vec<u8>, snapshot: &ClientSnapshot) -> Result<
     )?;
     encode_player_profiles(output, snapshot.objects.as_deref())?;
     encode_optional_planned_route(output, snapshot.planned_route.as_ref())?;
-    if !snapshot.map_exclusions.is_empty() {
-        encode_map_exclusions(output, &snapshot.map_exclusions)?;
-    }
+    encode_map_exclusions(output, &snapshot.map_exclusions)?;
+    crate::field_map::encode_optional_state(output, snapshot.active_field_map.as_ref())?;
     Ok(())
 }
 
@@ -140,6 +139,11 @@ pub(crate) fn decode(reader: &mut PayloadReader<'_>) -> Result<ClientSnapshot, D
     } else {
         decode_map_exclusions(reader)?
     };
+    let active_field_map = if reader.is_empty() {
+        None
+    } else {
+        crate::field_map::decode_optional_state(reader)?
+    };
     let mut snapshot = ClientSnapshot {
         revision,
         event_sequence,
@@ -151,6 +155,7 @@ pub(crate) fn decode(reader: &mut PayloadReader<'_>) -> Result<ClientSnapshot, D
         character,
         objects,
         dialog,
+        active_field_map,
         group,
         exchange,
         legend,

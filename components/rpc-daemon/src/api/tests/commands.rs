@@ -92,13 +92,18 @@ fn assert_routes_action_sequence(
             }
             assert_eq!(call.pid, 42);
             assert_eq!(call.identity, identity);
+            let expected_timeout_ms = if matches!(expected_kind, CommandKind::CastSpell(_)) {
+                1_100
+            } else {
+                1_000
+            };
             assert!(matches!(
                 call.operation,
                 crate::commands::ClientOperation::Command(CommandOperation::Submit {
                     kind,
-                    timeout_ms: 1_000,
+                    timeout_ms,
                     wait_ms: 1_000,
-                }) if kind == expected_kind
+                }) if kind == expected_kind && timeout_ms == expected_timeout_ms
             ));
             call.reply
                 .send(CommandReply::Result(CommandResult::Status(CommandStatus {
@@ -106,7 +111,7 @@ fn assert_routes_action_sequence(
                     kind: expected_kind,
                     state: CommandState::Executed,
                     enqueued_tick_ms: 100,
-                    deadline_tick_ms: 1_100,
+                    deadline_tick_ms: 100 + u32::from(expected_timeout_ms),
                     started_tick_ms: Some(104),
                     completed_tick_ms: Some(104),
                     execution_us: Some(2),

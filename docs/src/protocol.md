@@ -188,6 +188,9 @@ struct TickHealthResponse {
 The response is a worker-thread snapshot of atomic hook state. Comparing two
 responses with `wrapping_sub` shows whether the client dispatcher advanced
 during the sample window without performing IPC or logging in the hook itself.
+While connected, `darpcd` samples this response once per second. It logs a
+degraded transition after three consecutive samples below 60 observed ticks
+per second and logs recovery after the rate returns to at least that threshold.
 
 ## Client snapshot
 

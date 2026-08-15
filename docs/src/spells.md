@@ -113,6 +113,11 @@ The DLL checks the live spell slot and arguments again before calling the
 matching native client routine. It does not switch the visible spell panel or
 synthesize user input.
 
+Spell casts have 10 percent tolerance on the normal one-second start deadline.
+This bounded window accommodates small native dispatcher overruns during an
+earlier cast; the one-second action deadline remains in effect for other
+commands.
+
 ## Swapping spells
 
 ```console

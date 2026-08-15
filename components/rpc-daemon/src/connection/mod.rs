@@ -9,7 +9,8 @@ use darpc_game_client::{CLIENT_VERSION_CODE, EXECUTABLE_SHA256};
 use darpc_model::SequenceNumber;
 use darpc_protocol::{
     Architecture, CommandRequest, EventPollRequest, EventPollResult, Hello, MAX_EVENTS_PER_POLL,
-    Message, Ping, Pong, SnapshotRequest, SnapshotResult, SnapshotUnavailableReason,
+    Message, SnapshotRequest, SnapshotResult, SnapshotUnavailableReason, TickHealthRequest,
+    TickHealthResponse,
 };
 use darpc_win32::controller::{ControllerError, ControllerSession};
 #[cfg(debug_assertions)]
@@ -28,10 +29,70 @@ use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_PIPE_BUSY};
 
 const RETRY_INTERVAL: Duration = Duration::from_millis(500);
 const HEALTH_INTERVAL: Duration = Duration::from_secs(1);
+const MIN_TICK_RATE_HZ: u32 = 60;
+const DEGRADED_SAMPLE_COUNT: u8 = 3;
 const INITIALIZATION_GRACE: Duration = Duration::from_secs(1);
 const STOP_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const EVENT_POLL_WAIT_MS: u16 = 50;
 const SNAPSHOT_RETRY_INTERVAL: Duration = Duration::from_millis(500);
+
+#[derive(Default)]
+struct TickRateMonitor {
+    previous_tick_count: Option<u32>,
+    slow_samples: u8,
+    degraded: bool,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum TickRateChange {
+    Degraded {
+        tick_delta: u32,
+        sample_ms: u64,
+        rate_hz: u32,
+    },
+    Recovered {
+        tick_delta: u32,
+        sample_ms: u64,
+        rate_hz: u32,
+    },
+}
+
+impl TickRateMonitor {
+    fn observe(&mut self, tick_count: u32, sample_ms: u64) -> Option<TickRateChange> {
+        let previous = self.previous_tick_count.replace(tick_count)?;
+        let sample_ms = sample_ms.max(1);
+        let tick_delta = tick_count.wrapping_sub(previous);
+        let rate_hz = u32::try_from(u64::from(tick_delta) * 1_000 / sample_ms).unwrap_or(u32::MAX);
+        let slow = rate_hz < MIN_TICK_RATE_HZ;
+
+        if slow {
+            self.slow_samples = self.slow_samples.saturating_add(1);
+            if !self.degraded && self.slow_samples >= DEGRADED_SAMPLE_COUNT {
+                self.degraded = true;
+                return Some(TickRateChange::Degraded {
+                    tick_delta,
+                    sample_ms,
+                    rate_hz,
+                });
+            }
+        } else {
+            self.slow_samples = 0;
+            if self.degraded {
+                self.degraded = false;
+                return Some(TickRateChange::Recovered {
+                    tick_delta,
+                    sample_ms,
+                    rate_hz,
+                });
+            }
+        }
+        None
+    }
+
+    fn reset(&mut self) {
+        *self = Self::default();
+    }
+}
 
 pub(crate) struct Worker {
     stop: Arc<AtomicBool>,
@@ -182,6 +243,7 @@ fn monitor(
     let mut request_id = 1_u32;
     let mut boundary = None;
     let mut last_health = Instant::now();
+    let mut tick_rate = TickRateMonitor::default();
     while !stop.load(Ordering::Acquire) {
         if let Some(call) = next_command(commands) {
             if call.identity != identity {
@@ -280,9 +342,17 @@ fn monitor(
         request_id = SequenceNumber::new(request_id).next().get();
 
         if last_health.elapsed() >= HEALTH_INTERVAL {
-            ping(session, request_id)?;
+            let health = request_tick_health(session, request_id)?;
+            let sample_ms = u64::try_from(last_health.elapsed().as_millis()).unwrap_or(u64::MAX);
             request_id = SequenceNumber::new(request_id).next().get();
             last_health = Instant::now();
+            if health.installed {
+                if let Some(change) = tick_rate.observe(health.tick_count, sample_ms) {
+                    send_tick_rate_change(events, pid, change)?;
+                }
+            } else {
+                tick_rate.reset();
+            }
         }
     }
     reject_pending_commands(commands);
@@ -375,23 +445,51 @@ fn poll_events(
     }
 }
 
-fn ping(session: &mut ControllerSession, request_id: u32) -> Result<(), ControllerError> {
-    session.send(Message::Ping(Ping { request_id }))?;
+fn request_tick_health(
+    session: &mut ControllerSession,
+    request_id: u32,
+) -> Result<TickHealthResponse, ControllerError> {
+    session.send(Message::TickHealthRequest(TickHealthRequest { request_id }))?;
     let response = session.receive()?;
     match response.message {
-        Message::Pong(Pong {
-            request_id: response_id,
-        }) if response_id == request_id => Ok(()),
-        Message::Pong(Pong {
-            request_id: response_id,
-        }) => Err(ControllerError::Protocol(format!(
-            "Pong request ID {response_id} does not match {request_id}"
+        Message::TickHealthResponse(response) if response.request_id == request_id => Ok(response),
+        Message::TickHealthResponse(response) => Err(ControllerError::Protocol(format!(
+            "TickHealthResponse request ID {} does not match {request_id}",
+            response.request_id
         ))),
         message => Err(ControllerError::Protocol(format!(
-            "expected Pong, received {:?}",
+            "expected TickHealthResponse, received {:?}",
             message.message_type()
         ))),
     }
+}
+
+fn send_tick_rate_change(
+    events: &Sender<DaemonEvent>,
+    pid: u32,
+    change: TickRateChange,
+) -> Result<(), ControllerError> {
+    let (state, tick_delta, sample_ms, rate_hz) = match change {
+        TickRateChange::Degraded {
+            tick_delta,
+            sample_ms,
+            rate_hz,
+        } => ("degraded", tick_delta, sample_ms, rate_hz),
+        TickRateChange::Recovered {
+            tick_delta,
+            sample_ms,
+            rate_hz,
+        } => ("recovered", tick_delta, sample_ms, rate_hz),
+    };
+    events
+        .send(DaemonEvent::Timing(format!(
+            concat!(
+                "client pid={} timing=tick_rate_{} rate_hz={} ",
+                "threshold_hz={} tick_delta={} sample_ms={}"
+            ),
+            pid, state, rate_hz, MIN_TICK_RATE_HZ, tick_delta, sample_ms
+        )))
+        .map_err(|_| ControllerError::Protocol("daemon event channel closed".into()))
 }
 
 fn send_event(events: &Sender<DaemonEvent>, event: ConnectionEvent) -> Result<(), ControllerError> {
@@ -473,7 +571,7 @@ fn emit(events: &Sender<DaemonEvent>, event: ConnectionEvent) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{validate_event_batch, validate_identity};
+    use super::{TickRateChange, TickRateMonitor, validate_event_batch, validate_identity};
     use darpc_game_client::{CLIENT_VERSION_CODE, EXECUTABLE_SHA256};
     use darpc_model::{StateEvent, StateUpdate, StatusUpdate};
     use darpc_protocol::{Architecture, ComponentVersion, Hello, SUPPORTED_VERSIONS};
@@ -531,5 +629,37 @@ mod tests {
             validate_event_batch(u32::MAX, u32::MAX, &[event(1, 1)]),
             Some((1, 1))
         );
+    }
+
+    #[test]
+    fn reports_sustained_tick_rate_degradation_and_recovery() {
+        let mut monitor = TickRateMonitor::default();
+        assert_eq!(monitor.observe(100, 1_000), None);
+        assert_eq!(monitor.observe(110, 1_000), None);
+        assert_eq!(monitor.observe(120, 1_000), None);
+        assert_eq!(
+            monitor.observe(130, 1_000),
+            Some(TickRateChange::Degraded {
+                tick_delta: 10,
+                sample_ms: 1_000,
+                rate_hz: 10,
+            })
+        );
+        assert_eq!(monitor.observe(140, 1_000), None);
+        assert_eq!(
+            monitor.observe(240, 1_000),
+            Some(TickRateChange::Recovered {
+                tick_delta: 100,
+                sample_ms: 1_000,
+                rate_hz: 100,
+            })
+        );
+    }
+
+    #[test]
+    fn tick_rate_monitor_handles_counter_wraparound() {
+        let mut monitor = TickRateMonitor::default();
+        assert_eq!(monitor.observe(u32::MAX - 20, 1_000), None);
+        assert_eq!(monitor.observe(79, 1_000), None);
     }
 }

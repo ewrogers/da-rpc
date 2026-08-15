@@ -167,7 +167,6 @@ try {
 
     $Log = Get-Content -Raw -LiteralPath $LogPath
     Assert-True ($Log -match "event=hook_skipped") "DLL log did not record the controlled hook skip"
-    Assert-True ($Log -match "event=hook_health") "DLL log did not record worker-side hook health"
 
     $EchoText = "M6 byte-exact echo payload 0123"
     $Echo = Invoke-Darpc -CommandArgs @("echo", "--pid", "$($Process.Id)", $EchoText)

@@ -22,7 +22,7 @@ pub(crate) fn render_human(output: &mut String, objects: Option<&[WorldObject]>)
             } => {
                 let _ = write!(
                     output,
-                    "\n  player id={id} name={} x={x} y={y} direction={} is_hidden={is_hidden} visual={visual:?}",
+                    "\n  player id={id} name={} x={x} y={y} direction={} is_hidden={is_hidden} is_solid=true visual={visual:?}",
                     name.as_deref().unwrap_or("unavailable"),
                     direction_name(*direction),
                 );
@@ -30,6 +30,7 @@ pub(crate) fn render_human(output: &mut String, objects: Option<&[WorldObject]>)
             WorldObject::Creature {
                 id,
                 kind,
+                is_solid,
                 sprite,
                 name,
                 x,
@@ -38,7 +39,7 @@ pub(crate) fn render_human(output: &mut String, objects: Option<&[WorldObject]>)
             } => {
                 let _ = write!(
                     output,
-                    "\n  {} id={id} sprite={} name={} x={x} y={y} direction={}",
+                    "\n  {} id={id} sprite={} name={} x={x} y={y} direction={} is_solid={is_solid}",
                     match kind {
                         CreatureKind::Monster => "monster",
                         CreatureKind::Npc => "npc",
@@ -57,7 +58,7 @@ pub(crate) fn render_human(output: &mut String, objects: Option<&[WorldObject]>)
             } => {
                 let _ = write!(
                     output,
-                    "\n  item id={id} sprite={sprite} x={x} y={y} z_index={z_index}"
+                    "\n  item id={id} sprite={sprite} x={x} y={y} z_index={z_index} is_solid=false"
                 );
             }
         }
@@ -78,11 +79,13 @@ pub(crate) fn json_value(object: &WorldObject) -> serde_json::Value {
         } => json!({
             "kind": "player", "id": id, "name": name, "x": x, "y": y,
             "direction": direction_name(*direction), "is_hidden": is_hidden,
+            "is_solid": true,
             "visual": visual.as_ref().map(visual_json),
         }),
         WorldObject::Creature {
             id,
             kind,
+            is_solid,
             sprite,
             name,
             x,
@@ -91,7 +94,7 @@ pub(crate) fn json_value(object: &WorldObject) -> serde_json::Value {
         } => json!({
             "kind": match kind { CreatureKind::Monster => "monster", CreatureKind::Npc => "npc" },
             "id": id, "sprite": sprite, "name": name, "x": x, "y": y,
-            "direction": direction_name(*direction),
+            "direction": direction_name(*direction), "is_solid": is_solid,
         }),
         WorldObject::Item {
             id,
@@ -101,7 +104,7 @@ pub(crate) fn json_value(object: &WorldObject) -> serde_json::Value {
             z_index,
         } => json!({
             "kind": "item", "id": id, "sprite": sprite, "x": x, "y": y,
-            "z_index": z_index,
+            "z_index": z_index, "is_solid": false,
         }),
     }
 }

@@ -63,6 +63,7 @@ pub(crate) fn encode_object(output: &mut Vec<u8>, object: &WorldObject) -> Resul
         WorldObject::Creature {
             id,
             kind,
+            is_solid,
             sprite,
             name,
             x,
@@ -74,9 +75,10 @@ pub(crate) fn encode_object(output: &mut Vec<u8>, object: &WorldObject) -> Resul
             push_i32(output, *x);
             push_i32(output, *y);
             output.push(direction.raw());
-            output.push(match kind {
-                CreatureKind::Monster => 1,
-                CreatureKind::Npc => 2,
+            output.push(match (kind, is_solid) {
+                (CreatureKind::Monster, true) => 1,
+                (CreatureKind::Npc, _) => 2,
+                (CreatureKind::Monster, false) => 3,
             });
             push_bool(output, sprite.is_some());
             if let Some(sprite) = sprite {
@@ -165,9 +167,10 @@ pub(crate) fn decode_object(reader: &mut PayloadReader<'_>) -> Result<WorldObjec
                 Direction::from_raw(raw_direction).ok_or(DecodeError::InvalidDirection {
                     actual: raw_direction,
                 })?;
-            let kind = match reader.read_u8()? {
-                1 => CreatureKind::Monster,
-                2 => CreatureKind::Npc,
+            let (kind, is_solid) = match reader.read_u8()? {
+                1 => (CreatureKind::Monster, true),
+                2 => (CreatureKind::Npc, true),
+                3 => (CreatureKind::Monster, false),
                 actual => return Err(DecodeError::InvalidCreatureKind { actual }),
             };
             let sprite = if reader.read_bool()? {
@@ -178,6 +181,7 @@ pub(crate) fn decode_object(reader: &mut PayloadReader<'_>) -> Result<WorldObjec
             WorldObject::Creature {
                 id,
                 kind,
+                is_solid,
                 sprite,
                 name: decode_optional_string(reader, MAX_OBJECT_NAME_LEN)?,
                 x,

@@ -86,6 +86,7 @@ fn objects(raw: &RawObjects) -> Vec<WorldObject> {
             RawWorldObject::Creature {
                 id,
                 is_npc,
+                is_solid,
                 sprite,
                 name,
                 name_len,
@@ -99,6 +100,7 @@ fn objects(raw: &RawObjects) -> Vec<WorldObject> {
                 } else {
                     CreatureKind::Monster
                 },
+                is_solid,
                 sprite,
                 name: client_text::decode(&name[..usize::from(name_len)]),
                 x,

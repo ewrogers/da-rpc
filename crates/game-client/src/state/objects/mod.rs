@@ -55,6 +55,7 @@ pub enum RawWorldObject {
     Creature {
         id: u32,
         is_npc: bool,
+        is_solid: bool,
         sprite: Option<u16>,
         name: [u8; MAX_OBJECT_NAME_BYTES],
         name_len: u8,

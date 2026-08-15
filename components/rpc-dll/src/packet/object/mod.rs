@@ -71,6 +71,7 @@ fn parse_objects(body: &[u8], objects: &mut RawObjects) -> Result<(), ParseError
                 RawWorldObject::Creature {
                     id,
                     is_npc: creature_type == 2,
+                    is_solid: creature_type != 1,
                     sprite: Some(tagged_sprite & SPRITE_MASK),
                     name,
                     name_len,
@@ -351,6 +352,7 @@ mod tests {
         assert_eq!(draw, WorldUpdate::Draw);
         let Some(RawWorldObject::Creature {
             is_npc,
+            is_solid,
             name,
             name_len,
             direction,
@@ -360,6 +362,7 @@ mod tests {
             panic!("expected NPC object");
         };
         assert!(is_npc);
+        assert!(is_solid);
         assert_eq!(direction, 3);
         assert_eq!(&name[..usize::from(name_len)], b"Mile");
 
@@ -384,6 +387,36 @@ mod tests {
         assert_eq!((id, x, y, direction), (7, 10, 20, 1));
         assert!(is_hidden);
         assert_eq!(&name[..usize::from(name_len)], b"SiLo");
+    }
+
+    #[test]
+    fn preserves_monster_solidity() {
+        let mut objects = RawObjects::empty();
+        update(
+            &[
+                0x07, 0, 2, 0, 10, 0, 20, 0, 0, 0, 1, 0x40, 5, 0, 0, 0, 0, 1, 0, 0, 0, 11, 0, 20,
+                0, 0, 0, 2, 0x40, 6, 0, 0, 0, 0, 2, 0, 1,
+            ],
+            &mut objects,
+        )
+        .unwrap();
+
+        assert!(matches!(
+            objects.entries[0],
+            Some(RawWorldObject::Creature {
+                is_npc: false,
+                is_solid: true,
+                ..
+            })
+        ));
+        assert!(matches!(
+            objects.entries[1],
+            Some(RawWorldObject::Creature {
+                is_npc: false,
+                is_solid: false,
+                ..
+            })
+        ));
     }
 
     #[test]

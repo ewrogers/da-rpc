@@ -247,6 +247,10 @@ fn correlates_spell_feedback_before_broadcasting_to_subscribers() {
 fn filters_world_objects_by_type() {
     let all = json("/clients/silo/objects");
     assert_eq!(all["objects"].as_array().unwrap().len(), 4);
+    assert_eq!(all["objects"][0]["is_solid"], true);
+    assert_eq!(all["objects"][1]["is_solid"], false);
+    assert_eq!(all["objects"][2]["is_solid"], true);
+    assert_eq!(all["objects"][3]["is_solid"], false);
 
     let filtered = json("/clients/silo/objects?types=npc,player");
     let kinds = filtered["objects"]

@@ -361,6 +361,7 @@ pub(crate) fn object_model(raw: RawWorldObject) -> WorldObject {
         RawWorldObject::Creature {
             id,
             is_npc,
+            is_solid,
             sprite,
             name,
             name_len,
@@ -374,6 +375,7 @@ pub(crate) fn object_model(raw: RawWorldObject) -> WorldObject {
             } else {
                 CreatureKind::Monster
             },
+            is_solid,
             sprite,
             name: decode_name(&name[..usize::from(name_len)]),
             x,
@@ -709,6 +711,7 @@ mod tests {
         RawWorldObject::Creature {
             id,
             is_npc: false,
+            is_solid: true,
             sprite: Some(5),
             name: [0; MAX_OBJECT_NAME_BYTES],
             name_len: 0,

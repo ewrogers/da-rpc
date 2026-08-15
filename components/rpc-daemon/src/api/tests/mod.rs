@@ -261,6 +261,7 @@ fn game_snapshot() -> ModelClientSnapshot {
             ModelWorldObject::Creature {
                 id: 2,
                 kind: CreatureKind::Monster,
+                is_solid: false,
                 sprite: Some(100),
                 name: None,
                 x: 11,
@@ -270,6 +271,7 @@ fn game_snapshot() -> ModelClientSnapshot {
             ModelWorldObject::Creature {
                 id: 3,
                 kind: CreatureKind::Npc,
+                is_solid: true,
                 sprite: Some(200),
                 name: Some("Innkeeper".into()),
                 x: 12,

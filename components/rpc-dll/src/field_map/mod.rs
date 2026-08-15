@@ -27,6 +27,7 @@ pub(crate) struct RawFieldMap {
     revision: u32,
     selection_index: u16,
     length: u16,
+    open: bool,
     bytes: [u8; MAX_FIELD_MAP_PACKET_BYTES],
 }
 
@@ -36,11 +37,16 @@ impl RawFieldMap {
             revision: 0,
             selection_index: NO_SELECTION,
             length: 0,
+            open: false,
             bytes: [0; MAX_FIELD_MAP_PACKET_BYTES],
         }
     }
 
     fn active(&self) -> bool {
+        self.open && self.available()
+    }
+
+    fn available(&self) -> bool {
         self.length != 0
     }
 
@@ -125,6 +131,7 @@ pub(crate) fn observe_server(body: &[u8]) -> Option<QueuedFieldMap> {
     let mut next = RawFieldMap::empty();
     next.revision = revision;
     next.length = length;
+    next.open = true;
     next.bytes[..body.len()].copy_from_slice(body);
     *current = next;
     EVENTS.push(RawFieldMapEvent {
@@ -154,10 +161,7 @@ pub(crate) fn observe_outgoing(body: &[u8]) -> Option<QueuedFieldMap> {
 }
 
 pub(crate) fn observe_pane() -> Option<QueuedFieldMap> {
-    if !current_mut().active() || pane_is_open() {
-        return None;
-    }
-    close()
+    observe_pane_state(pane_is_open())
 }
 
 pub(crate) fn selection_packet(
@@ -210,10 +214,27 @@ fn close() -> Option<QueuedFieldMap> {
         return None;
     }
     let previous = *current;
-    *current = RawFieldMap::empty();
+    current.open = false;
     EVENTS.push(RawFieldMapEvent {
         kind: EventKind::Closed,
         field_map: previous,
+    })
+}
+
+fn observe_pane_state(open: bool) -> Option<QueuedFieldMap> {
+    let current = current_mut();
+    if current.active() {
+        return (!open).then(close).flatten();
+    }
+    if !open || !current.available() {
+        return None;
+    }
+    current.open = true;
+    current.revision = next_nonzero(&REVISION);
+    current.selection_index = NO_SELECTION;
+    EVENTS.push(RawFieldMapEvent {
+        kind: EventKind::Opened,
+        field_map: *current,
     })
 }
 
@@ -424,5 +445,25 @@ mod tests {
         reset();
         assert!(observe_server(&[0x2E, 4, b'a']).is_none());
         assert!(decode_current(&RawFieldMap::empty()).is_none());
+    }
+
+    #[test]
+    fn cached_definition_reopens_with_a_fresh_revision() {
+        let _guard = LOCK.lock().unwrap();
+        reset();
+        release(observe_server(&packet()).unwrap());
+        let first_revision = decode_current(&*current_mut()).unwrap().revision;
+
+        let closed = observe_pane_state(false).unwrap();
+        assert!(matches!(take(closed), Some(FieldMapUpdate::Closed { .. })));
+        assert!(decode_current(&*current_mut()).is_none());
+
+        let reopened = observe_pane_state(true).unwrap();
+        let Some(FieldMapUpdate::Opened(state)) = take(reopened) else {
+            panic!("expected cached field map to reopen");
+        };
+        assert_ne!(state.revision, first_revision);
+        assert_eq!(state.field_name, "field001");
+        assert_eq!(state.selection, None);
     }
 }

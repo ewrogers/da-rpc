@@ -9,6 +9,8 @@
 
 ### Changed
 
+- Reopen retained field-map definitions when the native client reuses its
+  cached pane without sending another field-map packet.
 - Moved stat-point endpoint guidance into the Character status documentation.
 
 ## 1.4.2 - 2026-08-14

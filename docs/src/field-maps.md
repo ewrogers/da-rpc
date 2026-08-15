@@ -94,3 +94,9 @@ server packet is validated and copied into bounded storage on the client main
 thread, then decoded after transfer to the IPC thread. Pane checks rescan the
 live bounded event-dispatcher collection and never retain a native pane pointer
 between observations.
+
+Closing the pane makes `active_field_map` null but retains the last validated
+definition inside the DLL. If the client later reopens that cached native pane
+without another server packet, daRPC publishes a new `opened` revision and
+resets its submitted selection. The retained definition is never exposed while
+the pane is hidden or unregistered.

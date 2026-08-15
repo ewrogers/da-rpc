@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Allow spell casts 10 percent tolerance on the one-second command start
+  deadline so brief native dispatcher overruns do not drop queued casts.
 - Avoid per-tick field-map pane scans until a definition is available, then
   limit visibility polling to ten times per second.
 - Tail-jump from the tick detour after daRPC observation so a long-lived client

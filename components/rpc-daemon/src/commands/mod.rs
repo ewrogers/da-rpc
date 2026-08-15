@@ -83,6 +83,7 @@ pub(crate) const ROUTER_CAPACITY: usize = 64;
 pub(crate) const WORKER_CAPACITY: usize = 16;
 
 const ROUTE_TIMEOUT: Duration = Duration::from_secs(2);
+const SPELL_CAST_TIMEOUT_MS: u16 = DEFAULT_COMMAND_TIMEOUT_MS + DEFAULT_COMMAND_TIMEOUT_MS / 10;
 const MAX_SKILL_NAME_BYTES: usize = 128;
 const MAX_SPELL_NAME_BYTES: usize = 128;
 const SPELL_TARGET_DISTANCE: u32 = 14;
@@ -573,13 +574,20 @@ pub(super) async fn submit_action(
     identity: ClientIdentity,
     kind: ProtocolKind,
 ) -> Result<(StatusCode, Json<CommandStatus>), ApiError> {
+    let timeout_ms = match kind {
+        // The client dispatcher can pause just beyond one second while a prior
+        // spell advances through its native cast sequence. Give casts 10%
+        // tolerance instead of dropping them before they reach the main thread.
+        ProtocolKind::CastSpell(_) => SPELL_CAST_TIMEOUT_MS,
+        _ => DEFAULT_COMMAND_TIMEOUT_MS,
+    };
     let status = route(
         state,
         pid,
         identity,
         CommandOperation::Submit {
             kind,
-            timeout_ms: DEFAULT_COMMAND_TIMEOUT_MS,
+            timeout_ms,
             wait_ms: MAX_COMMAND_WAIT_MS,
         },
     )

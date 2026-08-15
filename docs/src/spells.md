@@ -180,6 +180,9 @@ rapid instant casts in order while allowing named replies to find the right
 submission. The queue is held only in memory and is cleared when the DLL
 disconnects or the daemon restarts.
 
+The system message `You failed to concentrate.` matches a queued `Fas Spiorad`
+cast by name and produces `spell.failed` with reason `failed`.
+
 `spell.succeeded` and `spell.failed` retain the submitted `slot`, available
 spell `name`, and cast `arguments`. They also include:
 

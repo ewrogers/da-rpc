@@ -246,6 +246,19 @@ impl SpellFeedbackTracker {
             let cast = self.pending.remove(index)?;
             return Some(SpellFeedback::Succeeded(cast.resolve(tick_ms, feedback)));
         }
+        if is_fas_spiorad_concentration_failure(feedback) {
+            let index = self.pending.iter().position(|cast| {
+                cast.name
+                    .as_deref()
+                    .is_some_and(|name| name.eq_ignore_ascii_case("Fas Spiorad"))
+            })?;
+            let cast = self.pending.remove(index)?;
+            return Some(SpellFeedback::Failed {
+                cast: cast.resolve(tick_ms, feedback),
+                reason: SpellFailureReason::Failed,
+                active_spell: None,
+            });
+        }
         let (reason, active_spell) = parse_failure(feedback)?;
         let cast = self.pending.pop_front()?;
         Some(SpellFeedback::Failed {
@@ -254,6 +267,13 @@ impl SpellFeedbackTracker {
             active_spell,
         })
     }
+}
+
+fn is_fas_spiorad_concentration_failure(message: &str) -> bool {
+    message
+        .trim()
+        .trim_end_matches(['.', '!', '?'])
+        .eq_ignore_ascii_case("you failed to concentrate")
 }
 
 #[derive(Clone, Debug)]
@@ -423,6 +443,31 @@ mod tests {
         assert_eq!(cast.slot, 1);
         assert!(matches!(reason, SpellFailureReason::Failed));
         assert!(tracker.pending.is_empty());
+    }
+
+    #[test]
+    fn concentration_failure_matches_fas_spiorad_by_name() {
+        let mut tracker = SpellFeedbackTracker::default();
+        tracker.observe(None, &cast(1, 100, 1), Some("Mist"), None);
+        tracker.observe(None, &cast(2, 110, 2), Some("Fas Spiorad"), None);
+
+        let feedback = tracker
+            .observe(
+                None,
+                &message(3, 135, "You failed to concentrate."),
+                None,
+                None,
+            )
+            .unwrap();
+        let SpellFeedback::Failed { cast, reason, .. } = feedback else {
+            panic!("expected failed cast");
+        };
+        assert_eq!(cast.slot, 2);
+        assert_eq!(cast.name.as_deref(), Some("Fas Spiorad"));
+        assert_eq!(cast.elapsed_ms, 25);
+        assert!(matches!(reason, SpellFailureReason::Failed));
+        assert_eq!(tracker.pending.len(), 1);
+        assert_eq!(tracker.pending.front().unwrap().slot, 1);
     }
 
     #[test]

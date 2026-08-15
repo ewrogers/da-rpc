@@ -1,9 +1,11 @@
 # Changelog
 
-## Unreleased
+## 1.5.1 - 2026-08-15
 
 ### Added
 
+- Exposed `is_solid` for visible world objects and preserved passable monsters
+  from server draw packets through snapshots, events, CLI output, and the API.
 - Added sustained dispatcher-rate degradation and recovery logging in the
   daemon using the existing atomic tick-health counter.
 

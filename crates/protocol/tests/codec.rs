@@ -212,6 +212,7 @@ fn snapshot() -> ClientSnapshot {
             WorldObject::Creature {
                 id: 11,
                 kind: CreatureKind::Monster,
+                is_solid: false,
                 sprite: Some(45),
                 name: None,
                 x: 41,

@@ -342,7 +342,8 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
                 if direction > 3 {
                     return Ok(None);
                 }
-                let is_npc = self.read_u8(add(object, 0x1EC)?)? == 2;
+                let creature_type = self.read_u8(add(object, 0x1EC)?)?;
+                let is_npc = creature_type == 2;
                 let (name, name_len) = if is_npc {
                     let pane = self.read_u32(add(object, 0x58)?)?;
                     if pane == 0 {
@@ -356,6 +357,7 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
                 RawWorldObject::Creature {
                     id,
                     is_npc,
+                    is_solid: creature_type != 1,
                     sprite: None,
                     name,
                     name_len,

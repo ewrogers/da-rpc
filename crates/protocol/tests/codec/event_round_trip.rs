@@ -366,6 +366,7 @@ fn event_messages_round_trip() {
                         entity: WorldObject::Creature {
                             id: 20,
                             kind: CreatureKind::Monster,
+                            is_solid: false,
                             sprite: Some(123),
                             name: None,
                             x: 31,
@@ -394,6 +395,7 @@ fn event_messages_round_trip() {
                         entity: WorldObject::Creature {
                             id: 21,
                             kind: CreatureKind::Npc,
+                            is_solid: true,
                             sprite: Some(456),
                             name: Some("Beggar".into()),
                             x: 32,

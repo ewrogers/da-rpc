@@ -43,14 +43,17 @@ The response can contain four object kinds:
 
 | Kind | Available data |
 | --- | --- |
-| `player` | ID, optional name, x/y, direction, `is_hidden`, optional visual, and optional inspected profile |
-| `monster` | ID, optional sprite, x/y, and direction |
-| `mundane` | ID, optional name and sprite, x/y, and direction |
-| `item` | ID, sprite, x/y, and per-tile `z_index` |
+| `player` | ID, optional name, x/y, direction, `is_hidden`, `is_solid`, optional visual, and optional inspected profile |
+| `monster` | ID, optional sprite, x/y, direction, and `is_solid` |
+| `mundane` | ID, optional name and sprite, x/y, direction, and `is_solid` |
+| `item` | ID, sprite, x/y, per-tile `z_index`, and `is_solid` |
 
 Mundane is the Dark Ages name for a non-player character (NPC). The `npc`
 filter remains accepted as an alias. Item sprite values have the client's
 internal item classification flag removed.
+
+Players and mundanes are always solid, and items are never solid. Monsters use
+the draw packet's creature type: type 0 is solid and type 1 is passable.
 
 Ground-item `z_index` is local to one tile. Zero is the bottom item, and higher
 values are drawn above it.
@@ -62,10 +65,10 @@ WorldObjects {
 }
 
 WorldObject =
-    Player { id, name?, x, y, direction, is_hidden, visual?, profile? }
-  | Monster { id, sprite?, x, y, direction }
-  | Mundane { id, sprite?, name?, x, y, direction }
-  | Item { id, sprite, x, y, z_index }
+    Player { id, name?, x, y, direction, is_hidden, is_solid, visual?, profile? }
+  | Monster { id, sprite?, x, y, direction, is_solid }
+  | Mundane { id, sprite?, name?, x, y, direction, is_solid }
+  | Item { id, sprite, x, y, z_index, is_solid }
 ```
 
 Filter the result with a comma-separated `types` query:

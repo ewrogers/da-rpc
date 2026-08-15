@@ -89,6 +89,7 @@ pub enum WorldObject {
     Creature {
         id: u32,
         kind: CreatureKind,
+        is_solid: bool,
         sprite: Option<u16>,
         name: Option<String>,
         x: i32,
@@ -119,6 +120,15 @@ impl WorldObject {
             Self::Player { x, y, .. } | Self::Creature { x, y, .. } | Self::Item { x, y, .. } => {
                 (*x, *y)
             }
+        }
+    }
+
+    #[must_use]
+    pub const fn is_solid(&self) -> bool {
+        match self {
+            Self::Player { .. } => true,
+            Self::Creature { is_solid, .. } => *is_solid,
+            Self::Item { .. } => false,
         }
     }
 }

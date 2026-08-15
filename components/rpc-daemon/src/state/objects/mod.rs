@@ -65,6 +65,7 @@ pub(crate) enum WorldObject {
         y: i32,
         direction: Direction,
         is_hidden: bool,
+        is_solid: bool,
         visual: Option<PlayerVisual>,
         profile: Option<PlayerProfile>,
     },
@@ -74,6 +75,7 @@ pub(crate) enum WorldObject {
         x: i32,
         y: i32,
         direction: Direction,
+        is_solid: bool,
     },
     Mundane {
         id: u32,
@@ -82,6 +84,7 @@ pub(crate) enum WorldObject {
         x: i32,
         y: i32,
         direction: Direction,
+        is_solid: bool,
     },
     Item {
         id: u32,
@@ -90,6 +93,7 @@ pub(crate) enum WorldObject {
         y: i32,
         /// Per-tile stack order. Zero is the bottom item.
         z_index: u16,
+        is_solid: bool,
     },
 }
 
@@ -123,6 +127,7 @@ impl From<&ModelWorldObject> for WorldObject {
                 y: *y,
                 direction: (*direction).into(),
                 is_hidden: *is_hidden,
+                is_solid: true,
                 visual: visual.as_ref().map(PlayerVisual::from),
                 profile: profile.as_deref().map(PlayerProfile::from),
             },
@@ -130,6 +135,7 @@ impl From<&ModelWorldObject> for WorldObject {
                 id,
                 kind: ModelCreatureKind::Monster,
                 sprite,
+                is_solid,
                 x,
                 y,
                 direction,
@@ -137,6 +143,7 @@ impl From<&ModelWorldObject> for WorldObject {
             } => Self::Monster {
                 id: *id,
                 sprite: *sprite,
+                is_solid: *is_solid,
                 x: *x,
                 y: *y,
                 direction: (*direction).into(),
@@ -149,6 +156,7 @@ impl From<&ModelWorldObject> for WorldObject {
                 x,
                 y,
                 direction,
+                is_solid,
             } => Self::Mundane {
                 id: *id,
                 sprite: *sprite,
@@ -156,6 +164,7 @@ impl From<&ModelWorldObject> for WorldObject {
                 x: *x,
                 y: *y,
                 direction: (*direction).into(),
+                is_solid: *is_solid,
             },
             ModelWorldObject::Item {
                 id,
@@ -169,6 +178,7 @@ impl From<&ModelWorldObject> for WorldObject {
                 x: *x,
                 y: *y,
                 z_index: *z_index,
+                is_solid: false,
             },
         }
     }

@@ -434,6 +434,7 @@ fn object_updates_use_noun_action_event_names() {
     let monster = ModelWorldObject::Creature {
         id: 2,
         kind: CreatureKind::Monster,
+        is_solid: false,
         sprite: Some(7),
         name: None,
         x: 11,
@@ -443,6 +444,7 @@ fn object_updates_use_noun_action_event_names() {
     let npc = ModelWorldObject::Creature {
         id: 3,
         kind: CreatureKind::Npc,
+        is_solid: true,
         sprite: Some(8),
         name: Some("Maria".into()),
         x: 12,
@@ -579,6 +581,7 @@ fn entity_visual_updates_expose_packet_values() {
     let mundane = ModelWorldObject::Creature {
         id: 2,
         kind: CreatureKind::Npc,
+        is_solid: true,
         sprite: Some(7),
         name: Some("Beggar".into()),
         x: 11,

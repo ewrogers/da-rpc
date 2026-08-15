@@ -46,6 +46,10 @@ pub(crate) use update::QueuedStateEvent;
 use update::*;
 
 pub(crate) fn observe_outgoing(body: &[u8], tick_ms: u32) {
+    if let Some((kind, source, destination)) = collection_swap(body) {
+        mark_collection_dirty(kind, source, tick_ms);
+        mark_collection_dirty(kind, destination, tick_ms);
+    }
     ability::observe_outgoing(body, tick_ms);
     action::observe_outgoing(body, tick_ms);
     crate::exchange::observe_outgoing(body, tick_ms);
@@ -54,6 +58,22 @@ pub(crate) fn observe_outgoing(body: &[u8], tick_ms: u32) {
     {
         crate::field_map::release(field_map);
     }
+}
+
+fn collection_swap(body: &[u8]) -> Option<(CollectionKind, u8, u8)> {
+    let &[0x30, panel, source, destination] = body else {
+        return None;
+    };
+    let (kind, max_slot) = match panel {
+        0 => (CollectionKind::Inventory, 60),
+        1 => (CollectionKind::Spellbook, 90),
+        2 => (CollectionKind::Skillbook, 90),
+        _ => return None,
+    };
+    if source == 0 || source > max_slot || destination == 0 || destination > max_slot {
+        return None;
+    }
+    Some((kind, source, destination))
 }
 
 pub(crate) fn observe_audio(update: AudioUpdate, tick_ms: u32) {
@@ -774,6 +794,32 @@ pub(crate) fn rebase(snapshot_sequence: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn parses_collection_swaps_for_every_panel() {
+        assert_eq!(
+            collection_swap(&[0x30, 0, 2, 60]),
+            Some((CollectionKind::Inventory, 2, 60))
+        );
+        assert_eq!(
+            collection_swap(&[0x30, 1, 51, 29]),
+            Some((CollectionKind::Spellbook, 51, 29))
+        );
+        assert_eq!(
+            collection_swap(&[0x30, 2, 7, 90]),
+            Some((CollectionKind::Skillbook, 7, 90))
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_collection_swaps() {
+        assert_eq!(collection_swap(&[0x30, 0, 1]), None);
+        assert_eq!(collection_swap(&[0x30, 3, 1, 2]), None);
+        assert_eq!(collection_swap(&[0x30, 0, 0, 2]), None);
+        assert_eq!(collection_swap(&[0x30, 0, 1, 61]), None);
+        assert_eq!(collection_swap(&[0x30, 1, 91, 2]), None);
+        assert_eq!(collection_swap(&[0x31, 1, 1, 2]), None);
+    }
 
     fn event(sequence: u32) -> QueuedStateEvent {
         QueuedStateEvent {

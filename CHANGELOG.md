@@ -23,6 +23,11 @@
   state-stream resynchronization cannot leave the daemon cache stale.
 - Moved stat-point endpoint guidance into the Character status documentation.
 
+### Fixed
+
+- Track both slots of outgoing inventory, spellbook, and skillbook swaps so
+  retained state and collection events reflect manual client rearrangements.
+
 ## 1.4.2 - 2026-08-14
 
 ### Fixed

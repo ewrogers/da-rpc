@@ -11,6 +11,8 @@
 
 - Reopen retained field-map definitions when the native client reuses its
   cached pane without sending another field-map packet.
+- Refresh field-map reads and selections from a live DLL snapshot so unrelated
+  state-stream resynchronization cannot leave the daemon cache stale.
 - Moved stat-point endpoint guidance into the Character status documentation.
 
 ## 1.4.2 - 2026-08-14

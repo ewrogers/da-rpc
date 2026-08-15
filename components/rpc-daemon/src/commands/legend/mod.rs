@@ -147,6 +147,12 @@ async fn route_legend(
             Some(pid),
         )),
         CommandReply::Unavailable => Err(unavailable(pid)),
+        CommandReply::Snapshot(_) => Err(ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected_snapshot_result",
+            "the legend route returned a state snapshot",
+            Some(pid),
+        )),
     }
 }
 

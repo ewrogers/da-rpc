@@ -1,5 +1,5 @@
 use crate::{
-    commands::{CommandCall, ROUTER_CAPACITY},
+    commands::{ClientOperation, CommandCall, ROUTER_CAPACITY},
     dialog::{
         DialogChanged, DialogChoice, DialogCloseReason, DialogClosed, DialogInput,
         DialogInteraction, DialogItem, DialogKind, DialogNavigation, DialogOpened, DialogSlot,
@@ -382,6 +382,23 @@ impl ApiState {
         pid: u32,
         identity: RegistryClientIdentity,
         operation: darpc_protocol::CommandOperation,
+    ) -> Result<oneshot::Receiver<crate::commands::CommandReply>, ApiError> {
+        self.route_client(pid, identity, ClientOperation::Command(operation))
+    }
+
+    pub(crate) fn route_snapshot(
+        &self,
+        pid: u32,
+        identity: RegistryClientIdentity,
+    ) -> Result<oneshot::Receiver<crate::commands::CommandReply>, ApiError> {
+        self.route_client(pid, identity, ClientOperation::Snapshot)
+    }
+
+    fn route_client(
+        &self,
+        pid: u32,
+        identity: RegistryClientIdentity,
+        operation: ClientOperation,
     ) -> Result<oneshot::Receiver<crate::commands::CommandReply>, ApiError> {
         let (reply, receiver) = oneshot::channel();
         let call = CommandCall {

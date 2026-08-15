@@ -189,6 +189,12 @@ async fn route_who(
             Some(pid),
         )),
         CommandReply::Unavailable => Err(unavailable(pid)),
+        CommandReply::Snapshot(_) => Err(ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected_snapshot_result",
+            "the Who route returned a state snapshot",
+            Some(pid),
+        )),
     }
 }
 

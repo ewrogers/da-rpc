@@ -34,6 +34,12 @@ FieldMapDestination {
 }
 ```
 
+This endpoint requests a fresh serialized snapshot from the injected DLL. It
+does not depend on the daemon having observed every earlier state event, which
+is important because the panel can open and close during unrelated movement
+resynchronization. The selection endpoint performs the same live refresh before
+validating its revision and destination index.
+
 `field_name` is the local asset stem, such as `field001`. The current node is
 nullable because a malformed or out-of-range server index does not identify a
 destination. Destination names are not required to be unique, so use `index`
@@ -67,6 +73,8 @@ darpc field-map select --pid 1234 11 1
 The daemon and DLL both validate the revision and index. HTTP 409 indicates no
 active panel, a stale revision, or a selection that was already submitted.
 HTTP 400 indicates that the index is not one of the retained destinations.
+HTTP 429, 503, or 504 indicates that the bounded live-client request path was
+busy, unavailable, or did not answer within two seconds.
 
 The client normally delays its native `CFieldMap` send while the marker moves.
 daRPC publishes `selection_submitted` only after the actual outgoing packet is

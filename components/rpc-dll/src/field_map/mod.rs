@@ -5,16 +5,19 @@ use darpc_model::{FieldMapDestination, FieldMapSelection, FieldMapState, FieldMa
 use darpc_protocol::{CommandFailure, FieldMapSelectionCommand};
 use std::{
     cell::UnsafeCell,
-    sync::atomic::{AtomicU32, Ordering},
+    sync::atomic::{AtomicBool, AtomicU32, Ordering},
 };
 
 pub(crate) const MAX_FIELD_MAP_PACKET_BYTES: usize = u16::MAX as usize;
 const EVENT_SLOTS: usize = 4;
 const NO_SELECTION: u16 = u16::MAX;
+const PANE_OBSERVATION_INTERVAL_MS: u32 = 100;
 
 static CURRENT: CurrentFieldMap = CurrentFieldMap(UnsafeCell::new(RawFieldMap::empty()));
 static EVENTS: FieldMapEvents = FieldMapEvents::new();
 static REVISION: AtomicU32 = AtomicU32::new(0);
+static PANE_OBSERVATION_SCHEDULED: AtomicBool = AtomicBool::new(false);
+static NEXT_PANE_OBSERVATION_TICK_MS: AtomicU32 = AtomicU32::new(0);
 
 struct CurrentFieldMap(UnsafeCell<RawFieldMap>);
 
@@ -114,6 +117,8 @@ pub(crate) fn reset() {
     unsafe { *CURRENT.0.get() = RawFieldMap::empty() };
     EVENTS.reset();
     REVISION.store(0, Ordering::Release);
+    PANE_OBSERVATION_SCHEDULED.store(false, Ordering::Relaxed);
+    NEXT_PANE_OBSERVATION_TICK_MS.store(0, Ordering::Relaxed);
 }
 
 pub(crate) fn observe_server(body: &[u8]) -> Option<QueuedFieldMap> {
@@ -173,7 +178,24 @@ pub(crate) fn observe_outgoing(body: &[u8]) -> Option<QueuedFieldMap> {
     })
 }
 
-pub(crate) fn observe_pane() -> Option<QueuedFieldMap> {
+pub(crate) fn observe_pane(tick_ms: u32) -> Option<QueuedFieldMap> {
+    if !current_mut().available() {
+        PANE_OBSERVATION_SCHEDULED.store(false, Ordering::Relaxed);
+        return None;
+    }
+    if PANE_OBSERVATION_SCHEDULED.load(Ordering::Relaxed)
+        && !crate::wrapping_time::deadline_reached(
+            tick_ms,
+            NEXT_PANE_OBSERVATION_TICK_MS.load(Ordering::Relaxed),
+        )
+    {
+        return None;
+    }
+    NEXT_PANE_OBSERVATION_TICK_MS.store(
+        tick_ms.wrapping_add(PANE_OBSERVATION_INTERVAL_MS),
+        Ordering::Relaxed,
+    );
+    PANE_OBSERVATION_SCHEDULED.store(true, Ordering::Relaxed);
     observe_pane_state(pane_is_open())
 }
 
@@ -451,6 +473,24 @@ mod tests {
         reset();
         assert!(observe_server(&[0x2E, 4, b'a']).is_none());
         assert!(decode_current(&RawFieldMap::empty()).is_none());
+    }
+
+    #[test]
+    fn pane_observation_skips_unused_ticks_and_limits_native_scans() {
+        let _guard = LOCK.lock().unwrap();
+        reset();
+        assert!(observe_pane(1_000).is_none());
+        assert!(!PANE_OBSERVATION_SCHEDULED.load(Ordering::Relaxed));
+
+        assert!(observe_server_state(&packet(), false).is_none());
+        let opened = observe_pane(1_000).unwrap();
+        assert!(matches!(take(opened), Some(FieldMapUpdate::Opened(_))));
+        assert_eq!(NEXT_PANE_OBSERVATION_TICK_MS.load(Ordering::Relaxed), 1_100);
+
+        assert!(observe_pane(1_099).is_none());
+        assert_eq!(NEXT_PANE_OBSERVATION_TICK_MS.load(Ordering::Relaxed), 1_100);
+        assert!(observe_pane(1_100).is_none());
+        assert_eq!(NEXT_PANE_OBSERVATION_TICK_MS.load(Ordering::Relaxed), 1_200);
     }
 
     #[test]

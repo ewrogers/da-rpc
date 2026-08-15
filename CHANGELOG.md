@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed
+
+- Avoid per-tick field-map pane scans until a definition is available, then
+  limit visibility polling to ten times per second.
+- Tail-jump from the tick detour after daRPC observation so a long-lived client
+  dispatcher call cannot prevent graceful DLL unload.
+
 ## 1.5.0 - 2026-08-15
 
 ### Added

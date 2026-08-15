@@ -120,14 +120,15 @@ pub(crate) fn health() -> TickHealth {
 
 #[unsafe(naked)]
 unsafe extern "thiscall" fn event_dispatcher_tick_detour(_dispatcher: *mut core::ffi::c_void) {
+    // The original dispatcher can remain active for the client lifetime. End
+    // DLL activity before tail-jumping so uninstall only waits for observe_tick.
     core::arch::naked_asm!(
         "lock inc dword ptr [{activity}]",
         "push ecx",
         "call {observe}",
         "pop ecx",
-        "call dword ptr [{trampoline}]",
         "lock dec dword ptr [{activity}]",
-        "ret",
+        "jmp dword ptr [{trampoline}]",
         activity = sym TICK_HOOK_ACTIVITY,
         observe = sym observe_tick,
         trampoline = sym TICK_TRAMPOLINE,

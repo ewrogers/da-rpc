@@ -1,8 +1,8 @@
 use crate::{
     CharacterModifiers, CharacterProfileUpdate, CharacterStats, ClientLifecycle, ClientMessage,
     ClientSnapshot, DialogUpdate, Direction, Effect, EntityUpdate, EquipmentSlot, ExchangeUpdate,
-    GroupUpdate, InventoryItem, LegendUpdate, MapExclusions, MapLocation, ObjectUpdate,
-    PlayerUpdate, SequenceNumber, Skill, Spell,
+    FieldMapUpdate, GroupUpdate, InventoryItem, LegendUpdate, MapExclusions, MapLocation,
+    ObjectUpdate, PlayerUpdate, SequenceNumber, Skill, Spell,
 };
 use std::{error::Error, fmt};
 
@@ -36,6 +36,7 @@ pub enum StateUpdate {
     Action(ActionUpdate),
     Entity(EntityUpdate),
     Dialog(DialogUpdate),
+    FieldMap(FieldMapUpdate),
     Group(GroupUpdate),
     Exchange(ExchangeUpdate),
     Legend(LegendUpdate),
@@ -700,6 +701,12 @@ impl ClientSnapshot {
                 | DialogUpdate::Submitted { state, .. } => self.dialog = Some(state),
                 DialogUpdate::Closed { .. } => self.dialog = None,
             },
+            StateUpdate::FieldMap(update) => match update {
+                FieldMapUpdate::Opened(state)
+                | FieldMapUpdate::Changed(state)
+                | FieldMapUpdate::SelectionSubmitted(state) => self.active_field_map = Some(state),
+                FieldMapUpdate::Closed { .. } => self.active_field_map = None,
+            },
             StateUpdate::Group(update) => {
                 if let Some(state) = update.state() {
                     self.group = Some(state.clone());
@@ -1015,6 +1022,57 @@ mod tests {
         assert_eq!(ClientCommand::parse("   "), None);
     }
 
+    #[test]
+    fn field_map_updates_retain_full_state_until_the_panel_closes() {
+        let mut snapshot = empty_snapshot(ClientLifecycle::InGame);
+        let state = crate::FieldMapState {
+            revision: 7,
+            field_name: "field001".into(),
+            current_node_index: None,
+            destinations: Vec::new(),
+            selection: None,
+        };
+        snapshot
+            .apply_event(StateEvent {
+                sequence: 2,
+                revision: 2,
+                tick_ms: 20,
+                update: StateUpdate::FieldMap(crate::FieldMapUpdate::Opened(state.clone())),
+            })
+            .unwrap();
+        assert_eq!(snapshot.active_field_map, Some(state.clone()));
+
+        let submitted = crate::FieldMapState {
+            selection: Some(crate::FieldMapSelection {
+                destination_index: 0,
+            }),
+            ..state.clone()
+        };
+        snapshot
+            .apply_event(StateEvent {
+                sequence: 3,
+                revision: 3,
+                tick_ms: 21,
+                update: StateUpdate::FieldMap(crate::FieldMapUpdate::SelectionSubmitted(
+                    submitted.clone(),
+                )),
+            })
+            .unwrap();
+        assert_eq!(snapshot.active_field_map, Some(submitted.clone()));
+
+        snapshot
+            .apply_event(StateEvent {
+                sequence: 4,
+                revision: 4,
+                tick_ms: 22,
+                update: StateUpdate::FieldMap(crate::FieldMapUpdate::Closed {
+                    previous: submitted,
+                }),
+            })
+            .unwrap();
+        assert_eq!(snapshot.active_field_map, None);
+    }
+
     fn empty_snapshot(lifecycle: ClientLifecycle) -> ClientSnapshot {
         ClientSnapshot {
             revision: 1,
@@ -1027,6 +1085,7 @@ mod tests {
             character: None,
             objects: None,
             dialog: None,
+            active_field_map: None,
             group: None,
             exchange: None,
             legend: None,

@@ -1,5 +1,79 @@
 use super::*;
 
+fn field_map_state() -> ModelFieldMapState {
+    ModelFieldMapState {
+        revision: 4,
+        field_name: "field001".into(),
+        current_node_index: Some(0),
+        destinations: vec![ModelFieldMapDestination {
+            index: 0,
+            screen_x: 100,
+            screen_y: 80,
+            name: "Mileth".into(),
+            checksum: 0x1234,
+            map_id: 100,
+            map_x: 10,
+            map_y: 20,
+        }],
+        selection: Some(ModelFieldMapSelection {
+            destination_index: 0,
+        }),
+    }
+}
+
+#[test]
+fn field_map_updates_use_stable_public_event_names_and_full_state() {
+    let updates = [
+        (
+            FieldMapUpdate::Opened(field_map_state()),
+            "field_map.opened",
+        ),
+        (
+            FieldMapUpdate::Changed(field_map_state()),
+            "field_map.changed",
+        ),
+        (
+            FieldMapUpdate::SelectionSubmitted(field_map_state()),
+            "field_map.selection_submitted",
+        ),
+        (
+            FieldMapUpdate::Closed {
+                previous: field_map_state(),
+            },
+            "field_map.closed",
+        ),
+    ];
+    for (sequence, (update, expected_name)) in updates.into_iter().enumerate() {
+        let events = expand(
+            42,
+            ClientIdentity {
+                pid: 42,
+                process_creation_time: 100,
+                dll_instance_id: [1; 16],
+            },
+            StateEvent {
+                sequence: sequence as u32 + 1,
+                revision: sequence as u32 + 1,
+                tick_ms: sequence as u32,
+                update: StateUpdate::FieldMap(update),
+            },
+            None,
+            None,
+            observed_at(),
+        );
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].name(), expected_name);
+        let event = serde_json::to_value(&events[0]).unwrap();
+        let state = if expected_name == "field_map.closed" {
+            &event["data"]["previous"]
+        } else {
+            &event["data"]["field_map"]
+        };
+        assert_eq!(state["field_name"], "field001");
+        assert_eq!(state["selection"]["destination_index"], 0);
+    }
+}
+
 #[test]
 fn exchange_updates_use_stable_public_event_names_and_context() {
     let item = ModelExchangeItem {

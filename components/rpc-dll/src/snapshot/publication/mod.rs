@@ -3,6 +3,7 @@ use super::convert;
 use crate::atomic_sequence::next_nonzero;
 use crate::dialog::RawDialog;
 use crate::exchange::RawExchange;
+use crate::field_map::RawFieldMap;
 use crate::legend::RawLegendState;
 use crate::route::RawRoute;
 use darpc_game_client::{RawObjects, RawStateSnapshot, StateReadError};
@@ -47,10 +48,13 @@ pub(super) fn read() -> Option<Publication> {
                 ready,
                 reader.raw(),
                 reader.objects(),
-                reader.dialog(),
-                reader.exchange(),
-                reader.legend(),
-                reader.route(),
+                convert::RetainedState {
+                    dialog: reader.dialog(),
+                    field_map: reader.field_map(),
+                    exchange: reader.exchange(),
+                    legend: reader.legend(),
+                    route: reader.route(),
+                },
             )
         }),
     })
@@ -62,6 +66,7 @@ struct PublicationSlot {
     snapshot: UnsafeCell<SnapshotBuffer>,
     objects: UnsafeCell<RawObjects>,
     dialog: UnsafeCell<RawDialog>,
+    field_map: UnsafeCell<RawFieldMap>,
     exchange: UnsafeCell<RawExchange>,
     legend: UnsafeCell<RawLegendState>,
     route: UnsafeCell<RawRoute>,
@@ -79,6 +84,7 @@ impl PublicationSlot {
             snapshot: UnsafeCell::new(SnapshotBuffer::new()),
             objects: UnsafeCell::new(RawObjects::empty()),
             dialog: UnsafeCell::new(RawDialog::empty()),
+            field_map: UnsafeCell::new(RawFieldMap::empty()),
             exchange: UnsafeCell::new(RawExchange::empty()),
             legend: UnsafeCell::new(RawLegendState::empty()),
             route: UnsafeCell::new(RawRoute::empty()),
@@ -159,6 +165,9 @@ impl PublicationWriter<'_> {
         // the destination slot, so both dialog copies are stable.
         unsafe { crate::dialog::copy_current(&mut *self.slot.dialog.get()) };
         // SAFETY: publication runs on the main thread while this writer owns
+        // the destination slot, so the field-map copy is stable.
+        unsafe { crate::field_map::copy_current(&mut *self.slot.field_map.get()) };
+        // SAFETY: publication runs on the main thread while this writer owns
         // the destination slot, so the exchange copy is stable.
         unsafe { crate::exchange::copy_current(&mut *self.slot.exchange.get()) };
         // SAFETY: publication runs on the main thread while this writer owns
@@ -228,6 +237,11 @@ impl PublicationReader<'_> {
     fn dialog(&self) -> RawDialog {
         // SAFETY: READING excludes the writer and RawDialog is Copy.
         unsafe { *self.slot.dialog.get() }
+    }
+
+    fn field_map(&self) -> &RawFieldMap {
+        // SAFETY: READING excludes the writer for this reader's lifetime.
+        unsafe { &*self.slot.field_map.get() }
     }
 
     fn exchange(&self) -> RawExchange {

@@ -463,6 +463,9 @@ extern "C" fn observe_event(event: *const core::ffi::c_void) {
             packet::ServerUpdate::Visual(update) => {
                 state::observe_visual(update, tick_ms);
             }
+            packet::ServerUpdate::FieldMap(body) => {
+                state::observe_field_map(body, tick_ms);
+            }
             packet::ServerUpdate::Dialog(body) => {
                 state::observe_dialog(body, tick_ms);
             }

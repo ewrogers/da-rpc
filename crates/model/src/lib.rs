@@ -5,6 +5,7 @@ mod emote;
 mod entity;
 mod event;
 mod exchange;
+mod field_map;
 mod group;
 mod legend;
 mod message;
@@ -36,6 +37,7 @@ pub use dialog::{
 pub use emote::{NAMED_EMOTES, NamedEmote, emote_code, is_client_emote_code};
 pub use entity::EntityUpdate;
 pub use exchange::{ExchangeItem, ExchangeOffer, ExchangeParty, ExchangeState, ExchangeUpdate};
+pub use field_map::{FieldMapDestination, FieldMapSelection, FieldMapState, FieldMapUpdate};
 
 pub use message::{ClientMessage, MessageKind};
 

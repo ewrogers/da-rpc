@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+## 1.5.0 - 2026-08-15
+
+### Added
+
+- Added authoritative active field-map state, lifecycle and submitted-selection
+  events, a revision-checked REST action, and direct CLI selection.
+
+### Changed
+
+- Treat `You failed to concentrate.` as failed `Fas Spiorad` feedback while
+  preserving other queued casts.
+- Cache validated field-map packets that arrive before the native pane becomes
+  visible, then publish them only after the pane is confirmed open.
+- Accept bounded trailing field-map extension bytes after the declared
+  destination records, matching the 7.41 client parser.
+- Reopen retained field-map definitions when the native client reuses its
+  cached pane without sending another field-map packet.
+- Refresh field-map reads and selections from a live DLL snapshot so unrelated
+  state-stream resynchronization cannot leave the daemon cache stale.
+- Moved stat-point endpoint guidance into the Character status documentation.
+
 ## 1.4.2 - 2026-08-14
 
 ### Fixed

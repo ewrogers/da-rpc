@@ -74,6 +74,7 @@ they need:
 | `GET /clients/{client}/objects` | [World](world.md) |
 | `GET /clients/{client}/messages` | [Messages](messages.md) |
 | `GET /clients/{client}/dialog` | [NPC dialogs](dialogs.md) |
+| `GET /clients/{client}/field-map` | [Field maps](field-maps.md) |
 | `GET /clients/{client}/group` | [Groups](groups.md) |
 | `GET /clients/{client}/exchange` | [Exchange](exchanges.md) |
 | `GET /clients/{client}/who` | [Online players](online.md) |
@@ -154,6 +155,7 @@ request cannot select another file in or outside the configured directory.
 | `POST /clients/{client}/dialog/previous` | Move to the previous pursuit page. |
 | `POST /clients/{client}/dialog/next` | Move to the next pursuit page. |
 | `POST /clients/{client}/dialog/close` | Close the current NPC dialog. |
+| `POST /clients/{client}/field-map/select` | Select one destination from the active [field map](field-maps.md). |
 | `POST /clients/{client}/group/toggle` | Toggle invitations, or leave the current group. |
 | `POST /clients/{client}/group/invite` | Invite a visible player. |
 | `POST /clients/{client}/group/invitations/{id}/accept` | Accept a pending invitation. |
@@ -176,32 +178,11 @@ Outbound chat and internal inter-client message fields are documented in
 [Messages](messages.md).
 Equipment, skill, and spell arguments are documented in their respective
 chapters. NPC interaction, revision checks, and dialog responses are documented
-in [NPC dialogs](dialogs.md). Group state, invitations, and roster confirmation
+in [NPC dialogs](dialogs.md). Stat-point spending is documented with
+[Character status](status.md#spending-stat-points). Group state, invitations, and roster confirmation
 are documented in [Groups](groups.md). Player offers, constraints, and exchange
 completion are documented in [Exchange](exchanges.md).
 Raw packet syntax and crash risks are documented in [Raw packets](raw.md).
-
-### Spend stat points
-
-Use `POST /clients/{client}/stats/{stat}` to spend one of the character's
-available `stat_points`. The request has no body. For example, this increases
-strength for the client named `ZiLo`:
-
-```console
-curl --request POST "http://127.0.0.1:2626/clients/ZiLo/stats/strength"
-```
-
-The short stat names work as aliases, so this request increases constitution:
-
-```console
-curl --request POST "http://127.0.0.1:2626/clients/ZiLo/stats/con"
-```
-
-The accepted path values are `strength` or `str`, `dexterity` or `dex`,
-`intelligence` or `int`, `wisdom` or `wis`, and `constitution` or `con`.
-The daemon returns HTTP 400 without sending a packet when the character has no
-available stat points. Wait at least 500 milliseconds between successful stat
-requests for the same character; an earlier request returns HTTP 429.
 
 ### Resynchronizing a client
 

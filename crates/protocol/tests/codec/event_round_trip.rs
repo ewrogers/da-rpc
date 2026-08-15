@@ -499,6 +499,34 @@ fn event_messages_round_trip() {
                         ],
                     }),
                 },
+                StateEvent {
+                    sequence: 68,
+                    revision: 34,
+                    tick_ms: 149,
+                    update: StateUpdate::FieldMap(FieldMapUpdate::Opened(field_map_state())),
+                },
+                StateEvent {
+                    sequence: 69,
+                    revision: 35,
+                    tick_ms: 150,
+                    update: StateUpdate::FieldMap(FieldMapUpdate::Changed(field_map_state())),
+                },
+                StateEvent {
+                    sequence: 70,
+                    revision: 36,
+                    tick_ms: 151,
+                    update: StateUpdate::FieldMap(FieldMapUpdate::SelectionSubmitted(
+                        field_map_state(),
+                    )),
+                },
+                StateEvent {
+                    sequence: 71,
+                    revision: 37,
+                    tick_ms: 152,
+                    update: StateUpdate::FieldMap(FieldMapUpdate::Closed {
+                        previous: field_map_state(),
+                    }),
+                },
             ]),
         }),
         Message::EventPollResponse(EventPollResponse {

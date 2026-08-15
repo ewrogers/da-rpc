@@ -64,6 +64,7 @@ updates drive:
   visible living entities
 - Chat and system messages
 - Merchant and pursuit dialog pages
+- Field-map panels, destination lists, and submitted selections
 - Player exchange state, offers, acceptance, completion, and cancellation
 
 Unknown, malformed, oversized, or unreadable events are ignored. The client's
@@ -98,6 +99,12 @@ NPC dialog responses use native main-thread methods and are observed through
 their retained dialog state. This preserves the visible page and the client's
 normal response-pending transition without constructing dialog packets in
 daRPC.
+
+Field-map server events are observed after native dispatch so daRPC can confirm
+that an exact `FieldMapPane` was registered and made visible. Each tick rescans
+the bounded live pane collection to detect closure. Outgoing packet `0x3F` is
+the only selection-submitted signal; receiving `0x2E` or observing the native
+click animation alone is insufficient.
 
 This is how daRPC reports ability and action events for requests started
 through either daRPC or the normal game interface. It also helps keep spell

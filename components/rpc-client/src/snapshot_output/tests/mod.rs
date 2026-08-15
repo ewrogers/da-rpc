@@ -39,6 +39,7 @@ fn snapshot() -> ClientSnapshot {
                 text: "Ask".into(),
             }]),
         }),
+        active_field_map: None,
         group: None,
         exchange: Some(ExchangeState {
             id: 9,

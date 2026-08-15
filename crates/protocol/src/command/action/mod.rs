@@ -136,6 +136,7 @@ pub enum CommandKind {
     RemovePathExclusions { map_id: u32 },
     ClearPathExclusions,
     AddStat(CharacterStat),
+    SelectFieldMapDestination(FieldMapSelectionCommand),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -369,6 +370,12 @@ impl GroupText {
 pub struct DialogCommand {
     pub revision: u32,
     pub action: DialogAction,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct FieldMapSelectionCommand {
+    pub revision: u32,
+    pub destination_index: u8,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -869,6 +876,11 @@ pub(super) fn encode_kind(output: &mut Vec<u8>, kind: CommandKind) {
             output.push(29);
             output.push(stat.flag());
         }
+        CommandKind::SelectFieldMapDestination(command) => {
+            output.push(30);
+            push_u32(output, command.revision);
+            output.push(command.destination_index);
+        }
     }
 }
 
@@ -1140,6 +1152,12 @@ pub(super) fn decode_kind(reader: &mut PayloadReader<'_>) -> Result<CommandKind,
                 .map(CommandKind::AddStat)
                 .ok_or(DecodeError::InvalidCharacterStat { actual: flag })
         }
+        30 => Ok(CommandKind::SelectFieldMapDestination(
+            FieldMapSelectionCommand {
+                revision: reader.read_u32()?,
+                destination_index: reader.read_u8()?,
+            },
+        )),
         actual => Err(DecodeError::InvalidCommandKind { actual }),
     }
 }

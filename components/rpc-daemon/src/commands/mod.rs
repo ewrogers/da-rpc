@@ -31,6 +31,7 @@ pub(crate) mod assail;
 pub(crate) mod chant;
 pub(crate) mod dialog;
 pub(crate) mod exchange;
+pub(crate) mod field_map;
 pub(crate) mod group;
 pub(crate) mod interaction;
 pub(crate) mod legend;
@@ -237,8 +238,17 @@ fn selector_bad_request(pid: u32, message: impl Into<String>) -> ApiError {
 pub(crate) struct CommandCall {
     pub(crate) pid: u32,
     pub(crate) identity: ClientIdentity,
-    pub(crate) operation: CommandOperation,
+    pub(crate) operation: ClientOperation,
     pub(crate) reply: oneshot::Sender<CommandReply>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[cfg_attr(not(windows), allow(dead_code))]
+// Command calls already carried the full operation before snapshot requests shared this route.
+#[allow(clippy::large_enum_variant)]
+pub(crate) enum ClientOperation {
+    Command(CommandOperation),
+    Snapshot,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -247,6 +257,7 @@ pub(crate) struct CommandCall {
 #[allow(clippy::large_enum_variant)]
 pub(crate) enum CommandReply {
     Result(ProtocolResult),
+    Snapshot(Box<GameSnapshot>),
     Busy,
     Unavailable,
 }
@@ -309,6 +320,7 @@ pub(crate) enum CommandKind {
     Message,
     PathExclusions,
     AddStat,
+    SelectFieldMapDestination,
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
@@ -511,6 +523,47 @@ async fn route(
             "the command returned a player profile to a non-inspection endpoint",
             Some(pid),
         )),
+        CommandReply::Snapshot(_) => Err(ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected_snapshot_result",
+            "the command route returned a state snapshot",
+            Some(pid),
+        )),
+    }
+}
+
+pub(crate) async fn live_snapshot(
+    state: &ApiState,
+    identifier: &str,
+) -> Result<(u32, ClientIdentity, Box<GameSnapshot>), ApiError> {
+    let (pid, identity) = connected_client(state, identifier)?;
+    let receiver = state.route_snapshot(pid, identity)?;
+    let reply = timeout(ROUTE_TIMEOUT, receiver)
+        .await
+        .map_err(|_| {
+            ApiError::new(
+                StatusCode::GATEWAY_TIMEOUT,
+                "snapshot_route_timeout",
+                "the live client snapshot did not respond within two seconds",
+                Some(pid),
+            )
+        })?
+        .map_err(|_| unavailable(pid))?;
+    match reply {
+        CommandReply::Snapshot(snapshot) => Ok((pid, identity, snapshot)),
+        CommandReply::Busy => Err(ApiError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "snapshot_queue_full",
+            "the bounded client request queue is full",
+            Some(pid),
+        )),
+        CommandReply::Unavailable => Err(unavailable(pid)),
+        CommandReply::Result(_) => Err(ApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "unexpected_command_result",
+            "the snapshot route returned a command result",
+            Some(pid),
+        )),
     }
 }
 
@@ -673,6 +726,7 @@ impl From<ProtocolKind> for CommandKind {
             | ProtocolKind::RemovePathExclusions { .. }
             | ProtocolKind::ClearPathExclusions => Self::PathExclusions,
             ProtocolKind::AddStat(_) => Self::AddStat,
+            ProtocolKind::SelectFieldMapDestination(_) => Self::SelectFieldMapDestination,
         }
     }
 }

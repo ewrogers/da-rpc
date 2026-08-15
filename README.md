@@ -18,7 +18,7 @@ shortest path to a working installation.
 ## Overview
 
 daRPC provides typed access to character state, inventory, equipment, skills,
-spells, effects, world objects, dialogs, groups, exchanges, online players,
+spells, effects, world objects, dialogs, field maps, groups, exchanges, online players,
 legend marks, chat, movement, and supported client actions. Applications can
 use a direct command-line interface or a local REST and Server-Sent Events API.
 
@@ -72,8 +72,8 @@ To build daRPC, also install:
 2. Verify the archive checksum:
 
    ```powershell
-   Get-FileHash .\da-rpc-v1.4.2-windows.zip -Algorithm SHA256
-   Get-Content .\da-rpc-v1.4.2-windows.zip.sha256
+   Get-FileHash .\da-rpc-v1.5.0-windows.zip -Algorithm SHA256
+   Get-Content .\da-rpc-v1.5.0-windows.zip.sha256
    ```
 
 3. Extract the archive to a directory you control.

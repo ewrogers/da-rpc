@@ -71,6 +71,7 @@ fn assert_routes_action_sequence(
         hello,
         selected_version: SUPPORTED_VERSIONS.max,
     });
+    let live_snapshot = snapshot.clone();
     registry.apply(&ConnectionEvent::Snapshot {
         pid: 42,
         identity,
@@ -82,16 +83,22 @@ fn assert_routes_action_sequence(
         .with_command_sender(commands);
     let worker = std::thread::spawn(move || {
         for (index, expected_kind) in expected_kinds.into_iter().enumerate() {
-            let call = command_receiver.recv().unwrap();
+            let mut call = command_receiver.recv().unwrap();
+            if matches!(&call.operation, crate::commands::ClientOperation::Snapshot) {
+                call.reply
+                    .send(CommandReply::Snapshot(Box::new(live_snapshot.clone())))
+                    .unwrap();
+                call = command_receiver.recv().unwrap();
+            }
             assert_eq!(call.pid, 42);
             assert_eq!(call.identity, identity);
             assert!(matches!(
                 call.operation,
-                CommandOperation::Submit {
+                crate::commands::ClientOperation::Command(CommandOperation::Submit {
                     kind,
                     timeout_ms: 1_000,
                     wait_ms: 1_000,
-                } if kind == expected_kind
+                }) if kind == expected_kind
             ));
             call.reply
                 .send(CommandReply::Result(CommandResult::Status(CommandStatus {
@@ -176,11 +183,11 @@ fn routes_a_diagnostic_through_the_bounded_command_path() {
         assert_eq!(call.identity, RegistryClientIdentity::from_hello(hello));
         assert!(matches!(
             call.operation,
-            CommandOperation::Submit {
+            crate::commands::ClientOperation::Command(CommandOperation::Submit {
                 kind: CommandKind::Diagnostic,
                 timeout_ms: 1_000,
                 wait_ms: 1_000,
-            }
+            })
         ));
         call.reply
             .send(CommandReply::Result(CommandResult::Status(CommandStatus {
@@ -234,11 +241,11 @@ fn legend_route_returns_refreshed_marks_with_friendly_icons() {
         let call = command_receiver.recv().unwrap();
         assert!(matches!(
             call.operation,
-            CommandOperation::Submit {
+            crate::commands::ClientOperation::Command(CommandOperation::Submit {
                 kind: CommandKind::Legend,
                 timeout_ms: 3_000,
                 wait_ms: 1_000,
-            }
+            })
         ));
         call.reply
             .send(CommandReply::Result(CommandResult::Legend {
@@ -338,11 +345,11 @@ fn player_inspection_route_resolves_visible_name_and_returns_profile() {
         let call = command_receiver.recv().unwrap();
         assert!(matches!(
             call.operation,
-            CommandOperation::Submit {
+            crate::commands::ClientOperation::Command(CommandOperation::Submit {
                 kind: CommandKind::InspectPlayer(id),
                 timeout_ms: 3_000,
                 wait_ms: 1_000,
-            } if id.get() == 1
+            }) if id.get() == 1
         ));
         call.reply
             .send(CommandReply::Result(CommandResult::Player {
@@ -707,6 +714,14 @@ fn routes_typed_actions() {
             action: DialogAction::Close,
         }),
     );
+    assert_routes_action(
+        "/clients/42/field-map/select",
+        r#"{"revision":11,"destination_index":0}"#,
+        CommandKind::SelectFieldMapDestination(FieldMapSelectionCommand {
+            revision: 11,
+            destination_index: 0,
+        }),
+    );
 }
 
 #[test]
@@ -886,6 +901,139 @@ fn serves_dialog_state_and_rejects_stale_actions() {
     );
     assert_eq!(response.status(), StatusCode::CONFLICT);
     assert_eq!(response_json(response)["error"]["code"], "stale_dialog");
+}
+
+fn state_with_live_snapshot_response(
+    snapshot: ModelClientSnapshot,
+) -> (ApiState, std::thread::JoinHandle<()>) {
+    let mut registry = Registry::new();
+    let hello = hello();
+    let identity = RegistryClientIdentity::from_hello(hello);
+    registry.apply(&ConnectionEvent::Connected {
+        pid: 42,
+        hello,
+        selected_version: SUPPORTED_VERSIONS.max,
+    });
+    registry.apply(&ConnectionEvent::Snapshot {
+        pid: 42,
+        identity,
+        snapshot: Box::new(snapshot.clone()),
+    });
+    let (events, event_receiver) = mpsc::channel();
+    let (commands, command_receiver) = mpsc::sync_channel(ROUTER_CAPACITY);
+    let state = ApiState::new(registry.snapshot(), Arc::new(FakeLifecycle), events)
+        .with_command_sender(commands);
+    let worker = std::thread::spawn(move || {
+        assert!(matches!(
+            event_receiver.recv().unwrap(),
+            DaemonEvent::CommandsReady
+        ));
+        let call = command_receiver.recv().unwrap();
+        assert_eq!(call.pid, 42);
+        assert_eq!(call.identity, identity);
+        assert_eq!(call.operation, crate::commands::ClientOperation::Snapshot);
+        call.reply
+            .send(CommandReply::Snapshot(Box::new(snapshot)))
+            .unwrap();
+    });
+    (state, worker)
+}
+
+#[test]
+fn serves_field_map_state_and_rejects_stale_actions() {
+    let (live_state, worker) = state_with_live_snapshot_response(game_snapshot());
+    let body = json_with_state(live_state, "/clients/42/field-map");
+    worker.join().unwrap();
+    assert_eq!(body["field_map"]["revision"], 11);
+    assert_eq!(body["field_map"]["field_name"], "field001");
+    assert_eq!(body["field_map"]["destinations"][0]["name"], "Mileth");
+
+    let (live_state, worker) = state_with_live_snapshot_response(game_snapshot());
+    let response = post_json(
+        live_state,
+        "/clients/42/field-map/select",
+        r#"{"revision":10,"destination_index":0}"#,
+    );
+    worker.join().unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    assert_eq!(response_json(response)["error"]["code"], "stale_field_map");
+}
+
+#[test]
+fn routes_field_map_selection_from_a_live_snapshot() {
+    let snapshot = game_snapshot();
+    let mut registry = Registry::new();
+    let hello = hello();
+    let identity = RegistryClientIdentity::from_hello(hello);
+    registry.apply(&ConnectionEvent::Connected {
+        pid: 42,
+        hello,
+        selected_version: SUPPORTED_VERSIONS.max,
+    });
+    registry.apply(&ConnectionEvent::Snapshot {
+        pid: 42,
+        identity,
+        snapshot: Box::new(snapshot.clone()),
+    });
+    let (events, event_receiver) = mpsc::channel();
+    let (commands, command_receiver) = mpsc::sync_channel(ROUTER_CAPACITY);
+    let state = ApiState::new(registry.snapshot(), Arc::new(FakeLifecycle), events)
+        .with_command_sender(commands);
+    let worker = std::thread::spawn(move || {
+        assert!(matches!(
+            event_receiver.recv().unwrap(),
+            DaemonEvent::CommandsReady
+        ));
+        let snapshot_call = command_receiver.recv().unwrap();
+        assert_eq!(
+            snapshot_call.operation,
+            crate::commands::ClientOperation::Snapshot
+        );
+        snapshot_call
+            .reply
+            .send(CommandReply::Snapshot(Box::new(snapshot)))
+            .unwrap();
+
+        assert!(matches!(
+            event_receiver.recv().unwrap(),
+            DaemonEvent::CommandsReady
+        ));
+        let command_call = command_receiver.recv().unwrap();
+        let expected = CommandKind::SelectFieldMapDestination(FieldMapSelectionCommand {
+            revision: 11,
+            destination_index: 0,
+        });
+        assert!(matches!(
+            command_call.operation,
+            crate::commands::ClientOperation::Command(CommandOperation::Submit {
+                kind,
+                timeout_ms: 1_000,
+                wait_ms: 1_000,
+            }) if kind == expected
+        ));
+        command_call
+            .reply
+            .send(CommandReply::Result(CommandResult::Status(CommandStatus {
+                command_id: 9,
+                kind: expected,
+                state: CommandState::Executed,
+                enqueued_tick_ms: 100,
+                deadline_tick_ms: 1_100,
+                started_tick_ms: Some(101),
+                completed_tick_ms: Some(101),
+                execution_us: Some(3),
+                main_thread_id: Some(7),
+                failure: None,
+            })))
+            .unwrap();
+    });
+    let response = post_json(
+        state,
+        "/clients/42/field-map/select",
+        r#"{"revision":11,"destination_index":0}"#,
+    );
+    worker.join().unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
 }
 
 #[test]

@@ -142,6 +142,7 @@ pub struct ClientSnapshot {
     pub character: Option<CharacterSnapshot>,
     pub objects: Option<Vec<crate::WorldObject>>,
     pub dialog: Option<crate::DialogState>,
+    pub active_field_map: Option<crate::FieldMapState>,
     pub group: Option<crate::GroupState>,
     pub exchange: Option<crate::ExchangeState>,
     pub legend: Option<Vec<crate::LegendMark>>,

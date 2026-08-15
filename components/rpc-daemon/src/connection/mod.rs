@@ -1,5 +1,5 @@
 use crate::{
-    commands::{CommandCall, CommandReply, WORKER_CAPACITY},
+    commands::{ClientOperation, CommandCall, CommandReply, WORKER_CAPACITY},
     event::DaemonEvent,
     registry::{ClientIdentity, ConnectionEvent},
 };
@@ -187,11 +187,32 @@ fn monitor(
             if call.identity != identity {
                 let _ = call.reply.send(CommandReply::Unavailable);
             } else {
-                let result = request_command(session, request_id, call.operation);
+                let result = match call.operation {
+                    ClientOperation::Command(operation) => {
+                        request_command(session, request_id, operation).map(CommandReply::Result)
+                    }
+                    ClientOperation::Snapshot => match request_snapshot(session, request_id) {
+                        Ok(SnapshotOutcome::Ready(snapshot)) => {
+                            boundary = Some((snapshot.event_sequence, snapshot.revision));
+                            let reply_snapshot = snapshot.clone();
+                            send_event(
+                                events,
+                                ConnectionEvent::Snapshot {
+                                    pid,
+                                    identity,
+                                    snapshot,
+                                },
+                            )?;
+                            Ok(CommandReply::Snapshot(reply_snapshot))
+                        }
+                        Ok(SnapshotOutcome::Unavailable(_)) => Ok(CommandReply::Unavailable),
+                        Err(error) => Err(error),
+                    },
+                };
                 request_id = SequenceNumber::new(request_id).next().get();
                 match result {
-                    Ok(result) => {
-                        let _ = call.reply.send(CommandReply::Result(result));
+                    Ok(reply) => {
+                        let _ = call.reply.send(reply);
                     }
                     Err(error) => {
                         let _ = call.reply.send(CommandReply::Unavailable);

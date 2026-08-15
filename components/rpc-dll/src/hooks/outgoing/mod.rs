@@ -273,6 +273,7 @@ extern "C" fn observe_packet(body: *const u8, length: i16) {
                 | 0x4E
                 | 0x18
                 | 0x43
+                | 0x3F
         ) {
             return;
         }
@@ -282,7 +283,7 @@ extern "C" fn observe_packet(body: *const u8, length: i16) {
             0x43 => 6,
             0x07 => 6,
             0x08 | 0x29 => 10,
-            0x24 | 0x2A => 9,
+            0x24 | 0x2A | 0x3F => 9,
             0x0F => length,
             _ => 2,
         };

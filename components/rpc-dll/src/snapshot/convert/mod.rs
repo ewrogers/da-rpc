@@ -17,10 +17,7 @@ pub(super) fn snapshot(
     ready: ReadyPublication,
     raw: &darpc_game_client::RawStateSnapshot,
     raw_objects: &RawObjects,
-    raw_dialog: crate::dialog::RawDialog,
-    raw_exchange: crate::exchange::RawExchange,
-    raw_legend: &crate::legend::RawLegendState,
-    raw_route: &crate::route::RawRoute,
+    retained: RetainedState<'_>,
 ) -> ClientSnapshot {
     ClientSnapshot {
         revision: ready.revision,
@@ -38,15 +35,24 @@ pub(super) fn snapshot(
             RawLifecycle::InGame | RawLifecycle::Disconnected
         )
         .then(|| objects(raw_objects)),
-        dialog: crate::dialog::decode_current(raw_dialog),
+        dialog: crate::dialog::decode_current(retained.dialog),
+        active_field_map: crate::field_map::decode_current(retained.field_map),
         group: raw
             .group_available
             .then(|| crate::group::model_state(&raw.group)),
-        exchange: crate::exchange::decode_current(raw_exchange),
-        legend: Some(crate::legend::model_state(raw_legend)),
-        planned_route: crate::route::model(raw_route),
+        exchange: crate::exchange::decode_current(retained.exchange),
+        legend: Some(crate::legend::model_state(retained.legend)),
+        planned_route: crate::route::model(retained.route),
         map_exclusions: crate::path_exclusions::model_state(),
     }
+}
+
+pub(super) struct RetainedState<'a> {
+    pub(super) dialog: crate::dialog::RawDialog,
+    pub(super) field_map: &'a crate::field_map::RawFieldMap,
+    pub(super) exchange: crate::exchange::RawExchange,
+    pub(super) legend: &'a crate::legend::RawLegendState,
+    pub(super) route: &'a crate::route::RawRoute,
 }
 
 fn objects(raw: &RawObjects) -> Vec<WorldObject> {

@@ -550,6 +550,7 @@ mod tests {
             }),
             objects: Some(Vec::new()),
             dialog: None,
+            active_field_map: None,
             group: None,
             exchange: None,
             legend: None,

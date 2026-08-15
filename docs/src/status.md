@@ -175,6 +175,34 @@ and memory addresses are not exposed.
 The five attribute values remain `strength`, `dexterity`, `intelligence`,
 `wisdom`, and `constitution`.
 
+## Spending stat points
+
+Use `POST /clients/{client}/stats/{stat}` to spend one available
+`stats.stat_points`. The request has no body. For example, this increases
+strength for the client named `ZiLo`:
+
+```console
+curl --request POST "http://127.0.0.1:2626/clients/ZiLo/stats/strength"
+```
+
+Short names are accepted, so this request increases constitution:
+
+```console
+curl --request POST "http://127.0.0.1:2626/clients/ZiLo/stats/con"
+```
+
+The accepted values are `strength` or `str`, `dexterity` or `dex`,
+`intelligence` or `int`, `wisdom` or `wis`, and `constitution` or `con`.
+The daemon returns HTTP 400 without sending a packet when no point is
+available. Wait at least 500 milliseconds between successful requests for the
+same character; an earlier request returns HTTP 429.
+
+The direct Windows equivalent is:
+
+```console
+darpc stat strength --pid 1234
+```
+
 ## Live status events
 
 The complete payload structures and recovery route are in

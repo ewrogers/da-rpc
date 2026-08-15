@@ -94,6 +94,7 @@ darpc dialog input --pid <pid> <revision> <text>
 darpc dialog previous --pid <pid> <revision>
 darpc dialog next --pid <pid> <revision>
 darpc dialog close --pid <pid> <revision>
+darpc field-map select --pid <pid> <revision> <destination-index>
 darpc group toggle --pid <pid>
 darpc group invite --pid <pid> <player>
 darpc group accept --pid <pid> <invitation-id>
@@ -135,7 +136,7 @@ and connection lifecycle. Their behavior is:
   difference, and whether the counter advanced.
 - `snapshot` schedules a bounded capture on the client main thread and reports
   lifecycle, character, map, inventory, equipment, spellbook, skillbook, and
-  active spell-effect, dialog, group roster, invitation, and complete native
+  active spell-effect, dialog, field-map, group roster, invitation, and complete native
   planned-route state plus event, capture timing, and request round-trip
   metadata.
 - `diagnostic` submits a no-op command to the bounded main-thread queue, waits
@@ -179,6 +180,9 @@ and connection lifecycle. Their behavior is:
   quantity. `dialog input` submits nonempty ASCII text. Dialog selection,
   input, navigation, and close commands require the current dialog revision so
   stale actions fail closed in the DLL.
+- `field-map select` submits one zero-based destination from the active field
+  map. It requires the current field-map revision and uses the retained
+  checksum and travel coordinates. See [Field maps](field-maps.md).
 - `group toggle` uses the native client toggle. It opens or closes invitations
   while solo and leaves or disbands an active group. `group invite` sends a
   validated ASCII player name. `group accept` and `group decline` answer one
@@ -224,6 +228,7 @@ darpc --output json skill swap --pid <pid> 5 6
 darpc --output json spell cast --pid <pid> 7 --input "nothing"
 darpc --output json item swap --pid <pid> 1 2
 darpc --output json dialog select --pid <pid> 7 0
+darpc --output json field-map select --pid <pid> 11 1
 darpc --output json group invite --pid <pid> ZiLo
 darpc --output json who --pid <pid>
 darpc --output json legend --pid <pid>

@@ -7,7 +7,7 @@ daemon rather than internal client memory.
 
 daRPC presents each game client as a set of familiar resources. Character
 status, items, equipment, skills, spells, effects, nearby objects, messages,
-dialogs, groups, and exchange state each have their own REST route and
+dialogs, field maps, groups, and exchange state each have their own REST route and
 documentation chapter.
 
 This chapter explains the behavior they share. The individual chapters focus

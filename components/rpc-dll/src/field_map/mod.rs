@@ -278,9 +278,6 @@ fn decode(raw: &RawFieldMap) -> Result<FieldMapState, ()> {
             map_y: reader.u16()?,
         });
     }
-    if !reader.empty() {
-        return Err(());
-    }
     let selection = u8::try_from(raw.selection_index)
         .ok()
         .map(|destination_index| FieldMapSelection { destination_index });
@@ -307,7 +304,7 @@ fn validate_server_packet(body: &[u8]) -> Option<()> {
             reader.u16().ok()?;
         }
     }
-    reader.empty().then_some(())
+    Some(())
 }
 
 #[derive(Clone, Copy)]
@@ -401,10 +398,6 @@ impl<'a> Reader<'a> {
         self.offset = end;
         Ok(value)
     }
-
-    fn empty(&self) -> bool {
-        self.offset == self.bytes.len()
-    }
 }
 
 #[cfg(test)]
@@ -496,5 +489,20 @@ mod tests {
         };
         assert_eq!(state.field_name, "field001");
         assert_ne!(state.revision, 0);
+    }
+
+    #[test]
+    fn ignores_bounded_trailing_server_extension_bytes() {
+        let _guard = LOCK.lock().unwrap();
+        reset();
+        let mut extended = packet();
+        extended.extend_from_slice(&[0xAA, 0xBB, 0xCC]);
+
+        let opened = observe_server_state(&extended, true).unwrap();
+        let Some(FieldMapUpdate::Opened(state)) = take(opened) else {
+            panic!("expected extended field map packet to open");
+        };
+        assert_eq!(state.field_name, "field001");
+        assert_eq!(state.destinations.len(), 2);
     }
 }

@@ -5,6 +5,8 @@ exposes the panel only while an exact `FieldMapPane` is registered and visible
 in the supported client. Receiving the server packet alone does not make the
 resource active. The DLL caches a validated packet that arrives before the
 client registers the pane, then publishes it when the pane becomes visible.
+The 7.41 client ignores bounded bytes after the declared destination records;
+daRPC does the same while still bounds-checking every known field.
 
 ## Reading the active field map
 

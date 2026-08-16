@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Reapply the complete system processor affinity when launched clients restore
+  a single-processor mask during startup, for both direct loader and daemon REST
+  launches.
+
 ## 1.5.2 - 2026-08-15
 
 ### Added

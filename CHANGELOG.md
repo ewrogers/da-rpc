@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.5.2 - 2026-08-15
+
+### Added
+
+- Added opt-in runtime hook timing through loader initialization, direct IPC,
+  the direct CLI, and daemon REST endpoints.
+- Added bounded per-stage call, duration, maximum, and budget-exceeding counters
+  without diagnostic logging, allocation, or IPC from the tick and incoming
+  event hooks.
+
 ## 1.5.1 - 2026-08-15
 
 ### Added

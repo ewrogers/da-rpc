@@ -46,6 +46,31 @@ fn basic_messages_round_trip() {
             max_events: 64,
             wait_ms: 50,
         }),
+        Message::DiagnosticsRequest(DiagnosticsRequest {
+            request_id: 12,
+            operation: DiagnosticsOperation::EnableHookTiming,
+        }),
+        Message::DiagnosticsResponse(DiagnosticsResponse {
+            request_id: 13,
+            mode: DiagnosticsMode::HookTiming,
+            hook_timings: std::array::from_fn(|index| HookTimingRecord {
+                stage: [
+                    HookTimingStage::Tick,
+                    HookTimingStage::Movement,
+                    HookTimingStage::Commands,
+                    HookTimingStage::Player,
+                    HookTimingStage::State,
+                    HookTimingStage::Snapshot,
+                    HookTimingStage::Event,
+                ][index],
+                budget_us: 5_000,
+                call_count: u64::try_from(index).unwrap() + 1,
+                total_duration_us: 123,
+                maximum_duration_us: 42,
+                over_budget_count: 3,
+                last_duration_us: 17,
+            }),
+        }),
     ];
 
     for message in messages {

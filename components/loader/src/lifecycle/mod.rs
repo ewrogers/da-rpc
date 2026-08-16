@@ -20,7 +20,7 @@ use std::{ffi::c_void, fs};
 use crate::{dll, pe, remote};
 
 #[cfg(windows)]
-use darpc_win32::lifecycle::{ABI_VERSION, Status};
+use darpc_win32::lifecycle::{InitializeOptions, Status};
 
 #[cfg(any(windows, test))]
 const DARPC_MODULE_NAME: &str = "darpc.dll";
@@ -48,7 +48,12 @@ fn export_address(module: usize, rva: u32, export_name: &str) -> Result<usize> {
 }
 
 #[cfg(windows)]
-fn initialize(process: &TargetProcess, module: usize, initialize_rva: u32) -> Result<u32> {
+fn initialize(
+    process: &TargetProcess,
+    module: usize,
+    initialize_rva: u32,
+    options: InitializeOptions,
+) -> Result<u32> {
     let initialize = export_address(module, initialize_rva, "darpc_initialize")?;
 
     eprintln!(
@@ -56,8 +61,9 @@ fn initialize(process: &TargetProcess, module: usize, initialize_rva: u32) -> Re
         rva=0x{initialize_rva:08X} address=0x{initialize:08X}"
     );
 
-    let argument = usize::try_from(ABI_VERSION)
-        .map_err(|_| LoaderError::new(ErrorKind::Internal, "ABI version does not fit usize"))?;
+    let argument = usize::try_from(options.encode()).map_err(|_| {
+        LoaderError::new(ErrorKind::Internal, "initialize options do not fit usize")
+    })?;
 
     remote::run_thread(
         process,
@@ -152,13 +158,21 @@ fn validate_loaded_dll_identity(
 }
 
 #[cfg(windows)]
-pub(crate) fn attach(process: &TargetProcess, dll: &DarpcDll) -> Result<LifecycleOutcome> {
+pub(crate) fn attach(
+    process: &TargetProcess,
+    dll: &DarpcDll,
+    options: InitializeOptions,
+) -> Result<LifecycleOutcome> {
     let inspection = process.inspect()?;
-    attach_with_inspection(process, dll, inspection)
+    attach_with_inspection(process, dll, inspection, options)
 }
 
 #[cfg(windows)]
-pub(crate) fn attach_created(process: &TargetProcess, dll: &DarpcDll) -> Result<LifecycleOutcome> {
+pub(crate) fn attach_created(
+    process: &TargetProcess,
+    dll: &DarpcDll,
+    options: InitializeOptions,
+) -> Result<LifecycleOutcome> {
     let inspection = process.inspect_created()?;
     let pid = process.pid();
 
@@ -168,7 +182,7 @@ pub(crate) fn attach_created(process: &TargetProcess, dll: &DarpcDll) -> Result<
     );
 
     let module = dll::load_created(process, &dll.path)?;
-    let status = initialize(process, module, dll.initialize_rva)?;
+    let status = initialize(process, module, dll.initialize_rva, options)?;
 
     if status != Status::OK.as_u32() {
         return Err(LoaderError::new(
@@ -198,6 +212,7 @@ fn attach_with_inspection(
     process: &TargetProcess,
     dll: &DarpcDll,
     inspection: ProcessInspection,
+    options: InitializeOptions,
 ) -> Result<LifecycleOutcome> {
     let pid = process.pid();
 
@@ -214,7 +229,7 @@ fn attach_with_inspection(
     );
 
     let module = dll::load(process, &dll.path, DARPC_MODULE_NAME)?;
-    let status = initialize(process, module, dll.initialize_rva)?;
+    let status = initialize(process, module, dll.initialize_rva, options)?;
 
     if status != Status::OK.as_u32() {
         let initialize_error = format!("darpc_initialize failed: status={status}");
@@ -327,7 +342,11 @@ pub(crate) fn detach(process: &TargetProcess, dll: &DarpcDll) -> Result<Lifecycl
 }
 
 #[cfg(not(windows))]
-pub(crate) fn attach(_process: &TargetProcess, _dll: &DarpcDll) -> Result<LifecycleOutcome> {
+pub(crate) fn attach(
+    _process: &TargetProcess,
+    _dll: &DarpcDll,
+    _options: darpc_win32::lifecycle::InitializeOptions,
+) -> Result<LifecycleOutcome> {
     Err(LoaderError::new(
         ErrorKind::UnsupportedPlatform,
         "loader requires Windows",

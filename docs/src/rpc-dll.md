@@ -16,7 +16,7 @@ then waits for one local controller without touching the game thread. `DllMain`
 does not start IPC or wait for the worker.
 
 Each connection begins with the DLL's `Hello` and must answer with a compatible
-`HelloAck`. The worker serves bounded `Ping`, `Echo`, tick health, snapshot,
+`HelloAck`. The worker serves bounded `Ping`, `Echo`, tick health, diagnostics, snapshot,
 event-poll, and main-thread command operations.
 It uses overlapped reads, writes, and accepts so `darpc_shutdown` can signal the
 worker, cancel pending input/output, and join it before unloading. If bounded
@@ -154,6 +154,19 @@ check the current map bounds. Item actions revalidate the live slot, retained
 slot number, stackability, and quantity immediately before submission.
 
 ## Operational boundaries
+
+Hook timing is compiled into the production DLL but disabled by default. When
+enabled, the tick detour times the complete daRPC observation and its movement,
+command, player, state, and snapshot stages. The incoming event detour also
+times packet parsing and state updates as one event stage. The hot paths only
+read or update atomics and the monotonic clock. They do not allocate or format
+logs for diagnostics, perform IPC, or block. The IPC worker creates query
+responses and resets counters.
+
+The tick budget is 10,000 microseconds; each child stage budget is 5,000
+microseconds. Budget crossings increment a counter rather than writing from the
+hook. Runtime reset can race with one in-flight observation, so a queried
+snapshot is diagnostic telemetry rather than a transactional accounting record.
 
 - Client layouts and addresses are version-specific.
 - Hooks must not be installed until the executable version and required

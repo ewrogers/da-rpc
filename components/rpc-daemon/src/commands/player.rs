@@ -193,7 +193,7 @@ async fn route(
             Some(pid),
         )),
         CommandReply::Unavailable => Err(unavailable(pid)),
-        CommandReply::Snapshot(_) => Err(ApiError::new(
+        CommandReply::Snapshot(_) | CommandReply::Diagnostics(_) => Err(ApiError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
             "unexpected_snapshot_result",
             "the player-inspection route returned a state snapshot",

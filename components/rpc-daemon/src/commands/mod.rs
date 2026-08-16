@@ -249,6 +249,7 @@ pub(crate) struct CommandCall {
 #[allow(clippy::large_enum_variant)]
 pub(crate) enum ClientOperation {
     Command(CommandOperation),
+    Diagnostics(darpc_protocol::DiagnosticsOperation),
     Snapshot,
 }
 
@@ -258,6 +259,7 @@ pub(crate) enum ClientOperation {
 #[allow(clippy::large_enum_variant)]
 pub(crate) enum CommandReply {
     Result(ProtocolResult),
+    Diagnostics(darpc_protocol::DiagnosticsResponse),
     Snapshot(Box<GameSnapshot>),
     Busy,
     Unavailable,
@@ -524,7 +526,7 @@ async fn route(
             "the command returned a player profile to a non-inspection endpoint",
             Some(pid),
         )),
-        CommandReply::Snapshot(_) => Err(ApiError::new(
+        CommandReply::Snapshot(_) | CommandReply::Diagnostics(_) => Err(ApiError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
             "unexpected_snapshot_result",
             "the command route returned a state snapshot",
@@ -559,7 +561,7 @@ pub(crate) async fn live_snapshot(
             Some(pid),
         )),
         CommandReply::Unavailable => Err(unavailable(pid)),
-        CommandReply::Result(_) => Err(ApiError::new(
+        CommandReply::Result(_) | CommandReply::Diagnostics(_) => Err(ApiError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
             "unexpected_command_result",
             "the snapshot route returned a command result",
@@ -642,7 +644,10 @@ pub(super) fn action_client(
     Ok((client.pid, identity, snapshot))
 }
 
-fn connected_client(state: &ApiState, identifier: &str) -> Result<(u32, ClientIdentity), ApiError> {
+pub(crate) fn connected_client(
+    state: &ApiState,
+    identifier: &str,
+) -> Result<(u32, ClientIdentity), ApiError> {
     let registry = state.snapshot();
     let client = resolve_client(&registry, identifier)?;
     let identity = client
@@ -664,7 +669,7 @@ fn validate_command_id(command_id: u32) -> Result<(), ApiError> {
     Ok(())
 }
 
-fn unavailable(pid: u32) -> ApiError {
+pub(crate) fn unavailable(pid: u32) -> ApiError {
     ApiError::new(
         StatusCode::SERVICE_UNAVAILABLE,
         "command_unavailable",

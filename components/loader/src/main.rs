@@ -14,6 +14,7 @@ mod remote;
 #[cfg(debug_assertions)]
 use darpc_game_client::DEBUG_UNSUPPORTED_CLIENT_BYPASS_ENVIRONMENT_VARIABLE;
 use darpc_game_client::{CLIENT_VERSION, ClientExecutable, executable_sha256};
+use darpc_win32::lifecycle::InitializeOptions;
 use endpoint::ServerEndpoint;
 use error::{ErrorKind, LoaderError, Result};
 use output::{CommandResult, OutputFormat, render_error};
@@ -34,9 +35,9 @@ struct ValidatedClient {
 const USAGE: &str = "\
 usage:
     loader [--json] inspect <pid>
-    loader [--json] attach <pid> <dll-path>
+    loader [--json] attach [--diagnostics hook-timing] <pid> <dll-path>
     loader [--json] detach <pid> <dll-path>
-    loader [--json] launch [--allow-multiple] [--server <host[:port]>] \
+    loader [--json] launch [--allow-multiple] [--diagnostics hook-timing] [--server <host[:port]>] \
         [--skip-intro] [--skip-notice] [--skip-exchange-alerts] \
         <executable-path> <dll-path> [-- <argument>...]";
 
@@ -48,6 +49,7 @@ enum Command {
     Attach {
         pid: u32,
         dll_path: PathBuf,
+        initialize_options: InitializeOptions,
     },
     Detach {
         pid: u32,
@@ -59,6 +61,7 @@ enum Command {
         arguments: Vec<OsString>,
         patches: LaunchPatches,
         server: Option<ServerEndpoint>,
+        initialize_options: InitializeOptions,
     },
 }
 
@@ -126,10 +129,7 @@ fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
         Some("inspect") => Command::Inspect {
             pid: parse_pid(arguments.next())?,
         },
-        Some("attach") => Command::Attach {
-            pid: parse_pid(arguments.next())?,
-            dll_path: parse_dll_path(arguments.next())?,
-        },
+        Some("attach") => return parse_attach(arguments),
         Some("detach") => Command::Detach {
             pid: parse_pid(arguments.next())?,
             dll_path: parse_dll_path(arguments.next())?,
@@ -154,14 +154,55 @@ fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
     Ok(command)
 }
 
+fn parse_attach(mut arguments: impl Iterator<Item = OsString>) -> Result<Command> {
+    let mut initialize_options = InitializeOptions::new();
+    let first = arguments.next().ok_or_else(|| invalid_arguments(USAGE))?;
+    let pid = if first == "--diagnostics" {
+        initialize_options = parse_diagnostics(arguments.next())?;
+        parse_pid(arguments.next())?
+    } else {
+        parse_pid(Some(first))?
+    };
+    let dll_path = parse_dll_path(arguments.next())?;
+    if arguments.next().is_some() {
+        return Err(invalid_arguments(format!("too many arguments\n{USAGE}")));
+    }
+    Ok(Command::Attach {
+        pid,
+        dll_path,
+        initialize_options,
+    })
+}
+
+fn parse_diagnostics(argument: Option<OsString>) -> Result<InitializeOptions> {
+    match argument.as_deref().and_then(std::ffi::OsStr::to_str) {
+        Some("hook-timing") => Ok(InitializeOptions::new().with_hook_timing(true)),
+        Some(value) => Err(invalid_arguments(format!(
+            "unsupported diagnostics mode: `{value}`"
+        ))),
+        None => Err(invalid_arguments(
+            "diagnostics option requires `hook-timing`",
+        )),
+    }
+}
+
 fn parse_launch(mut arguments: impl Iterator<Item = OsString>) -> Result<Command> {
     let mut patches = LaunchPatches::default();
     let mut server = None;
+    let mut initialize_options = InitializeOptions::new();
     let mut executable_path = None;
 
     while let Some(argument) = arguments.next() {
         match argument.to_str() {
             Some("--allow-multiple") => patches.allow_multiple = true,
+            Some("--diagnostics") => {
+                if initialize_options.hook_timing() {
+                    return Err(invalid_arguments(
+                        "diagnostics option may be specified only once",
+                    ));
+                }
+                initialize_options = parse_diagnostics(arguments.next())?;
+            }
             Some("--server") => {
                 if server.is_some() {
                     return Err(invalid_arguments(
@@ -199,6 +240,7 @@ fn parse_launch(mut arguments: impl Iterator<Item = OsString>) -> Result<Command
             arguments: Vec::new(),
             patches,
             server,
+            initialize_options,
         });
     };
 
@@ -214,6 +256,7 @@ fn parse_launch(mut arguments: impl Iterator<Item = OsString>) -> Result<Command
         arguments: arguments.collect(),
         patches,
         server,
+        initialize_options,
     })
 }
 
@@ -255,11 +298,15 @@ fn execute(command: Command) -> Result<CommandResult> {
             let inspection = inspect(pid)?;
             Ok(command_result("inspect", pid, inspection, false))
         }
-        Command::Attach { pid, dll_path } => {
+        Command::Attach {
+            pid,
+            dll_path,
+            initialize_options,
+        } => {
             let dll = validate_dll(dll_path)?;
             let process = TargetProcess::open(pid)?;
             let _ = validate_client(process.executable_path()?)?;
-            let outcome = lifecycle::attach(&process, &dll)?;
+            let outcome = lifecycle::attach(&process, &dll, initialize_options)?;
 
             Ok(command_result(
                 "attach",
@@ -286,6 +333,7 @@ fn execute(command: Command) -> Result<CommandResult> {
             arguments,
             patches,
             server,
+            initialize_options,
         } => {
             let dll = validate_dll(dll_path)?;
             let client = validate_client(executable_path)?;
@@ -299,6 +347,7 @@ fn execute(command: Command) -> Result<CommandResult> {
                 &dll,
                 patches,
                 client.apply_default_patches,
+                initialize_options,
             )?;
 
             Ok(command_result(
@@ -387,6 +436,7 @@ fn command_result(
 mod tests {
     use super::{Command, OutputFormat, parse_command, parse_output_format};
     use crate::{endpoint::ServerEndpoint, patch::LaunchPatches};
+    use darpc_win32::lifecycle::InitializeOptions;
     use std::{ffi::OsString, path::PathBuf};
 
     fn arguments(values: &[&str]) -> Vec<OsString> {
@@ -404,6 +454,22 @@ mod tests {
             Command::Attach {
                 pid: 42,
                 dll_path: PathBuf::from("darpc.dll"),
+                initialize_options: InitializeOptions::new(),
+            }
+        );
+        assert_eq!(
+            parse_command(arguments(&[
+                "attach",
+                "--diagnostics",
+                "hook-timing",
+                "42",
+                "darpc.dll",
+            ]))
+            .unwrap(),
+            Command::Attach {
+                pid: 42,
+                dll_path: PathBuf::from("darpc.dll"),
+                initialize_options: InitializeOptions::new().with_hook_timing(true),
             }
         );
         assert_eq!(
@@ -434,6 +500,7 @@ mod tests {
                 arguments: arguments(&["--wait-ms", "10", "two words"]),
                 patches: LaunchPatches::default(),
                 server: None,
+                initialize_options: InitializeOptions::new(),
             }
         );
 
@@ -445,12 +512,31 @@ mod tests {
                 arguments: Vec::new(),
                 patches: LaunchPatches::default(),
                 server: None,
+                initialize_options: InitializeOptions::new(),
             }
         );
     }
 
     #[test]
     fn parses_launch_patch_options() {
+        assert_eq!(
+            parse_command(arguments(&[
+                "launch",
+                "--diagnostics",
+                "hook-timing",
+                "target.exe",
+                "darpc.dll",
+            ]))
+            .unwrap(),
+            Command::Launch {
+                executable_path: PathBuf::from("target.exe"),
+                dll_path: PathBuf::from("darpc.dll"),
+                arguments: Vec::new(),
+                patches: LaunchPatches::default(),
+                server: None,
+                initialize_options: InitializeOptions::new().with_hook_timing(true),
+            }
+        );
         assert_eq!(
             parse_command(arguments(&[
                 "launch",
@@ -474,6 +560,7 @@ mod tests {
                     skip_notice: true,
                 },
                 server: None,
+                initialize_options: InitializeOptions::new(),
             }
         );
 
@@ -492,6 +579,7 @@ mod tests {
                 arguments: arguments(&["--skip-intro"]),
                 patches: LaunchPatches::default(),
                 server: None,
+                initialize_options: InitializeOptions::new(),
             }
         );
     }
@@ -516,6 +604,7 @@ mod tests {
                     ..Default::default()
                 },
                 server: Some(ServerEndpoint::parse("da0.kru.com".as_ref()).unwrap()),
+                initialize_options: InitializeOptions::new(),
             }
         );
     }

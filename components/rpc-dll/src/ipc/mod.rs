@@ -13,7 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{commands, hooks::tick, snapshot, state};
+use crate::{commands, diagnostics, hooks::tick, snapshot, state};
 
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -159,6 +159,9 @@ fn serve_connection(server: &PipeServer, hello: &Hello, log: &mut File) -> io::R
                     tick_count: health.tick_count,
                 })
             }
+            Message::DiagnosticsRequest(message) => Message::DiagnosticsResponse(
+                diagnostics::handle(message.request_id, message.operation),
+            ),
             Message::SnapshotRequest(message) => {
                 let result = if !tick::health().installed {
                     SnapshotResult::Unavailable(SnapshotUnavailableReason::HookUnavailable)

@@ -53,7 +53,7 @@ use axum::{
     http::{Method, Request, StatusCode, header},
     middleware::{Next, from_fn},
     response::{Html, IntoResponse, Redirect, Response},
-    routing::{get, post},
+    routing::{get, post, put},
 };
 use chrono::{DateTime, Utc};
 use darpc_game_client::CLIENT_VERSION;
@@ -78,6 +78,7 @@ use utoipa::{IntoParams, OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
 mod clients;
+mod diagnostics;
 mod internal_messages;
 mod lifecycle;
 mod maps;
@@ -394,6 +395,15 @@ impl ApiState {
         self.route_client(pid, identity, ClientOperation::Snapshot)
     }
 
+    pub(crate) fn route_diagnostics(
+        &self,
+        pid: u32,
+        identity: RegistryClientIdentity,
+        operation: darpc_protocol::DiagnosticsOperation,
+    ) -> Result<oneshot::Receiver<crate::commands::CommandReply>, ApiError> {
+        self.route_client(pid, identity, ClientOperation::Diagnostics(operation))
+    }
+
     fn route_client(
         &self,
         pid: u32,
@@ -558,6 +568,11 @@ fn router(state: ApiState) -> Router {
         .route("/clients", get(clients))
         .route("/messages/send", post(internal_messages::send))
         .route("/clients/{client}/status", get(client_status))
+        .route(
+            "/clients/{client}/diagnostics/hooks",
+            get(diagnostics::hooks),
+        )
+        .route("/clients/{client}/diagnostics", put(diagnostics::update))
         .route(
             "/clients/{client}/messages/send",
             post(crate::commands::message::send),
@@ -826,7 +841,9 @@ async fn reject_request_body(request: Request<Body>, next: Next) -> Response {
             || request.uri().path().ends_with("/dialog/next")
             || request.uri().path().ends_with("/dialog/close")
             || request.uri().path().ends_with("/field-map/select")))
-        || (request.method() == Method::PUT && request.uri().path().ends_with("/path-exclusions"))
+        || (request.method() == Method::PUT
+            && (request.uri().path().ends_with("/path-exclusions")
+                || request.uri().path().ends_with("/diagnostics")))
     {
         return next.run(request).await;
     }
@@ -861,6 +878,8 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         maps::download,
         clients,
         client_status,
+        diagnostics::hooks,
+        diagnostics::update,
         client_dialog,
         client_field_map,
         client_group,
@@ -1041,6 +1060,11 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         LifecycleAction,
         ErrorState,
         ErrorDetail,
+        diagnostics::DiagnosticsOptions,
+        diagnostics::DiagnosticsState,
+        diagnostics::DiagnosticsMode,
+        diagnostics::HookTiming,
+        diagnostics::HookTimingStage,
         ClientEvent,
         crate::stream::ClientLifecycleChanged,
         crate::stream::SoundPlayed,

@@ -4,9 +4,9 @@ use crate::{
     output::CommandResult,
 };
 use darpc_protocol::{
-    CommandKind, CommandOperation, CommandRequest, DEFAULT_COMMAND_TIMEOUT_MS, EchoRequest,
-    MAX_COMMAND_WAIT_MS, Message, Ping, SnapshotRequest, SnapshotResult, SnapshotUnavailableReason,
-    TickHealthRequest, TickHealthResponse, elapsed_tick_ms,
+    CommandKind, CommandOperation, CommandRequest, DEFAULT_COMMAND_TIMEOUT_MS, DiagnosticsRequest,
+    EchoRequest, MAX_COMMAND_WAIT_MS, Message, Ping, SnapshotRequest, SnapshotResult,
+    SnapshotUnavailableReason, TickHealthRequest, TickHealthResponse, elapsed_tick_ms,
 };
 use darpc_win32::{
     controller::{ControllerError, ControllerSession},
@@ -192,6 +192,36 @@ pub(crate) fn execute(pid: u32, operation: Operation) -> Result<CommandResult> {
                 wait_ms: MAX_COMMAND_WAIT_MS,
             },
         ),
+        Operation::Diagnostics(operation) => {
+            session
+                .send(Message::DiagnosticsRequest(DiagnosticsRequest {
+                    request_id: REQUEST_ID,
+                    operation,
+                }))
+                .map_err(|error| controller_error(pid, error))?;
+            let response = session
+                .receive()
+                .map_err(|error| controller_error(pid, error))?;
+            match response.message {
+                Message::DiagnosticsResponse(response) if response.request_id == REQUEST_ID => {
+                    Ok(CommandResult::Diagnostics { pid, response })
+                }
+                Message::DiagnosticsResponse(response) => Err(protocol_error(
+                    pid,
+                    format!(
+                        "DiagnosticsResponse request ID {} does not match {REQUEST_ID}",
+                        response.request_id
+                    ),
+                )),
+                message => Err(protocol_error(
+                    pid,
+                    format!(
+                        "expected DiagnosticsResponse, received {:?}",
+                        message.message_type()
+                    ),
+                )),
+            }
+        }
         Operation::Raw(packet) => request_command(
             &mut session,
             pid,

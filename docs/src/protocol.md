@@ -88,12 +88,18 @@ enum MessageType: u16 {
     EventPollResponse  = 12,
     CommandRequest     = 13,
     CommandResponse    = 14,
+    DiagnosticsRequest = 15,
+    DiagnosticsResponse = 16,
 }
 ```
 
 The normal request direction is controller to DLL. Responses travel from DLL to
 controller. `Hello` starts in the opposite direction because the DLL announces
 its identity and capabilities immediately after a connection is established.
+
+Diagnostics messages are an additive protocol 1.5 capability implemented by
+components version 1.5.2 and later. A 1.5 controller checks the DLL component
+version before sending them, preserving compatibility with earlier 1.5 DLLs.
 
 ## Hello and HelloAck
 
@@ -191,6 +197,23 @@ during the sample window without performing IPC or logging in the hook itself.
 While connected, `darpcd` samples this response once per second. It logs a
 degraded transition after three consecutive samples below 60 observed ticks
 per second and logs recovery after the rate returns to at least that threshold.
+
+## Runtime diagnostics
+
+`DiagnosticsRequest` contains a `u32` request ID followed by one `u8`
+operation: query `0`, enable hook timing `1`, disable `2`, or reset counters
+`3`. Reset does not change the active mode.
+
+`DiagnosticsResponse` contains the request ID, a `u8` mode (`0` disabled or `1`
+hook timing), then exactly seven fixed records in tick, movement, commands,
+player, state, snapshot, and incoming event order. Each record carries its `u8`
+stage, `u32` budget in microseconds, `u64` call count, `u64` total duration,
+`u32` maximum duration, `u64` over-budget count, and `u32` last duration. The
+fixed record count keeps decoding and allocation bounded.
+
+Counters are atomic snapshots and may change while the IPC worker serializes a
+response. Timing is disabled by default. Component 1.5.2 controllers do not
+send these messages to older protocol 1.5 DLL components.
 
 ## Client snapshot
 

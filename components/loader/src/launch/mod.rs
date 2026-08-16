@@ -4,6 +4,7 @@ use crate::{
     pe::DarpcDll,
     process::ProcessInspection,
 };
+use darpc_win32::lifecycle::InitializeOptions;
 use std::{ffi::OsString, path::Path};
 
 pub(crate) struct LaunchOutcome {
@@ -69,6 +70,7 @@ pub(crate) fn launch(
     dll: &DarpcDll,
     patches: LaunchPatches,
     apply_default_patches: bool,
+    initialize_options: InitializeOptions,
 ) -> Result<LaunchOutcome> {
     #[cfg(windows)]
     {
@@ -78,6 +80,7 @@ pub(crate) fn launch(
             dll,
             patches,
             apply_default_patches,
+            initialize_options,
         )
     }
 
@@ -89,6 +92,7 @@ pub(crate) fn launch(
             dll,
             patches,
             apply_default_patches,
+            initialize_options,
         );
         Err(LoaderError::new(
             ErrorKind::UnsupportedPlatform,

@@ -1,5 +1,6 @@
 use darpc_game_client::{EVENT_DISPATCHER_TICK_ENTRY, EVENT_DISPATCHER_TICK_RVA};
 use darpc_hook::{DetourActivity, InstallError, InstalledDetour};
+use darpc_protocol::HookTimingStage;
 use std::{
     io, panic,
     sync::atomic::{AtomicBool, AtomicU32, AtomicUsize, Ordering},
@@ -7,7 +8,7 @@ use std::{
 };
 
 use super::support;
-use crate::{commands, snapshot};
+use crate::{commands, diagnostics, snapshot};
 
 pub(crate) const NAME: &str = "event_dispatcher_tick";
 
@@ -138,13 +139,37 @@ unsafe extern "thiscall" fn event_dispatcher_tick_detour(_dispatcher: *mut core:
 extern "C" fn observe_tick() {
     let _ = panic::catch_unwind(|| {
         TICK_COUNT.fetch_add(1, Ordering::Relaxed);
-        #[cfg(not(test))]
-        crate::actions::movement::observe_tick();
-        commands::observe_tick();
-        crate::player::observe_tick(darpc_win32::pipe::sender_tick_ms());
-        crate::state::observe_tick();
-        snapshot::observe_tick();
+        if diagnostics::hook_timing_enabled() {
+            diagnostics::measure(HookTimingStage::Tick, observe_tick_timed);
+        } else {
+            observe_tick_untimed();
+        }
     });
+}
+
+#[inline]
+fn observe_tick_untimed() {
+    #[cfg(not(test))]
+    crate::actions::movement::observe_tick();
+    commands::observe_tick();
+    crate::player::observe_tick(darpc_win32::pipe::sender_tick_ms());
+    crate::state::observe_tick();
+    snapshot::observe_tick();
+}
+
+#[inline]
+fn observe_tick_timed() {
+    #[cfg(not(test))]
+    diagnostics::measure(
+        HookTimingStage::Movement,
+        crate::actions::movement::observe_tick,
+    );
+    diagnostics::measure(HookTimingStage::Commands, commands::observe_tick);
+    diagnostics::measure(HookTimingStage::Player, || {
+        crate::player::observe_tick(darpc_win32::pipe::sender_tick_ms());
+    });
+    diagnostics::measure(HookTimingStage::State, crate::state::observe_tick);
+    diagnostics::measure(HookTimingStage::Snapshot, snapshot::observe_tick);
 }
 
 #[cfg(test)]

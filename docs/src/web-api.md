@@ -166,6 +166,8 @@ request cannot select another file in or outside the configured directory.
 | `POST /clients/{client}/exchange/cancel` | Cancel the current exchange. |
 | `POST /clients/{client}/players/{player}/inspect` | Refresh one case-insensitive visible player profile. The cache-only `GET` route is listed under current data routes. |
 | `POST /clients/{client}/commands/diagnostic` | Run a no-op main-thread command for testing. |
+| `GET /clients/{client}/diagnostics/hooks` | Query the current hook timing mode and counters. |
+| `PUT /clients/{client}/diagnostics` | Set `mode` to `disabled` or `hook_timing`, optionally with `reset: true`. |
 | `GET /clients/{client}/commands/{command_id}` | Read retained command status. |
 | `DELETE /clients/{client}/commands/{command_id}` | Cancel a command that has not started. |
 
@@ -183,6 +185,12 @@ in [NPC dialogs](dialogs.md). Stat-point spending is documented with
 are documented in [Groups](groups.md). Player offers, constraints, and exchange
 completion are documented in [Exchange](exchanges.md).
 Raw packet syntax and crash risks are documented in [Raw packets](raw.md).
+
+Runtime hook diagnostics require DLL component 1.5.2 or later. The mode is
+disabled by default. A successful query returns the stage budget, call count,
+total, average, maximum, over-budget count, and last duration in microseconds.
+Reset clears counters but the request's `mode` remains authoritative for the
+resulting runtime state.
 
 ### Resynchronizing a client
 

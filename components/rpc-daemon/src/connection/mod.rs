@@ -8,9 +8,10 @@ use darpc_game_client::DEBUG_UNSUPPORTED_CLIENT_BYPASS_ENVIRONMENT_VARIABLE;
 use darpc_game_client::{CLIENT_VERSION_CODE, EXECUTABLE_SHA256};
 use darpc_model::SequenceNumber;
 use darpc_protocol::{
-    Architecture, CommandRequest, EventPollRequest, EventPollResult, Hello, MAX_EVENTS_PER_POLL,
-    Message, SnapshotRequest, SnapshotResult, SnapshotUnavailableReason, TickHealthRequest,
-    TickHealthResponse,
+    Architecture, CommandRequest, DiagnosticsMode, DiagnosticsOperation, DiagnosticsRequest,
+    DiagnosticsResponse, EventPollRequest, EventPollResult, HOOK_TIMING_STAGE_COUNT, Hello,
+    MAX_EVENTS_PER_POLL, Message, SnapshotRequest, SnapshotResult, SnapshotUnavailableReason,
+    TickHealthRequest, TickHealthResponse,
 };
 use darpc_win32::controller::{ControllerError, ControllerSession};
 #[cfg(debug_assertions)]
@@ -41,6 +42,45 @@ struct TickRateMonitor {
     previous_tick_count: Option<u32>,
     slow_samples: u8,
     degraded: bool,
+}
+
+#[derive(Default)]
+struct HookTimingMonitor {
+    over_budget_counts: [u64; HOOK_TIMING_STAGE_COUNT],
+}
+
+impl HookTimingMonitor {
+    fn observe(
+        &mut self,
+        pid: u32,
+        response: &DiagnosticsResponse,
+        events: &Sender<DaemonEvent>,
+    ) -> Result<(), ControllerError> {
+        if response.mode != DiagnosticsMode::HookTiming {
+            self.over_budget_counts = [0; HOOK_TIMING_STAGE_COUNT];
+            return Ok(());
+        }
+        for (index, timing) in response.hook_timings.iter().enumerate() {
+            let previous = self.over_budget_counts[index];
+            let delta = if timing.over_budget_count < previous {
+                timing.over_budget_count
+            } else {
+                timing.over_budget_count - previous
+            };
+            self.over_budget_counts[index] = timing.over_budget_count;
+            if delta != 0 {
+                events.send(DaemonEvent::Timing(format!(
+                    concat!(
+                        "client pid={} timing=hook_budget_exceeded stage={:?} budget_us={} ",
+                        "over_budget_delta={} over_budget_total={} maximum_duration_us={} last_duration_us={}"
+                    ),
+                    pid, timing.stage, timing.budget_us, delta, timing.over_budget_count,
+                    timing.maximum_duration_us, timing.last_duration_us,
+                ))).map_err(|_| ControllerError::Protocol("daemon event channel closed".into()))?;
+            }
+        }
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -171,8 +211,16 @@ fn run(pid: u32, events: Sender<DaemonEvent>, commands: &Receiver<CommandCall>, 
                     return;
                 }
 
-                if let Err(error) = monitor(&mut session, commands, stop, &events, pid, identity)
-                    && !stop.load(Ordering::Acquire)
+                let diagnostics_supported = supports_diagnostics(hello.dll_version);
+                if let Err(error) = monitor(
+                    &mut session,
+                    commands,
+                    stop,
+                    &events,
+                    pid,
+                    identity,
+                    diagnostics_supported,
+                ) && !stop.load(Ordering::Acquire)
                     && !emit(
                         &events,
                         ConnectionEvent::Disconnected {
@@ -232,6 +280,10 @@ fn validate_identity(hello: Hello) -> Result<(), String> {
     Ok(())
 }
 
+fn supports_diagnostics(version: darpc_protocol::ComponentVersion) -> bool {
+    (version.major, version.minor, version.patch) >= (1, 5, 2)
+}
+
 fn monitor(
     session: &mut ControllerSession,
     commands: &Receiver<CommandCall>,
@@ -239,11 +291,13 @@ fn monitor(
     events: &Sender<DaemonEvent>,
     pid: u32,
     identity: ClientIdentity,
+    diagnostics_supported: bool,
 ) -> Result<(), ControllerError> {
     let mut request_id = 1_u32;
     let mut boundary = None;
     let mut last_health = Instant::now();
     let mut tick_rate = TickRateMonitor::default();
+    let mut hook_timing = HookTimingMonitor::default();
     while !stop.load(Ordering::Acquire) {
         if let Some(call) = next_command(commands) {
             if call.identity != identity {
@@ -253,6 +307,11 @@ fn monitor(
                     ClientOperation::Command(operation) => {
                         request_command(session, request_id, operation).map(CommandReply::Result)
                     }
+                    ClientOperation::Diagnostics(operation) if diagnostics_supported => {
+                        request_diagnostics(session, request_id, operation)
+                            .map(CommandReply::Diagnostics)
+                    }
+                    ClientOperation::Diagnostics(_) => Ok(CommandReply::Unavailable),
                     ClientOperation::Snapshot => match request_snapshot(session, request_id) {
                         Ok(SnapshotOutcome::Ready(snapshot)) => {
                             boundary = Some((snapshot.event_sequence, snapshot.revision));
@@ -353,6 +412,12 @@ fn monitor(
             } else {
                 tick_rate.reset();
             }
+            if diagnostics_supported {
+                let diagnostics =
+                    request_diagnostics(session, request_id, DiagnosticsOperation::Query)?;
+                request_id = SequenceNumber::new(request_id).next().get();
+                hook_timing.observe(pid, &diagnostics, events)?;
+            }
         }
     }
     reject_pending_commands(commands);
@@ -379,6 +444,29 @@ fn request_command(
         ))),
         message => Err(ControllerError::Protocol(format!(
             "expected CommandResponse, received {:?}",
+            message.message_type()
+        ))),
+    }
+}
+
+fn request_diagnostics(
+    session: &mut ControllerSession,
+    request_id: u32,
+    operation: DiagnosticsOperation,
+) -> Result<DiagnosticsResponse, ControllerError> {
+    session.send(Message::DiagnosticsRequest(DiagnosticsRequest {
+        request_id,
+        operation,
+    }))?;
+    let response = session.receive()?;
+    match response.message {
+        Message::DiagnosticsResponse(response) if response.request_id == request_id => Ok(response),
+        Message::DiagnosticsResponse(response) => Err(ControllerError::Protocol(format!(
+            "DiagnosticsResponse request ID {} does not match {request_id}",
+            response.request_id
+        ))),
+        message => Err(ControllerError::Protocol(format!(
+            "expected DiagnosticsResponse, received {:?}",
             message.message_type()
         ))),
     }
@@ -571,10 +659,17 @@ fn emit(events: &Sender<DaemonEvent>, event: ConnectionEvent) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{TickRateChange, TickRateMonitor, validate_event_batch, validate_identity};
+    use super::{
+        HookTimingMonitor, TickRateChange, TickRateMonitor, validate_event_batch, validate_identity,
+    };
+    use crate::event::DaemonEvent;
     use darpc_game_client::{CLIENT_VERSION_CODE, EXECUTABLE_SHA256};
     use darpc_model::{StateEvent, StateUpdate, StatusUpdate};
-    use darpc_protocol::{Architecture, ComponentVersion, Hello, SUPPORTED_VERSIONS};
+    use darpc_protocol::{
+        Architecture, ComponentVersion, DiagnosticsMode, DiagnosticsResponse, Hello,
+        HookTimingRecord, HookTimingStage, SUPPORTED_VERSIONS,
+    };
+    use std::sync::mpsc;
 
     fn hello() -> Hello {
         Hello {
@@ -661,5 +756,42 @@ mod tests {
         let mut monitor = TickRateMonitor::default();
         assert_eq!(monitor.observe(u32::MAX - 20, 1_000), None);
         assert_eq!(monitor.observe(79, 1_000), None);
+    }
+
+    #[test]
+    fn hook_timing_monitor_reports_counts_after_counter_reset() {
+        let response = |over_budget_count| DiagnosticsResponse {
+            request_id: 1,
+            mode: DiagnosticsMode::HookTiming,
+            hook_timings: std::array::from_fn(|index| HookTimingRecord {
+                stage: [
+                    HookTimingStage::Tick,
+                    HookTimingStage::Movement,
+                    HookTimingStage::Commands,
+                    HookTimingStage::Player,
+                    HookTimingStage::State,
+                    HookTimingStage::Snapshot,
+                    HookTimingStage::Event,
+                ][index],
+                budget_us: 5_000,
+                call_count: 0,
+                total_duration_us: 0,
+                maximum_duration_us: 6_000,
+                over_budget_count: if index == 0 { over_budget_count } else { 0 },
+                last_duration_us: 6_000,
+            }),
+        };
+        let (events, received) = mpsc::channel();
+        let mut monitor = HookTimingMonitor::default();
+
+        monitor.observe(42, &response(10), &events).unwrap();
+        monitor.observe(42, &response(2), &events).unwrap();
+
+        let messages: Vec<_> = received.try_iter().collect();
+        assert_eq!(messages.len(), 2);
+        assert!(matches!(
+            &messages[1],
+            DaemonEvent::Timing(message) if message.contains("over_budget_delta=2")
+        ));
     }
 }

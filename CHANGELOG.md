@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Derive `is_walking` from accepted movement steps, confirmed position
+  progress, and pending route work instead of the client's stale native
+  route-active flag.
+
 ## 1.5.2 - 2026-08-15
 
 ### Added

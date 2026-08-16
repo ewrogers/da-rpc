@@ -62,6 +62,11 @@ static ROUTE_STEP_RETRY_FAILURES: AtomicU32 = AtomicU32::new(0);
 static ROUTE_STEP_RETRY_DUE_TICK: AtomicU32 = AtomicU32::new(0);
 static ROUTE_OBSERVATION_VALID: AtomicBool = AtomicBool::new(false);
 static ROUTE_OBSERVATION_DUE_TICK: AtomicU32 = AtomicU32::new(0);
+static WALK_STEP_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+static WALK_STEP_STARTED_TICK: AtomicU32 = AtomicU32::new(0);
+static WALK_POSITION_VALID: AtomicBool = AtomicBool::new(false);
+static WALK_POSITION_X: AtomicI32 = AtomicI32::new(0);
+static WALK_POSITION_Y: AtomicI32 = AtomicI32::new(0);
 
 pub(super) fn turn(direction: Direction) -> Result<(), CommandFailure> {
     clear_route_destination();
@@ -157,7 +162,47 @@ pub(super) fn local_object_id() -> Result<u32, CommandFailure> {
 }
 
 pub(crate) fn is_walking() -> Option<bool> {
-    Movement::resolve().ok()?.route_active()
+    let in_flight = WALK_STEP_IN_FLIGHT.load(Ordering::Acquire);
+    let started_tick = WALK_STEP_STARTED_TICK.load(Ordering::Relaxed);
+    let walking =
+        route_retry::step_is_walking(in_flight, started_tick, darpc_win32::pipe::sender_tick_ms());
+    if in_flight && !walking {
+        WALK_STEP_IN_FLIGHT.store(false, Ordering::Release);
+    }
+    Some(walking)
+}
+
+pub(crate) fn observe_position(position: TilePosition) {
+    let previous = WALK_POSITION_VALID
+        .load(Ordering::Acquire)
+        .then(|| TilePosition {
+            x: WALK_POSITION_X.load(Ordering::Relaxed),
+            y: WALK_POSITION_Y.load(Ordering::Relaxed),
+        });
+    WALK_POSITION_X.store(position.x, Ordering::Relaxed);
+    WALK_POSITION_Y.store(position.y, Ordering::Relaxed);
+    WALK_POSITION_VALID.store(true, Ordering::Release);
+    let route_pending = Movement::resolve()
+        .ok()
+        .and_then(|movement| movement.route_pending())
+        .unwrap_or(false);
+    if let Some(walking) = route_retry::walking_after_progress(previous, position, route_pending) {
+        if walking {
+            WALK_STEP_STARTED_TICK.store(darpc_win32::pipe::sender_tick_ms(), Ordering::Relaxed);
+        }
+        WALK_STEP_IN_FLIGHT.store(walking, Ordering::Release);
+    }
+}
+
+fn observe_step_result(moved: bool) {
+    if moved {
+        WALK_STEP_STARTED_TICK.store(darpc_win32::pipe::sender_tick_ms(), Ordering::Relaxed);
+    }
+    WALK_STEP_IN_FLIGHT.store(moved, Ordering::Release);
+}
+
+fn stop_walking() {
+    WALK_STEP_IN_FLIGHT.store(false, Ordering::Release);
 }
 
 pub(crate) fn route_destination() -> Option<TilePosition> {
@@ -215,6 +260,8 @@ fn clear_step_retry() {
 
 pub(crate) fn reset_tracking() {
     clear_route_destination();
+    stop_walking();
+    WALK_POSITION_VALID.store(false, Ordering::Release);
 }
 
 pub(crate) fn schedule_position_sync_replan() {
@@ -366,6 +413,7 @@ pub(crate) fn queued_step_reset_mode(world: *mut c_void, direction: u8, moved: b
     if world.is_null() {
         return None;
     }
+    observe_step_result(moved);
     let pursuit_target =
         read::<u32>(world as usize + darpc_game_client::WORLD_PANE_PURSUIT_TARGET_ID_OFFSET)
             .unwrap_or(0);
@@ -498,6 +546,7 @@ impl Movement {
         // SAFETY: exact client validation fixes this RVA and ABI. The native
         // helper owns movement permission, collision, animation, and CMove.
         let accepted = unsafe { self.walk_fn()(self.world.as_ptr(), direction.raw()) } != 0;
+        observe_step_result(accepted);
         if accepted {
             Ok(())
         } else {
@@ -637,6 +686,11 @@ impl Movement {
             .map(|active| active != 0)
     }
 
+    fn route_pending(&self) -> Option<bool> {
+        read::<u32>(self.world.as_ptr() as usize + WORLD_PANE_ROUTE_STEP_COUNT_OFFSET)
+            .map(|count| count != 0)
+    }
+
     fn local_position(&self) -> Result<TilePosition, CommandFailure> {
         let local = self.self_object()?;
         let y = read::<i32>(local.as_ptr() as usize + LOCAL_Y_OFFSET)
@@ -678,6 +732,7 @@ impl Movement {
     }
 
     fn reset(&self) {
+        stop_walking();
         // SAFETY: exact client validation fixes this RVA and ABI. Zero requests
         // the native full reset, including invalidating pursuit timers.
         unsafe { self.reset_fn()(self.world.as_ptr(), 0) };

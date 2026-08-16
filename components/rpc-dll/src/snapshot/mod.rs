@@ -91,6 +91,12 @@ pub(crate) fn observe_tick() {
 fn capture(raw: &mut RawStateSnapshot, objects: &mut RawObjects) -> Result<(), StateReadError> {
     let (walker, thread_id) = process_walker()?;
     walker.capture_into(thread_id, raw)?;
+    #[cfg(not(test))]
+    if raw.character_available
+        && let Some(is_walking) = crate::actions::movement::is_walking()
+    {
+        raw.character.is_walking = is_walking;
+    }
     crate::state::merge_snapshot_position(raw);
     crate::group::merge_snapshot(&mut raw.group, raw.group_available);
     let center = raw

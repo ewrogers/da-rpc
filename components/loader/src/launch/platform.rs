@@ -14,8 +14,9 @@ use std::{
 use windows_sys::Win32::{
     Foundation::{WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT},
     System::Threading::{
-        CREATE_SUSPENDED, CreateProcessW, PROCESS_INFORMATION, ResumeThread, STARTF_USESTDHANDLES,
-        STARTUPINFOW, TerminateProcess, WaitForSingleObject,
+        CREATE_SUSPENDED, CreateProcessW, GetProcessAffinityMask, PROCESS_INFORMATION,
+        ResumeThread, STARTF_USESTDHANDLES, STARTUPINFOW, SetProcessAffinityMask, TerminateProcess,
+        WaitForSingleObject,
     },
 };
 
@@ -92,11 +93,13 @@ impl SuspendedChild {
         // SAFETY: same invariant as above, for the primary thread handle.
         let primary_thread = unsafe { OwnedHandle::from_raw_handle(process_information.hThread) };
 
-        Ok(Self {
+        let child = Self {
             process: TargetProcess::from_created(process_information.dwProcessId, process_handle),
             primary_thread,
             terminate_on_drop: true,
-        })
+        };
+        child.set_full_system_affinity()?;
+        Ok(child)
     }
 
     fn pid(&self) -> u32 {
@@ -105,6 +108,62 @@ impl SuspendedChild {
 
     fn process(&self) -> &TargetProcess {
         &self.process
+    }
+
+    fn set_full_system_affinity(&self) -> Result<()> {
+        let mut inherited_mask = 0;
+        let mut system_mask = 0;
+
+        // SAFETY: process owns a valid process handle, and both mask outputs
+        // are writable for the duration of the call.
+        let succeeded = unsafe {
+            GetProcessAffinityMask(
+                self.process.handle().as_raw_handle(),
+                &mut inherited_mask,
+                &mut system_mask,
+            )
+        };
+
+        if succeeded == 0 {
+            return Err(LoaderError::from_io(
+                ErrorKind::LaunchFailed,
+                format!("failed to read affinity for child process {}", self.pid()),
+                io::Error::last_os_error(),
+            ));
+        }
+
+        if system_mask == 0 {
+            return Err(LoaderError::new(
+                ErrorKind::LaunchFailed,
+                format!(
+                    "Windows returned an empty system affinity mask for child process {}",
+                    self.pid()
+                ),
+            ));
+        }
+
+        // SAFETY: process owns a valid process handle. system_mask came from
+        // GetProcessAffinityMask for this process and therefore contains only
+        // processors available to the child process's primary group.
+        let succeeded =
+            unsafe { SetProcessAffinityMask(self.process.handle().as_raw_handle(), system_mask) };
+
+        if succeeded == 0 {
+            return Err(LoaderError::from_io(
+                ErrorKind::LaunchFailed,
+                format!(
+                    "failed to set full system affinity for child process {}",
+                    self.pid()
+                ),
+                io::Error::last_os_error(),
+            ));
+        }
+
+        eprintln!(
+            "Set child process {} affinity from {inherited_mask:#x} to {system_mask:#x}",
+            self.pid()
+        );
+        Ok(())
     }
 
     fn resume(&mut self) -> Result<()> {
@@ -358,8 +417,61 @@ mod tests {
     use windows_sys::Win32::{
         Foundation::WAIT_TIMEOUT,
         Security::SECURITY_ATTRIBUTES,
-        System::Threading::{CreateEventW, GetExitCodeProcess, WaitForSingleObject},
+        System::Threading::{
+            CreateEventW, GetExitCodeProcess, GetProcessAffinityMask, SetProcessAffinityMask,
+            WaitForSingleObject,
+        },
     };
+
+    #[test]
+    fn suspended_child_affinity_can_be_restored_to_the_full_system_mask() {
+        let executable = std::env::current_exe().expect("failed to locate test executable");
+        let current_directory = executable
+            .parent()
+            .expect("test executable should have a parent directory");
+        let mut child = SuspendedChild::create(&executable, current_directory, &[])
+            .expect("failed to create suspended affinity probe");
+        let handle = child.process().handle().as_raw_handle();
+        let mut process_mask = 0;
+        let mut system_mask = 0;
+
+        // SAFETY: child owns a valid process handle and both outputs are
+        // writable for the duration of the call.
+        assert_ne!(
+            unsafe { GetProcessAffinityMask(handle, &mut process_mask, &mut system_mask) },
+            0,
+            "failed to read child affinity"
+        );
+        assert_ne!(system_mask, 0, "system affinity mask should not be empty");
+        assert_eq!(
+            process_mask, system_mask,
+            "new child should start with the full system affinity mask"
+        );
+
+        let single_processor_mask = 1usize << system_mask.trailing_zeros();
+        // SAFETY: child owns a valid process handle and the selected bit came
+        // from its system affinity mask.
+        assert_ne!(
+            unsafe { SetProcessAffinityMask(handle, single_processor_mask) },
+            0,
+            "failed to restrict child affinity for the probe"
+        );
+
+        child
+            .set_full_system_affinity()
+            .expect("failed to restore full child affinity");
+        // SAFETY: same valid handle and writable outputs as above.
+        assert_ne!(
+            unsafe { GetProcessAffinityMask(handle, &mut process_mask, &mut system_mask) },
+            0,
+            "failed to verify child affinity"
+        );
+        assert_eq!(process_mask, system_mask);
+
+        child
+            .terminate()
+            .expect("failed to terminate suspended affinity probe");
+    }
 
     #[test]
     fn process_creation_does_not_inherit_handles() {

@@ -253,19 +253,22 @@ The implemented launch path:
 3. Uses the executable parent directory as the child working directory.
 4. Creates the child with `CREATE_SUSPENDED`, general handle inheritance
    disabled, and no copied standard handles.
-5. Validates the child as x86 and records its creation time without requiring
+5. Replaces any inherited processor affinity with the complete system affinity
+   mask while the child remains suspended. Launch fails and cleans up the owned
+   child if Windows cannot apply the mask.
+6. Validates the child as x86 and records its creation time without requiring
    module enumeration before Windows user-mode loader startup.
-6. Resolves a selected server to dotted IPv4 and prepends the address and
+7. Resolves a selected server to dotted IPv4 and prepends the address and
    explicit port to the child arguments before process creation.
-7. For any selected launch patches, reads the loaded main-module base from the
+8. For any selected launch patches, reads the loaded main-module base from the
    child process environment block and validates every original instruction
    before writing anything.
-8. Applies complete instructions with temporary writable protection, flushes
+9. Applies complete instructions with temporary writable protection, flushes
    the instruction cache, restores protection, and reads back each result.
-9. Loads `darpc.dll` and calls `darpc_initialize` while the primary thread
+10. Loads `darpc.dll` and calls `darpc_initialize` while the primary thread
    remains suspended.
-10. Resumes the primary thread only after patching and initialization succeeds.
-11. Terminates and waits for only that owned child if any pre-resume operation
+11. Resumes the primary thread only after patching and initialization succeeds.
+12. Terminates and waits for only that owned child if any pre-resume operation
    fails.
 
 The loader and launched child are the same architecture and run in the same
@@ -314,9 +317,9 @@ cargo build `
 
 The launch checks confirm that initialization was logged before the target
 entered `main`, arguments and the executable working directory were preserved,
-handles were not inherited, a normal process can exit, and a failed
-initialization leaves no suspended child. The same sequence runs in the
-Windows workflow.
+the child uses the complete system processor affinity mask, handles were not
+inherited, a normal process can exit, and a failed initialization leaves no
+suspended child. The same sequence runs in the Windows workflow.
 
 The live-client checks are intentionally local and require a legally obtained
 Dark Ages 7.41 installation. They never copy the executable, enter credentials,

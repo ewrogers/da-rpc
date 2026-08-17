@@ -81,6 +81,13 @@ pub const BOOTSTRAP_SEQUENCE_PATCH: BootstrapSequencePatch = BootstrapSequencePa
     submit_packet_rva: 0x0016_3E00,
 };
 
+pub const DEFAULT_RUNTIME_PATCHES: &[LaunchPatch] = &[LaunchPatch {
+    name: "route translucent walk through full appearance update",
+    rva: 0x001F_36F1,
+    expected: &[0x75, 0x1E],
+    replacement: &[0x75, 0x2A],
+}];
+
 pub const ALLOW_MULTIPLE_PATCHES: &[LaunchPatch] = &[LaunchPatch {
     name: "allow multiple clients",
     rva: 0x0017_A7D9,
@@ -242,8 +249,9 @@ fn encode_hash(hash: &[u8; 32]) -> String {
 mod tests {
     use super::{
         ALLOW_MULTIPLE_PATCHES, BOOTSTRAP_SEQUENCE_PATCH, COMMAND_LINE_ENDPOINT_PATCHES,
-        ClientExecutable, DISABLE_ENDPOINT_FALLBACK_PATCHES, EXECUTABLE_SHA256, EXECUTABLE_SIZE,
-        SKIP_EXCHANGE_ALERTS_PATCHES, SKIP_INTRO_PATCHES, SKIP_NOTICE_PATCHES, executable_sha256,
+        ClientExecutable, DEFAULT_RUNTIME_PATCHES, DISABLE_ENDPOINT_FALLBACK_PATCHES,
+        EXECUTABLE_SHA256, EXECUTABLE_SIZE, SKIP_EXCHANGE_ALERTS_PATCHES, SKIP_INTRO_PATCHES,
+        SKIP_NOTICE_PATCHES, executable_sha256,
     };
     use std::{fs, process};
 
@@ -258,8 +266,9 @@ mod tests {
 
     #[test]
     fn launch_patch_contracts_are_complete_and_disjoint() {
-        let patches = ALLOW_MULTIPLE_PATCHES
+        let patches = DEFAULT_RUNTIME_PATCHES
             .iter()
+            .chain(ALLOW_MULTIPLE_PATCHES)
             .chain(COMMAND_LINE_ENDPOINT_PATCHES)
             .chain(DISABLE_ENDPOINT_FALLBACK_PATCHES)
             .chain(SKIP_INTRO_PATCHES)
@@ -267,7 +276,7 @@ mod tests {
             .chain(SKIP_EXCHANGE_ALERTS_PATCHES)
             .collect::<Vec<_>>();
 
-        assert_eq!(patches.len(), 10);
+        assert_eq!(patches.len(), 11);
 
         for patch in &patches {
             assert!(!patch.expected.is_empty());

@@ -1,7 +1,8 @@
 #[cfg(any(windows, test))]
 use darpc_game_client::{
-    ALLOW_MULTIPLE_PATCHES, COMMAND_LINE_ENDPOINT_PATCHES, DISABLE_ENDPOINT_FALLBACK_PATCHES,
-    LaunchPatch, SKIP_EXCHANGE_ALERTS_PATCHES, SKIP_INTRO_PATCHES, SKIP_NOTICE_PATCHES,
+    ALLOW_MULTIPLE_PATCHES, COMMAND_LINE_ENDPOINT_PATCHES, DEFAULT_RUNTIME_PATCHES,
+    DISABLE_ENDPOINT_FALLBACK_PATCHES, LaunchPatch, SKIP_EXCHANGE_ALERTS_PATCHES,
+    SKIP_INTRO_PATCHES, SKIP_NOTICE_PATCHES,
 };
 #[cfg(windows)]
 use darpc_game_client::{BOOTSTRAP_SEQUENCE_PATCH, BootstrapSequencePatch};
@@ -26,9 +27,12 @@ impl LaunchPatches {
     }
 
     #[cfg(any(windows, test))]
-    fn selected(self) -> Vec<&'static LaunchPatch> {
+    fn selected(self, include_defaults: bool) -> Vec<&'static LaunchPatch> {
         let mut selected = Vec::new();
 
+        if include_defaults {
+            selected.extend(DEFAULT_RUNTIME_PATCHES);
+        }
         if self.allow_multiple {
             selected.extend(ALLOW_MULTIPLE_PATCHES);
         }
@@ -91,16 +95,16 @@ mod platform {
     pub(crate) fn apply(
         process: &TargetProcess,
         selection: LaunchPatches,
-        apply_bootstrap_sequence_patch: bool,
+        apply_default_patches: bool,
     ) -> Result<()> {
-        if selection.is_empty() && !apply_bootstrap_sequence_patch {
+        if selection.is_empty() && !apply_default_patches {
             return Ok(());
         }
 
         let image_base = main_image_base(process)?;
-        let selected = selection.selected();
+        let selected = selection.selected(apply_default_patches);
         let resolved = resolve_at_base(process, image_base, &selected)?;
-        let bootstrap = apply_bootstrap_sequence_patch
+        let bootstrap = apply_default_patches
             .then(|| resolve_bootstrap(process, image_base, BOOTSTRAP_SEQUENCE_PATCH))
             .transpose()?;
 
@@ -555,13 +559,14 @@ mod tests {
 
     #[test]
     fn selects_independent_and_combined_patch_groups() {
-        assert!(LaunchPatches::default().selected().is_empty());
+        assert!(LaunchPatches::default().selected(false).is_empty());
+        assert_eq!(LaunchPatches::default().selected(true).len(), 1);
         assert_eq!(
             LaunchPatches {
                 skip_exchange_alerts: true,
                 ..Default::default()
             }
-            .selected()
+            .selected(false)
             .len(),
             2
         );
@@ -570,7 +575,7 @@ mod tests {
                 allow_multiple: true,
                 ..Default::default()
             }
-            .selected()
+            .selected(false)
             .len(),
             1
         );
@@ -579,7 +584,7 @@ mod tests {
                 skip_intro: true,
                 ..Default::default()
             }
-            .selected()
+            .selected(false)
             .len(),
             1
         );
@@ -588,7 +593,7 @@ mod tests {
                 command_line_endpoint: true,
                 ..Default::default()
             }
-            .selected()
+            .selected(false)
             .len(),
             2
         );
@@ -597,7 +602,7 @@ mod tests {
                 skip_notice: true,
                 ..Default::default()
             }
-            .selected()
+            .selected(false)
             .len(),
             4
         );
@@ -609,9 +614,21 @@ mod tests {
                 skip_intro: true,
                 skip_notice: true,
             }
-            .selected()
+            .selected(false)
             .len(),
             10
+        );
+        assert_eq!(
+            LaunchPatches {
+                allow_multiple: true,
+                command_line_endpoint: true,
+                skip_exchange_alerts: true,
+                skip_intro: true,
+                skip_notice: true,
+            }
+            .selected(true)
+            .len(),
+            11
         );
     }
 }

@@ -61,7 +61,7 @@ pub(crate) fn submit(body: &[u8]) -> Result<(), CommandFailure> {
     Ok(())
 }
 
-pub(crate) fn dispatch(body: &[u8]) -> Result<(), CommandFailure> {
+fn dispatch(body: &[u8]) -> Result<(), CommandFailure> {
     let module_base = module_base()?;
     let dispatcher = read::<u32>(
         module_base

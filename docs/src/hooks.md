@@ -15,8 +15,8 @@ supported client build.
 
 | Hook | Purpose |
 | --- | --- |
-| Client tick | Captures requested baselines, settles collection changes, watches walking state, replays a deferred local hide transition with its committed tile, and executes at most one queued native command. |
-| Decoded server event | Observes supported updates after the client has handled them, including status, inventory, abilities, effects, objects, movement, and messages. It captures correlated daRPC Who and player-inspection responses before the client opens their panels, and detects a lost local hide transition after a player draw. |
+| Client tick | Captures requested baselines, settles collection changes, watches walking state, and executes at most one queued native command. |
+| Decoded server event | Observes supported updates after the client has handled them, including status, inventory, abilities, effects, objects, movement, and messages. It captures correlated daRPC Who and player-inspection responses before the client opens their panels. |
 | Outbound packet submission | Observes supported ability, item, gold, equipment, emote, pickup, turn, Who, player-inspection, and local slash-command requests before encryption. |
 | Map size | Captures map identity, name, and dimensions so a map change can be committed atomically with the following position. |
 | Native path control | Combines live and complete-map collision during breadth-first search, recovers failed queued steps, and copies the retained route before movement consumes its first step. |
@@ -39,7 +39,6 @@ The tick also:
 - Detects when native pathfinding starts and stops
 - Detects confirmed steps that shorten the retained planned route
 - Replans a retained native ground destination after a queued step is rejected
-- Replays one deferred local hide or unhide draw after its destination commits
 - Checks cached field-map pane visibility at most once every 100 milliseconds
 - Executes at most one queued action or diagnostic command
 - Publishes small health counters used by hook diagnostics
@@ -68,20 +67,6 @@ updates drive:
 - Merchant and pursuit dialog pages
 - Field-map panels, destination lists, and submitted selections
 - Player exchange state, offers, acceptance, completion, and cancellation
-
-For a local player draw (`0x33`), the post-handler observer compares the
-packet's hidden state with the two native hidden and translucent state bytes.
-If they still disagree, the client dropped the appearance transition. daRPC
-copies that one packet into a fixed 256-byte slot. A mid-step packet still
-contains the previous tile, so the tick waits until native walking is idle and
-the local position has advanced. It replaces the copied coordinates with that
-committed position before replaying the appearance. The slot keeps only the
-newest transition and expires after two seconds.
-
-This path does not run for a successful stationary hide or unhide because the
-native state already matches. It also does not run for equipment-only player
-draws because those do not change the hidden state. The synthetic replay is
-not observed a second time by daRPC.
 
 Unknown, malformed, oversized, or unreadable events are ignored. The client's
 original result is preserved. The intentional exceptions are Who and

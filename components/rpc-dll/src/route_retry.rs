@@ -1,3 +1,5 @@
+use darpc_model::TilePosition;
+
 const TIMEOUT_MS: u32 = 5_000;
 const STALL_TIMEOUT_MS: u32 = 1_000;
 const STEP_RETRY_DELAY_MS: u32 = 1_000;
@@ -30,6 +32,25 @@ pub(crate) fn stalled(now: u32, last_progress_tick: u32) -> bool {
     crate::wrapping_time::deadline_reached(now, last_progress_tick.wrapping_add(STALL_TIMEOUT_MS))
 }
 
+pub(crate) fn step_is_walking(in_flight: bool, started_tick: u32, now: u32) -> bool {
+    in_flight && !stalled(now, started_tick)
+}
+
+pub(crate) fn position_confirms_step(
+    previous: Option<TilePosition>,
+    current: TilePosition,
+) -> bool {
+    previous.is_some_and(|previous| previous != current)
+}
+
+pub(crate) fn walking_after_progress(
+    previous: Option<TilePosition>,
+    current: TilePosition,
+    route_pending: bool,
+) -> Option<bool> {
+    position_confirms_step(previous, current).then_some(route_pending)
+}
+
 pub(crate) fn step_retry_due_tick(tick: u32) -> u32 {
     tick.wrapping_add(STEP_RETRY_DELAY_MS)
 }
@@ -53,8 +74,10 @@ pub(crate) fn after_step_failure(failures: u32, tick: u32) -> StepFailureAction 
 mod tests {
     use super::{
         StepFailureAction, after_step_failure, deadline, deadline_after_progress, delay_ms,
-        observation_due_tick, stalled, step_retry_due_tick,
+        observation_due_tick, position_confirms_step, stalled, step_is_walking,
+        step_retry_due_tick, walking_after_progress,
     };
+    use darpc_model::TilePosition;
 
     #[test]
     fn delay_increases_and_caps() {
@@ -76,6 +99,39 @@ mod tests {
         assert_eq!(observation_due_tick(u32::MAX - 24), 25);
         assert_eq!(deadline_after_progress(true, 100), Some(5_100));
         assert_eq!(deadline_after_progress(false, 100), None);
+    }
+
+    #[test]
+    fn walking_requires_a_recent_accepted_step() {
+        assert!(!step_is_walking(false, 100, 100));
+        assert!(step_is_walking(true, 100, 1_099));
+        assert!(!step_is_walking(true, 100, 1_100));
+    }
+
+    #[test]
+    fn only_position_progress_confirms_an_in_flight_step() {
+        let origin = TilePosition { x: 4, y: 5 };
+        assert!(!position_confirms_step(None, origin));
+        assert!(!position_confirms_step(Some(origin), origin));
+        assert!(position_confirms_step(
+            Some(origin),
+            TilePosition { x: 5, y: 5 }
+        ));
+    }
+
+    #[test]
+    fn route_state_keeps_walking_continuous_between_steps() {
+        let origin = TilePosition { x: 4, y: 5 };
+        let progress = TilePosition { x: 5, y: 5 };
+        assert_eq!(
+            walking_after_progress(Some(origin), progress, true),
+            Some(true)
+        );
+        assert_eq!(
+            walking_after_progress(Some(origin), progress, false),
+            Some(false)
+        );
+        assert_eq!(walking_after_progress(Some(origin), origin, true), None);
     }
 
     #[test]

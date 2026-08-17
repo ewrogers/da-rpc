@@ -589,6 +589,8 @@ pub(crate) fn observe_stat_points(stat_points: u8, tick_ms: u32) {
 }
 
 pub(crate) fn observe_user_position(x: i32, y: i32, tick_ms: u32) {
+    #[cfg(all(windows, not(test)))]
+    crate::actions::movement::observe_position(TilePosition { x, y });
     // SAFETY: the event hook runs on the client main thread, which is the sole
     // cache producer.
     let Some((update, map_changed)) = (unsafe { CACHE.user_position(x, y) }) else {
@@ -618,6 +620,8 @@ pub(crate) fn schedule_position_sync_replan() {
 }
 
 pub(crate) fn observe_move(x: i32, y: i32, tick_ms: u32) {
+    #[cfg(all(windows, not(test)))]
+    crate::actions::movement::observe_position(TilePosition { x, y });
     // SAFETY: the event hook runs on the client main thread, which is the sole
     // cache producer.
     let Some(update) = (unsafe { CACHE.move_position(x, y) }) else {
@@ -702,6 +706,7 @@ pub(crate) fn self_id() -> Option<u32> {
 }
 
 pub(crate) fn observe_message(message: ParsedMessage<'_>, tick_ms: u32) {
+    crate::commands::observe_message(message.kind, message.text);
     crate::group::observe_message(message.kind, message.text, tick_ms);
     let sender = participant(message.sender, message.sender_id);
     let recipient = participant(message.recipient, None);

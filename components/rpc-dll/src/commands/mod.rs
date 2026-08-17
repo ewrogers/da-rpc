@@ -1,7 +1,7 @@
 mod queue;
 mod storage;
 
-use darpc_model::{Direction, EquipmentSlot};
+use darpc_model::{Direction, EquipmentSlot, MessageKind};
 use darpc_protocol::{
     ChantText, CharacterStat, CommandFailure, CommandKind, CommandOperation, CommandResult,
     CommandState, CommandStatus, DialogAction, DialogCommand, DialogText, ExchangeCommand,
@@ -33,6 +33,8 @@ const MAX_COMMAND_TILE_BYTES: usize = MAX_WALK_ROUTE_TILES * 4;
 
 const TERMINAL_RETENTION_MS: u32 = 30_000;
 const RESPONSE_COALESCE_MS: u32 = 1_000;
+const CAST_RESPONSE_WINDOW_MS: u32 = 500;
+const CAST_REJECTION_MESSAGE: &[u8] = b"That doesn't work here.";
 const WAIT_POLL_INTERVAL: Duration = Duration::from_millis(1);
 
 const EMPTY: u8 = 0;
@@ -45,6 +47,8 @@ const CANCELLED: u8 = 6;
 const TIMED_OUT: u8 = 7;
 
 static NEXT_COMMAND_ID: AtomicU32 = AtomicU32::new(1);
+static PENDING_CAST_COMMAND_ID: AtomicU32 = AtomicU32::new(0);
+static PENDING_CAST_DEADLINE_TICK_MS: AtomicU32 = AtomicU32::new(0);
 static SLOTS: [CommandSlot; COMMAND_CAPACITY] = [const { CommandSlot::new() }; COMMAND_CAPACITY];
 static QUEUE: CommandQueue = CommandQueue::new();
 
@@ -53,6 +57,8 @@ pub(crate) fn reset() {
     crate::who::reset();
     QUEUE.reset();
     NEXT_COMMAND_ID.store(1, Ordering::Relaxed);
+    PENDING_CAST_COMMAND_ID.store(0, Ordering::Relaxed);
+    PENDING_CAST_DEADLINE_TICK_MS.store(0, Ordering::Relaxed);
     for slot in &SLOTS {
         slot.clear();
     }
@@ -77,6 +83,7 @@ pub(crate) fn handle(operation: CommandOperation) -> CommandResult {
 }
 
 pub(crate) fn observe_tick() {
+    complete_pending_cast_if_due(now_tick_ms());
     for _ in 0..COMMANDS_PER_TICK {
         let Some(slot_index) = QUEUE.pop() else {
             break;
@@ -86,6 +93,7 @@ pub(crate) fn observe_tick() {
 }
 
 pub(crate) fn cancel_pending() {
+    PENDING_CAST_COMMAND_ID.store(0, Ordering::Release);
     let now = now_tick_ms();
     for slot in &SLOTS {
         slot.completed_tick_ms.store(now, Ordering::Relaxed);
@@ -204,6 +212,9 @@ fn cancel(command_id: u32) -> CommandResult {
     slot.completed_tick_ms.store(now, Ordering::Relaxed);
     slot.has_completed_tick_ms.store(true, Ordering::Relaxed);
     let cancelled = cancel_state(slot, ACCEPTED) || cancel_state(slot, EXECUTING);
+    if cancelled {
+        clear_pending_cast(command_id);
+    }
     if cancelled && matches!(slot.kind(), CommandKind::Who) {
         cancel_who(command_id);
     }
@@ -234,6 +245,7 @@ fn execute(slot_index: usize) {
     let started = Instant::now();
     let kind = slot.kind();
     let is_who = matches!(kind, CommandKind::Who);
+    let is_cast = matches!(kind, CommandKind::CastSpell(_));
     let waits_for_response = matches!(
         kind,
         CommandKind::Who | CommandKind::Legend | CommandKind::InspectPlayer(_)
@@ -251,7 +263,9 @@ fn execute(slot_index: usize) {
     let execution_us = u32::try_from(started.elapsed().as_micros()).unwrap_or(u32::MAX);
     slot.execution_us.store(execution_us, Ordering::Relaxed);
     slot.has_execution_us.store(true, Ordering::Relaxed);
-    if waits_for_response && result.is_ok() {
+    if is_cast && result.is_ok() {
+        begin_pending_cast(slot, now_tick_ms());
+    } else if waits_for_response && result.is_ok() {
         // The matching server response completes this command.
     } else {
         if is_who {
@@ -296,6 +310,66 @@ fn complete_execution(slot: &CommandSlot, result: Result<(), CommandFailure>) {
     }
 }
 
+fn begin_pending_cast(slot: &CommandSlot, now: u32) {
+    let command_id = slot.command_id.load(Ordering::Relaxed);
+    PENDING_CAST_DEADLINE_TICK_MS
+        .store(now.wrapping_add(CAST_RESPONSE_WINDOW_MS), Ordering::Relaxed);
+    let previous = PENDING_CAST_COMMAND_ID.swap(command_id, Ordering::AcqRel);
+    if previous != 0 && previous != command_id {
+        complete_pending_cast_with(previous, Ok(()));
+    }
+}
+
+fn complete_pending_cast_if_due(now: u32) {
+    let command_id = PENDING_CAST_COMMAND_ID.load(Ordering::Acquire);
+    if command_id == 0
+        || !crate::wrapping_time::deadline_reached(
+            now,
+            PENDING_CAST_DEADLINE_TICK_MS.load(Ordering::Relaxed),
+        )
+        || PENDING_CAST_COMMAND_ID
+            .compare_exchange(command_id, 0, Ordering::AcqRel, Ordering::Relaxed)
+            .is_err()
+    {
+        return;
+    }
+    complete_pending_cast_with(command_id, Ok(()));
+}
+
+pub(crate) fn observe_message(kind: MessageKind, text: &[u8]) {
+    if kind != MessageKind::System || text != CAST_REJECTION_MESSAGE {
+        return;
+    }
+    let command_id = PENDING_CAST_COMMAND_ID.swap(0, Ordering::AcqRel);
+    if command_id != 0 {
+        complete_pending_cast_with(command_id, Err(CommandFailure::Rejected));
+    }
+}
+
+fn complete_pending_cast_with(command_id: u32, result: Result<(), CommandFailure>) {
+    let Some(slot) = find_slot(command_id) else {
+        return;
+    };
+    if slot.state.load(Ordering::Acquire) != EXECUTING
+        || !matches!(slot.kind(), CommandKind::CastSpell(_))
+    {
+        return;
+    }
+    slot.completed_tick_ms
+        .store(now_tick_ms(), Ordering::Relaxed);
+    slot.has_completed_tick_ms.store(true, Ordering::Relaxed);
+    complete_execution(slot, result);
+}
+
+fn clear_pending_cast(command_id: u32) {
+    let _ = PENDING_CAST_COMMAND_ID.compare_exchange(
+        command_id,
+        0,
+        Ordering::AcqRel,
+        Ordering::Relaxed,
+    );
+}
+
 #[cfg(all(windows, not(test)))]
 fn execute_who(command_id: u32) -> Result<(), CommandFailure> {
     crate::who::request(command_id)
@@ -323,6 +397,9 @@ fn expire_if_due(slot: &CommandSlot, now: u32) {
     slot.completed_tick_ms.store(now, Ordering::Relaxed);
     slot.has_completed_tick_ms.store(true, Ordering::Relaxed);
     let expired = expire_state(slot, ACCEPTED) || expire_state(slot, EXECUTING);
+    if expired {
+        clear_pending_cast(slot.command_id.load(Ordering::Relaxed));
+    }
     if expired && matches!(slot.kind(), CommandKind::Who) {
         cancel_who(slot.command_id.load(Ordering::Relaxed));
     }
@@ -577,6 +654,58 @@ mod tests {
         assert_eq!(status(second).state, CommandState::Accepted);
         observe_tick();
         assert_eq!(status(second).state, CommandState::Executed);
+    }
+
+    #[test]
+    fn no_cast_map_message_rejects_the_pending_cast() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset();
+        TEST_TICK_MS.store(10, Ordering::Relaxed);
+        let id = submitted_id(handle(CommandOperation::Submit {
+            kind: CommandKind::CastSpell(SpellCast {
+                slot: SpellSlot::new(1).unwrap(),
+                arguments: SpellArguments::None,
+            }),
+            timeout_ms: 1_100,
+            wait_ms: 0,
+        }));
+
+        observe_tick();
+        assert_eq!(status(id).state, CommandState::Accepted);
+        observe_message(MessageKind::System, b"That doesn't work here");
+        assert_eq!(status(id).state, CommandState::Accepted);
+        observe_message(MessageKind::System, CAST_REJECTION_MESSAGE);
+
+        let result = status(id);
+        assert_eq!(result.state, CommandState::Failed);
+        assert_eq!(result.failure, Some(CommandFailure::Rejected));
+    }
+
+    #[test]
+    fn cast_succeeds_after_the_response_window() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset();
+        TEST_TICK_MS.store(10, Ordering::Relaxed);
+        let id = submitted_id(handle(CommandOperation::Submit {
+            kind: CommandKind::CastSpell(SpellCast {
+                slot: SpellSlot::new(1).unwrap(),
+                arguments: SpellArguments::None,
+            }),
+            timeout_ms: 1_100,
+            wait_ms: 0,
+        }));
+
+        observe_tick();
+        TEST_TICK_MS.store(509, Ordering::Relaxed);
+        observe_tick();
+        assert_eq!(status(id).state, CommandState::Accepted);
+        TEST_TICK_MS.store(510, Ordering::Relaxed);
+        observe_tick();
+        assert_eq!(status(id).state, CommandState::Executed);
     }
 
     #[test]

@@ -9,7 +9,8 @@ use std::{
         io::{AsRawHandle, FromRawHandle, OwnedHandle},
     },
     path::PathBuf,
-    ptr,
+    ptr, thread,
+    time::{Duration, Instant},
 };
 use windows_sys::Win32::{
     Foundation::{WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT},
@@ -22,6 +23,8 @@ use windows_sys::Win32::{
 
 const CHILD_TERMINATION_EXIT_CODE: u32 = 1;
 const CHILD_TERMINATION_TIMEOUT_MS: u32 = 5_000;
+const CHILD_AFFINITY_STABILIZATION_MS: u64 = 5_000;
+const CHILD_AFFINITY_POLL_MS: u64 = 25;
 const RESUME_FAILED: u32 = u32::MAX;
 
 struct SuspendedChild {
@@ -111,36 +114,7 @@ impl SuspendedChild {
     }
 
     fn set_full_system_affinity(&self) -> Result<()> {
-        let mut inherited_mask = 0;
-        let mut system_mask = 0;
-
-        // SAFETY: process owns a valid process handle, and both mask outputs
-        // are writable for the duration of the call.
-        let succeeded = unsafe {
-            GetProcessAffinityMask(
-                self.process.handle().as_raw_handle(),
-                &mut inherited_mask,
-                &mut system_mask,
-            )
-        };
-
-        if succeeded == 0 {
-            return Err(LoaderError::from_io(
-                ErrorKind::LaunchFailed,
-                format!("failed to read affinity for child process {}", self.pid()),
-                io::Error::last_os_error(),
-            ));
-        }
-
-        if system_mask == 0 {
-            return Err(LoaderError::new(
-                ErrorKind::LaunchFailed,
-                format!(
-                    "Windows returned an empty system affinity mask for child process {}",
-                    self.pid()
-                ),
-            ));
-        }
+        let (inherited_mask, system_mask) = self.affinity_masks()?;
 
         // SAFETY: process owns a valid process handle. system_mask came from
         // GetProcessAffinityMask for this process and therefore contains only
@@ -164,6 +138,41 @@ impl SuspendedChild {
             self.pid()
         );
         Ok(())
+    }
+
+    fn affinity_masks(&self) -> Result<(usize, usize)> {
+        let mut process_mask = 0;
+        let mut system_mask = 0;
+
+        // SAFETY: process owns a valid process handle, and both mask outputs
+        // are writable for the duration of the call.
+        let succeeded = unsafe {
+            GetProcessAffinityMask(
+                self.process.handle().as_raw_handle(),
+                &mut process_mask,
+                &mut system_mask,
+            )
+        };
+
+        if succeeded == 0 {
+            return Err(LoaderError::from_io(
+                ErrorKind::LaunchFailed,
+                format!("failed to read affinity for child process {}", self.pid()),
+                io::Error::last_os_error(),
+            ));
+        }
+
+        if system_mask == 0 {
+            return Err(LoaderError::new(
+                ErrorKind::LaunchFailed,
+                format!(
+                    "Windows returned an empty system affinity mask for child process {}",
+                    self.pid()
+                ),
+            ));
+        }
+
+        Ok((process_mask, system_mask))
     }
 
     fn resume(&mut self) -> Result<()> {
@@ -190,8 +199,43 @@ impl SuspendedChild {
             ));
         }
 
+        Ok(())
+    }
+
+    fn finish_startup(&mut self) -> Result<()> {
+        self.stabilize_full_system_affinity()?;
         self.terminate_on_drop = false;
         Ok(())
+    }
+
+    fn stabilize_full_system_affinity(&self) -> Result<()> {
+        let deadline = Instant::now() + Duration::from_millis(CHILD_AFFINITY_STABILIZATION_MS);
+
+        loop {
+            if !self.process.is_running()? {
+                return Ok(());
+            }
+
+            let affinity_result = self
+                .affinity_masks()
+                .and_then(|(process_mask, system_mask)| {
+                    if process_mask == system_mask {
+                        Ok(())
+                    } else {
+                        self.set_full_system_affinity()
+                    }
+                });
+            if let Err(error) = affinity_result {
+                if !self.process.is_running()? {
+                    return Ok(());
+                }
+                return Err(error);
+            }
+            if Instant::now() >= deadline {
+                return Ok(());
+            }
+            thread::sleep(Duration::from_millis(CHILD_AFFINITY_POLL_MS));
+        }
     }
 
     fn terminate(&mut self) -> Result<()> {
@@ -382,6 +426,9 @@ pub(super) fn run(
     if let Err(error) = child.resume() {
         return Err(cleanup_launch_error(&mut child, error));
     }
+    if let Err(error) = child.finish_startup() {
+        return Err(cleanup_launch_error(&mut child, error));
+    }
 
     eprintln!("Resumed child process {pid}");
     Ok(LaunchOutcome {
@@ -521,6 +568,9 @@ mod tests {
                 .expect("failed to wait for handle probe"),
             "handle probe timed out"
         );
+        child
+            .stabilize_full_system_affinity()
+            .expect("an exited child should complete affinity stabilization");
 
         let mut exit_code = u32::MAX;
         // SAFETY: child owns a valid process handle and exit_code is

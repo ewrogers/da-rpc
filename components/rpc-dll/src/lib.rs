@@ -11,6 +11,8 @@ mod collections;
 #[cfg(any(windows, test))]
 mod commands;
 #[cfg(any(windows, test))]
+mod deferred_player_draw;
+#[cfg(any(windows, test))]
 mod diagnostics;
 #[cfg(any(windows, test))]
 mod dialog;

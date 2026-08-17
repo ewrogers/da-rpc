@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Replay a lost local hide or unhide appearance update after its walking
+  destination has committed, without changing equipment-only player updates.
+
 ## 1.5.2 - 2026-08-15
 
 ### Added

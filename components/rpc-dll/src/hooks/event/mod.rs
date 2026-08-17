@@ -10,7 +10,7 @@ use std::{
 };
 
 use super::support;
-use crate::{diagnostics, packet, process_memory::read_exact, state};
+use crate::{deferred_player_draw, diagnostics, packet, process_memory::read_exact, state};
 
 pub(crate) const NAME: &str = "event_dispatch";
 
@@ -129,6 +129,8 @@ impl EventHook {
         LAST_PARSE_OFFSET.store(0, Ordering::Release);
         LAST_PARSE_NEEDED.store(0, Ordering::Release);
         LAST_PARSE_REMAINING.store(0, Ordering::Release);
+        #[cfg(not(test))]
+        deferred_player_draw::reset();
         EVENT_RELOCATED_BYTES.store(u32::from(relocated_bytes), Ordering::Release);
         EVENT_TRAMPOLINE.store(
             prepared.trampoline_address().map_err(InstallError::from)?,
@@ -365,6 +367,10 @@ fn observe_event_inner(event: *const core::ffi::c_void) {
         return;
     }
     SERVER_EVENT_COUNT.fetch_add(1, Ordering::Relaxed);
+    #[cfg(not(test))]
+    if deferred_player_draw::is_replaying() {
+        return;
+    }
     let body_address = u32::from_le_bytes(
         view[EVENT_BODY_OFFSET - EVENT_TYPE_OFFSET..EVENT_BODY_OFFSET - EVENT_TYPE_OFFSET + 4]
             .try_into()
@@ -448,6 +454,14 @@ fn observe_event_inner(event: *const core::ffi::c_void) {
             state::observe_effect(effect.icon, effect.duration, tick_ms);
         }
         packet::ServerUpdate::World(update) => {
+            #[cfg(not(test))]
+            if matches!(update, packet::object::WorldUpdate::DrawPlayer) {
+                deferred_player_draw::observe(
+                    &scratch.body[..body_length],
+                    &scratch.objects,
+                    tick_ms,
+                );
+            }
             state::observe_world(update, &scratch.objects, tick_ms);
             if matches!(update, packet::object::WorldUpdate::DrawPlayer) {
                 state::mark_resync_required();
@@ -482,6 +496,11 @@ fn observe_event_inner(event: *const core::ffi::c_void) {
             crate::exchange::observe_server(body, tick_ms);
         }
     }
+}
+
+#[cfg(not(test))]
+pub(crate) fn observe_tick(tick_ms: u32) {
+    deferred_player_draw::observe_tick(tick_ms);
 }
 
 #[cfg(test)]

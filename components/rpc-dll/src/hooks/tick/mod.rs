@@ -149,24 +149,29 @@ extern "C" fn observe_tick() {
 
 #[inline]
 fn observe_tick_untimed() {
+    let tick_ms = darpc_win32::pipe::sender_tick_ms();
     #[cfg(not(test))]
-    crate::actions::movement::observe_tick();
+    {
+        crate::actions::movement::observe_tick();
+        crate::hooks::event::observe_tick(tick_ms);
+    }
     commands::observe_tick();
-    crate::player::observe_tick(darpc_win32::pipe::sender_tick_ms());
+    crate::player::observe_tick(tick_ms);
     crate::state::observe_tick();
     snapshot::observe_tick();
 }
 
 #[inline]
 fn observe_tick_timed() {
+    let tick_ms = darpc_win32::pipe::sender_tick_ms();
     #[cfg(not(test))]
-    diagnostics::measure(
-        HookTimingStage::Movement,
-        crate::actions::movement::observe_tick,
-    );
+    diagnostics::measure(HookTimingStage::Movement, || {
+        crate::actions::movement::observe_tick();
+        crate::hooks::event::observe_tick(tick_ms);
+    });
     diagnostics::measure(HookTimingStage::Commands, commands::observe_tick);
     diagnostics::measure(HookTimingStage::Player, || {
-        crate::player::observe_tick(darpc_win32::pipe::sender_tick_ms());
+        crate::player::observe_tick(tick_ms);
     });
     diagnostics::measure(HookTimingStage::State, crate::state::observe_tick);
     diagnostics::measure(HookTimingStage::Snapshot, snapshot::observe_tick);

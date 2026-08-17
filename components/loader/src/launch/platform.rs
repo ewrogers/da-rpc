@@ -211,16 +211,33 @@ impl SuspendedChild {
     fn stabilize_full_system_affinity(&self) -> Result<()> {
         let deadline = Instant::now() + Duration::from_millis(CHILD_AFFINITY_STABILIZATION_MS);
 
-        while Instant::now() < deadline {
-            let (process_mask, system_mask) = self.affinity_masks()?;
-            if process_mask != system_mask {
-                self.set_full_system_affinity()?;
+        loop {
+            if !self.process.is_running()? {
+                return Ok(());
+            }
+
+            let affinity_result = self
+                .affinity_masks()
+                .and_then(|(process_mask, system_mask)| {
+                    if process_mask == system_mask {
+                        Ok(())
+                    } else {
+                        self.set_full_system_affinity()
+                    }
+                });
+            if let Err(error) = affinity_result {
+                if !self.process.is_running()? {
+                    return Ok(());
+                }
+                return Err(error);
+            }
+            if Instant::now() >= deadline {
+                return Ok(());
             }
             thread::sleep(Duration::from_millis(CHILD_AFFINITY_POLL_MS));
         }
-
-        self.set_full_system_affinity()
     }
+
     fn terminate(&mut self) -> Result<()> {
         if !self.terminate_on_drop {
             return Ok(());
@@ -551,6 +568,9 @@ mod tests {
                 .expect("failed to wait for handle probe"),
             "handle probe timed out"
         );
+        child
+            .stabilize_full_system_affinity()
+            .expect("an exited child should complete affinity stabilization");
 
         let mut exit_code = u32::MAX;
         // SAFETY: child owns a valid process handle and exit_code is

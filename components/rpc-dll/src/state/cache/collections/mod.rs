@@ -16,6 +16,11 @@ impl MainThreadCollections {
         unsafe { &mut *self.0.get() }.reset();
     }
 
+    pub(in crate::state) unsafe fn inventory_quantity(&self, slot: u8) -> Option<u32> {
+        // SAFETY: the caller guarantees client-main-thread access.
+        unsafe { &*self.0.get() }.inventory_quantity(slot)
+    }
+
     pub(in crate::state) unsafe fn replace(&self, raw: &RawStateSnapshot, tick_ms: u32) {
         // SAFETY: the caller guarantees client-main-thread access.
         unsafe { &mut *self.0.get() }.replace(raw, tick_ms);

@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Preserve the native stack-quantity prompt for manually added stacked exchange
+  items, while skipping it for single items and retaining automatic quantities
+  for daRPC requests.
 - Reset the encrypted outgoing sequence when the communications worker
   delivers `CHello`, preserving sequence zero during initial startup and when
   returning from a game server to the main login server.

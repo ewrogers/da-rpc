@@ -86,10 +86,11 @@ mod platform {
     }
 
     struct ResolvedBootstrapPatch {
-        hello_submit_call: usize,
+        binary_encrypt_call: usize,
+        text_encrypt_call: usize,
         late_reset_call: usize,
         reset_sequence: usize,
-        submit_packet: usize,
+        encrypt_packet: usize,
     }
 
     pub(crate) fn apply(
@@ -240,13 +241,20 @@ mod platform {
         image_base: usize,
         definition: BootstrapSequencePatch,
     ) -> Result<ResolvedBootstrapPatch> {
-        let hello_submit_call = checked_address(image_base, definition.hello_submit_call_rva)?;
+        let binary_encrypt_call = checked_address(image_base, definition.binary_encrypt_call_rva)?;
+        let text_encrypt_call = checked_address(image_base, definition.text_encrypt_call_rva)?;
         let late_reset_call = checked_address(image_base, definition.late_reset_call_rva)?;
         validate_bytes(
             process,
-            hello_submit_call,
-            definition.hello_submit_call_expected,
-            "bootstrap CHello submit call",
+            binary_encrypt_call,
+            definition.binary_encrypt_call_expected,
+            "binary packet encryption call",
+        )?;
+        validate_bytes(
+            process,
+            text_encrypt_call,
+            definition.text_encrypt_call_expected,
+            "text packet encryption call",
         )?;
         validate_bytes(
             process,
@@ -256,10 +264,11 @@ mod platform {
         )?;
 
         Ok(ResolvedBootstrapPatch {
-            hello_submit_call,
+            binary_encrypt_call,
+            text_encrypt_call,
             late_reset_call,
             reset_sequence: checked_address(image_base, definition.reset_sequence_rva)?,
-            submit_packet: checked_address(image_base, definition.submit_packet_rva)?,
+            encrypt_packet: checked_address(image_base, definition.encrypt_packet_rva)?,
         })
     }
 
@@ -291,35 +300,27 @@ mod platform {
         process: &TargetProcess,
         patch: &ResolvedBootstrapPatch,
     ) -> Result<()> {
-        const STUB_LENGTH: usize = 12;
-        let allocation = remote::RemoteAllocation::new(process, STUB_LENGTH)?;
+        let allocation = remote::RemoteAllocation::new(process, 21)?;
         let stub_address = allocation.address() as usize;
-        let mut stub = [0_u8; STUB_LENGTH];
-        stub[0] = 0x51;
-        stub[1] = 0xE8;
-        stub[2..6].copy_from_slice(&rel32(stub_address + 6, patch.reset_sequence)?);
-        stub[6] = 0x59;
-        stub[7] = 0xE9;
-        stub[8..12].copy_from_slice(&rel32(stub_address + 12, patch.submit_packet)?);
+        let stub = bootstrap_sequence_stub(stub_address, patch)?;
 
         allocation.write_bytes(&stub)?;
         validate_bytes(process, stub_address, &stub, "bootstrap sequence stub")?;
-        protect(process, stub_address, STUB_LENGTH, PAGE_EXECUTE_READ)?;
-        flush(process, stub_address, STUB_LENGTH)?;
+        protect(process, stub_address, stub.len(), PAGE_EXECUTE_READ)?;
+        flush(process, stub_address, stub.len())?;
 
-        let mut hello_replacement = [0_u8; 5];
-        hello_replacement[0] = 0xE8;
-        let hello_return = patch
-            .hello_submit_call
-            .checked_add(hello_replacement.len())
-            .ok_or_else(|| LoaderError::new(ErrorKind::Internal, "patch address overflow"))?;
-        hello_replacement[1..].copy_from_slice(&rel32(hello_return, stub_address)?);
-        write_code(
-            process,
-            patch.hello_submit_call,
-            &hello_replacement,
-            "bootstrap CHello submit call",
-        )?;
+        for (call, name) in [
+            (patch.binary_encrypt_call, "binary packet encryption call"),
+            (patch.text_encrypt_call, "text packet encryption call"),
+        ] {
+            let mut replacement = [0_u8; 5];
+            replacement[0] = 0xE8;
+            let return_address = call
+                .checked_add(replacement.len())
+                .ok_or_else(|| LoaderError::new(ErrorKind::Internal, "patch address overflow"))?;
+            replacement[1..].copy_from_slice(&rel32(return_address, stub_address)?);
+            write_code(process, call, &replacement, name)?;
+        }
         write_code(
             process,
             patch.late_reset_call,
@@ -330,6 +331,23 @@ mod platform {
         let _ = allocation.persist();
         eprintln!("Applied default bootstrap sequence patch with stub at 0x{stub_address:08X}");
         Ok(())
+    }
+
+    fn bootstrap_sequence_stub(
+        stub_address: usize,
+        patch: &ResolvedBootstrapPatch,
+    ) -> Result<[u8; 21]> {
+        let mut stub = [0_u8; 21];
+        stub[0..4].copy_from_slice(&[0x8B, 0x44, 0x24, 0x04]);
+        stub[4..7].copy_from_slice(&[0x80, 0x38, 0x62]);
+        stub[7..9].copy_from_slice(&[0x75, 0x07]);
+        stub[9] = 0x51;
+        stub[10] = 0xE8;
+        stub[11..15].copy_from_slice(&rel32(stub_address + 15, patch.reset_sequence)?);
+        stub[15] = 0x59;
+        stub[16] = 0xE9;
+        stub[17..21].copy_from_slice(&rel32(stub_address + 21, patch.encrypt_packet)?);
+        Ok(stub)
     }
 
     fn rel32(next_instruction: usize, target: usize) -> Result<[u8; 4]> {
@@ -471,7 +489,9 @@ mod platform {
 
     #[cfg(all(test, target_arch = "x86"))]
     mod tests {
-        use super::{LaunchPatch, apply_at_base, rel32};
+        use super::{
+            LaunchPatch, ResolvedBootstrapPatch, apply_at_base, bootstrap_sequence_stub, rel32,
+        };
         use crate::process::TargetProcess;
         use std::{ptr, slice};
         use windows_sys::Win32::System::Memory::{
@@ -546,6 +566,29 @@ mod platform {
         fn encodes_forward_and_backward_relative_branches() {
             assert_eq!(rel32(0x1000, 0x1234).unwrap(), 0x234_i32.to_le_bytes());
             assert_eq!(rel32(0x1234, 0x1000).unwrap(), (-0x234_i32).to_le_bytes());
+        }
+
+        #[test]
+        fn bootstrap_stub_resets_only_hello_at_worker_delivery() {
+            let patch = ResolvedBootstrapPatch {
+                binary_encrypt_call: 0,
+                text_encrypt_call: 0,
+                late_reset_call: 0,
+                reset_sequence: 0x2000,
+                encrypt_packet: 0x3000,
+            };
+            let stub = bootstrap_sequence_stub(0x1000, &patch).unwrap();
+
+            assert_eq!(
+                &stub[..9],
+                &[0x8B, 0x44, 0x24, 0x04, 0x80, 0x38, 0x62, 0x75, 0x07]
+            );
+            assert_eq!(stub[9], 0x51);
+            assert_eq!(stub[10], 0xE8);
+            assert_eq!(&stub[11..15], &rel32(0x100F, 0x2000).unwrap());
+            assert_eq!(stub[15], 0x59);
+            assert_eq!(stub[16], 0xE9);
+            assert_eq!(&stub[17..], &rel32(0x1015, 0x3000).unwrap());
         }
     }
 }

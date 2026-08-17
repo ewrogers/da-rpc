@@ -83,17 +83,18 @@ loader.exe detach 3780 .\darpc.dll
 The five optional launch patches are independent, may be combined, and are
 disabled by default. Every supported-client launch also applies a mandatory
 bootstrap sequence patch before the child resumes. It resets the outgoing
-encrypted-packet sequence before `CHello` enters the communications worker,
-then removes the original late reset. This keeps `CHello` at sequence zero and
-the later `CMulti` at sequence one even when the worker runs immediately.
+encrypted-packet sequence in the communications worker immediately before
+`CHello` is encrypted, then removes the original producer-side late reset. This
+keeps `CHello` at sequence zero and the later `CMulti` at sequence one during
+both initial startup and a return from a game server to the main login server.
 
 All startup patches apply only to a new suspended child. `attach` never
 modifies client startup behavior. The loader validates the exact 7.41
-executable fingerprint and both original bootstrap call sites, writes and
-verifies an executable 12-byte bridge, restores code-page protections, and
-flushes the instruction cache before resuming. Any mismatch or incomplete
-write terminates the still-suspended child rather than starting it partially
-patched.
+executable fingerprint, both packet-encryption calls, and the original late
+reset call. It writes and verifies an executable 21-byte bridge, restores
+code-page protections, and flushes the instruction cache before resuming. Any
+mismatch or incomplete write terminates the still-suspended child rather than
+starting it partially patched.
 
 | Launch option | Behavior |
 | --- | --- |
@@ -384,6 +385,10 @@ login and exit behavior remain intact. An unflagged launch remains the
 comparison case. An explicit server is strict: if that connection fails, the
 client follows its normal disconnected cleanup and does not retry the compiled
 official endpoint.
+
+For the mandatory bootstrap patch, also enter a game server, use the client's
+normal exit-to-login action, and confirm that the main login server remains
+connected through the next `CHello` and `CMulti` exchange.
 
 The loader-owned startup patches run between suspended process validation and
 DLL initialization. The bootstrap sequence patch is always included for a

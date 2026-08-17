@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.4 - 2026-08-17
+
+### Fixed
+
+- Reset the encrypted outgoing sequence when the communications worker
+  delivers `CHello`, preserving sequence zero during initial startup and when
+  returning from a game server to the main login server.
+
 ## 1.5.3 - 2026-08-17
 
 ### Fixed

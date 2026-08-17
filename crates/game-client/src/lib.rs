@@ -64,21 +64,25 @@ pub struct LaunchPatch {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct BootstrapSequencePatch {
-    pub hello_submit_call_rva: u32,
-    pub hello_submit_call_expected: &'static [u8],
+    pub binary_encrypt_call_rva: u32,
+    pub binary_encrypt_call_expected: &'static [u8],
+    pub text_encrypt_call_rva: u32,
+    pub text_encrypt_call_expected: &'static [u8],
     pub late_reset_call_rva: u32,
     pub late_reset_call_expected: &'static [u8],
     pub reset_sequence_rva: u32,
-    pub submit_packet_rva: u32,
+    pub encrypt_packet_rva: u32,
 }
 
 pub const BOOTSTRAP_SEQUENCE_PATCH: BootstrapSequencePatch = BootstrapSequencePatch {
-    hello_submit_call_rva: 0x0017_9849,
-    hello_submit_call_expected: &[0xE8, 0xB2, 0xA5, 0xFE, 0xFF],
+    binary_encrypt_call_rva: 0x0016_495D,
+    binary_encrypt_call_expected: &[0xE8, 0x4E, 0x36, 0x00, 0x00],
+    text_encrypt_call_rva: 0x0016_4B29,
+    text_encrypt_call_expected: &[0xE8, 0x82, 0x34, 0x00, 0x00],
     late_reset_call_rva: 0x0017_993A,
     late_reset_call_expected: &[0xE8, 0xA1, 0xA4, 0xFE, 0xFF],
     reset_sequence_rva: 0x0016_3DE0,
-    submit_packet_rva: 0x0016_3E00,
+    encrypt_packet_rva: 0x0016_7FB0,
 };
 
 pub const DEFAULT_RUNTIME_PATCHES: &[LaunchPatch] = &[LaunchPatch {
@@ -296,14 +300,22 @@ mod tests {
     }
 
     #[test]
-    fn bootstrap_sequence_patch_identifies_two_call_sites() {
-        assert_eq!(BOOTSTRAP_SEQUENCE_PATCH.hello_submit_call_expected[0], 0xE8);
-        assert_eq!(BOOTSTRAP_SEQUENCE_PATCH.hello_submit_call_expected.len(), 5);
+    fn bootstrap_sequence_patch_identifies_worker_and_late_reset_calls() {
+        assert_eq!(
+            BOOTSTRAP_SEQUENCE_PATCH.binary_encrypt_call_expected[0],
+            0xE8
+        );
+        assert_eq!(
+            BOOTSTRAP_SEQUENCE_PATCH.binary_encrypt_call_expected.len(),
+            5
+        );
+        assert_eq!(BOOTSTRAP_SEQUENCE_PATCH.text_encrypt_call_expected[0], 0xE8);
+        assert_eq!(BOOTSTRAP_SEQUENCE_PATCH.text_encrypt_call_expected.len(), 5);
         assert_eq!(BOOTSTRAP_SEQUENCE_PATCH.late_reset_call_expected[0], 0xE8);
         assert_eq!(BOOTSTRAP_SEQUENCE_PATCH.late_reset_call_expected.len(), 5);
         assert_ne!(
-            BOOTSTRAP_SEQUENCE_PATCH.hello_submit_call_rva,
-            BOOTSTRAP_SEQUENCE_PATCH.late_reset_call_rva
+            BOOTSTRAP_SEQUENCE_PATCH.binary_encrypt_call_rva,
+            BOOTSTRAP_SEQUENCE_PATCH.text_encrypt_call_rva
         );
     }
 

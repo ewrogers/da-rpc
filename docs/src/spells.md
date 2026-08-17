@@ -113,6 +113,12 @@ The DLL checks the live spell slot and arguments again before calling the
 matching native client routine. It does not switch the visible spell panel or
 synthesize user input.
 
+After the native routine accepts a cast, the command remains pending for 500
+milliseconds so immediate server feedback can determine its result. The exact
+system message `That doesn't work here.` completes the command as rejected,
+which reports attempts to cast on no-cast maps as failures. Silence during the
+bounded response window completes the command successfully.
+
 Spell casts have 10 percent tolerance on the normal one-second start deadline.
 This bounded window accommodates small native dispatcher overruns during an
 earlier cast; the one-second action deadline remains in effect for other

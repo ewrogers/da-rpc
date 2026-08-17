@@ -20,8 +20,6 @@ use std::{
 
 const LOCAL_Y_OFFSET: usize = 0x40;
 const LOCAL_X_OFFSET: usize = 0x44;
-const LOCAL_HIDDEN_STATE_OFFSET: usize = 0xD2;
-const LOCAL_TRANSLUCENT_STATE_OFFSET: usize = 0xD5;
 const MAP_WIDTH_OFFSET: usize = 0x1C4;
 const MAP_HEIGHT_OFFSET: usize = 0x1C8;
 
@@ -160,18 +158,6 @@ pub(super) fn local_object_id() -> Result<u32, CommandFailure> {
 
 pub(crate) fn is_walking() -> Option<bool> {
     Movement::resolve().ok()?.route_active()
-}
-
-pub(crate) fn local_position() -> Option<TilePosition> {
-    Movement::resolve().ok()?.local_position().ok()
-}
-
-pub(crate) fn local_is_hidden() -> Option<bool> {
-    let local = Movement::resolve().ok()?.self_object().ok()?;
-    let address = local.as_ptr() as usize;
-    let hidden = read::<u8>(address + LOCAL_HIDDEN_STATE_OFFSET)? != 0;
-    let translucent = read::<u8>(address + LOCAL_TRANSLUCENT_STATE_OFFSET)? != 0;
-    Some(hidden || translucent)
 }
 
 pub(crate) fn route_destination() -> Option<TilePosition> {

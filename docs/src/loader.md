@@ -260,9 +260,9 @@ The implemented launch path:
    module enumeration before Windows user-mode loader startup.
 7. Resolves a selected server to dotted IPv4 and prepends the address and
    explicit port to the child arguments before process creation.
-8. For any selected launch patches, reads the loaded main-module base from the
-   child process environment block and validates every original instruction
-   before writing anything.
+8. Reads the loaded main-module base from the child process environment block
+   and validates every original instruction for the default runtime patch and
+   any selected launch patches before writing anything.
 9. Applies complete instructions with temporary writable protection, flushes
    the instruction cache, restores protection, and reads back each result.
 10. Loads `darpc.dll` and calls `darpc_initialize` while the primary thread
@@ -283,6 +283,7 @@ at quoted argument boundaries. Every argument is quoted independently, so
 spaces, empty values, quotes, trailing backslashes, and Unicode are preserved.
 
 The exact 7.41 contracts follow the documented
+[translucent-walk-commit](https://github.com/ewrogers/darkages-741-re/blob/main/docs/appendix/runtime-patches/translucent-walk-commit.md),
 [multiple-client](https://github.com/ewrogers/darkages-741-re/blob/main/docs/appendix/runtime-patches/multiple-clients.md),
 [command-line-endpoint](https://github.com/ewrogers/darkages-741-re/blob/main/docs/appendix/runtime-patches/command-line-endpoint.md),
 [disable-endpoint-fallback](https://github.com/ewrogers/darkages-741-re/blob/main/docs/appendix/runtime-patches/disable-endpoint-fallback.md),
@@ -290,7 +291,11 @@ The exact 7.41 contracts follow the documented
 [hide-notice](https://github.com/ewrogers/darkages-741-re/blob/main/docs/appendix/runtime-patches/hide-stipulation.md),
 [early-continue](https://github.com/ewrogers/darkages-741-re/blob/main/docs/appendix/runtime-patches/early-continue.md), and
 [fast-server-transfer](https://github.com/ewrogers/darkages-741-re/blob/main/docs/appendix/runtime-patches/fast-server-transfer.md)
-targets. The early-continue patch enables the existing pointer hit-testing path
+targets. The translucent-walk commit is always applied to a validated 7.41
+client before launch; it routes a preserved translucent refresh through the
+full appearance update so the walk finishes, the accepted destination commits,
+and the object-owned translucency state updates together. The early-continue
+patch enables the existing pointer hit-testing path
 while the initial menu gate is set; keyboard input remains unchanged. Fast
 server transfer changes the fixed post-connect sleep from one second to a yield;
 the actual blocking connection can still pause the animation. The executable is

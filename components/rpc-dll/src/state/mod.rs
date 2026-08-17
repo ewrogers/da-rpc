@@ -702,6 +702,7 @@ pub(crate) fn self_id() -> Option<u32> {
 }
 
 pub(crate) fn observe_message(message: ParsedMessage<'_>, tick_ms: u32) {
+    crate::commands::observe_message(message.kind, message.text);
     crate::group::observe_message(message.kind, message.text, tick_ms);
     let sender = participant(message.sender, message.sender_id);
     let recipient = participant(message.recipient, None);

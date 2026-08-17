@@ -4,8 +4,11 @@
 
 ### Fixed
 
-- Replay a lost local hide or unhide appearance update after its walking
-  destination has committed, without changing equipment-only player updates.
+- Route a preserved translucent refresh through the full appearance update so
+  the walking destination, render displacement, and object-owned translucency
+  state remain synchronized.
+- Report spell casts rejected by a no-cast map as failed commands when the
+  client receives the system message `That doesn't work here.`.
 
 ## 1.5.2 - 2026-08-15
 

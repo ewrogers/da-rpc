@@ -270,6 +270,7 @@ extern "C" fn observe_packet(body: *const u8, length: i16) {
                 | 0x38
                 | 0x3E
                 | 0x44
+                | 0x4A
                 | 0x4D
                 | 0x4E
                 | 0x18
@@ -279,15 +280,8 @@ extern "C" fn observe_packet(body: *const u8, length: i16) {
             return;
         }
         OUTGOING_OBSERVATION_COUNT.fetch_add(1, Ordering::Relaxed);
-        let expected = match prefix[0] {
-            0x18 | 0x2D | 0x38 => 1,
-            0x30 => 4,
-            0x43 => 6,
-            0x07 => 6,
-            0x08 | 0x29 => 10,
-            0x24 | 0x2A | 0x3F => 9,
-            0x0F => length,
-            _ => 2,
+        let Some(expected) = expected_body_length(prefix, length) else {
+            return;
         };
         if length != expected || length > MAX_OUTGOING_BODY {
             return;
@@ -316,6 +310,26 @@ extern "C" fn observe_packet(body: *const u8, length: i16) {
         }
         crate::state::observe_outgoing(&packet[..length], sender_tick_ms());
     });
+}
+
+fn expected_body_length(prefix: [u8; 2], variable_length: usize) -> Option<usize> {
+    Some(match prefix[0] {
+        0x18 | 0x2D | 0x38 => 1,
+        0x30 => 4,
+        0x43 => 6,
+        0x07 => 6,
+        0x08 | 0x29 => 10,
+        0x24 | 0x2A | 0x3F => 9,
+        0x4A => match prefix[1] {
+            0x01 => 7,
+            0x02 => 8,
+            0x03 => 10,
+            0x04 | 0x05 => 6,
+            _ => return None,
+        },
+        0x0F => variable_length,
+        _ => 2,
+    })
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -389,7 +403,7 @@ fn write_memory(address: usize, input: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{SayAction, escape_say, say_action, support};
+    use super::{SayAction, escape_say, expected_body_length, say_action, support};
     use darpc_game_client::CLIENT_PACKET_SUBMIT_ENTRY;
     use std::ptr::NonNull;
 
@@ -431,5 +445,15 @@ mod tests {
         let mut packet = *b"\x0E\0\x0A//walk x,y";
         let length = escape_say(&mut packet).unwrap();
         assert_eq!(&packet[..length], b"\x0E\0\x09/walk x,y");
+    }
+
+    #[test]
+    fn recognizes_exchange_packet_lengths() {
+        assert_eq!(expected_body_length([0x4A, 0x01], 7), Some(7));
+        assert_eq!(expected_body_length([0x4A, 0x02], 8), Some(8));
+        assert_eq!(expected_body_length([0x4A, 0x03], 10), Some(10));
+        assert_eq!(expected_body_length([0x4A, 0x04], 6), Some(6));
+        assert_eq!(expected_body_length([0x4A, 0x05], 6), Some(6));
+        assert_eq!(expected_body_length([0x4A, 0x06], 6), None);
     }
 }

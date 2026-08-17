@@ -325,6 +325,12 @@ pub(crate) fn map_transition_pending() -> bool {
     unsafe { CACHE.map_transition_pending() }
 }
 
+pub(crate) fn inventory_quantity(slot: u8) -> Option<u32> {
+    // SAFETY: packet interception runs on the client main thread, which is the
+    // sole collection producer.
+    unsafe { COLLECTIONS.inventory_quantity(slot) }
+}
+
 pub(crate) fn stage_map_transition(
     map_id: u32,
     width: i32,

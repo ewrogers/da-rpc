@@ -60,7 +60,17 @@ pub(super) fn give_item(transfer: ItemTransfer) -> Result<(), CommandFailure> {
     body[1] = transfer.slot.get();
     body[2..6].copy_from_slice(&id.get().to_be_bytes());
     body[6..10].copy_from_slice(&transfer.quantity.to_be_bytes());
-    network::submit(&body)
+    let initial_quantity = u8::try_from(transfer.quantity).ok();
+    if let Some(quantity) = initial_quantity
+        && !crate::exchange::begin_initial_item(transfer.slot.get(), quantity)
+    {
+        return Err(CommandFailure::InvalidState);
+    }
+    let result = network::submit(&body);
+    if result.is_err() && initial_quantity.is_some() {
+        crate::exchange::abort_initial_item();
+    }
+    result
 }
 
 pub(super) fn drop_gold(transfer: GoldTransfer) -> Result<(), CommandFailure> {

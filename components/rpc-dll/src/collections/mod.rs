@@ -72,6 +72,16 @@ impl CollectionTracker {
         *self = Self::new();
     }
 
+    pub(crate) fn inventory_quantity(&self, slot: u8) -> Option<u32> {
+        let index = usize::from(slot).checked_sub(1)?;
+        self.inventory
+            .items
+            .get(index)?
+            .as_ref()
+            .filter(|item| item.slot == slot)
+            .map(|item| item.quantity.max(1))
+    }
+
     pub(crate) fn replace(&mut self, raw: &RawStateSnapshot, tick_ms: u32) {
         self.inventory = RawInventory::empty();
         self.skillbook = RawSkillbook::empty();

@@ -22,7 +22,11 @@ curl --request POST \
 
 These requests start the exchange. They do not mean ZiLo accepted it. Wait for
 `exchange.opened` or read the exchange resource before adding more to the
-offer.
+offer. daRPC automatically answers the first item's server quantity request
+only when the give originated from daRPC. Manually adding an item, whether it
+opens the exchange or is added later, keeps the game's native stack-quantity
+prompt when more than one is available and skips the unnecessary prompt when
+only one is available.
 
 ## Read the current exchange
 

@@ -100,6 +100,7 @@ pub(crate) struct PendingItem {
 struct PendingInitialItem {
     item: PendingItem,
     tick_ms: u32,
+    automated: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -140,6 +141,7 @@ struct Tracker {
     gold_pending: bool,
     accept_pending: bool,
     cancel_pending: bool,
+    initial_item_command: Option<PendingItem>,
     initial_item: Option<PendingInitialItem>,
 }
 
@@ -151,6 +153,7 @@ impl Tracker {
             gold_pending: false,
             accept_pending: false,
             cancel_pending: false,
+            initial_item_command: None,
             initial_item: None,
         }
     }
@@ -191,9 +194,17 @@ pub(crate) fn active_id() -> Option<u32> {
 }
 
 pub(crate) fn observe_outgoing(body: &[u8], tick_ms: u32) {
+    if body.first() == Some(&0x4A) && body.get(1) == Some(&0x01) && body.len() == 7 {
+        observe_manual_item(body[6]);
+        return;
+    }
     if body.first() != Some(&0x29) || body.len() != 10 {
         return;
     }
+    // SAFETY: outgoing packet observation runs on the client main thread.
+    let tracker = unsafe { &mut *TRACKER.0.get() };
+    tracker.initial_item = None;
+    let command = tracker.initial_item_command.take();
     let quantity = u32::from_be_bytes(body[6..10].try_into().expect("length checked"));
     let Ok(quantity) = u8::try_from(quantity) else {
         return;
@@ -201,16 +212,54 @@ pub(crate) fn observe_outgoing(body: &[u8], tick_ms: u32) {
     if quantity == 0 {
         return;
     }
-    // SAFETY: outgoing packet observation runs on the client main thread.
-    unsafe {
-        (*TRACKER.0.get()).initial_item = Some(PendingInitialItem {
-            item: PendingItem {
-                slot: body[1],
-                quantity,
-            },
+    let item = PendingItem {
+        slot: body[1],
+        quantity,
+    };
+    let automated = command == Some(item);
+    if command.is_none() || automated {
+        tracker.initial_item = Some(PendingInitialItem {
+            item,
             tick_ms,
+            automated,
         });
     }
+}
+
+fn observe_manual_item(slot: u8) {
+    // SAFETY: outgoing packet observation runs on the client main thread.
+    let tracker = unsafe { &mut *TRACKER.0.get() };
+    if !tracker.state.active || tracker.pending_item.is_some() {
+        return;
+    }
+    let Some(pending) = manual_item_for_exchange(slot, crate::state::inventory_quantity(slot))
+    else {
+        return;
+    };
+    tracker.pending_item = Some(pending);
+    INTERCEPT_PENDING.store(1, Ordering::Release);
+}
+
+fn manual_item_for_exchange(slot: u8, inventory_quantity: Option<u32>) -> Option<PendingItem> {
+    (inventory_quantity == Some(1)).then_some(PendingItem { slot, quantity: 1 })
+}
+
+pub(crate) fn begin_initial_item(slot: u8, quantity: u8) -> bool {
+    // SAFETY: commands run on the client main thread.
+    let tracker = unsafe { &mut *TRACKER.0.get() };
+    if tracker.state.active {
+        return false;
+    }
+    tracker.initial_item = None;
+    tracker.initial_item_command = Some(PendingItem { slot, quantity });
+    true
+}
+
+pub(crate) fn abort_initial_item() {
+    // SAFETY: commands and packet observations run on the client main thread.
+    let tracker = unsafe { &mut *TRACKER.0.get() };
+    tracker.initial_item_command = None;
+    tracker.initial_item = None;
 }
 
 pub(crate) fn begin_item(slot: u8, quantity: u8) -> bool {
@@ -346,10 +395,12 @@ fn observe_started(body: &[u8], tick_ms: u32) {
     };
     // SAFETY: packet observation runs on the client main thread.
     let tracker = unsafe { &mut *TRACKER.0.get() };
-    let pending_item = tracker
-        .initial_item
-        .filter(|pending| tick_ms.wrapping_sub(pending.tick_ms) <= 3_000)
-        .map(|pending| pending.item);
+    let pending_item = tracker.initial_item.and_then(|pending| {
+        let inventory_quantity = (!pending.automated)
+            .then(|| crate::state::inventory_quantity(pending.item.slot))
+            .flatten();
+        initial_item_for_exchange(pending, tick_ms, inventory_quantity)
+    });
     *tracker = Tracker {
         state,
         pending_item,
@@ -363,6 +414,17 @@ fn observe_started(body: &[u8], tick_ms: u32) {
         },
         tick_ms,
     );
+}
+
+fn initial_item_for_exchange(
+    pending: PendingInitialItem,
+    tick_ms: u32,
+    inventory_quantity: Option<u32>,
+) -> Option<PendingItem> {
+    if tick_ms.wrapping_sub(pending.tick_ms) > 3_000 {
+        return None;
+    }
+    (pending.automated || inventory_quantity == Some(1)).then_some(pending.item)
 }
 
 fn observe_item(body: &[u8], tick_ms: u32) {
@@ -627,7 +689,27 @@ fn decode_text(bytes: &[u8]) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::exchange_item_name;
+    use super::{
+        PendingInitialItem, PendingItem, begin_initial_item, exchange_item_name,
+        initial_item_for_exchange, intercept_quantity, manual_item_for_exchange, observe_outgoing,
+        observe_server, reset,
+    };
+    use std::sync::Mutex;
+
+    static LOCK: Mutex<()> = Mutex::new(());
+
+    fn opened_packet() -> [u8; 10] {
+        [0x42, 0x00, 0, 0, 0, 7, 3, b'B', b'o', b'b']
+    }
+
+    fn give_packet(slot: u8, quantity: u32) -> [u8; 10] {
+        let mut body = [0; 10];
+        body[0] = 0x29;
+        body[1] = slot;
+        body[2..6].copy_from_slice(&7_u32.to_be_bytes());
+        body[6..10].copy_from_slice(&quantity.to_be_bytes());
+        body
+    }
 
     #[test]
     fn normalizes_server_stack_counts() {
@@ -639,5 +721,84 @@ mod tests {
             exchange_item_name("Andor Soroni".into()),
             ("Andor Soroni".into(), None)
         );
+    }
+
+    #[test]
+    fn manual_initial_item_keeps_native_quantity_prompt() {
+        let _guard = LOCK.lock().unwrap();
+        reset();
+
+        observe_outgoing(&give_packet(4, 1), 100);
+        observe_server(&opened_packet(), 101);
+
+        assert!(!intercept_quantity(&[0x42, 0x01, 4]));
+    }
+
+    #[test]
+    fn darpc_initial_item_continues_requested_quantity() {
+        let _guard = LOCK.lock().unwrap();
+        reset();
+
+        assert!(begin_initial_item(4, 3));
+        observe_outgoing(&give_packet(4, 3), 100);
+        observe_server(&opened_packet(), 101);
+
+        assert!(intercept_quantity(&[0x42, 0x01, 4]));
+    }
+
+    #[test]
+    fn unrelated_give_does_not_claim_initial_item_command() {
+        let _guard = LOCK.lock().unwrap();
+        reset();
+
+        assert!(begin_initial_item(4, 3));
+        observe_outgoing(&give_packet(5, 1), 100);
+        observe_server(&opened_packet(), 101);
+
+        assert!(!intercept_quantity(&[0x42, 0x01, 5]));
+    }
+
+    #[test]
+    fn manual_give_clears_an_older_automated_candidate() {
+        let _guard = LOCK.lock().unwrap();
+        reset();
+
+        assert!(begin_initial_item(4, 3));
+        observe_outgoing(&give_packet(4, 3), 100);
+        observe_outgoing(&give_packet(4, 1), 101);
+        observe_server(&opened_packet(), 102);
+
+        assert!(!intercept_quantity(&[0x42, 0x01, 4]));
+    }
+
+    #[test]
+    fn manual_single_item_skips_the_quantity_prompt() {
+        let pending = PendingInitialItem {
+            item: PendingItem {
+                slot: 4,
+                quantity: 1,
+            },
+            tick_ms: 100,
+            automated: false,
+        };
+
+        assert_eq!(
+            initial_item_for_exchange(pending, 101, Some(1)),
+            Some(pending.item)
+        );
+        assert_eq!(initial_item_for_exchange(pending, 101, Some(2)), None);
+    }
+
+    #[test]
+    fn later_manual_single_item_skips_only_its_unnecessary_prompt() {
+        assert_eq!(
+            manual_item_for_exchange(6, Some(1)),
+            Some(PendingItem {
+                slot: 6,
+                quantity: 1
+            })
+        );
+        assert_eq!(manual_item_for_exchange(6, Some(2)), None);
+        assert_eq!(manual_item_for_exchange(6, None), None);
     }
 }

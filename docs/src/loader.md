@@ -269,9 +269,10 @@ The implemented launch path:
 10. Loads `darpc.dll` and calls `darpc_initialize` while the primary thread
    remains suspended.
 11. Resumes the primary thread only after patching and initialization succeeds.
-12. Monitors the bounded startup window and reapplies the complete system
-   affinity mask if client startup restores a single-processor mask. Direct
-   loader launches and daemon REST launches share this path.
+12. Starts a detached monitor for the bounded startup window and returns without
+   waiting for it. The monitor reapplies the complete system affinity mask if
+   client startup restores a single-processor mask. Direct loader launches and
+   daemon REST launches share this path.
 13. Terminates and waits for only that owned child if any launch operation
    fails.
 

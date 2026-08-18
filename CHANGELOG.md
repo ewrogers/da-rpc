@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Return from client launches without waiting for the bounded affinity
+  monitoring window, while retaining post-launch correction in a detached
+  monitor.
+
 ## 1.6.0 - 2026-08-18
 
 ### Added

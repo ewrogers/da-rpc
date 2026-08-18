@@ -342,6 +342,12 @@ pub(crate) fn execute(pid: u32, operation: Operation) -> Result<CommandResult> {
             "field-map select",
             CommandKind::SelectFieldMapDestination(command),
         ),
+        Operation::MessageDialogDismiss(command) => request_action(
+            &mut session,
+            pid,
+            "message-dialog dismiss",
+            CommandKind::DismissMessageDialog(command),
+        ),
         Operation::Group(command) => {
             let action = match command {
                 darpc_protocol::GroupCommand::Toggle => "group toggle",

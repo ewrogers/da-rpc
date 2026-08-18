@@ -123,6 +123,21 @@ pub(crate) fn observe_field_map(body: &[u8], tick_ms: u32) {
     }
 }
 
+pub(crate) fn observe_message_dialogs(
+    update: crate::message_dialog::QueuedMessageDialogs,
+    tick_ms: u32,
+) {
+    if !push_event(QueuedStateUpdate::MessageDialogs(update), tick_ms) {
+        crate::message_dialog::release(update);
+    }
+}
+
+pub(crate) fn observe_message_dialog(body: &[u8], tick_ms: u32) {
+    if let Some(update) = crate::message_dialog::observe_server(body) {
+        observe_message_dialogs(update, tick_ms);
+    }
+}
+
 #[cfg_attr(
     test,
     expect(dead_code, reason = "called by the production-only actions module")
@@ -314,6 +329,7 @@ pub(crate) fn reset() {
     unsafe { COLLECTIONS.reset() };
     crate::legend::reset();
     crate::field_map::reset();
+    crate::message_dialog::reset();
     crate::player::reset();
 }
 
@@ -489,6 +505,10 @@ pub(crate) fn observe_tick() {
         && !push_event(QueuedStateUpdate::FieldMap(field_map), tick_ms)
     {
         crate::field_map::release(field_map);
+    }
+    #[cfg(all(windows, not(test)))]
+    if let Some(update) = crate::message_dialog::observe_tick(tick_ms) {
+        observe_message_dialogs(update, tick_ms);
     }
     #[cfg(all(windows, not(test)))]
     crate::actions::group::observe_tick(tick_ms);

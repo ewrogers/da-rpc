@@ -395,6 +395,7 @@ fn observe_event_inner(event: *const core::ffi::c_void) {
         return;
     }
     let tick_ms = sender_tick_ms();
+    state::observe_message_dialog(&scratch.body[..body_length], tick_ms);
     if scratch.body[0] == 0x34 {
         crate::player::observe_user_response(&scratch.body[..body_length], tick_ms);
         EVENT_COUNT.fetch_add(1, Ordering::Relaxed);

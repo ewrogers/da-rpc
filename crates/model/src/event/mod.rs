@@ -1,8 +1,8 @@
 use crate::{
     CharacterModifiers, CharacterProfileUpdate, CharacterStats, ClientLifecycle, ClientMessage,
     ClientSnapshot, DialogUpdate, Direction, Effect, EntityUpdate, EquipmentSlot, ExchangeUpdate,
-    FieldMapUpdate, GroupUpdate, InventoryItem, LegendUpdate, MapLocation, ObjectUpdate,
-    PlayerUpdate, SequenceNumber, Skill, Spell,
+    FieldMapUpdate, GroupUpdate, InventoryItem, LegendUpdate, MapLocation, MessageDialogsState,
+    ObjectUpdate, PlayerUpdate, SequenceNumber, Skill, Spell,
 };
 use std::{error::Error, fmt};
 
@@ -35,6 +35,7 @@ pub enum StateUpdate {
     Action(ActionUpdate),
     Entity(EntityUpdate),
     Dialog(DialogUpdate),
+    MessageDialogs(MessageDialogsState),
     FieldMap(FieldMapUpdate),
     Group(GroupUpdate),
     Exchange(ExchangeUpdate),
@@ -650,6 +651,7 @@ impl ClientSnapshot {
                 | DialogUpdate::Submitted { state, .. } => self.dialog = Some(state),
                 DialogUpdate::Closed { .. } => self.dialog = None,
             },
+            StateUpdate::MessageDialogs(state) => self.message_dialogs = state,
             StateUpdate::FieldMap(update) => match update {
                 FieldMapUpdate::Opened(state)
                 | FieldMapUpdate::Changed(state)
@@ -1021,11 +1023,34 @@ mod tests {
             objects: None,
             dialog: None,
             active_field_map: None,
+            message_dialogs: Default::default(),
             group: None,
             exchange: None,
             legend: None,
             planned_route: None,
         }
+    }
+
+    #[test]
+    fn message_dialog_update_replaces_the_complete_current_set() {
+        let mut snapshot = empty_snapshot(ClientLifecycle::InGame);
+        let state = crate::MessageDialogsState {
+            revision: 2,
+            dialogs: vec![crate::MessageDialog {
+                id: 4,
+                text: Some("You look closely.".into()),
+                truncated: false,
+            }],
+        };
+        snapshot
+            .apply_event(StateEvent {
+                sequence: 2,
+                revision: 2,
+                tick_ms: 11,
+                update: StateUpdate::MessageDialogs(state.clone()),
+            })
+            .unwrap();
+        assert_eq!(snapshot.message_dialogs, state);
     }
 
     #[test]

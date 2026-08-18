@@ -40,6 +40,9 @@ impl QueuedStateEvent {
             QueuedStateUpdate::FieldMap(update) => {
                 StateUpdate::FieldMap(crate::field_map::take(update)?)
             }
+            QueuedStateUpdate::MessageDialogs(update) => {
+                StateUpdate::MessageDialogs(crate::message_dialog::take(update)?)
+            }
             QueuedStateUpdate::Group(update) => StateUpdate::Group(crate::group::take(update)?),
             QueuedStateUpdate::Exchange(update) => {
                 StateUpdate::Exchange(crate::exchange::take(update)?)
@@ -67,6 +70,9 @@ impl QueuedStateEvent {
         }
         if let QueuedStateUpdate::FieldMap(update) = self.update {
             crate::field_map::release(update);
+        }
+        if let QueuedStateUpdate::MessageDialogs(update) = self.update {
+            crate::message_dialog::release(update);
         }
         if let QueuedStateUpdate::Group(update) = self.update {
             crate::group::release(update);
@@ -111,6 +117,7 @@ pub(super) enum QueuedStateUpdate {
     Entity(QueuedEntityUpdate),
     Dialog(crate::dialog::QueuedDialog),
     FieldMap(crate::field_map::QueuedFieldMap),
+    MessageDialogs(crate::message_dialog::QueuedMessageDialogs),
     Group(crate::group::QueuedGroup),
     Exchange(crate::exchange::QueuedExchange),
     Legend(crate::legend::QueuedLegend),

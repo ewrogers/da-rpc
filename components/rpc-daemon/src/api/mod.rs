@@ -25,6 +25,9 @@ use crate::{
         LaunchOptions as ManagedLaunchOptions, LifecycleControl, LifecycleOperation,
         LifecycleOutcome, ManagementError, ServerEndpoint as ManagedServerEndpoint,
     },
+    message_dialog::{
+        MessageDialog, MessageDialogsChanged, MessageDialogsSnapshot, MessageDialogsState,
+    },
     messages::{
         DEFAULT_MESSAGE_COUNT, MAX_MESSAGE_COUNT, Message, MessageChannel, MessageFilter,
         MessageStore, Messages,
@@ -580,8 +583,16 @@ fn router(state: ApiState) -> Router {
         .route("/clients/{client}/dialog", get(client_dialog))
         .route("/clients/{client}/field-map", get(client_field_map))
         .route(
+            "/clients/{client}/message-dialogs",
+            get(client_message_dialogs),
+        )
+        .route(
             "/clients/{client}/field-map/select",
             post(crate::commands::field_map::select),
+        )
+        .route(
+            "/clients/{client}/message-dialogs/dismiss",
+            post(crate::commands::message_dialog::dismiss),
         )
         .route("/clients/{client}/group", get(client_group))
         .route("/clients/{client}/exchange", get(client_exchange))
@@ -832,6 +843,7 @@ async fn reject_request_body(request: Request<Body>, next: Next) -> Response {
             || request.uri().path().ends_with("/dialog/previous")
             || request.uri().path().ends_with("/dialog/next")
             || request.uri().path().ends_with("/dialog/close")
+            || request.uri().path().ends_with("/message-dialogs/dismiss")
             || request.uri().path().ends_with("/field-map/select")))
         || (request.method() == Method::PUT && request.uri().path().ends_with("/diagnostics"))
     {
@@ -926,6 +938,7 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         crate::commands::dialog::next,
         crate::commands::dialog::close,
         crate::commands::field_map::select,
+        crate::commands::message_dialog::dismiss,
         crate::commands::group::invite,
         crate::commands::group::toggle,
         crate::commands::group::accept,
@@ -998,6 +1011,7 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         DialogSubmission,
         DialogCloseReason,
         crate::commands::field_map::FieldMapSelectOptions,
+        crate::commands::message_dialog::MessageDialogDismissOptions,
         FieldMapSnapshot,
         FieldMapState,
         FieldMapDestination,
@@ -1006,6 +1020,10 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         FieldMapChanged,
         FieldMapSelectionSubmitted,
         FieldMapClosed,
+        MessageDialogsSnapshot,
+        MessageDialogsState,
+        MessageDialog,
+        MessageDialogsChanged,
         GroupSnapshot,
         GroupState,
         GroupMember,

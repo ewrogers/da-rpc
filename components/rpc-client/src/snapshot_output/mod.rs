@@ -1,7 +1,8 @@
 use darpc_model::{
     CharacterClass, CharacterSnapshot, ClientLifecycle, ClientSnapshot, DialogInteraction,
     DialogKind, DialogSlot, DialogSpriteType, DialogState, Effect, EffectDuration, Element,
-    EquipmentItem, FieldMapState, Gender, GroupState, InventoryItem, Skill, Spell, SpellTargetType,
+    EquipmentItem, FieldMapState, Gender, GroupState, InventoryItem, MessageDialogsState, Skill,
+    Spell, SpellTargetType,
 };
 use serde_json::json;
 use std::fmt::Write as _;
@@ -45,6 +46,7 @@ pub(crate) fn render_human(
         render_group(&mut output, snapshot.group.as_ref());
         render_dialog(&mut output, snapshot.dialog.as_ref());
         render_field_map(&mut output, snapshot.active_field_map.as_ref());
+        render_message_dialogs(&mut output, &snapshot.message_dialogs);
         render_exchange(&mut output, snapshot.exchange.as_ref());
         crate::object_output::render_human(&mut output, snapshot.objects.as_deref());
         return output;
@@ -143,6 +145,7 @@ pub(crate) fn render_human(
     render_group(&mut output, snapshot.group.as_ref());
     render_dialog(&mut output, snapshot.dialog.as_ref());
     render_field_map(&mut output, snapshot.active_field_map.as_ref());
+    render_message_dialogs(&mut output, &snapshot.message_dialogs);
     render_exchange(&mut output, snapshot.exchange.as_ref());
     crate::object_output::render_human(&mut output, snapshot.objects.as_deref());
     output
@@ -180,6 +183,14 @@ fn snapshot_value(snapshot: &ClientSnapshot) -> serde_json::Value {
         }),
         "dialog": snapshot.dialog.as_ref().map(dialog_value),
         "active_field_map": snapshot.active_field_map.as_ref().map(field_map_value),
+        "message_dialogs": {
+            "revision": snapshot.message_dialogs.revision,
+            "dialogs": snapshot.message_dialogs.dialogs.iter().map(|dialog| json!({
+                "id": dialog.id,
+                "text": dialog.text,
+                "truncated": dialog.truncated,
+            })).collect::<Vec<_>>(),
+        },
         "group": snapshot.group.as_ref().map(group_value),
         "exchange": snapshot.exchange.as_ref().map(exchange_value),
         "planned_route": snapshot.planned_route.as_ref().map(|route| json!({
@@ -190,6 +201,26 @@ fn snapshot_value(snapshot: &ClientSnapshot) -> serde_json::Value {
             })).collect::<Vec<_>>(),
         })),
     })
+}
+
+fn render_message_dialogs(output: &mut String, state: &MessageDialogsState) {
+    let _ = write!(
+        output,
+        "\nmessage_dialogs: revision={} dialogs={}",
+        state.revision,
+        state.dialogs.len(),
+    );
+    for dialog in &state.dialogs {
+        let text = dialog
+            .text
+            .as_deref()
+            .map_or_else(|| "unavailable".into(), json_string);
+        let _ = write!(
+            output,
+            "\nmessage_dialog: id={} text={} truncated={}",
+            dialog.id, text, dialog.truncated,
+        );
+    }
 }
 
 fn render_field_map(output: &mut String, field_map: Option<&FieldMapState>) {

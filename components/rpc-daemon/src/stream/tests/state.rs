@@ -104,6 +104,7 @@ fn character_snapshot(
         objects: None,
         dialog: None,
         active_field_map: None,
+        message_dialogs: Default::default(),
         group: None,
         exchange: None,
         legend: None,

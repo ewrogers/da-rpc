@@ -40,6 +40,7 @@ The tick also:
 - Detects confirmed steps that shorten the retained planned route
 - Replans a retained native ground destination after a queued step is rejected
 - Checks cached field-map pane visibility at most once every 100 milliseconds
+- Checks active message-dialog panes at most once every 100 milliseconds
 - Executes at most one queued action or diagnostic command
 - Publishes small health counters used by hook diagnostics
 

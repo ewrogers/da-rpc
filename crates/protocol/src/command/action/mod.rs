@@ -133,6 +133,7 @@ pub enum CommandKind {
     Message(MessageCommand),
     AddStat(CharacterStat),
     SelectFieldMapDestination(FieldMapSelectionCommand),
+    DismissMessageDialog(MessageDialogCommand),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -372,6 +373,12 @@ pub struct DialogCommand {
 pub struct FieldMapSelectionCommand {
     pub revision: u32,
     pub destination_index: u8,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MessageDialogCommand {
+    pub revision: u32,
+    pub id: u32,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -832,6 +839,11 @@ pub(super) fn encode_kind(output: &mut Vec<u8>, kind: CommandKind) {
             push_u32(output, command.revision);
             output.push(command.destination_index);
         }
+        CommandKind::DismissMessageDialog(command) => {
+            output.push(31);
+            push_u32(output, command.revision);
+            push_u32(output, command.id);
+        }
     }
 }
 
@@ -1080,6 +1092,10 @@ pub(super) fn decode_kind(reader: &mut PayloadReader<'_>) -> Result<CommandKind,
                 destination_index: reader.read_u8()?,
             },
         )),
+        31 => Ok(CommandKind::DismissMessageDialog(MessageDialogCommand {
+            revision: reader.read_u32()?,
+            id: reader.read_u32()?,
+        })),
         actual => Err(DecodeError::InvalidCommandKind { actual }),
     }
 }

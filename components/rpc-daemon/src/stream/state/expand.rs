@@ -252,6 +252,7 @@ pub(crate) fn expand(
         }
         update @ (StateUpdate::Dialog(_)
         | StateUpdate::FieldMap(_)
+        | StateUpdate::MessageDialogs(_)
         | StateUpdate::Group(_)
         | StateUpdate::Exchange(_)
         | StateUpdate::Legend(_)) => interaction::expand(observation, update),

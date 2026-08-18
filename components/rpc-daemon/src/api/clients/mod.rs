@@ -85,6 +85,27 @@ pub(super) async fn client_field_map(
 
 #[utoipa::path(
     get,
+    path = "/clients/{client}/message-dialogs",
+    params(("client" = String, Path, description = "Process ID or current in-game character name")),
+    responses(
+        (status = 200, description = "The current native message dialogs", body = MessageDialogsSnapshot),
+        (status = 400, body = ErrorState),
+        (status = 404, body = ErrorState),
+        (status = 429, body = ErrorState),
+        (status = 503, body = ErrorState),
+        (status = 504, body = ErrorState)
+    )
+)]
+pub(super) async fn client_message_dialogs(
+    Path(identifier): Path<String>,
+    State(state): State<ApiState>,
+) -> Result<Json<MessageDialogsSnapshot>, ApiError> {
+    let (pid, _, snapshot) = crate::commands::live_snapshot(&state, &identifier).await?;
+    Ok(Json(MessageDialogsSnapshot::from_model(pid, &snapshot)))
+}
+
+#[utoipa::path(
+    get,
     path = "/clients/{client}/group",
     params(("client" = String, Path, description = "Process ID or current in-game character name")),
     responses(

@@ -35,6 +35,7 @@ pub(crate) mod group;
 pub(crate) mod interaction;
 pub(crate) mod legend;
 pub(crate) mod message;
+pub(crate) mod message_dialog;
 pub(crate) mod movement;
 pub(crate) mod player;
 pub(crate) mod raw;
@@ -320,6 +321,7 @@ pub(crate) enum CommandKind {
     Message,
     AddStat,
     SelectFieldMapDestination,
+    DismissMessageDialog,
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
@@ -733,6 +735,7 @@ impl From<ProtocolKind> for CommandKind {
             ProtocolKind::Message(_) => Self::Message,
             ProtocolKind::AddStat(_) => Self::AddStat,
             ProtocolKind::SelectFieldMapDestination(_) => Self::SelectFieldMapDestination,
+            ProtocolKind::DismissMessageDialog(_) => Self::DismissMessageDialog,
         }
     }
 }

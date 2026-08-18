@@ -39,6 +39,8 @@ mod lifecycle;
 #[cfg(windows)]
 mod map_name;
 #[cfg(any(windows, test))]
+mod message_dialog;
+#[cfg(any(windows, test))]
 mod objects;
 #[cfg(any(windows, test))]
 mod packet;

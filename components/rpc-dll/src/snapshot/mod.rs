@@ -30,6 +30,7 @@ pub(crate) fn reset() {
     publication::reset();
     crate::state::reset();
     crate::dialog::reset();
+    crate::message_dialog::reset();
     crate::group::reset();
     crate::exchange::reset();
     crate::route::reset();

@@ -47,6 +47,12 @@ pub(super) fn expand(observation: EventObservation, update: StateUpdate) -> Vec<
             });
             events
         }
+        StateUpdate::MessageDialogs(state) => {
+            events.push(ClientEvent::MessageDialogsChanged(
+                MessageDialogsChanged::new(observation, state),
+            ));
+            events
+        }
         StateUpdate::Group(update) => {
             events.push(match update {
                 darpc_model::GroupUpdate::SettingsChanged { state } => {

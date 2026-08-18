@@ -7,9 +7,9 @@ use darpc_protocol::{
     ChantText, CharacterStat, DiagnosticsOperation, DialogAction, DialogCommand, DialogText,
     ExchangeCommand, FieldMapSelectionCommand, GoldTransfer, GroupCommand, GroupInvitationAction,
     GroupText, ItemSlot, ItemTransfer, MAX_DIALOG_INPUT_LEN, MAX_ECHO_TEXT_LEN, MAX_ITEM_SLOT,
-    MAX_RAW_PACKET_PAYLOAD_LEN, MAX_SKILL_SLOT, MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT, RawPacket,
-    RawPacketDirection, SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot,
-    SpellTarget, TilePosition, TransferTarget, WalkTarget,
+    MAX_RAW_PACKET_PAYLOAD_LEN, MAX_SKILL_SLOT, MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT,
+    MessageDialogCommand, RawPacket, RawPacketDirection, SkillSlot, SlotSwap, SpellArguments,
+    SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkTarget,
 };
 use std::ffi::OsString;
 
@@ -59,6 +59,7 @@ usage:
     darpc [--output <table|json>] dialog next --pid <pid> <revision>
     darpc [--output <table|json>] dialog close --pid <pid> <revision>
     darpc [--output <table|json>] field-map select --pid <pid> <revision> <destination-index>
+    darpc [--output <table|json>] message-dialog dismiss --pid <pid> <revision> <id>
     darpc [--output <table|json>] group toggle --pid <pid>
     darpc [--output <table|json>] group invite --pid <pid> <player>
     darpc [--output <table|json>] group accept --pid <pid> <invitation-id>
@@ -110,6 +111,7 @@ pub(crate) enum Operation {
     Interact(std::num::NonZeroU32),
     Dialog(DialogCommand),
     FieldMapSelect(FieldMapSelectionCommand),
+    MessageDialogDismiss(MessageDialogCommand),
     Group(GroupCommand),
     Exchange(ExchangeCommand),
     Chant {
@@ -201,6 +203,7 @@ impl Command {
                 ..
             }) => "dialog close",
             Operation::FieldMapSelect(_) => "field-map select",
+            Operation::MessageDialogDismiss(_) => "message-dialog dismiss",
             Operation::Group(GroupCommand::Toggle) => "group toggle",
             Operation::Group(GroupCommand::Invite(_)) => "group invite",
             Operation::Group(GroupCommand::Respond {
@@ -349,6 +352,10 @@ pub(crate) fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
             revision: parse_u32(arguments.next(), "field-map revision")?,
             destination_index: parse_u8(arguments.next(), "field-map destination index")?,
         }),
+        "message-dialog dismiss" => Operation::MessageDialogDismiss(MessageDialogCommand {
+            revision: parse_u32(arguments.next(), "message-dialog revision")?,
+            id: parse_u32(arguments.next(), "message-dialog ID")?,
+        }),
         "group toggle" => Operation::Group(GroupCommand::Toggle),
         "group invite" => {
             Operation::Group(GroupCommand::Invite(parse_group_name(arguments.next())?))
@@ -429,6 +436,7 @@ fn parse_action(arguments: &mut impl Iterator<Item = OsString>) -> Result<String
         "gold" => &["drop", "give"],
         "dialog" => &["select", "input", "previous", "next", "close"],
         "field-map" => &["select"],
+        "message-dialog" => &["dismiss"],
         "group" => &["toggle", "invite", "accept", "decline"],
         "exchange" => &["item", "gold", "accept", "cancel"],
         "command" => &["status", "cancel"],
@@ -859,8 +867,8 @@ mod tests {
     use darpc_protocol::{
         ChantText, CharacterStat, DialogAction, DialogCommand, DialogText,
         FieldMapSelectionCommand, GroupCommand, GroupInvitationAction, GroupText, ItemSlot,
-        RawPacket, RawPacketDirection, SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput,
-        SpellSlot, SpellTarget, WalkTarget,
+        MessageDialogCommand, RawPacket, RawPacketDirection, SkillSlot, SlotSwap, SpellArguments,
+        SpellCast, SpellInput, SpellSlot, SpellTarget, WalkTarget,
     };
     use std::ffi::OsString;
 
@@ -1392,6 +1400,26 @@ mod tests {
             Operation::FieldMapSelect(FieldMapSelectionCommand {
                 revision: 11,
                 destination_index: 2,
+            })
+        );
+    }
+
+    #[test]
+    fn parses_message_dialog_dismissal_by_revision_and_id() {
+        let (_, command) = parse(arguments(&[
+            "message-dialog",
+            "dismiss",
+            "--pid",
+            "42",
+            "12",
+            "5",
+        ]))
+        .unwrap();
+        assert_eq!(
+            command.operation,
+            Operation::MessageDialogDismiss(MessageDialogCommand {
+                revision: 12,
+                id: 5,
             })
         );
     }

@@ -1228,6 +1228,11 @@ struct WhoPlayer {
 }
 ```
 
+`InvalidState` includes exact-route installation while the packet-confirmed
+map or position disagrees with the client's native local self object. This
+protects the native walker from receiving a route whose source tile is valid
+for authoritative state but not for the locally rendered client state.
+
 Each optional field is encoded as a strict Boolean followed by its `u32` value
 when present. Submission only validates and copies bounded scalar values on the
 IPC worker. Execution occurs later through the client tick hook. Directions use

@@ -104,7 +104,10 @@ An exact-route walk instead validates a map-tagged sequence of at most 256
 absolute tiles, appends the client's native 12-byte route records in reverse
 consumption order, and starts normal queued walking. The DLL observes native
 route construction and queued-step results without changing native collision
-or replanning. Only a rejected externally installed exact route is reset.
+or replanning. Before installation, it also rejects the route with
+`invalid_state` when the packet-confirmed map or position differs from the
+client's native local self object. Only a rejected externally installed exact
+route is reset.
 Every queued command remains pointer-free.
 
 Chant commands submit a bounded `0x0E` message packet with spell-chant mode `2`

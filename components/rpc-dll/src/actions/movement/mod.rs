@@ -350,6 +350,9 @@ impl Movement {
         let width = self.read_world::<i32>(MAP_WIDTH_OFFSET)?;
         let height = self.read_world::<i32>(MAP_HEIGHT_OFFSET)?;
         let position = self.local_position()?;
+        if crate::state::position_desynchronized(route.map_id(), position) {
+            return Err(CommandFailure::InvalidState);
+        }
         let tiles = route.tiles();
         let Some(first) = tiles.first() else {
             return Err(CommandFailure::InvalidDestination);

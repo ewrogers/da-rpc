@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Report `invalid_state` instead of `invalid_destination` when exact-route
+  installation detects that the server-authoritative position and the
+  client's native local position are desynchronized.
 - Return from client launches without waiting for the bounded affinity
   monitoring window, while retaining post-launch correction in a detached
   monitor.

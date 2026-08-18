@@ -408,6 +408,13 @@ pub(crate) fn merge_snapshot_position(raw: &mut RawStateSnapshot) {
     }
 }
 
+#[cfg(not(test))]
+pub(crate) fn position_desynchronized(map_id: u32, local: TilePosition) -> bool {
+    // SAFETY: commands execute on the client main thread, which is the sole
+    // cache producer.
+    unsafe { CACHE.position_desynchronized(map_id, local) }
+}
+
 pub(crate) fn mark_collection_dirty(kind: CollectionKind, slot: u8, tick_ms: u32) {
     // SAFETY: the event hook runs on the client main thread, which is the sole
     // collection producer.
@@ -1112,6 +1119,24 @@ mod tests {
             raw.location.unwrap().x.zip(raw.location.unwrap().y),
             Some((43, 40))
         );
+    }
+
+    #[test]
+    fn detects_native_position_desynchronization() {
+        let cache = StateCache {
+            map: Some(CachedMap {
+                id: 600,
+                width: 25,
+                height: 25,
+            }),
+            position: Some((15, 6)),
+            ..StateCache::default()
+        };
+
+        assert!(!cache.position_desynchronized(600, TilePosition { x: 15, y: 6 }));
+        assert!(cache.position_desynchronized(600, TilePosition { x: 14, y: 6 }));
+        assert!(cache.position_desynchronized(601, TilePosition { x: 15, y: 6 }));
+        assert!(!StateCache::default().position_desynchronized(600, TilePosition { x: 15, y: 6 }));
     }
 
     #[test]

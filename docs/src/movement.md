@@ -75,6 +75,15 @@ The route must:
 - use unique tiles connected by cardinal one-tile edges; and
 - pass both native collision checks at submission time.
 
+The DLL validates the route against both the packet-confirmed position used by
+state and events and the position of the client's native local self object. If
+those positions or their map IDs disagree, the client is locally
+desynchronized and the command fails with `invalid_state`. The route is not
+installed, even when its first tile matches `/status`, because native walking
+would start from the stale local object. Stop submitting routes until the
+client has resynchronized; the supported client normally refreshes its local
+world state when the user presses F5. Reread `/status` before planning again.
+
 The DLL places the validated route into the client's native route vector and
 starts its normal walker. Animation, packets, acknowledgements, and pacing
 remain client-owned. Route injection is not a teleport and does not bypass the

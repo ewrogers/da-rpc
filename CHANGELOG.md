@@ -13,7 +13,7 @@
 
 - Leave native path planning, collision answers, queued-step execution, and
   pursuit behavior unchanged while retaining route and obstruction telemetry.
-- Advance the binary protocol to 2.0 for the incompatible movement event,
+- Advance the binary protocol to 1.6 for the incompatible movement event,
   snapshot, and command changes.
 
 ### Removed

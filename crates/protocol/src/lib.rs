@@ -48,7 +48,7 @@ pub use message::{
     Architecture, ComponentVersion, DiagnosticsRequest, DiagnosticsResponse, EchoRequest,
     EchoResponse, Hello, HelloAck, MAX_ECHO_TEXT_LEN, Message, MessageType, PROTOCOL_VERSION_1_0,
     PROTOCOL_VERSION_1_1, PROTOCOL_VERSION_1_2, PROTOCOL_VERSION_1_3, PROTOCOL_VERSION_1_4,
-    PROTOCOL_VERSION_1_5, PROTOCOL_VERSION_2_0, Ping, Pong, SUPPORTED_VERSIONS, TickHealthRequest,
+    PROTOCOL_VERSION_1_5, PROTOCOL_VERSION_1_6, Ping, Pong, SUPPORTED_VERSIONS, TickHealthRequest,
     TickHealthResponse, VersionRange, protocol_version, protocol_version_major,
     protocol_version_minor,
 };

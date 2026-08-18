@@ -51,20 +51,18 @@ const VERSION_1_2: u16 = 0x0102;
 const VERSION_1_3: u16 = 0x0103;
 const VERSION_1_4: u16 = 0x0104;
 const VERSION_1_5: u16 = 0x0105;
-const VERSION_2_0: u16 = 0x0200;
+const VERSION_1_6: u16 = 0x0106;
 ```
 
-A major change may be incompatible. A minor change is additive and must remain
-compatible with earlier minor versions in the same major line. Each peer
-advertises an inclusive, continuous range and the controller selects the
-highest version in the overlap. A peer must not advertise one continuous range
-across an incompatible major boundary. No overlap rejects the connection.
+The protocol number is a wire-schema revision, not a Semantic Versioning
+compatibility promise. Each peer advertises an inclusive, continuous range of
+versions it can decode, and the controller selects the highest version in the
+overlap. No overlap rejects the connection.
 
-The only currently supported version is 2.0 (`0x0200`). Version 2.0 removes the
+The only currently supported version is 1.6 (`0x0106`). Version 1.6 removes the
 path-exclusion snapshot, state update, and commands; adds walk cancellation;
-and adds an explicit reason to stopped movement. This is a new major version
-because those wire changes are incompatible with 1.x decoders. Peers advertise
-only 2.0.
+and adds an explicit reason to stopped movement. Those changes are incompatible
+with 1.5 decoders, so peers advertise only 1.6.
 
 ## Message types
 

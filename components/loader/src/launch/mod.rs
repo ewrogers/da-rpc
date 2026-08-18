@@ -7,6 +7,8 @@ use crate::{
 use darpc_win32::lifecycle::InitializeOptions;
 use std::{ffi::OsString, path::Path};
 
+pub(crate) const AFFINITY_MONITOR_ARGUMENT: &str = "--monitor-launch-affinity";
+
 pub(crate) struct LaunchOutcome {
     pub(crate) pid: u32,
     pub(crate) inspection: ProcessInspection,
@@ -94,6 +96,22 @@ pub(crate) fn launch(
             apply_default_patches,
             initialize_options,
         );
+        Err(LoaderError::new(
+            ErrorKind::UnsupportedPlatform,
+            "loader requires Windows",
+        ))
+    }
+}
+
+pub(crate) fn monitor_affinity(pid: u32, creation_time: u64) -> Result<()> {
+    #[cfg(windows)]
+    {
+        platform::monitor_affinity(pid, creation_time)
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = (pid, creation_time);
         Err(LoaderError::new(
             ErrorKind::UnsupportedPlatform,
             "loader requires Windows",

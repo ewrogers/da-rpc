@@ -24,7 +24,8 @@ use windows_sys::Win32::{
         Threading::{
             GetExitCodeProcess, GetProcessTimes, IsWow64Process2, OpenProcess,
             PROCESS_CREATE_THREAD, PROCESS_QUERY_INFORMATION, PROCESS_QUERY_LIMITED_INFORMATION,
-            PROCESS_VM_OPERATION, PROCESS_VM_READ, PROCESS_VM_WRITE, QueryFullProcessImageNameW,
+            PROCESS_SET_INFORMATION, PROCESS_VM_OPERATION, PROCESS_VM_READ, PROCESS_VM_WRITE,
+            QueryFullProcessImageNameW,
         },
     },
 };
@@ -326,6 +327,15 @@ impl TargetProcess {
             | PROCESS_VM_OPERATION
             | PROCESS_VM_READ
             | PROCESS_VM_WRITE;
+
+        Ok(Self {
+            pid,
+            handle: open_process(pid, access)?,
+        })
+    }
+
+    pub(crate) fn open_for_affinity(pid: u32) -> Result<Self> {
+        let access = PROCESS_QUERY_INFORMATION | PROCESS_SET_INFORMATION;
 
         Ok(Self {
             pid,

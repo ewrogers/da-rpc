@@ -107,11 +107,13 @@ pub(crate) fn expand(
                     current,
                     destination,
                     reached_destination,
+                    reason,
                 } => ClientEvent::WalkingStopped(WalkingStopped {
                     observation,
                     current: current.into(),
                     destination: destination.map(Into::into),
                     reached_destination,
+                    reason: reason.into(),
                 }),
                 MovementUpdate::Obstructed {
                     map_id,
@@ -142,34 +144,6 @@ pub(crate) fn expand(
                 observation,
                 generation: route.generation,
                 tiles: route.tiles.into_iter().map(Into::into).collect(),
-            }));
-            events
-        }
-        StateUpdate::MapExclusions(update) => {
-            let (operation, map_id, tile_count, map_count) = match update {
-                darpc_model::MapExclusionsUpdate::Replaced {
-                    exclusions,
-                    map_count,
-                } => (
-                    MapExclusionsOperation::Replaced,
-                    Some(exclusions.map_id),
-                    u16::try_from(exclusions.tiles.len())
-                        .expect("bounded exclusion tile count fits u16"),
-                    map_count,
-                ),
-                darpc_model::MapExclusionsUpdate::Removed { map_id, map_count } => {
-                    (MapExclusionsOperation::Removed, Some(map_id), 0, map_count)
-                }
-                darpc_model::MapExclusionsUpdate::Cleared { .. } => {
-                    (MapExclusionsOperation::Cleared, None, 0, 0)
-                }
-            };
-            events.push(ClientEvent::MapExclusionsChanged(MapExclusionsChanged {
-                observation,
-                operation,
-                map_id,
-                tile_count,
-                map_count,
             }));
             events
         }

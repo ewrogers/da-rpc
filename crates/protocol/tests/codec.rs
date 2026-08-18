@@ -9,12 +9,11 @@ use darpc_model::{
     ExchangeState, ExchangeUpdate, FieldMapDestination, FieldMapSelection, FieldMapState,
     FieldMapUpdate, Gender, GroupInvitation, GroupMember, GroupState, GroupUpdate, HumanVisual,
     InventoryItem, LegendIcon, LegendMark, LegendUpdate, LifecycleUpdate, LocationUpdate,
-    MapChange, MapExclusions, MapExclusionsUpdate, MapLocation, MessageKind, MovementUpdate,
-    Nation, ObjectUpdate, PlannedRoute, PlayerEquipmentItem, PlayerIdentity,
-    PlayerInspectionChanges, PlayerInspectionTrigger, PlayerProfile, PlayerUpdate, PlayerVisual,
-    ProgressionStatus, Skill, SlotUpdate, Spell, SpellCancellationSource, SpellCastArguments,
-    SpellTargetType, StateEvent, StateUpdate, StatusUpdate, TilePosition, UserState, WalkMode,
-    WhoList, WhoPlayer, WorldObject,
+    MapChange, MapLocation, MessageKind, MovementStopReason, MovementUpdate, Nation, ObjectUpdate,
+    PlannedRoute, PlayerEquipmentItem, PlayerIdentity, PlayerInspectionChanges,
+    PlayerInspectionTrigger, PlayerProfile, PlayerUpdate, PlayerVisual, ProgressionStatus, Skill,
+    SlotUpdate, Spell, SpellCancellationSource, SpellCastArguments, SpellTargetType, StateEvent,
+    StateUpdate, StatusUpdate, TilePosition, UserState, WalkMode, WhoList, WhoPlayer, WorldObject,
 };
 use darpc_protocol::{
     Architecture, ChantText, CharacterStat, CommandFailure, CommandKind, CommandOperation,
@@ -26,8 +25,8 @@ use darpc_protocol::{
     GroupCommand, GroupInvitationAction, GroupText, Hello, HelloAck, HookTimingRecord,
     HookTimingStage, ItemSlot, ItemTransfer, MAX_COMMAND_TIMEOUT_MS, MAX_COMMAND_WAIT_MS,
     MAX_ECHO_TEXT_LEN, MAX_PAYLOAD_LEN, Message, MessageCommand, MessageContent, MessageRecipient,
-    MessageType, PROTOCOL_VERSION_1_0, PathExclusions, Ping, Pong, RawPacket, RawPacketDirection,
-    RouteTile, SkillSlot, SlotSwap, SnapshotRequest, SnapshotResponse, SnapshotResult,
+    MessageType, PROTOCOL_VERSION_1_0, Ping, Pong, RawPacket, RawPacketDirection, RouteTile,
+    SkillSlot, SlotSwap, SnapshotRequest, SnapshotResponse, SnapshotResult,
     SnapshotUnavailableReason, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget,
     TickHealthRequest, TickHealthResponse, TilePosition as CommandTilePosition, TransferTarget,
     VersionRange, WalkRoute, WalkTarget, decode_frame, decode_header, encode_frame,
@@ -246,16 +245,6 @@ fn snapshot() -> ClientSnapshot {
                 TilePosition { x: 12, y: 23 },
             ],
         }),
-        map_exclusions: vec![
-            MapExclusions {
-                map_id: 3000,
-                tiles: vec![TilePosition { x: 4, y: 5 }, TilePosition { x: 9, y: 2 }],
-            },
-            MapExclusions {
-                map_id: 3001,
-                tiles: vec![TilePosition { x: 7, y: 8 }],
-            },
-        ],
     }
 }
 

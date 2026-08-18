@@ -43,7 +43,6 @@ pub(super) fn snapshot(
         exchange: crate::exchange::decode_current(retained.exchange),
         legend: Some(crate::legend::model_state(retained.legend)),
         planned_route: crate::route::model(retained.route),
-        map_exclusions: crate::path_exclusions::model_state(),
     }
 }
 

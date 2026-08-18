@@ -1,7 +1,6 @@
 use super::{module_base, read};
 use crate::hooks::path::{CanMoveFn, native_edge_allowed};
 use crate::process_memory::ProcessValue;
-use crate::route_retry;
 use darpc_game_client::{
     ADVANCE_PATH_RVA, BUILD_PATH_RVA, MAP_CAN_MOVE_DIRECTION_RVA, RESET_MOVEMENT_RVA,
     ROUTE_STEP_PUSH_BACK_RVA, SELF_OBJECT_RVA, TURN_RVA, WALK_RVA, WORLD_ENTITY_INTERACTION_RVA,
@@ -9,19 +8,20 @@ use darpc_game_client::{
     WORLD_PANE_ROUTE_ACTIVE_OFFSET, WORLD_PANE_ROUTE_STEP_COUNT_OFFSET,
     WORLD_PANE_ROUTE_VECTOR_OFFSET,
 };
-use darpc_model::{Direction, MovementUpdate, TilePosition, WalkMode};
-use darpc_protocol::{CommandFailure, PathExclusions, RouteTile, WalkRoute};
+use darpc_model::{Direction, MovementStopReason, MovementUpdate, TilePosition, WalkMode};
+use darpc_protocol::{CommandFailure, RouteTile, WalkRoute};
 use std::{
     ffi::c_void,
     mem,
     ptr::NonNull,
-    sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU32, AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU32, Ordering},
 };
 
 const LOCAL_Y_OFFSET: usize = 0x40;
 const LOCAL_X_OFFSET: usize = 0x44;
 const MAP_WIDTH_OFFSET: usize = 0x1C4;
 const MAP_HEIGHT_OFFSET: usize = 0x1C8;
+const WALKING_STALL_TIMEOUT_MS: u32 = 1_000;
 
 type TurnFn = unsafe extern "thiscall" fn(*mut c_void, u8) -> usize;
 type SelfObjectFn = unsafe extern "thiscall" fn(*mut c_void) -> *mut c_void;
@@ -47,21 +47,6 @@ static HAS_ROUTE_DESTINATION: AtomicBool = AtomicBool::new(false);
 static ROUTE_MODE: AtomicU8 = AtomicU8::new(0);
 static ROUTE_DESTINATION_X: AtomicI32 = AtomicI32::new(0);
 static ROUTE_DESTINATION_Y: AtomicI32 = AtomicI32::new(0);
-static REPLAN_PENDING: AtomicBool = AtomicBool::new(false);
-static REPLAN_WORLD: AtomicUsize = AtomicUsize::new(0);
-static REPLAN_DUE_TICK: AtomicU32 = AtomicU32::new(0);
-static REPLAN_DEADLINE_TICK: AtomicU32 = AtomicU32::new(0);
-static REPLAN_ATTEMPT: AtomicU32 = AtomicU32::new(0);
-static ROUTE_PROGRESS_VALID: AtomicBool = AtomicBool::new(false);
-static ROUTE_PROGRESS_X: AtomicI32 = AtomicI32::new(0);
-static ROUTE_PROGRESS_Y: AtomicI32 = AtomicI32::new(0);
-static ROUTE_PROGRESS_TICK: AtomicU32 = AtomicU32::new(0);
-static POSITION_SYNC_REPLAN: AtomicBool = AtomicBool::new(false);
-static ROUTE_STEP_RETRY_VALID: AtomicBool = AtomicBool::new(false);
-static ROUTE_STEP_RETRY_FAILURES: AtomicU32 = AtomicU32::new(0);
-static ROUTE_STEP_RETRY_DUE_TICK: AtomicU32 = AtomicU32::new(0);
-static ROUTE_OBSERVATION_VALID: AtomicBool = AtomicBool::new(false);
-static ROUTE_OBSERVATION_DUE_TICK: AtomicU32 = AtomicU32::new(0);
 static WALK_STEP_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 static WALK_STEP_STARTED_TICK: AtomicU32 = AtomicU32::new(0);
 static WALK_POSITION_VALID: AtomicBool = AtomicBool::new(false);
@@ -69,58 +54,45 @@ static WALK_POSITION_X: AtomicI32 = AtomicI32::new(0);
 static WALK_POSITION_Y: AtomicI32 = AtomicI32::new(0);
 
 pub(super) fn turn(direction: Direction) -> Result<(), CommandFailure> {
+    stop_current_movement(MovementStopReason::Cancelled);
     clear_route_destination();
     Movement::resolve()?.turn(direction)
 }
 
 pub(super) fn walk(direction: Direction) -> Result<(), CommandFailure> {
+    stop_current_movement(MovementStopReason::Replaced);
     clear_route_destination();
     Movement::resolve()?.walk(direction)
 }
 
 pub(super) fn walk_to(x: i32, y: i32) -> Result<(), CommandFailure> {
+    stop_current_movement(MovementStopReason::Replaced);
     clear_route_destination();
     let result = Movement::resolve()?.walk_to(x, y);
     if result.is_ok() {
         set_route_destination(x, y, WalkMode::NativeRoute);
+    } else {
+        clear_route_destination();
     }
     result
 }
 
 pub(super) fn walk_route(route: WalkRoute) -> Result<(), CommandFailure> {
+    stop_current_movement(MovementStopReason::Replaced);
     clear_route_destination();
-    Movement::resolve()?.walk_route(route)
+    let result = Movement::resolve()?.walk_route(route);
+    if result.is_err() {
+        clear_route_destination();
+    }
+    result
 }
 
-pub(super) fn set_path_exclusions(exclusions: PathExclusions) -> Result<(), CommandFailure> {
-    let current_map_id = Movement::resolve()
-        .and_then(|movement| movement.map_id())
-        .ok();
-    let update = crate::path_exclusions::replace(exclusions, current_map_id)
-        .map_err(|()| CommandFailure::InvalidDestination)?;
-    if let Some(update) = update {
-        crate::state::observe_path_exclusions(update, darpc_win32::pipe::sender_tick_ms());
-    }
-    Ok(())
-}
-
-pub(super) fn remove_path_exclusions(map_id: u32) -> Result<(), CommandFailure> {
-    if map_id > u32::from(u16::MAX) {
-        return Err(CommandFailure::InvalidDestination);
-    }
-    let current_map_id = Movement::resolve()
-        .and_then(|movement| movement.map_id())
-        .ok();
-    if let Some(update) = crate::path_exclusions::remove(map_id, current_map_id) {
-        crate::state::observe_path_exclusions(update, darpc_win32::pipe::sender_tick_ms());
-    }
-    Ok(())
-}
-
-pub(super) fn clear_path_exclusions() -> Result<(), CommandFailure> {
-    if let Some(update) = crate::path_exclusions::clear() {
-        crate::state::observe_path_exclusions(update, darpc_win32::pipe::sender_tick_ms());
-    }
+pub(super) fn cancel_walk() -> Result<(), CommandFailure> {
+    let movement = Movement::resolve()?;
+    stop_current_movement(MovementStopReason::Cancelled);
+    movement.reset();
+    clear_route_destination();
+    crate::route::observe_current(darpc_win32::pipe::sender_tick_ms());
     Ok(())
 }
 
@@ -164,8 +136,11 @@ pub(super) fn local_object_id() -> Result<u32, CommandFailure> {
 pub(crate) fn is_walking() -> Option<bool> {
     let in_flight = WALK_STEP_IN_FLIGHT.load(Ordering::Acquire);
     let started_tick = WALK_STEP_STARTED_TICK.load(Ordering::Relaxed);
-    let walking =
-        route_retry::step_is_walking(in_flight, started_tick, darpc_win32::pipe::sender_tick_ms());
+    let walking = in_flight
+        && !crate::wrapping_time::deadline_reached(
+            darpc_win32::pipe::sender_tick_ms(),
+            started_tick.wrapping_add(WALKING_STALL_TIMEOUT_MS),
+        );
     if in_flight && !walking {
         WALK_STEP_IN_FLIGHT.store(false, Ordering::Release);
     }
@@ -186,7 +161,8 @@ pub(crate) fn observe_position(position: TilePosition) {
         .ok()
         .and_then(|movement| movement.route_pending())
         .unwrap_or(false);
-    if let Some(walking) = route_retry::walking_after_progress(previous, position, route_pending) {
+    if previous.is_some_and(|previous| previous != position) {
+        let walking = route_pending;
         if walking {
             WALK_STEP_STARTED_TICK.store(darpc_win32::pipe::sender_tick_ms(), Ordering::Relaxed);
         }
@@ -222,8 +198,12 @@ pub(crate) fn observe_native_route(world: *const c_void, destination: TilePositi
         read::<u32>(world as usize + darpc_game_client::WORLD_PANE_PURSUIT_TARGET_ID_OFFSET)
             .unwrap_or(0);
     if pursuit_target != 0 {
+        stop_current_movement(MovementStopReason::Replaced);
         clear_route_destination();
         return;
+    }
+    if route_destination().is_some_and(|current| current != destination) {
+        stop_current_movement(MovementStopReason::Replaced);
     }
     set_route_destination(destination.x, destination.y, WalkMode::NativeRoute);
 }
@@ -231,31 +211,6 @@ pub(crate) fn observe_native_route(world: *const c_void, destination: TilePositi
 pub(crate) fn clear_route_destination() {
     HAS_ROUTE_DESTINATION.store(false, Ordering::Release);
     ROUTE_MODE.store(0, Ordering::Release);
-    POSITION_SYNC_REPLAN.store(false, Ordering::Release);
-    ROUTE_PROGRESS_VALID.store(false, Ordering::Release);
-    ROUTE_PROGRESS_TICK.store(0, Ordering::Release);
-    ROUTE_OBSERVATION_VALID.store(false, Ordering::Release);
-    ROUTE_OBSERVATION_DUE_TICK.store(0, Ordering::Release);
-    clear_step_retry();
-    clear_replan();
-}
-
-fn clear_replan() {
-    clear_pending_replan();
-    REPLAN_DEADLINE_TICK.store(0, Ordering::Release);
-    REPLAN_ATTEMPT.store(0, Ordering::Release);
-}
-
-fn clear_pending_replan() {
-    REPLAN_PENDING.store(false, Ordering::Release);
-    REPLAN_WORLD.store(0, Ordering::Release);
-    REPLAN_DUE_TICK.store(0, Ordering::Release);
-}
-
-fn clear_step_retry() {
-    ROUTE_STEP_RETRY_VALID.store(false, Ordering::Release);
-    ROUTE_STEP_RETRY_FAILURES.store(0, Ordering::Release);
-    ROUTE_STEP_RETRY_DUE_TICK.store(0, Ordering::Release);
 }
 
 pub(crate) fn reset_tracking() {
@@ -264,154 +219,22 @@ pub(crate) fn reset_tracking() {
     WALK_POSITION_VALID.store(false, Ordering::Release);
 }
 
-pub(crate) fn schedule_position_sync_replan() {
-    if HAS_ROUTE_DESTINATION.load(Ordering::Acquire) {
-        POSITION_SYNC_REPLAN.store(true, Ordering::Release);
-    }
-}
-
-pub(crate) fn observe_tick() {
-    let Some(destination) = route_destination() else {
-        return;
-    };
-    let tick_ms = darpc_win32::pipe::sender_tick_ms();
-    if ROUTE_OBSERVATION_VALID.load(Ordering::Acquire)
-        && !crate::wrapping_time::deadline_reached(
-            tick_ms,
-            ROUTE_OBSERVATION_DUE_TICK.load(Ordering::Acquire),
-        )
-    {
-        return;
-    }
-    ROUTE_OBSERVATION_DUE_TICK.store(
-        route_retry::observation_due_tick(tick_ms),
-        Ordering::Relaxed,
-    );
-    ROUTE_OBSERVATION_VALID.store(true, Ordering::Release);
-    let Ok(movement) = Movement::resolve() else {
-        clear_route_destination();
-        return;
-    };
-    let Ok(position) = movement.local_position() else {
-        clear_route_destination();
-        return;
-    };
-    if POSITION_SYNC_REPLAN.swap(false, Ordering::AcqRel) {
-        if position == destination {
+pub(crate) fn observe_position_correction() {
+    stop_current_movement(MovementStopReason::PositionCorrected);
+    if ROUTE_MODE.load(Ordering::Acquire) == 2 {
+        if let Ok(movement) = Movement::resolve() {
             movement.reset();
-            clear_route_destination();
-            return;
         }
-        movement.reset();
-        record_route_progress(position, tick_ms);
-        start_replan(movement.world.as_ptr() as usize, tick_ms);
-    }
-    if !ROUTE_PROGRESS_VALID.load(Ordering::Acquire)
-        || position.x != ROUTE_PROGRESS_X.load(Ordering::Relaxed)
-        || position.y != ROUTE_PROGRESS_Y.load(Ordering::Relaxed)
-    {
-        record_route_progress(position, tick_ms);
-        clear_step_retry();
-        if let Some(deadline) =
-            route_retry::deadline_after_progress(REPLAN_PENDING.load(Ordering::Acquire), tick_ms)
-        {
-            REPLAN_DEADLINE_TICK.store(deadline, Ordering::Relaxed);
-            REPLAN_ATTEMPT.store(0, Ordering::Relaxed);
-        } else {
-            clear_replan();
-        }
-    }
-    if position == destination {
-        clear_step_retry();
-        clear_replan();
-        return;
-    }
-
-    if !REPLAN_PENDING.load(Ordering::Acquire) {
-        if movement.route_active() != Some(true) && !ROUTE_STEP_RETRY_VALID.load(Ordering::Acquire)
-        {
-            return;
-        }
-        let deadline = REPLAN_DEADLINE_TICK.load(Ordering::Acquire);
-        if deadline != 0 && crate::wrapping_time::deadline_reached(tick_ms, deadline) {
-            movement.reset();
-            clear_route_destination();
-            return;
-        }
-        if ROUTE_MODE.load(Ordering::Acquire) != 1 {
-            return;
-        }
-        if ROUTE_STEP_RETRY_VALID.load(Ordering::Acquire) {
-            if !crate::wrapping_time::deadline_reached(
-                tick_ms,
-                ROUTE_STEP_RETRY_DUE_TICK.load(Ordering::Acquire),
-            ) {
-                return;
-            }
-        } else {
-            if !route_retry::stalled(tick_ms, ROUTE_PROGRESS_TICK.load(Ordering::Acquire)) {
-                return;
-            }
-            // Treat the unconfirmed original step as the first failure. The
-            // immediate call below is the first of two one-second retries.
-            ROUTE_STEP_RETRY_FAILURES.store(1, Ordering::Relaxed);
-            ROUTE_STEP_RETRY_DUE_TICK.store(tick_ms, Ordering::Relaxed);
-            ROUTE_STEP_RETRY_VALID.store(true, Ordering::Release);
-        }
-        let failures = ROUTE_STEP_RETRY_FAILURES.load(Ordering::Acquire);
-        // SAFETY: the validated WorldPane remains live on the client main
-        // thread. The native helper retries its queued step or reports that
-        // the route has already emptied.
-        unsafe { movement.advance_fn()(movement.world.as_ptr()) };
-        record_unconfirmed_retry(movement.world.as_ptr() as usize, failures, tick_ms);
-        if !REPLAN_PENDING.load(Ordering::Acquire) {
-            return;
-        }
-        movement.reset();
-    }
-
-    if crate::wrapping_time::deadline_reached(tick_ms, REPLAN_DEADLINE_TICK.load(Ordering::Acquire))
-    {
         clear_route_destination();
-        return;
-    }
-    if movement.world.as_ptr() as usize != REPLAN_WORLD.load(Ordering::Acquire) {
-        clear_route_destination();
-        return;
-    }
-    if movement.route_active() == Some(true) {
-        clear_route_destination();
-        return;
-    }
-    if !crate::wrapping_time::deadline_reached(tick_ms, REPLAN_DUE_TICK.load(Ordering::Acquire)) {
-        return;
-    }
-
-    REPLAN_PENDING.store(false, Ordering::Release);
-    match movement.walk_to(destination.x, destination.y) {
-        Ok(()) => {
-            clear_pending_replan();
-            ROUTE_PROGRESS_TICK.store(tick_ms, Ordering::Release);
-        }
-        Err(CommandFailure::NoPath | CommandFailure::Rejected) => schedule_next_replan(tick_ms),
-        Err(_) => clear_route_destination(),
+        crate::route::observe_current(darpc_win32::pipe::sender_tick_ms());
     }
 }
 
-pub(crate) fn is_recovery_pending() -> bool {
-    REPLAN_PENDING.load(Ordering::Acquire) || ROUTE_STEP_RETRY_VALID.load(Ordering::Acquire)
-}
-
-/// Records a queued-step result and returns the native reset mode to apply.
-///
-/// An accepted native ground-route step arms a confirmation watchdog, which
-/// confirmed position progress clears. A failed pursuit step preserves its
-/// native retry timer with mode 1. An unconfirmed native ground step gets two
-/// one-second retries, then resets and replans. Exact routes reset immediately
-/// without replanning.
-pub(crate) fn queued_step_reset_mode(world: *mut c_void, direction: u8, moved: bool) -> Option<u8> {
+/// Observes the stock queued-step result and requests a reset only for an
+/// externally installed exact route whose next edge was rejected.
+pub(crate) fn observe_queued_step(world: *mut c_void, direction: u8, moved: bool) -> bool {
     if world.is_null() {
-        return None;
+        return false;
     }
     observe_step_result(moved);
     let pursuit_target =
@@ -425,87 +248,16 @@ pub(crate) fn queued_step_reset_mode(world: *mut c_void, direction: u8, moved: b
         WalkMode::NativeRoute
     };
     if moved {
-        if mode == WalkMode::NativeRoute
-            && HAS_ROUTE_DESTINATION.load(Ordering::Acquire)
-            && !ROUTE_STEP_RETRY_VALID.load(Ordering::Acquire)
-        {
-            let tick_ms = darpc_win32::pipe::sender_tick_ms();
-            ROUTE_STEP_RETRY_FAILURES.store(1, Ordering::Relaxed);
-            ROUTE_STEP_RETRY_DUE_TICK
-                .store(route_retry::step_retry_due_tick(tick_ms), Ordering::Relaxed);
-            ROUTE_STEP_RETRY_VALID.store(true, Ordering::Release);
-        }
-        return None;
+        return false;
     }
     publish_obstruction(world, Direction::from_raw(direction), mode);
-    if pursuit_target != 0 {
-        return Some(1);
+    stop_current_movement(MovementStopReason::Obstructed);
+    if mode == WalkMode::ExactRoute {
+        clear_route_destination();
+        true
+    } else {
+        false
     }
-    if mode == WalkMode::ExactRoute || !HAS_ROUTE_DESTINATION.load(Ordering::Acquire) {
-        return Some(0);
-    }
-
-    let tick_ms = darpc_win32::pipe::sender_tick_ms();
-    if ROUTE_STEP_RETRY_VALID.load(Ordering::Acquire)
-        && !crate::wrapping_time::deadline_reached(
-            tick_ms,
-            ROUTE_STEP_RETRY_DUE_TICK.load(Ordering::Acquire),
-        )
-    {
-        return None;
-    }
-    let failures = ROUTE_STEP_RETRY_FAILURES.load(Ordering::Acquire);
-    match route_retry::after_step_failure(failures, tick_ms) {
-        route_retry::StepFailureAction::Retry { failures, due_tick } => {
-            ROUTE_STEP_RETRY_FAILURES.store(failures, Ordering::Relaxed);
-            ROUTE_STEP_RETRY_DUE_TICK.store(due_tick, Ordering::Relaxed);
-            ROUTE_STEP_RETRY_VALID.store(true, Ordering::Release);
-            None
-        }
-        route_retry::StepFailureAction::Replan => {
-            clear_step_retry();
-            start_replan(world as usize, tick_ms);
-            Some(0)
-        }
-    }
-}
-
-fn start_replan(world: usize, tick_ms: u32) {
-    REPLAN_WORLD.store(world, Ordering::Relaxed);
-    REPLAN_DUE_TICK.store(tick_ms, Ordering::Relaxed);
-    if REPLAN_DEADLINE_TICK.load(Ordering::Relaxed) == 0 {
-        REPLAN_DEADLINE_TICK.store(route_retry::deadline(tick_ms), Ordering::Relaxed);
-        REPLAN_ATTEMPT.store(0, Ordering::Relaxed);
-    }
-    REPLAN_PENDING.store(true, Ordering::Release);
-}
-
-fn record_unconfirmed_retry(world: usize, previous_failures: u32, tick_ms: u32) {
-    if REPLAN_PENDING.load(Ordering::Acquire)
-        || !ROUTE_STEP_RETRY_VALID.load(Ordering::Acquire)
-        || ROUTE_STEP_RETRY_FAILURES.load(Ordering::Acquire) != previous_failures
-    {
-        return;
-    }
-    match route_retry::after_step_failure(previous_failures, tick_ms) {
-        route_retry::StepFailureAction::Retry { failures, due_tick } => {
-            ROUTE_STEP_RETRY_FAILURES.store(failures, Ordering::Relaxed);
-            ROUTE_STEP_RETRY_DUE_TICK.store(due_tick, Ordering::Release);
-        }
-        route_retry::StepFailureAction::Replan => {
-            clear_step_retry();
-            start_replan(world, tick_ms);
-        }
-    }
-}
-
-fn schedule_next_replan(tick_ms: u32) {
-    let attempt = REPLAN_ATTEMPT.fetch_add(1, Ordering::AcqRel);
-    REPLAN_DUE_TICK.store(
-        tick_ms.wrapping_add(route_retry::delay_ms(attempt)),
-        Ordering::Relaxed,
-    );
-    REPLAN_PENDING.store(true, Ordering::Release);
 }
 
 struct Movement {
@@ -542,12 +294,16 @@ impl Movement {
 
     fn walk(&self, direction: Direction) -> Result<(), CommandFailure> {
         self.self_object()?;
+        let current = self.local_position()?;
+        let destination =
+            step_position(current, direction).ok_or(CommandFailure::InvalidDestination)?;
         self.reset();
         // SAFETY: exact client validation fixes this RVA and ABI. The native
         // helper owns movement permission, collision, animation, and CMove.
         let accepted = unsafe { self.walk_fn()(self.world.as_ptr(), direction.raw()) } != 0;
         observe_step_result(accepted);
         if accepted {
+            set_route_destination(destination.x, destination.y, WalkMode::Direct);
             Ok(())
         } else {
             publish_obstruction(self.world.as_ptr(), Some(direction), WalkMode::Direct);
@@ -681,11 +437,6 @@ impl Movement {
         }
     }
 
-    fn route_active(&self) -> Option<bool> {
-        read::<u8>(self.world.as_ptr() as usize + WORLD_PANE_ROUTE_ACTIVE_OFFSET)
-            .map(|active| active != 0)
-    }
-
     fn route_pending(&self) -> Option<bool> {
         read::<u32>(self.world.as_ptr() as usize + WORLD_PANE_ROUTE_STEP_COUNT_OFFSET)
             .map(|count| count != 0)
@@ -805,7 +556,6 @@ fn route_direction(source: RouteTile, destination: RouteTile) -> Option<Directio
 }
 
 fn set_route_destination(x: i32, y: i32, mode: WalkMode) {
-    clear_step_retry();
     ROUTE_DESTINATION_X.store(x, Ordering::Relaxed);
     ROUTE_DESTINATION_Y.store(y, Ordering::Relaxed);
     ROUTE_MODE.store(
@@ -817,9 +567,11 @@ fn set_route_destination(x: i32, y: i32, mode: WalkMode) {
         Ordering::Relaxed,
     );
     HAS_ROUTE_DESTINATION.store(true, Ordering::Release);
-    if let Ok(position) = Movement::resolve().and_then(|movement| movement.local_position()) {
-        record_route_progress(position, darpc_win32::pipe::sender_tick_ms());
-    }
+}
+
+fn stop_current_movement(reason: MovementStopReason) {
+    stop_walking();
+    crate::state::stop_movement(reason, darpc_win32::pipe::sender_tick_ms());
 }
 
 fn publish_obstruction(world: *mut c_void, direction: Option<Direction>, mode: WalkMode) {
@@ -857,11 +609,4 @@ fn step_position(position: TilePosition, direction: Direction) -> Option<TilePos
         Direction::West => (position.x.checked_sub(1)?, position.y),
     };
     Some(TilePosition { x, y })
-}
-
-fn record_route_progress(position: TilePosition, tick_ms: u32) {
-    ROUTE_PROGRESS_X.store(position.x, Ordering::Relaxed);
-    ROUTE_PROGRESS_Y.store(position.y, Ordering::Relaxed);
-    ROUTE_PROGRESS_TICK.store(tick_ms, Ordering::Relaxed);
-    ROUTE_PROGRESS_VALID.store(true, Ordering::Release);
 }

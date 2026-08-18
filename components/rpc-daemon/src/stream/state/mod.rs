@@ -296,6 +296,29 @@ pub(crate) struct WalkingStopped {
     pub(super) current: TilePosition,
     pub(super) destination: Option<TilePosition>,
     pub(super) reached_destination: Option<bool>,
+    pub(super) reason: WalkingStopReason,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum WalkingStopReason {
+    Completed,
+    Obstructed,
+    Replaced,
+    Cancelled,
+    PositionCorrected,
+}
+
+impl From<darpc_model::MovementStopReason> for WalkingStopReason {
+    fn from(value: darpc_model::MovementStopReason) -> Self {
+        match value {
+            darpc_model::MovementStopReason::Completed => Self::Completed,
+            darpc_model::MovementStopReason::Obstructed => Self::Obstructed,
+            darpc_model::MovementStopReason::Replaced => Self::Replaced,
+            darpc_model::MovementStopReason::Cancelled => Self::Cancelled,
+            darpc_model::MovementStopReason::PositionCorrected => Self::PositionCorrected,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
@@ -323,23 +346,6 @@ pub(crate) struct WalkingRouteChanged {
     pub(super) observation: EventObservation,
     pub(super) generation: u32,
     pub(super) tiles: Vec<TilePosition>,
-}
-
-#[derive(Clone, Debug, Serialize, ToSchema)]
-pub(crate) struct MapExclusionsChanged {
-    pub(super) observation: EventObservation,
-    pub(super) operation: MapExclusionsOperation,
-    pub(super) map_id: Option<u32>,
-    pub(super) tile_count: u16,
-    pub(super) map_count: u16,
-}
-
-#[derive(Clone, Copy, Debug, Serialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum MapExclusionsOperation {
-    Replaced,
-    Removed,
-    Cleared,
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]

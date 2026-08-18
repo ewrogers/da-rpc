@@ -28,10 +28,6 @@ pub enum EncodeError {
     InvalidCommandId,
     InvalidCommandTimeout { actual: u16, max: u16 },
     InvalidCommandWait { actual: u16, max: u16 },
-    InvalidPathExclusionMapId { map_id: u32 },
-    InvalidPathExclusionMapOrder { map_id: u32 },
-    InvalidPathExclusionMapCount { actual: u16 },
-    InvalidPathExclusionTile { x: i32, y: i32 },
     InvalidFieldMapIndex { actual: u8, expected: u8 },
     WhoListTooLong { length: usize, max: usize },
     WhoStringTooLong { length: usize, max: usize },
@@ -140,20 +136,6 @@ impl fmt::Display for EncodeError {
             Self::InvalidCommandWait { actual, max } => write!(
                 formatter,
                 "command wait is {actual} ms; maximum is {max} ms"
-            ),
-            Self::InvalidPathExclusionMapId { map_id } => {
-                write!(formatter, "path-exclusion map ID {map_id} exceeds 65535")
-            }
-            Self::InvalidPathExclusionMapOrder { map_id } => write!(
-                formatter,
-                "path-exclusion map {map_id} is duplicated or out of order"
-            ),
-            Self::InvalidPathExclusionMapCount { actual } => {
-                write!(formatter, "invalid path-exclusion map count {actual}")
-            }
-            Self::InvalidPathExclusionTile { x, y } => write!(
-                formatter,
-                "path-exclusion tile ({x}, {y}) exceeds the supported map dimensions"
             ),
             Self::InvalidFieldMapIndex { actual, expected } => write!(
                 formatter,
@@ -419,25 +401,12 @@ pub enum DecodeError {
     InvalidMovementMode {
         actual: u8,
     },
+    InvalidMovementStopReason {
+        actual: u8,
+    },
     InvalidRouteTileCount {
         actual: usize,
         max: usize,
-    },
-    InvalidPathExclusionMapId {
-        map_id: u32,
-    },
-    InvalidPathExclusionMapCount {
-        actual: u16,
-    },
-    InvalidPathExclusionMapOrder {
-        map_id: u32,
-    },
-    InvalidPathExclusionTile {
-        x: u16,
-        y: u16,
-    },
-    InvalidPathExclusionsUpdateType {
-        actual: u8,
     },
     InvalidSkillSlot {
         actual: u8,
@@ -761,27 +730,11 @@ impl fmt::Display for DecodeError {
             Self::InvalidMovementMode { actual } => {
                 write!(formatter, "invalid movement mode {actual}")
             }
+            Self::InvalidMovementStopReason { actual } => {
+                write!(formatter, "invalid movement stop reason {actual}")
+            }
             Self::InvalidRouteTileCount { actual, max } => {
                 write!(formatter, "route has {actual} tiles; maximum is {max}")
-            }
-            Self::InvalidPathExclusionMapId { map_id } => {
-                write!(formatter, "path-exclusion map ID {map_id} exceeds 65535")
-            }
-            Self::InvalidPathExclusionMapCount { actual } => {
-                write!(formatter, "invalid path-exclusion map count {actual}")
-            }
-            Self::InvalidPathExclusionMapOrder { map_id } => {
-                write!(
-                    formatter,
-                    "path-exclusion map {map_id} is duplicated or out of order"
-                )
-            }
-            Self::InvalidPathExclusionTile { x, y } => write!(
-                formatter,
-                "path-exclusion tile ({x}, {y}) exceeds the supported map dimensions"
-            ),
-            Self::InvalidPathExclusionsUpdateType { actual } => {
-                write!(formatter, "invalid path-exclusions update type {actual}")
             }
             Self::InvalidSkillSlot { actual, max } => {
                 write!(formatter, "skill slot {actual} is outside 1..={max}")

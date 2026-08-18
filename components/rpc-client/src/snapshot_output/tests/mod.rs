@@ -62,7 +62,6 @@ fn snapshot() -> ClientSnapshot {
             generation: 8,
             tiles: vec![TilePosition { x: 2, y: 3 }, TilePosition { x: 3, y: 3 }],
         }),
-        map_exclusions: Vec::new(),
     }
 }
 

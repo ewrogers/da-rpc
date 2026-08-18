@@ -741,17 +741,9 @@ fn router(state: ApiState) -> Router {
             post(crate::commands::diagnostic),
         )
         .route("/clients/{client}/turn", post(crate::commands::turn))
-        .route("/clients/{client}/walk", post(crate::commands::walk))
         .route(
-            "/clients/{client}/maps/path-exclusions",
-            get(crate::commands::map_exclusions_collection)
-                .delete(crate::commands::clear_map_exclusions),
-        )
-        .route(
-            "/clients/{client}/maps/{map_id}/path-exclusions",
-            get(crate::commands::map_exclusions)
-                .put(crate::commands::replace_map_exclusions)
-                .delete(crate::commands::remove_map_exclusions),
+            "/clients/{client}/walk",
+            post(crate::commands::walk).delete(crate::commands::cancel_walk),
         )
         .route(
             "/clients/{client}/skills/use",
@@ -841,9 +833,7 @@ async fn reject_request_body(request: Request<Body>, next: Next) -> Response {
             || request.uri().path().ends_with("/dialog/next")
             || request.uri().path().ends_with("/dialog/close")
             || request.uri().path().ends_with("/field-map/select")))
-        || (request.method() == Method::PUT
-            && (request.uri().path().ends_with("/path-exclusions")
-                || request.uri().path().ends_with("/diagnostics")))
+        || (request.method() == Method::PUT && request.uri().path().ends_with("/diagnostics"))
     {
         return next.run(request).await;
     }
@@ -902,11 +892,7 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         crate::commands::diagnostic,
         crate::commands::movement::turn,
         crate::commands::movement::walk,
-        crate::commands::movement::replace_map_exclusions,
-        crate::commands::movement::map_exclusions,
-        crate::commands::movement::map_exclusions_collection,
-        crate::commands::movement::remove_map_exclusions,
-        crate::commands::movement::clear_map_exclusions,
+        crate::commands::movement::cancel_walk,
         crate::commands::ability::use_skill,
         crate::commands::ability::swap_skills,
         crate::commands::ability::cast_spell,
@@ -1075,8 +1061,7 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         crate::stream::CharacterHiddenChanged,
         crate::stream::WalkingObstructed,
         crate::stream::WalkingMode,
-        crate::stream::MapExclusionsChanged,
-        crate::stream::MapExclusionsOperation,
+        crate::stream::WalkingStopReason,
         crate::commands::DiagnosticOptions,
         crate::commands::raw::RawDirection,
         crate::commands::raw::RawSendOptions,
@@ -1091,10 +1076,6 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         crate::commands::WalkOptions,
         crate::commands::RouteOptions,
         crate::commands::WalkRouteOptions,
-        crate::commands::MapExclusionsOptions,
-        crate::commands::MapPathExclusions,
-        crate::commands::MapExclusionsSummary,
-        crate::commands::MapExclusionsCollection,
         crate::commands::SkillSlotOptions,
         crate::commands::SkillNameOptions,
         crate::commands::UseSkillOptions,

@@ -10,16 +10,6 @@ fn assert_routes_action(path: &str, body: &str, expected_kind: CommandKind) {
     );
 }
 
-fn assert_routes_put_action(path: &str, body: &str, expected_kind: CommandKind) {
-    assert_routes_action_request(
-        axum::http::Method::PUT,
-        path,
-        body,
-        expected_kind,
-        game_snapshot(),
-    );
-}
-
 fn assert_routes_delete_action(path: &str, expected_kind: CommandKind) {
     assert_routes_action_request(
         axum::http::Method::DELETE,
@@ -452,25 +442,7 @@ fn routes_typed_actions() {
             .unwrap(),
         )),
     );
-    assert_routes_put_action(
-        "/clients/42/maps/3002/path-exclusions",
-        r#"{"tiles":[{"x":41,"y":50},{"x":40,"y":50},{"x":40,"y":50}]}"#,
-        CommandKind::SetPathExclusions(
-            PathExclusions::new(
-                3002,
-                &[RouteTile { x: 40, y: 50 }, RouteTile { x: 41, y: 50 }],
-            )
-            .unwrap(),
-        ),
-    );
-    assert_routes_delete_action(
-        "/clients/42/maps/3001/path-exclusions",
-        CommandKind::RemovePathExclusions { map_id: 3001 },
-    );
-    assert_routes_delete_action(
-        "/clients/42/maps/path-exclusions",
-        CommandKind::ClearPathExclusions,
-    );
+    assert_routes_delete_action("/clients/42/walk", CommandKind::Walk(WalkTarget::Cancel));
     let skill = CommandKind::UseSkill(SkillSlot::new(4).unwrap());
     assert_routes_action("/clients/42/skills/use", r#"{"slot":4}"#, skill);
     assert_routes_action("/clients/42/skills/use", r#"{"name":"aSsAiL"}"#, skill);
@@ -740,9 +712,22 @@ fn add_stat_rejects_characters_without_points() {
 
 #[test]
 fn add_stat_rejects_requests_within_500_milliseconds() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
     let state = state();
+    let app = router(state.clone());
     assert!(state.reserve_stat_spend(42));
-    let response = post_empty(state, "/clients/42/stats/wisdom");
+    let response = runtime.block_on(async {
+        app.oneshot(
+            Request::post("/clients/42/stats/wisdom")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+    });
     assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
     assert_eq!(
         response_json(response)["error"]["code"],
@@ -1151,23 +1136,6 @@ fn rejects_invalid_movement_requests() {
     ] {
         assert_eq!(
             post_json(state(), path, body).status(),
-            StatusCode::BAD_REQUEST
-        );
-    }
-
-    for (path, body) in [
-        ("/clients/42/maps/3001/path-exclusions", r#"{"tiles":[]}"#),
-        (
-            "/clients/42/maps/3001/path-exclusions",
-            r#"{"tiles":[{"x":400,"y":0}]}"#,
-        ),
-        (
-            "/clients/42/maps/65536/path-exclusions",
-            r#"{"tiles":[{"x":0,"y":0}]}"#,
-        ),
-    ] {
-        assert_eq!(
-            put_json(state(), path, body).status(),
             StatusCode::BAD_REQUEST
         );
     }

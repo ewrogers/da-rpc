@@ -1,5 +1,26 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Add active-walk cancellation through `DELETE /clients/{client}/walk`, the
+  direct `darpc walk --pid <pid> cancel` command, and the binary walk command.
+- Add `completed`, `obstructed`, `replaced`, `cancelled`, and
+  `position_corrected` reasons to `walking.stopped`.
+
+### Changed
+
+- Leave native path planning, collision answers, queued-step execution, and
+  pursuit behavior unchanged while retaining route and obstruction telemetry.
+- Advance the binary protocol to 2.0 for the incompatible movement event,
+  snapshot, and command changes.
+
+### Removed
+
+- Remove DLL path-exclusion policy, automatic daRPC route retries and replans,
+  and the related REST, state, event, and binary protocol surfaces.
+
 ## 1.5.4 - 2026-08-17
 
 ### Fixed

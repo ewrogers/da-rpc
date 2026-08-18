@@ -1,8 +1,8 @@
 use super::*;
 
 #[derive(Clone, Copy)]
-// Route and exclusion tiles stay in fixed inline storage so command publishing
-// never allocates or transfers ownership across threads.
+// Route tiles stay in fixed inline storage so command publishing never
+// allocates or transfers ownership across threads.
 #[allow(clippy::large_enum_variant)]
 pub(super) enum StoredInput {
     Spell(SpellInput),
@@ -99,6 +99,7 @@ pub(super) fn stored_kind(kind: CommandKind) -> (u8, u32, u32, u32, Option<Store
             0,
             Some(StoredInput::Tiles(StoredTiles::new(route.tiles()))),
         ),
+        CommandKind::Walk(WalkTarget::Cancel) => (52, 0, 0, 0, None),
         CommandKind::UseSkill(slot) => (4, slot.get() as u32, 0, 0, None),
         CommandKind::CastSpell(SpellCast {
             slot,
@@ -236,15 +237,6 @@ pub(super) fn stored_kind(kind: CommandKind) -> (u8, u32, u32, u32, Option<Store
             0,
             Some(StoredInput::Message(StoredMessage::new(message))),
         ),
-        CommandKind::SetPathExclusions(exclusions) => (
-            47,
-            exclusions.map_id(),
-            u32::try_from(exclusions.tiles().len()).expect("bounded exclusion length fits u32"),
-            0,
-            Some(StoredInput::Tiles(StoredTiles::new(exclusions.tiles()))),
-        ),
-        CommandKind::RemovePathExclusions { map_id } => (48, map_id, 0, 0, None),
-        CommandKind::ClearPathExclusions => (49, 0, 0, 0, None),
         CommandKind::AddStat(stat) => (50, u32::from(stat.flag()), 0, 0, None),
         CommandKind::SelectFieldMapDestination(command) => (
             51,
@@ -484,12 +476,6 @@ pub(super) fn kind_from_value(
             .and_then(|(tiles, length)| WalkRoute::new(argument_x, &tiles[..length]))
             .map(|route| CommandKind::Walk(WalkTarget::Route(route)))
             .unwrap_or(CommandKind::Diagnostic),
-        47 => stored_tiles(argument_y, input)
-            .and_then(|(tiles, length)| PathExclusions::new(argument_x, &tiles[..length]))
-            .map(CommandKind::SetPathExclusions)
-            .unwrap_or(CommandKind::Diagnostic),
-        48 => CommandKind::RemovePathExclusions { map_id: argument_x },
-        49 => CommandKind::ClearPathExclusions,
         50 => CharacterStat::from_flag(argument_x as u8)
             .map(CommandKind::AddStat)
             .unwrap_or(CommandKind::Diagnostic),
@@ -497,6 +483,7 @@ pub(super) fn kind_from_value(
             revision: argument_x,
             destination_index: argument_y as u8,
         }),
+        52 => CommandKind::Walk(WalkTarget::Cancel),
         _ => CommandKind::Diagnostic,
     }
 }

@@ -7,9 +7,9 @@ use darpc_protocol::{
     CommandState, CommandStatus, DialogAction, DialogCommand, DialogText, ExchangeCommand,
     FieldMapSelectionCommand, GoldTransfer, GroupCommand, GroupInvitationAction, GroupText,
     ItemSlot, ItemTransfer, MAX_MESSAGE_CONTENT_LEN, MAX_MESSAGE_RECIPIENT_LEN,
-    MAX_WALK_ROUTE_TILES, MessageCommand, MessageContent, MessageRecipient, PathExclusions,
-    RawPacket, RawPacketDirection, RouteTile, SkillSlot, SlotSwap, SpellArguments, SpellCast,
-    SpellInput, SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkRoute, WalkTarget,
+    MAX_WALK_ROUTE_TILES, MessageCommand, MessageContent, MessageRecipient, RawPacket,
+    RawPacketDirection, RouteTile, SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput,
+    SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkRoute, WalkTarget,
 };
 use std::{
     num::NonZeroU32,
@@ -726,11 +726,7 @@ mod tests {
                 )
                 .unwrap(),
             )),
-            CommandKind::SetPathExclusions(
-                PathExclusions::new(3001, &[RouteTile { x: 40, y: 50 }]).unwrap(),
-            ),
-            CommandKind::RemovePathExclusions { map_id: 3001 },
-            CommandKind::ClearPathExclusions,
+            CommandKind::Walk(WalkTarget::Cancel),
             CommandKind::UseSkill(SkillSlot::new(7).unwrap()),
             CommandKind::Assail,
             CommandKind::Resync,

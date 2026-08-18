@@ -555,7 +555,6 @@ mod tests {
             exchange: None,
             legend: None,
             planned_route: None,
-            map_exclusions: Vec::new(),
         }
     }
 

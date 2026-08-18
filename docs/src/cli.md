@@ -69,6 +69,7 @@ darpc stat <strength|dexterity|intelligence|wisdom|constitution> --pid <pid>
 darpc turn --pid <pid> <north|east|south|west>
 darpc walk --pid <pid> <north|east|south|west>
 darpc walk --pid <pid> <x> <y>
+darpc walk --pid <pid> cancel
 darpc skill use --pid <pid> <slot>
 darpc skill swap --pid <pid> <source> <destination>
 darpc spell cast --pid <pid> <slot>

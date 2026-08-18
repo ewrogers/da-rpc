@@ -22,11 +22,12 @@ pub(super) fn expand(observation: EventObservation, update: StateUpdate) -> Vec<
         }
         StateUpdate::Spellbook(update) => {
             let change = update.change;
-            let metadata_changed = update
-                .before
-                .as_ref()
-                .zip(update.after.as_ref())
-                .is_some_and(|(before, after)| spell_metadata_changed(before, after));
+            let metadata_changed = update.before.is_none() != update.after.is_none()
+                || update
+                    .before
+                    .as_ref()
+                    .zip(update.after.as_ref())
+                    .is_some_and(|(before, after)| spell_metadata_changed(before, after));
             let cooldown =
                 update
                     .before
@@ -67,11 +68,12 @@ pub(super) fn expand(observation: EventObservation, update: StateUpdate) -> Vec<
         }
         StateUpdate::Skillbook(update) => {
             let change = update.change;
-            let metadata_changed = update
-                .before
-                .as_ref()
-                .zip(update.after.as_ref())
-                .is_some_and(|(before, after)| skill_metadata_changed(before, after));
+            let metadata_changed = update.before.is_none() != update.after.is_none()
+                || update
+                    .before
+                    .as_ref()
+                    .zip(update.after.as_ref())
+                    .is_some_and(|(before, after)| skill_metadata_changed(before, after));
             let cooldown =
                 update
                     .before

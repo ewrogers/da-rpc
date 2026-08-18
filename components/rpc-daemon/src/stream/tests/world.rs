@@ -103,6 +103,118 @@ fn collection_updates_keep_the_requested_public_event_names() {
 }
 
 #[test]
+fn moves_into_empty_slots_emit_changed_events_for_every_slotted_collection() {
+    let item = ModelInventoryItem {
+        slot: 1,
+        sprite: 21,
+        dye_color: 2,
+        name: Some("Hy-Brasyl Gauntlet".into()),
+        quantity: 1,
+        can_stack: false,
+        durability: 900,
+        max_durability: 1_000,
+    };
+    let spell = ModelSpell {
+        slot: 2,
+        icon: 82,
+        name: Some("beag srad".into()),
+        level: 10,
+        max_level: 100,
+        lines: 2,
+        target_type: SpellTargetType::Target,
+        prompt: None,
+        cooldown: CooldownStatus {
+            active: false,
+            cooldown_ms: None,
+            remaining_ms: None,
+        },
+    };
+    let skill = ModelSkill {
+        slot: 3,
+        icon: 91,
+        name: Some("Assail".into()),
+        level: 99,
+        max_level: 100,
+        cooldown: CooldownStatus {
+            active: false,
+            cooldown_ms: None,
+            remaining_ms: None,
+        },
+    };
+    let updates = [
+        StateUpdate::Inventory(SlotUpdate {
+            batch_index: 0,
+            batch_count: 2,
+            change: CollectionChange::Changed,
+            slot: 1,
+            before: Some(item.clone()),
+            after: None,
+        }),
+        StateUpdate::Inventory(SlotUpdate {
+            batch_index: 1,
+            batch_count: 2,
+            change: CollectionChange::Changed,
+            slot: 4,
+            before: None,
+            after: Some(ModelInventoryItem { slot: 4, ..item }),
+        }),
+        StateUpdate::Spellbook(SlotUpdate {
+            batch_index: 0,
+            batch_count: 2,
+            change: CollectionChange::Changed,
+            slot: 2,
+            before: Some(spell.clone()),
+            after: None,
+        }),
+        StateUpdate::Spellbook(SlotUpdate {
+            batch_index: 1,
+            batch_count: 2,
+            change: CollectionChange::Changed,
+            slot: 5,
+            before: None,
+            after: Some(ModelSpell { slot: 5, ..spell }),
+        }),
+        StateUpdate::Skillbook(SlotUpdate {
+            batch_index: 0,
+            batch_count: 2,
+            change: CollectionChange::Changed,
+            slot: 3,
+            before: Some(skill.clone()),
+            after: None,
+        }),
+        StateUpdate::Skillbook(SlotUpdate {
+            batch_index: 1,
+            batch_count: 2,
+            change: CollectionChange::Changed,
+            slot: 6,
+            before: None,
+            after: Some(ModelSkill { slot: 6, ..skill }),
+        }),
+    ];
+
+    let names = updates
+        .into_iter()
+        .enumerate()
+        .flat_map(|(index, update)| {
+            expand_collection_update(u32::try_from(index + 1).unwrap(), update)
+        })
+        .map(|event| event.name())
+        .collect::<Vec<_>>();
+
+    assert_eq!(
+        names,
+        [
+            "item.changed",
+            "item.changed",
+            "spell.changed",
+            "spell.changed",
+            "skill.changed",
+            "skill.changed",
+        ]
+    );
+}
+
+#[test]
 fn cooldown_only_updates_emit_specialized_events_instead_of_changed() {
     let skill = ModelSkill {
         slot: 3,

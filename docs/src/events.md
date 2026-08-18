@@ -808,6 +808,16 @@ response actions, and complete event payloads.
 | `dialog.submitted` | `dialog_submitted` | A daRPC action answered or navigated the current page. |
 | `dialog.closed` | `dialog_closed` | The dialog ended locally, remotely, during a map change, or during recovery. |
 
+## Message-dialog events
+
+Read the current set from `GET /clients/{client}/message-dialogs`. The
+[Message dialogs](message-dialogs.md) chapter documents capture bounds,
+revision checks, and dismissal.
+
+| SSE event | JSON type | Meaning |
+| --- | --- | --- |
+| `message_dialogs.changed` | `message_dialogs_changed` | The complete set of native message dialogs opened, changed, or closed. |
+
 ## Field-map events
 
 Read current state from `GET /clients/{client}/field-map`. The
@@ -953,6 +963,7 @@ trying to infer state from only the changed field.
 | Audio | `sound.played`, `music.started`, `music.stopped` | None; transient events are not replayed. |
 | Messages | `message.say`, `message.shout`, `message.chant`, `message.whisper`, `message.guild`, `message.group`, `message.system`, `message.world`, `message.internal` | `/messages`, except transient chants |
 | NPC dialogs | `dialog.opened`, `dialog.changed`, `dialog.submitted`, `dialog.closed` | `/dialog` |
+| Message dialogs | `message_dialogs.changed` | `/message-dialogs` |
 | Field maps | `field_map.opened`, `field_map.changed`, `field_map.selection_submitted`, `field_map.closed` | `/field-map` |
 | Groups | `group.settings_changed`, `group.invitation_sent`, `group.invitation_received`, `group.invitation_closed`, `group.joined`, `group.member_joined`, `group.member_left`, `group.disbanded` | `/group`, then `/status` for convenience fields |
 | Exchange | `exchange.opened`, `exchange.item_added`, `exchange.gold_changed`, `exchange.accepted`, `exchange.completed`, `exchange.cancelled` | `/exchange`, then `/status` for `is_in_exchange` |

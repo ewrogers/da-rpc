@@ -9,11 +9,12 @@ use darpc_model::{
     ExchangeState, ExchangeUpdate, FieldMapDestination, FieldMapSelection, FieldMapState,
     FieldMapUpdate, Gender, GroupInvitation, GroupMember, GroupState, GroupUpdate, HumanVisual,
     InventoryItem, LegendIcon, LegendMark, LegendUpdate, LifecycleUpdate, LocationUpdate,
-    MapChange, MapLocation, MessageKind, MovementStopReason, MovementUpdate, Nation, ObjectUpdate,
-    PlannedRoute, PlayerEquipmentItem, PlayerIdentity, PlayerInspectionChanges,
-    PlayerInspectionTrigger, PlayerProfile, PlayerUpdate, PlayerVisual, ProgressionStatus, Skill,
-    SlotUpdate, Spell, SpellCancellationSource, SpellCastArguments, SpellTargetType, StateEvent,
-    StateUpdate, StatusUpdate, TilePosition, UserState, WalkMode, WhoList, WhoPlayer, WorldObject,
+    MapChange, MapLocation, MessageDialog, MessageDialogsState, MessageKind, MovementStopReason,
+    MovementUpdate, Nation, ObjectUpdate, PlannedRoute, PlayerEquipmentItem, PlayerIdentity,
+    PlayerInspectionChanges, PlayerInspectionTrigger, PlayerProfile, PlayerUpdate, PlayerVisual,
+    ProgressionStatus, Skill, SlotUpdate, Spell, SpellCancellationSource, SpellCastArguments,
+    SpellTargetType, StateEvent, StateUpdate, StatusUpdate, TilePosition, UserState, WalkMode,
+    WhoList, WhoPlayer, WorldObject,
 };
 use darpc_protocol::{
     Architecture, ChantText, CharacterStat, CommandFailure, CommandKind, CommandOperation,
@@ -24,13 +25,14 @@ use darpc_protocol::{
     FRAME_MAGIC, FRAME_VERSION, FieldMapSelectionCommand, Frame, FrameHeader, GoldTransfer,
     GroupCommand, GroupInvitationAction, GroupText, Hello, HelloAck, HookTimingRecord,
     HookTimingStage, ItemSlot, ItemTransfer, MAX_COMMAND_TIMEOUT_MS, MAX_COMMAND_WAIT_MS,
-    MAX_ECHO_TEXT_LEN, MAX_PAYLOAD_LEN, Message, MessageCommand, MessageContent, MessageRecipient,
-    MessageType, PROTOCOL_VERSION_1_0, Ping, Pong, RawPacket, RawPacketDirection, RouteTile,
-    SkillSlot, SlotSwap, SnapshotRequest, SnapshotResponse, SnapshotResult,
-    SnapshotUnavailableReason, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget,
-    TickHealthRequest, TickHealthResponse, TilePosition as CommandTilePosition, TransferTarget,
-    VersionRange, WalkRoute, WalkTarget, decode_frame, decode_header, encode_frame,
-    protocol_version, protocol_version_major, protocol_version_minor,
+    MAX_ECHO_TEXT_LEN, MAX_PAYLOAD_LEN, Message, MessageCommand, MessageContent,
+    MessageDialogCommand, MessageRecipient, MessageType, PROTOCOL_VERSION_1_0, Ping, Pong,
+    RawPacket, RawPacketDirection, RouteTile, SkillSlot, SlotSwap, SnapshotRequest,
+    SnapshotResponse, SnapshotResult, SnapshotUnavailableReason, SpellArguments, SpellCast,
+    SpellInput, SpellSlot, SpellTarget, TickHealthRequest, TickHealthResponse,
+    TilePosition as CommandTilePosition, TransferTarget, VersionRange, WalkRoute, WalkTarget,
+    decode_frame, decode_header, encode_frame, protocol_version, protocol_version_major,
+    protocol_version_minor,
 };
 
 fn hello() -> Hello {
@@ -229,6 +231,14 @@ fn snapshot() -> ClientSnapshot {
         ]),
         dialog: Some(dialog_state()),
         active_field_map: Some(field_map_state()),
+        message_dialogs: MessageDialogsState {
+            revision: 8,
+            dialogs: vec![MessageDialog {
+                id: 3,
+                text: Some("You sense danger nearby.".into()),
+                truncated: false,
+            }],
+        },
         group: Some(group_state()),
         exchange: Some(exchange_state()),
         legend: Some(vec![LegendMark {

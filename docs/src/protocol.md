@@ -52,6 +52,7 @@ const VERSION_1_3: u16 = 0x0103;
 const VERSION_1_4: u16 = 0x0104;
 const VERSION_1_5: u16 = 0x0105;
 const VERSION_1_6: u16 = 0x0106;
+const VERSION_1_7: u16 = 0x0107;
 ```
 
 The protocol number is a wire-schema revision, not a Semantic Versioning
@@ -59,10 +60,10 @@ compatibility promise. Each peer advertises an inclusive, continuous range of
 versions it can decode, and the controller selects the highest version in the
 overlap. No overlap rejects the connection.
 
-The only currently supported version is 1.6 (`0x0106`). Version 1.6 removes the
-path-exclusion snapshot, state update, and commands; adds walk cancellation;
-and adds an explicit reason to stopped movement. Those changes are incompatible
-with 1.5 decoders, so peers advertise only 1.6.
+The only currently supported version is 1.7 (`0x0107`). Version 1.7 adds
+retained message-dialog state, its full-state update, and the dismiss command.
+Those additions change snapshot, event, and command schemas, so peers
+advertise only 1.7.
 
 ## Message types
 
@@ -250,6 +251,7 @@ struct ClientSnapshot {
     legend: Option<Vec<LegendMark>>;
     planned_route: Option<PlannedRoute>;
     active_field_map: Option<FieldMapState>;
+    message_dialogs: MessageDialogsState;
 }
 
 struct FieldMapState {
@@ -626,6 +628,18 @@ enum StateUpdate: u8 {
     PlannedRoute(PlannedRoute) = 22,
     // 23 is retired.
     FieldMap(FieldMapUpdate) = 24,
+    MessageDialogs(MessageDialogsState) = 25,
+}
+
+struct MessageDialogsState {
+    revision: u32;
+    dialogs: Vec<MessageDialog>; // u8 count, maximum 8
+}
+
+struct MessageDialog {
+    id: u32;
+    text: Option<string16>; // maximum 4096 UTF-8 bytes
+    truncated: bool;
 }
 
 enum FieldMapUpdate: u8 {
@@ -1025,6 +1039,10 @@ enum CommandKind: u8 {
         revision: u32;
         destination_index: u8;
     } = 30,
+    DismissMessageDialog {
+        revision: u32;
+        id: u32;
+    } = 31,
 }
 
 enum MessageCommand: u8 {
@@ -1057,6 +1075,10 @@ retained checksum, map ID, and map coordinates. Callers cannot supply those
 four travel fields. The resulting `SelectionSubmitted` update is emitted only
 when the outgoing packet is observed; it does not imply server acceptance or
 close the field map.
+
+`DismissMessageDialog` accepts only the current message-dialog revision and
+an opaque dialog ID. The DLL maps the ID to retained client-local state, then
+revalidates the live pane before invoking the native close operation.
 Guild and group use that same directed-message packet with fixed recipients `!`
 and `!!`.
 

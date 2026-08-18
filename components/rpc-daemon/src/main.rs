@@ -23,6 +23,8 @@ mod group;
 #[cfg(any(windows, test))]
 mod lifecycle;
 #[cfg(any(windows, test))]
+mod message_dialog;
+#[cfg(any(windows, test))]
 mod messages;
 mod options;
 #[cfg(any(windows, test))]

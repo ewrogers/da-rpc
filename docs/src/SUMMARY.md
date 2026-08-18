@@ -22,6 +22,7 @@
   - [Emotes](emotes.md)
   - [Messages](messages.md)
   - [NPC dialogs](dialogs.md)
+  - [Message dialogs](message-dialogs.md)
   - [Field maps](field-maps.md)
   - [Groups](groups.md)
   - [Exchange](exchanges.md)

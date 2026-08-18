@@ -245,6 +245,7 @@ pub(super) fn stored_kind(kind: CommandKind) -> (u8, u32, u32, u32, Option<Store
             0,
             None,
         ),
+        CommandKind::DismissMessageDialog(command) => (53, command.revision, command.id, 0, None),
     }
 }
 
@@ -484,6 +485,10 @@ pub(super) fn kind_from_value(
             destination_index: argument_y as u8,
         }),
         52 => CommandKind::Walk(WalkTarget::Cancel),
+        53 => CommandKind::DismissMessageDialog(MessageDialogCommand {
+            revision: argument_x,
+            id: argument_y,
+        }),
         _ => CommandKind::Diagnostic,
     }
 }

@@ -7,9 +7,9 @@ use darpc_protocol::{
     CommandState, CommandStatus, DialogAction, DialogCommand, DialogText, ExchangeCommand,
     FieldMapSelectionCommand, GoldTransfer, GroupCommand, GroupInvitationAction, GroupText,
     ItemSlot, ItemTransfer, MAX_MESSAGE_CONTENT_LEN, MAX_MESSAGE_RECIPIENT_LEN,
-    MAX_WALK_ROUTE_TILES, MessageCommand, MessageContent, MessageRecipient, RawPacket,
-    RawPacketDirection, RouteTile, SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput,
-    SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkRoute, WalkTarget,
+    MAX_WALK_ROUTE_TILES, MessageCommand, MessageContent, MessageDialogCommand, MessageRecipient,
+    RawPacket, RawPacketDirection, RouteTile, SkillSlot, SlotSwap, SpellArguments, SpellCast,
+    SpellInput, SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkRoute, WalkTarget,
 };
 use std::{
     num::NonZeroU32,

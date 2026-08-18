@@ -74,6 +74,7 @@ they need:
 | `GET /clients/{client}/objects` | [World](world.md) |
 | `GET /clients/{client}/messages` | [Messages](messages.md) |
 | `GET /clients/{client}/dialog` | [NPC dialogs](dialogs.md) |
+| `GET /clients/{client}/message-dialogs` | [Message dialogs](message-dialogs.md) |
 | `GET /clients/{client}/field-map` | [Field maps](field-maps.md) |
 | `GET /clients/{client}/group` | [Groups](groups.md) |
 | `GET /clients/{client}/exchange` | [Exchange](exchanges.md) |
@@ -151,6 +152,7 @@ request cannot select another file in or outside the configured directory.
 | `POST /clients/{client}/dialog/previous` | Move to the previous pursuit page. |
 | `POST /clients/{client}/dialog/next` | Move to the next pursuit page. |
 | `POST /clients/{client}/dialog/close` | Close the current NPC dialog. |
+| `POST /clients/{client}/message-dialogs/dismiss` | Dismiss one current [message dialog](message-dialogs.md). |
 | `POST /clients/{client}/field-map/select` | Select one destination from the active [field map](field-maps.md). |
 | `POST /clients/{client}/group/toggle` | Toggle invitations, or leave the current group. |
 | `POST /clients/{client}/group/invite` | Invite a visible player. |

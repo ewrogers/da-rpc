@@ -518,6 +518,19 @@ fn event_messages_round_trip() {
                         previous: field_map_state(),
                     }),
                 },
+                StateEvent {
+                    sequence: 72,
+                    revision: 38,
+                    tick_ms: 153,
+                    update: StateUpdate::MessageDialogs(MessageDialogsState {
+                        revision: 9,
+                        dialogs: vec![MessageDialog {
+                            id: 4,
+                            text: Some("You look closely.".into()),
+                            truncated: false,
+                        }],
+                    }),
+                },
             ]),
         }),
         Message::EventPollResponse(EventPollResponse {

@@ -35,6 +35,7 @@ use darpc_model::{
     FieldMapDestination as ModelFieldMapDestination, FieldMapState as ModelFieldMapState, Gender,
     HumanVisual as ModelHumanVisual, InventoryItem as ModelInventoryItem,
     LegendIcon as ModelLegendIcon, LegendMark as ModelLegendMark, MapLocation,
+    MessageDialog as ModelMessageDialog, MessageDialogsState as ModelMessageDialogsState,
     MessageKind as ModelMessageKind, Nation as ModelNation, ObjectUpdate,
     PlannedRoute as ModelPlannedRoute, PlayerEquipmentItem as ModelPlayerEquipmentItem,
     PlayerIdentity as ModelPlayerIdentity, PlayerProfile as ModelPlayerProfile,
@@ -46,9 +47,10 @@ use darpc_protocol::{
     Architecture, ChantText, CharacterStat, CommandKind, CommandOperation, CommandResult,
     CommandState, CommandStatus, ComponentVersion, DialogAction, DialogCommand, ExchangeCommand,
     FieldMapSelectionCommand, GoldTransfer, GroupCommand, GroupText, Hello, ItemSlot, ItemTransfer,
-    MessageCommand, MessageContent, MessageRecipient, RawPacket, RawPacketDirection, RouteTile,
-    SUPPORTED_VERSIONS, SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot,
-    SpellTarget, TilePosition, TransferTarget, WalkRoute, WalkTarget,
+    MessageCommand, MessageContent, MessageDialogCommand, MessageRecipient, RawPacket,
+    RawPacketDirection, RouteTile, SUPPORTED_VERSIONS, SkillSlot, SlotSwap, SpellArguments,
+    SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkRoute,
+    WalkTarget,
 };
 use serde_json::Value;
 use std::{
@@ -324,6 +326,7 @@ fn game_snapshot() -> ModelClientSnapshot {
             }],
             selection: None,
         }),
+        message_dialogs: Default::default(),
         group: None,
         exchange: None,
         legend: None,

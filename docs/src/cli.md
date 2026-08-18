@@ -100,6 +100,7 @@ darpc dialog previous --pid <pid> <revision>
 darpc dialog next --pid <pid> <revision>
 darpc dialog close --pid <pid> <revision>
 darpc field-map select --pid <pid> <revision> <destination-index>
+darpc message-dialog dismiss --pid <pid> <revision> <id>
 darpc group toggle --pid <pid>
 darpc group invite --pid <pid> <player>
 darpc group accept --pid <pid> <invitation-id>
@@ -193,6 +194,9 @@ and connection lifecycle. Their behavior is:
 - `field-map select` submits one zero-based destination from the active field
   map. It requires the current field-map revision and uses the retained
   checksum and travel coordinates. See [Field maps](field-maps.md).
+- `message-dialog dismiss` closes one active native message dialog by the
+  revision and opaque ID returned by current state. See
+  [Message dialogs](message-dialogs.md).
 - `group toggle` uses the native client toggle. It opens or closes invitations
   while solo and leaves or disbands an active group. `group invite` sends a
   validated ASCII player name. `group accept` and `group decline` answer one

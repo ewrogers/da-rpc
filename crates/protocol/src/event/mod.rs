@@ -205,6 +205,10 @@ fn encode_event(output: &mut Vec<u8>, event: &StateEvent) -> Result<(), EncodeEr
             output.push(24);
             crate::field_map::encode_update(output, update)?;
         }
+        StateUpdate::MessageDialogs(update) => {
+            output.push(25);
+            crate::message_dialog::encode_state(output, update)?;
+        }
         StateUpdate::Status(update) => {
             output.push(1);
             encode_status(output, *update);
@@ -344,6 +348,7 @@ fn decode_event(reader: &mut PayloadReader<'_>) -> Result<StateEvent, DecodeErro
         }),
         22 => StateUpdate::PlannedRoute(crate::snapshot::decode_planned_route(reader)?),
         24 => StateUpdate::FieldMap(crate::field_map::decode_update(reader)?),
+        25 => StateUpdate::MessageDialogs(crate::message_dialog::decode_state(reader)?),
         1 => StateUpdate::Status(decode_status(reader)?),
         2 => StateUpdate::Location(decode_location(reader)?),
         3 => StateUpdate::Effect(decode_effect(reader)?),

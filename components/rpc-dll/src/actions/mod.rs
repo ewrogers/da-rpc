@@ -50,6 +50,13 @@ pub(crate) fn execute(command: CommandKind) -> Result<(), CommandFailure> {
         CommandKind::Message(message) => message::submit(message),
         CommandKind::AddStat(stat) => stat::add(stat),
         CommandKind::SelectFieldMapDestination(command) => field_map::submit(command),
+        CommandKind::DismissMessageDialog(command) => {
+            let update = crate::message_dialog::dismiss(command)?;
+            if let Some(update) = update {
+                crate::state::observe_message_dialogs(update, darpc_win32::pipe::sender_tick_ms());
+            }
+            Ok(())
+        }
     }
 }
 

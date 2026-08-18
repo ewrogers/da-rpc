@@ -7,8 +7,8 @@ daemon rather than internal client memory.
 
 daRPC presents each game client as a set of familiar resources. Character
 status, items, equipment, skills, spells, effects, nearby objects, messages,
-dialogs, field maps, groups, and exchange state each have their own REST route and
-documentation chapter.
+NPC dialogs, message dialogs, field maps, groups, and exchange state each have
+their own REST route and documentation chapter.
 
 This chapter explains the behavior they share. The individual chapters focus
 on what a Dark Ages player or tool author can do with each kind of data.
@@ -27,6 +27,9 @@ on what a Dark Ages player or tool author can do with each kind of data.
 | [Movement](movement.md) | `/status` | Walking and turning | `/turn`, `/walk`, and `/resync` |
 | [Emotes](emotes.md) | None | Character emotes | `/emote` |
 | [Messages](messages.md) | `/messages` | Chat and system messages by channel | `/messages/send` |
+| [NPC dialogs](dialogs.md) | `/dialog` | Open, changed, submitted, and closed pages | Dialog response actions |
+| [Message dialogs](message-dialogs.md) | `/message-dialogs` | Complete dialog-set changes | `/message-dialogs/dismiss` |
+| [Field maps](field-maps.md) | `/field-map` | Open, changed, selected, and closed panels | `/field-map/select` |
 | [Groups](groups.md) | `/group` | Invitations, settings, and roster changes | Group actions |
 | [Exchange](exchanges.md) | `/exchange` | Both offers and acceptance state | Offer, accept, and cancel actions |
 

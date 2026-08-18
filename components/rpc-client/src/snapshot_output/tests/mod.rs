@@ -40,6 +40,14 @@ fn snapshot() -> ClientSnapshot {
             }]),
         }),
         active_field_map: None,
+        message_dialogs: darpc_model::MessageDialogsState {
+            revision: 8,
+            dialogs: vec![darpc_model::MessageDialog {
+                id: 3,
+                text: Some("You sense danger nearby.".into()),
+                truncated: false,
+            }],
+        },
         group: None,
         exchange: Some(ExchangeState {
             id: 9,
@@ -72,6 +80,8 @@ fn snapshot_output_keeps_dialog_without_character_state() {
     assert!(human.contains("event_sequence=12"));
     assert!(human.contains("character: unavailable"));
     assert!(human.contains("dialog: revision=7"));
+    assert!(human.contains("message_dialogs: revision=8 dialogs=1"));
+    assert!(human.contains("message_dialog: id=3 text=\"You sense danger nearby.\""));
     assert!(human.contains("exchange: id=9 partner=ZiLo"));
     assert!(human.contains("planned_route: generation=8 tiles=2"));
     assert!(human.contains("planned_route_tile: index=1 x=3 y=3"));
@@ -82,6 +92,11 @@ fn snapshot_output_keeps_dialog_without_character_state() {
     assert_eq!(json["snapshot"]["event_sequence"], 12);
     assert_eq!(json["snapshot"]["updated_tick_ms"], 125);
     assert_eq!(json["snapshot"]["dialog"]["revision"], 7);
+    assert_eq!(json["snapshot"]["message_dialogs"]["revision"], 8);
+    assert_eq!(
+        json["snapshot"]["message_dialogs"]["dialogs"][0]["text"],
+        "You sense danger nearby."
+    );
     assert_eq!(json["snapshot"]["exchange"]["partner"], "ZiLo");
     assert_eq!(json["snapshot"]["planned_route"]["generation"], 8);
     assert_eq!(json["snapshot"]["planned_route"]["tiles"][1]["x"], 3);

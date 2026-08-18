@@ -75,6 +75,43 @@ fn field_map_updates_use_stable_public_event_names_and_full_state() {
 }
 
 #[test]
+fn message_dialog_updates_use_stable_public_event_name_and_full_state() {
+    let events = expand(
+        42,
+        ClientIdentity {
+            pid: 42,
+            process_creation_time: 100,
+            dll_instance_id: [1; 16],
+        },
+        StateEvent {
+            sequence: 5,
+            revision: 6,
+            tick_ms: 7,
+            update: StateUpdate::MessageDialogs(ModelMessageDialogsState {
+                revision: 3,
+                dialogs: vec![ModelMessageDialog {
+                    id: 9,
+                    text: Some("You sense danger nearby.".into()),
+                    truncated: false,
+                }],
+            }),
+        },
+        None,
+        None,
+        observed_at(),
+    );
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].name(), "message_dialogs.changed");
+    let event = serde_json::to_value(&events[0]).unwrap();
+    assert_eq!(event["data"]["state"]["revision"], 3);
+    assert_eq!(event["data"]["state"]["dialogs"][0]["id"], 9);
+    assert_eq!(
+        event["data"]["state"]["dialogs"][0]["text"],
+        "You sense danger nearby."
+    );
+}
+
+#[test]
 fn exchange_updates_use_stable_public_event_names_and_context() {
     let item = ModelExchangeItem {
         index: 0,

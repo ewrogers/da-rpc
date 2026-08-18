@@ -699,6 +699,24 @@ fn routes_typed_actions() {
             destination_index: 0,
         }),
     );
+    let mut snapshot = game_snapshot();
+    snapshot.message_dialogs = ModelMessageDialogsState {
+        revision: 12,
+        dialogs: vec![ModelMessageDialog {
+            id: 5,
+            text: Some("You sense something.".into()),
+            truncated: false,
+        }],
+    };
+    assert_routes_action_with_snapshot(
+        "/clients/42/message-dialogs/dismiss",
+        r#"{"revision":12,"id":5}"#,
+        CommandKind::DismissMessageDialog(MessageDialogCommand {
+            revision: 12,
+            id: 5,
+        }),
+        snapshot,
+    );
 }
 
 #[test]

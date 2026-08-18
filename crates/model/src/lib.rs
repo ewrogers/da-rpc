@@ -9,6 +9,7 @@ mod field_map;
 mod group;
 mod legend;
 mod message;
+mod message_dialog;
 mod object;
 mod player;
 mod sequence;
@@ -40,6 +41,7 @@ pub use exchange::{ExchangeItem, ExchangeOffer, ExchangeParty, ExchangeState, Ex
 pub use field_map::{FieldMapDestination, FieldMapSelection, FieldMapState, FieldMapUpdate};
 
 pub use message::{ClientMessage, MessageKind};
+pub use message_dialog::{MessageDialog, MessageDialogsState};
 
 pub use object::{CreatureKind, Direction, HumanVisual, ObjectUpdate, PlayerVisual, WorldObject};
 pub use player::{

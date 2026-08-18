@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.6.0 - 2026-08-18
 
 ### Added
 
@@ -8,6 +8,8 @@
   direct `darpc walk --pid <pid> cancel` command, and the binary walk command.
 - Add `completed`, `obstructed`, `replaced`, `cancelled`, and
   `position_corrected` reasons to `walking.stopped`.
+- Add current state, complete SSE updates, and revision-checked dismissal for
+  native message dialogs opened by actions such as sense, look, and peek.
 
 ### Changed
 
@@ -15,6 +17,11 @@
   pursuit behavior unchanged while retaining route and obstruction telemetry.
 - Advance the binary protocol to 1.6 for the incompatible movement event,
   snapshot, and command changes.
+
+### Fixed
+
+- Emit spell and skill move events when an ability moves into an empty UI
+  slot, matching the existing item movement behavior.
 
 ### Removed
 

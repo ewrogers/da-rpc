@@ -381,29 +381,6 @@ should use that discriminator rather than infer a remote monster form from
 published together so consumers never observe coordinates from one map paired
 with another map.
 
-## Map policy events
-
-Read current resources through `GET /clients/{client}/maps/path-exclusions`.
-See [Path exclusions](path-exclusions.md) for configuration and lifetime.
-
-| SSE event | JSON type |
-| --- | --- |
-| `map.exclusions_changed` | `map_exclusions_changed` |
-
-```text
-map.exclusions_changed {
-    observation: EventObservation,
-    operation: replaced | removed | cleared,
-    map_id: u32?,
-    tile_count: u16,
-    map_count: u16,
-}
-```
-
-`replaced` and `removed` identify one map. `cleared` has no `map_id` and reports
-zero remaining maps. The payload is metadata-only; reread the resource for the
-complete tile list. Idempotent deletes that change no state emit no event.
-
 ## Walking and character action events
 
 Read the current flags and position from `GET /clients/{client}/status`. See
@@ -430,6 +407,7 @@ walking.stopped {
     current: TilePosition,
     destination: TilePosition?,
     reached_destination: bool?,
+    reason: completed | obstructed | replaced | cancelled | position_corrected,
 }
 
 walking.obstructed {
@@ -461,8 +439,10 @@ character.emoted {
 
 `destination` is available for pathfinding but can be absent for a single
 step. `reached_destination` is known only when there was a retained destination.
-An obstruction reports the rejected edge before any optional native replan;
-exact routes are cancelled and leave replanning to the consumer.
+The stop reason distinguishes normal completion, obstruction, replacement,
+explicit cancellation, and a server position correction. An obstruction
+reports the rejected edge first. daRPC does not replan; a rejected exact route
+is reset and leaves recovery to the consumer.
 Action events mean the request reached the client's normal action boundary.
 They do not promise that the server accepted the result.
 
@@ -962,7 +942,6 @@ trying to infer state from only the changed field.
 | Client lifecycle | `client.logged_in`, `client.disconnected` | `/status` |
 | Client requests | `client.command`, `client.resync` | None; transient events are not replayed. |
 | Status | `stats.changed`, `vitals.changed`, `progression.changed`, `gold.changed`, `weight.changed`, `modifiers.changed`, `location.changed`, `blind.changed`, `action_restriction.changed`, `character.appearance_changed`, `character.hidden_changed`, `character.profile_changed` | `/status` |
-| Map policy | `map.exclusions_changed` | `/maps/path-exclusions`, then the map item resource if needed |
 | Walking | `walking.started`, `walking.stopped`, `walking.obstructed`, `walking.route_changed`, `character.turned`, `character.emoted` | `/status` |
 | Inventory | `item.added`, `item.removed`, `item.changed`, `item.used`, `item.dropped`, `item.given`, `item.picked_up`, `gold.dropped`, `gold.given` | `/items`, then `/status` for gold |
 | Equipment | `equipment.unequipped` | `/equipment` |

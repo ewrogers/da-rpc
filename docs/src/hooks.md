@@ -131,27 +131,14 @@ map and position.
 
 ## Planned route capture
 
-The path-control hook validates three exact version-741 code contracts. Its
-planning wrapper requires both native collision modes to accept each candidate
-edge. The live mode retains current static replacements, door states, and known
-dynamic occupants. The raw mode reads complete map storage, including statics
-outside the rendered viewport. The client's ordinary per-step live validator
-remains authoritative before any movement request is sent.
+The path-control hook validates two exact version-741 code contracts: the
+breadth-first path-builder entry and the queued-step call site. It does not
+replace collision answers or alter the native planner.
 
-The collision wrapper also consults a preallocated, map-tagged exclusion bit
-set after both native modes accept a candidate destination. A bounded sparse
-registry retains configured tile lists across map changes. The main thread
-builds the matching map into the inactive dense bitset and atomically swaps it
-active during a map transition. The hook only reads the last complete bitset,
-without locking, allocation, or a registry lookup.
-
-The failed-step wrapper checks the result that the stock queued-route code
-ignores and publishes the rejected edge as `walking.obstructed`. It retains a
-native ground route for two one-second queued-step retries before a full reset
-and replan, preserves the timed retry generation for entity pursuit, and
-cancels an injected exact route without native replanning. Replanning is
-deferred so breadth-first search is never entered recursively from the movement
-validator.
+The queued-step wrapper preserves the stock call and publishes a rejected edge
+as `walking.obstructed`. Native ground routes and pursuits are otherwise left
+untouched. A rejected externally installed exact route is reset so an external
+controller can replan from the confirmed position.
 
 The path-builder entry hook runs after the client's breadth-first search succeeds.
 It reads the retained 12-byte step records, reverses their goal-to-start queue

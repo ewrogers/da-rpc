@@ -51,24 +51,18 @@ const VERSION_1_2: u16 = 0x0102;
 const VERSION_1_3: u16 = 0x0103;
 const VERSION_1_4: u16 = 0x0104;
 const VERSION_1_5: u16 = 0x0105;
-const VERSION_2_0: u16 = 0x0200;
+const VERSION_1_6: u16 = 0x0106;
 ```
 
-A major change may be incompatible. A minor change is additive and must remain
-compatible with earlier minor versions in the same major line. Each peer
-advertises an inclusive, continuous range and the controller selects the
-highest version in the overlap. A peer must not advertise one continuous range
-across an incompatible major boundary. No overlap rejects the connection.
+The protocol number is a wire-schema revision, not a Semantic Versioning
+compatibility promise. Each peer advertises an inclusive, continuous range of
+versions it can decode, and the controller selects the highest version in the
+overlap. No overlap rejects the connection.
 
-The only currently supported version is 1.5 (`0x0105`). Version 1.1 added exact
-route and path-exclusion commands plus obstruction events. Version 1.2 added
-total ability cooldown duration to cooldown snapshots and collection updates.
-Version 1.3 added hidden-state fields to character and player snapshots.
-Version 1.4 added complete visible-player visual blocks, character stat-point
-state, and the add-stat command. Version 1.5 adds field-map state, lifecycle
-events, and destination selection. Peers advertise only 1.5 because these
-additions change message layouts or can
-introduce discriminants that earlier decoders cannot interpret safely.
+The only currently supported version is 1.6 (`0x0106`). Version 1.6 removes the
+path-exclusion snapshot, state update, and commands; adds walk cancellation;
+and adds an explicit reason to stopped movement. Those changes are incompatible
+with 1.5 decoders, so peers advertise only 1.6.
 
 ## Message types
 
@@ -255,7 +249,6 @@ struct ClientSnapshot {
     exchange: Option<ExchangeState>;
     legend: Option<Vec<LegendMark>>;
     planned_route: Option<PlannedRoute>;
-    map_exclusions: Vec<MapExclusions>;     // u16 count, maximum 1,024
     active_field_map: Option<FieldMapState>;
 }
 
@@ -285,12 +278,6 @@ struct FieldMapSelection {
 struct PlannedRoute {
     generation: u32;
     tiles: Vec<TilePosition>;              // u32 count, maximum 160,001
-}
-
-struct MapExclusions {
-    map_id: u32;                           // 0 through 65,535
-    tile_count: u16;                        // 1 through 256
-    tiles: [RouteTile; tile_count];
 }
 
 struct LegendMark {
@@ -637,7 +624,7 @@ enum StateUpdate: u8 {
     Player(PlayerUpdate) = 20,
     CharacterProfile(CharacterProfileUpdate) = 21,
     PlannedRoute(PlannedRoute) = 22,
-    MapExclusions(MapExclusionsUpdate) = 23,
+    // 23 is retired.
     FieldMap(FieldMapUpdate) = 24,
 }
 
@@ -646,12 +633,6 @@ enum FieldMapUpdate: u8 {
     Changed(FieldMapState) = 2,
     SelectionSubmitted(FieldMapState) = 3,
     Closed { previous: FieldMapState } = 4,
-}
-
-enum MapExclusionsUpdate: u8 {
-    Replaced { exclusions: MapExclusions, map_count: u16 } = 1,
-    Removed { map_id: u32, map_count: u16 } = 2,
-    Cleared { removed_map_count: u16 } = 3,
 }
 
 struct ClientCommand {
@@ -845,6 +826,7 @@ enum MovementUpdate: u8 {
         current: TilePosition;
         destination: Option<TilePosition>;
         reached_destination: Option<bool>;
+        reason: MovementStopReason;
     } = 2,
     Obstructed {
         map_id: u32;
@@ -861,6 +843,14 @@ enum WalkMode: u8 {
     NativeRoute = 1,
     ExactRoute = 2,
     Pursuit = 3,
+}
+
+enum MovementStopReason: u8 {
+    Completed = 1,
+    Obstructed = 2,
+    Replaced = 3,
+    Cancelled = 4,
+    PositionCorrected = 5,
 }
 
 struct CoreStatus {
@@ -1028,13 +1018,7 @@ enum CommandKind: u8 {
     InspectPlayer { id: u32 } = 23, // nonzero visible player object ID
     Resync = 24,
     Message(MessageCommand) = 25,
-    SetPathExclusions {
-        map_id: u32;               // 0 through 65,535
-        tile_count: u16;       // 1 through 256
-        tiles: [RouteTile; tile_count];
-    } = 26,
-    RemovePathExclusions { map_id: u32 } = 27, // 0 through 65,535
-    ClearPathExclusions = 28,
+    // 26 through 28 are retired.
     AddStat { flag: u8 } = 29, // strength=1, dexterity=2, intelligence=4,
                               // wisdom=8, constitution=16
     SelectFieldMapDestination {
@@ -1149,6 +1133,7 @@ enum WalkTarget: u8 {
         tile_count: u16;       // 1 through 256
         tiles: [RouteTile; tile_count];
     } = 2,
+    Cancel = 3,
 }
 
 struct RouteTile {

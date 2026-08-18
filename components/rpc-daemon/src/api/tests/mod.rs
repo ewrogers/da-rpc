@@ -34,23 +34,21 @@ use darpc_model::{
     ExchangeOffer as ModelExchangeOffer, ExchangeState as ModelExchangeState,
     FieldMapDestination as ModelFieldMapDestination, FieldMapState as ModelFieldMapState, Gender,
     HumanVisual as ModelHumanVisual, InventoryItem as ModelInventoryItem,
-    LegendIcon as ModelLegendIcon, LegendMark as ModelLegendMark,
-    MapExclusions as ModelMapExclusions, MapLocation, MessageKind as ModelMessageKind,
-    Nation as ModelNation, ObjectUpdate, PlannedRoute as ModelPlannedRoute,
-    PlayerEquipmentItem as ModelPlayerEquipmentItem, PlayerIdentity as ModelPlayerIdentity,
-    PlayerProfile as ModelPlayerProfile, PlayerVisual as ModelPlayerVisual, Skill as ModelSkill,
-    Spell as ModelSpell, SpellCastArguments as ModelSpellCastArguments,
-    SpellTargetType as ModelSpellTargetType, StateEvent, StateUpdate,
-    TilePosition as ModelTilePosition, WorldObject as ModelWorldObject,
+    LegendIcon as ModelLegendIcon, LegendMark as ModelLegendMark, MapLocation,
+    MessageKind as ModelMessageKind, Nation as ModelNation, ObjectUpdate,
+    PlannedRoute as ModelPlannedRoute, PlayerEquipmentItem as ModelPlayerEquipmentItem,
+    PlayerIdentity as ModelPlayerIdentity, PlayerProfile as ModelPlayerProfile,
+    PlayerVisual as ModelPlayerVisual, Skill as ModelSkill, Spell as ModelSpell,
+    SpellCastArguments as ModelSpellCastArguments, SpellTargetType as ModelSpellTargetType,
+    StateEvent, StateUpdate, TilePosition as ModelTilePosition, WorldObject as ModelWorldObject,
 };
 use darpc_protocol::{
     Architecture, ChantText, CharacterStat, CommandKind, CommandOperation, CommandResult,
     CommandState, CommandStatus, ComponentVersion, DialogAction, DialogCommand, ExchangeCommand,
     FieldMapSelectionCommand, GoldTransfer, GroupCommand, GroupText, Hello, ItemSlot, ItemTransfer,
-    MessageCommand, MessageContent, MessageRecipient, PathExclusions, RawPacket,
-    RawPacketDirection, RouteTile, SUPPORTED_VERSIONS, SkillSlot, SlotSwap, SpellArguments,
-    SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkRoute,
-    WalkTarget,
+    MessageCommand, MessageContent, MessageRecipient, RawPacket, RawPacketDirection, RouteTile,
+    SUPPORTED_VERSIONS, SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot,
+    SpellTarget, TilePosition, TransferTarget, WalkRoute, WalkTarget,
 };
 use serde_json::Value;
 use std::{
@@ -336,10 +334,6 @@ fn game_snapshot() -> ModelClientSnapshot {
                 ModelTilePosition { x: 12, y: 22 },
             ],
         }),
-        map_exclusions: vec![ModelMapExclusions {
-            map_id: 3001,
-            tiles: vec![ModelTilePosition { x: 40, y: 50 }],
-        }],
     }
 }
 

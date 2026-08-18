@@ -19,8 +19,9 @@ use darpc_model::{
     AbilityUpdate, ActionUpdate, AudioUpdate, CharacterModifiers, CharacterStats, ClientCommand,
     ClientLifecycle, ClientMessage, CollectionBatch, CollectionKind, CoreStatus, CurrentVitals,
     Effect, EffectDuration, EffectUpdate, Element, EntityUpdate, LifecycleUpdate, LocationUpdate,
-    MapChange, MessageKind, MovementUpdate, ProgressionStatus, SpellCancellationSource,
-    SpellCastArguments, StateEvent, StateUpdate, StatusUpdate, TilePosition,
+    MapChange, MessageKind, MovementStopReason, MovementUpdate, ProgressionStatus,
+    SpellCancellationSource, SpellCastArguments, StateEvent, StateUpdate, StatusUpdate,
+    TilePosition,
 };
 use darpc_protocol::EventPollResult;
 #[cfg(windows)]
@@ -314,8 +315,6 @@ pub(crate) fn reset() {
     crate::legend::reset();
     crate::field_map::reset();
     crate::player::reset();
-    crate::path_exclusions::reset();
-    crate::path_occupancy::clear();
 }
 
 #[must_use]
@@ -338,7 +337,6 @@ pub(crate) fn stage_map_transition(
     name: &[u8],
     tick_ms: u32,
 ) {
-    crate::path_exclusions::activate(map_id);
     // SAFETY: the map-size hook runs on the client main thread, which is the
     // sole cache producer.
     let update = unsafe { CACHE.stage_map_transition(map_id, width, height, name) };
@@ -346,7 +344,6 @@ pub(crate) fn stage_map_transition(
     // available or remains pending until the authoritative position arrives.
     let map_changed = update.is_some() || map_transition_pending();
     if map_changed {
-        crate::path_occupancy::clear();
         #[cfg(all(windows, not(test)))]
         crate::actions::movement::clear_route_destination();
         crate::route::clear(tick_ms);
@@ -377,12 +374,6 @@ pub(crate) fn snapshot_boundary(
     // SAFETY: snapshot capture and event observation are serialized on the
     // client main thread.
     unsafe { OBJECTS.replace(objects) };
-    crate::path_occupancy::replace(
-        objects,
-        raw.character_available
-            .then_some(raw.character.id)
-            .flatten(),
-    );
     // SAFETY: snapshot capture and packet observation are serialized on the
     // client main thread.
     unsafe { COLLECTIONS.replace(raw, tick_ms) };
@@ -435,7 +426,6 @@ fn clear_world_objects(tick_ms: u32) {
     // which is the sole owner of the object cache.
     unsafe { OBJECTS.clear() };
     crate::player::cleared();
-    crate::path_occupancy::clear();
     push_event(
         QueuedStateUpdate::Object(QueuedObjectUpdate::Cleared),
         tick_ms,
@@ -445,14 +435,6 @@ fn clear_world_objects(tick_ms: u32) {
 #[cfg(all(windows, not(test)))]
 pub(crate) fn observe_movement(update: MovementUpdate, tick_ms: u32) {
     push_event(QueuedStateUpdate::Movement(update), tick_ms);
-}
-
-#[cfg_attr(test, allow(dead_code))]
-pub(crate) fn observe_path_exclusions(
-    update: crate::path_exclusions::QueuedPathExclusionsUpdate,
-    tick_ms: u32,
-) {
-    push_event(QueuedStateUpdate::MapExclusions(update), tick_ms);
 }
 
 #[must_use]
@@ -520,10 +502,8 @@ pub(crate) fn observe_tick() {
     #[cfg(all(windows, not(test)))]
     if let Some(is_walking) = crate::actions::movement::is_walking() {
         let destination = crate::actions::movement::route_destination();
-        if let Some(update) = unsafe { CACHE.movement(is_walking, destination) } {
-            if matches!(update, MovementUpdate::Stopped { .. })
-                && !crate::actions::movement::is_recovery_pending()
-            {
+        if let Some(update) = unsafe { CACHE.movement(is_walking, destination, None) } {
+            if matches!(update, MovementUpdate::Stopped { .. }) {
                 crate::actions::movement::clear_route_destination();
             }
             push_event(QueuedStateUpdate::Movement(update), tick_ms);
@@ -535,6 +515,16 @@ pub(crate) fn observe_tick() {
         if let Some(update) = unsafe { CACHE.observe_casting(casting) } {
             push_event(QueuedStateUpdate::Ability(update), tick_ms);
         }
+    }
+}
+
+#[cfg(all(windows, not(test)))]
+pub(crate) fn stop_movement(reason: MovementStopReason, tick_ms: u32) {
+    let destination = crate::actions::movement::route_destination();
+    // SAFETY: movement actions and queued-step observation run on the client
+    // main thread, which is the sole state-cache producer.
+    if let Some(update) = unsafe { CACHE.movement(false, destination, Some(reason)) } {
+        push_event(QueuedStateUpdate::Movement(update), tick_ms);
     }
 }
 
@@ -620,9 +610,9 @@ fn publish_location_update(update: QueuedLocationUpdate, map_changed: bool, tick
     }
 }
 
-pub(crate) fn schedule_position_sync_replan() {
+pub(crate) fn observe_position_correction() {
     #[cfg(not(test))]
-    crate::actions::movement::schedule_position_sync_replan();
+    crate::actions::movement::observe_position_correction();
 }
 
 pub(crate) fn observe_move(x: i32, y: i32, tick_ms: u32) {
@@ -661,12 +651,7 @@ pub(crate) fn observe_world(update: WorldUpdate, objects: &RawObjects, tick_ms: 
                 // object cache replaces the stale observation.
                 while let Some(id) = unsafe { OBJECTS.remove_player_with_name(object) } {
                     crate::player::removed(id);
-                    crate::path_occupancy::remove(id);
                 }
-                // SAFETY: packet observation runs on the client main thread,
-                // which is the sole owner of the character cache.
-                let self_id = unsafe { CACHE.self_id() };
-                crate::path_occupancy::upsert(object, self_id);
                 if let Some(update) = unsafe { OBJECTS.draw(object) } {
                     push_event(QueuedStateUpdate::Object(update), tick_ms);
                 }
@@ -678,7 +663,6 @@ pub(crate) fn observe_world(update: WorldUpdate, objects: &RawObjects, tick_ms: 
             y,
             direction,
         } => {
-            crate::path_occupancy::move_player(id, x, y);
             if let Some(update) = unsafe { OBJECTS.move_object(id, x, y, direction) } {
                 push_event(QueuedStateUpdate::Object(update), tick_ms);
             }
@@ -690,7 +674,6 @@ pub(crate) fn observe_world(update: WorldUpdate, objects: &RawObjects, tick_ms: 
         }
         WorldUpdate::Remove { id } => {
             crate::player::removed(id);
-            crate::path_occupancy::remove(id);
             if let Some(update) = unsafe { OBJECTS.remove(id) } {
                 push_event(QueuedStateUpdate::Object(update), tick_ms);
             }
@@ -768,7 +751,6 @@ fn observe_self_position(x: i32, y: i32, tick_ms: u32) {
     while let Some(update) = unsafe { OBJECTS.take_outside(x, y) } {
         if let QueuedObjectUpdate::Disappeared(RawWorldObject::Player { id, .. }) = update {
             crate::player::removed(id);
-            crate::path_occupancy::remove(id);
         }
         push_event(QueuedStateUpdate::Object(update), tick_ms);
     }
@@ -865,7 +847,7 @@ mod tests {
             ..StateCache::default()
         };
         assert_eq!(
-            cache.movement(true, Some(destination)),
+            cache.movement(true, Some(destination), None),
             Some(MovementUpdate::Started {
                 current: TilePosition { x: 2, y: 8 },
                 destination: Some(destination),
@@ -874,11 +856,12 @@ mod tests {
 
         cache.position = Some((5, 5));
         assert_eq!(
-            cache.movement(false, Some(destination)),
+            cache.movement(false, Some(destination), None),
             Some(MovementUpdate::Stopped {
                 current: TilePosition { x: 5, y: 5 },
                 destination: Some(destination),
                 reached_destination: Some(false),
+                reason: MovementStopReason::Obstructed,
             })
         );
     }

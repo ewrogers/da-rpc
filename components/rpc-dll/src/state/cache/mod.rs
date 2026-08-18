@@ -277,6 +277,7 @@ impl StateCache {
         &mut self,
         is_walking: bool,
         destination: Option<TilePosition>,
+        stop_reason: Option<MovementStopReason>,
     ) -> Option<MovementUpdate> {
         if self.is_walking == Some(is_walking) {
             return None;
@@ -294,6 +295,13 @@ impl StateCache {
                 current,
                 destination,
                 reached_destination: destination.map(|destination| destination == current),
+                reason: stop_reason.unwrap_or_else(|| {
+                    if destination.is_none_or(|destination| destination == current) {
+                        MovementStopReason::Completed
+                    } else {
+                        MovementStopReason::Obstructed
+                    }
+                }),
             }
         })
     }
@@ -548,9 +556,10 @@ impl MainThreadCache {
         &self,
         is_walking: bool,
         destination: Option<TilePosition>,
+        stop_reason: Option<MovementStopReason>,
     ) -> Option<MovementUpdate> {
         // SAFETY: the caller guarantees exclusive main-thread access.
-        unsafe { (&mut *self.0.get()).movement(is_walking, destination) }
+        unsafe { (&mut *self.0.get()).movement(is_walking, destination, stop_reason) }
     }
 
     pub(super) unsafe fn map_transition_pending(&self) -> bool {

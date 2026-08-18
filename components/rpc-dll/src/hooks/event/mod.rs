@@ -439,7 +439,7 @@ fn observe_event_inner(event: *const core::ffi::c_void) {
         }
         packet::ServerUpdate::UserPosition(position) => {
             state::observe_user_position(position.x, position.y, tick_ms);
-            state::schedule_position_sync_replan();
+            state::observe_position_correction();
         }
         packet::ServerUpdate::Move(position) => {
             state::observe_move(position.x, position.y, tick_ms);

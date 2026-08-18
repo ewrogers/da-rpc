@@ -11,9 +11,6 @@ fn character_stat_flags_match_the_client_packet() {
 
 #[test]
 fn command_messages_round_trip() {
-    assert!(PathExclusions::new(65_536, &[RouteTile { x: 1, y: 1 }]).is_none());
-    assert!(PathExclusions::new(1, &[RouteTile { x: 400, y: 1 }]).is_none());
-
     let messages = [
         Message::CommandRequest(CommandRequest {
             request_id: 14,
@@ -68,29 +65,7 @@ fn command_messages_round_trip() {
         Message::CommandRequest(CommandRequest {
             request_id: 171,
             operation: CommandOperation::Submit {
-                kind: CommandKind::SetPathExclusions(
-                    PathExclusions::new(
-                        3000,
-                        &[RouteTile { x: 40, y: 50 }, RouteTile { x: 41, y: 50 }],
-                    )
-                    .unwrap(),
-                ),
-                timeout_ms: 1_000,
-                wait_ms: 50,
-            },
-        }),
-        Message::CommandRequest(CommandRequest {
-            request_id: 172,
-            operation: CommandOperation::Submit {
-                kind: CommandKind::RemovePathExclusions { map_id: 3000 },
-                timeout_ms: 1_000,
-                wait_ms: 50,
-            },
-        }),
-        Message::CommandRequest(CommandRequest {
-            request_id: 173,
-            operation: CommandOperation::Submit {
-                kind: CommandKind::ClearPathExclusions,
+                kind: CommandKind::Walk(WalkTarget::Cancel),
                 timeout_ms: 1_000,
                 wait_ms: 50,
             },

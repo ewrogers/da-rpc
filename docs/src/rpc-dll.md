@@ -76,12 +76,6 @@ its values. The queue rebases to that boundary, and overflow or an ordering gap
 causes the controller to request another complete snapshot. This keeps state
 ownership inside the DLL while avoiding an unbounded replay log.
 
-The DLL also owns a bounded sparse registry of map path exclusions for the
-injected session. Registry changes are ordered state events and complete
-snapshots include every configured map. A daemon reconnect therefore restores
-the same REST resources without asking the external controller to republish
-them. The registry is cleared only by command, DLL unload, or process exit.
-
 This state tracking is independent of `darpcd.exe`. If the daemon stops, the DLL
 continues to update its state and keeps its named-pipe server ready for a new
 connection.
@@ -108,11 +102,10 @@ retained history to consume pending queue capacity.
 
 An exact-route walk instead validates a map-tagged sequence of at most 256
 absolute tiles, appends the client's native 12-byte route records in reverse
-consumption order, and starts normal queued walking. Separate replace, remove,
-and clear commands update the sparse exclusion registry. A map transition
-automatically builds that map's at most 256 policy tiles into one of two fixed
-dense bitsets read by native breadth-first search. Every queued command remains
-pointer-free.
+consumption order, and starts normal queued walking. The DLL observes native
+route construction and queued-step results without changing native collision
+or replanning. Only a rejected externally installed exact route is reset.
+Every queued command remains pointer-free.
 
 Chant commands submit a bounded `0x0E` message packet with spell-chant mode `2`
 through the confirmed client packet function. The packet carries one nonempty

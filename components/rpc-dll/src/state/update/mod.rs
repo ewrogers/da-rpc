@@ -52,9 +52,6 @@ impl QueuedStateEvent {
             QueuedStateUpdate::PlannedRoute(update) => {
                 StateUpdate::PlannedRoute(crate::route::take(update)?)
             }
-            QueuedStateUpdate::MapExclusions(update) => {
-                StateUpdate::MapExclusions(update.into_model())
-            }
         };
         Some(StateEvent {
             sequence: self.sequence,
@@ -120,8 +117,6 @@ pub(super) enum QueuedStateUpdate {
     Player(crate::player::QueuedPlayer),
     CharacterProfile(crate::player::QueuedCharacterProfile),
     PlannedRoute(crate::route::QueuedRoute),
-    #[cfg_attr(test, allow(dead_code))]
-    MapExclusions(crate::path_exclusions::QueuedPathExclusionsUpdate),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

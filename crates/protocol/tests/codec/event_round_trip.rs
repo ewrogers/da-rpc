@@ -281,6 +281,7 @@ fn event_messages_round_trip() {
                         current: TilePosition { x: 30, y: 40 },
                         destination: Some(TilePosition { x: 30, y: 40 }),
                         reached_destination: Some(true),
+                        reason: MovementStopReason::Completed,
                     }),
                 },
                 StateEvent {
@@ -294,18 +295,6 @@ fn event_messages_round_trip() {
                         direction: Direction::East,
                         destination: Some(TilePosition { x: 30, y: 40 }),
                         mode: WalkMode::ExactRoute,
-                    }),
-                },
-                StateEvent {
-                    sequence: 531,
-                    revision: 221,
-                    tick_ms: 1_341,
-                    update: StateUpdate::MapExclusions(MapExclusionsUpdate::Replaced {
-                        exclusions: MapExclusions {
-                            map_id: 3000,
-                            tiles: vec![TilePosition { x: 4, y: 5 }, TilePosition { x: 9, y: 2 }],
-                        },
-                        map_count: 2,
                     }),
                 },
                 StateEvent {

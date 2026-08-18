@@ -149,8 +149,6 @@ extern "C" fn observe_tick() {
 
 #[inline]
 fn observe_tick_untimed() {
-    #[cfg(not(test))]
-    crate::actions::movement::observe_tick();
     commands::observe_tick();
     crate::player::observe_tick(darpc_win32::pipe::sender_tick_ms());
     crate::state::observe_tick();
@@ -159,11 +157,6 @@ fn observe_tick_untimed() {
 
 #[inline]
 fn observe_tick_timed() {
-    #[cfg(not(test))]
-    diagnostics::measure(
-        HookTimingStage::Movement,
-        crate::actions::movement::observe_tick,
-    );
     diagnostics::measure(HookTimingStage::Commands, commands::observe_tick);
     diagnostics::measure(HookTimingStage::Player, || {
         crate::player::observe_tick(darpc_win32::pipe::sender_tick_ms());

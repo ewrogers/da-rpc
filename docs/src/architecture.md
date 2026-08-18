@@ -87,8 +87,7 @@ where the client expects its movement, skill, and spell methods to run.
 Using native methods keeps client timing, interface state, and local validation
 in the normal path. Native pathfinding owns its route, so player input can
 cancel or replace it naturally. Exact external routes use the same native route
-storage and pacing. A DLL-owned per-map exclusion registry supplies policy to
-the native pathfinder without moving collision work into the daemon.
+storage and pacing. Route planning policy remains outside the DLL.
 
 ## Hooks and main-thread affinity
 

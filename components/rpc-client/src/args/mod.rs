@@ -28,6 +28,7 @@ usage:
     darpc [--output <table|json>] turn --pid <pid> <north|east|south|west>
     darpc [--output <table|json>] walk --pid <pid> <north|east|south|west>
     darpc [--output <table|json>] walk --pid <pid> <x> <y>
+    darpc [--output <table|json>] walk --pid <pid> cancel
     darpc [--output <table|json>] skill use --pid <pid> <slot>
     darpc [--output <table|json>] skill swap --pid <pid> <source> <destination>
     darpc [--output <table|json>] spell cast --pid <pid> <slot>
@@ -540,7 +541,10 @@ fn parse_raw_packet(arguments: &mut impl Iterator<Item = OsString>) -> Result<Ra
 fn parse_walk_target(arguments: &mut impl Iterator<Item = OsString>) -> Result<WalkTarget> {
     let first = arguments
         .next()
-        .ok_or_else(|| invalid_arguments("walk requires a direction or x and y coordinates"))?;
+        .ok_or_else(|| invalid_arguments("walk requires a direction, coordinates, or cancel"))?;
+    if matches!(first.to_str(), Some("cancel")) {
+        return Ok(WalkTarget::Cancel);
+    }
     if matches!(first.to_str(), Some("north" | "east" | "south" | "west")) {
         return Ok(WalkTarget::Direction(parse_direction(Some(first))?));
     }
@@ -1019,6 +1023,16 @@ mod tests {
                 Command {
                     pid: 10,
                     operation: Operation::Walk(WalkTarget::Destination { x: 120, y: 85 }),
+                }
+            )
+        );
+        assert_eq!(
+            parse(arguments(&["walk", "--pid", "10", "cancel"])).unwrap(),
+            (
+                OutputFormat::Table,
+                Command {
+                    pid: 10,
+                    operation: Operation::Walk(WalkTarget::Cancel),
                 }
             )
         );

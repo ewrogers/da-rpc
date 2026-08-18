@@ -7,10 +7,10 @@ use darpc_model::{
     AbilityUpdate, ActionUpdate, AudioUpdate, CharacterModifiers, CharacterProfileUpdate,
     CharacterStats, ClientCommand, ClientMessage, CollectionChange, CoreStatus, CurrentVitals,
     Direction, Effect, EffectDuration, EffectUpdate, Element, EntityUpdate, EquipmentSlot,
-    InventoryItem, LifecycleUpdate, LocationUpdate, MapChange, MapExclusions, MapExclusionsUpdate,
-    MessageKind, MovementUpdate, ObjectUpdate, PlayerInspectionChanges, PlayerInspectionTrigger,
-    PlayerUpdate, ProgressionStatus, Skill, SlotUpdate, Spell, SpellCancellationSource,
-    SpellCastArguments, StateEvent, StateUpdate, StatusUpdate, TilePosition, WalkMode,
+    InventoryItem, LifecycleUpdate, LocationUpdate, MapChange, MessageKind, MovementStopReason,
+    MovementUpdate, ObjectUpdate, PlayerInspectionChanges, PlayerInspectionTrigger, PlayerUpdate,
+    ProgressionStatus, Skill, SlotUpdate, Spell, SpellCancellationSource, SpellCastArguments,
+    StateEvent, StateUpdate, StatusUpdate, TilePosition, WalkMode,
 };
 
 mod action;
@@ -201,10 +201,6 @@ fn encode_event(output: &mut Vec<u8>, event: &StateEvent) -> Result<(), EncodeEr
             output.push(22);
             crate::snapshot::encode_planned_route(output, route)?;
         }
-        StateUpdate::MapExclusions(update) => {
-            output.push(23);
-            encode_map_exclusions_update(output, update)?;
-        }
         StateUpdate::FieldMap(update) => {
             output.push(24);
             crate::field_map::encode_update(output, update)?;
@@ -347,7 +343,6 @@ fn decode_event(reader: &mut PayloadReader<'_>) -> Result<StateEvent, DecodeErro
             current: crate::player::decode_identity(reader)?,
         }),
         22 => StateUpdate::PlannedRoute(crate::snapshot::decode_planned_route(reader)?),
-        23 => StateUpdate::MapExclusions(decode_map_exclusions_update(reader)?),
         24 => StateUpdate::FieldMap(crate::field_map::decode_update(reader)?),
         1 => StateUpdate::Status(decode_status(reader)?),
         2 => StateUpdate::Location(decode_location(reader)?),
@@ -382,145 +377,6 @@ fn decode_event(reader: &mut PayloadReader<'_>) -> Result<StateEvent, DecodeErro
         tick_ms,
         update,
     })
-}
-
-fn encode_map_exclusions_update(
-    output: &mut Vec<u8>,
-    update: &MapExclusionsUpdate,
-) -> Result<(), EncodeError> {
-    match update {
-        MapExclusionsUpdate::Replaced {
-            exclusions,
-            map_count,
-        } => {
-            if *map_count == 0 || usize::from(*map_count) > crate::MAX_PATH_EXCLUSION_MAPS {
-                return Err(EncodeError::InvalidPathExclusionMapCount { actual: *map_count });
-            }
-            if exclusions.map_id > u32::from(u16::MAX) {
-                return Err(EncodeError::InvalidPathExclusionMapId {
-                    map_id: exclusions.map_id,
-                });
-            }
-            if exclusions.tiles.is_empty()
-                || exclusions.tiles.len() > crate::MAX_PATH_EXCLUSION_TILES
-            {
-                return Err(EncodeError::SnapshotCollectionTooLong {
-                    length: exclusions.tiles.len(),
-                    max: crate::MAX_PATH_EXCLUSION_TILES,
-                });
-            }
-            output.push(0);
-            push_u16(output, *map_count);
-            push_u32(output, exclusions.map_id);
-            push_u16(
-                output,
-                u16::try_from(exclusions.tiles.len()).map_err(|_| EncodeError::LengthOverflow)?,
-            );
-            for tile in &exclusions.tiles {
-                let invalid_tile = || EncodeError::InvalidPathExclusionTile {
-                    x: tile.x,
-                    y: tile.y,
-                };
-                let x = u16::try_from(tile.x).map_err(|_| invalid_tile())?;
-                let y = u16::try_from(tile.y).map_err(|_| invalid_tile())?;
-                if usize::from(x) >= crate::MAX_PATH_EXCLUSION_DIMENSION
-                    || usize::from(y) >= crate::MAX_PATH_EXCLUSION_DIMENSION
-                {
-                    return Err(invalid_tile());
-                }
-                push_u16(output, x);
-                push_u16(output, y);
-            }
-        }
-        MapExclusionsUpdate::Removed { map_id, map_count } => {
-            if usize::from(*map_count) > crate::MAX_PATH_EXCLUSION_MAPS {
-                return Err(EncodeError::InvalidPathExclusionMapCount { actual: *map_count });
-            }
-            if *map_id > u32::from(u16::MAX) {
-                return Err(EncodeError::InvalidPathExclusionMapId { map_id: *map_id });
-            }
-            output.push(1);
-            push_u16(output, *map_count);
-            push_u32(output, *map_id);
-        }
-        MapExclusionsUpdate::Cleared { removed_map_count } => {
-            if *removed_map_count == 0
-                || usize::from(*removed_map_count) > crate::MAX_PATH_EXCLUSION_MAPS
-            {
-                return Err(EncodeError::InvalidPathExclusionMapCount {
-                    actual: *removed_map_count,
-                });
-            }
-            output.push(2);
-            push_u16(output, *removed_map_count);
-        }
-    }
-    Ok(())
-}
-
-fn decode_map_exclusions_update(
-    reader: &mut PayloadReader<'_>,
-) -> Result<MapExclusionsUpdate, DecodeError> {
-    match reader.read_u8()? {
-        0 => {
-            let map_count = reader.read_u16()?;
-            if map_count == 0 || usize::from(map_count) > crate::MAX_PATH_EXCLUSION_MAPS {
-                return Err(DecodeError::InvalidPathExclusionMapCount { actual: map_count });
-            }
-            let map_id = reader.read_u32()?;
-            if map_id > u32::from(u16::MAX) {
-                return Err(DecodeError::InvalidPathExclusionMapId { map_id });
-            }
-            let tile_count = usize::from(reader.read_u16()?);
-            if tile_count == 0 || tile_count > crate::MAX_PATH_EXCLUSION_TILES {
-                return Err(DecodeError::InvalidRouteTileCount {
-                    actual: tile_count,
-                    max: crate::MAX_PATH_EXCLUSION_TILES,
-                });
-            }
-            let mut tiles = Vec::with_capacity(tile_count);
-            for _ in 0..tile_count {
-                let x = reader.read_u16()?;
-                let y = reader.read_u16()?;
-                if usize::from(x) >= crate::MAX_PATH_EXCLUSION_DIMENSION
-                    || usize::from(y) >= crate::MAX_PATH_EXCLUSION_DIMENSION
-                {
-                    return Err(DecodeError::InvalidPathExclusionTile { x, y });
-                }
-                tiles.push(TilePosition {
-                    x: i32::from(x),
-                    y: i32::from(y),
-                });
-            }
-            Ok(MapExclusionsUpdate::Replaced {
-                exclusions: MapExclusions { map_id, tiles },
-                map_count,
-            })
-        }
-        1 => {
-            let map_count = reader.read_u16()?;
-            if usize::from(map_count) > crate::MAX_PATH_EXCLUSION_MAPS {
-                return Err(DecodeError::InvalidPathExclusionMapCount { actual: map_count });
-            }
-            let map_id = reader.read_u32()?;
-            if map_id > u32::from(u16::MAX) {
-                return Err(DecodeError::InvalidPathExclusionMapId { map_id });
-            }
-            Ok(MapExclusionsUpdate::Removed { map_id, map_count })
-        }
-        2 => {
-            let removed_map_count = reader.read_u16()?;
-            if removed_map_count == 0
-                || usize::from(removed_map_count) > crate::MAX_PATH_EXCLUSION_MAPS
-            {
-                return Err(DecodeError::InvalidPathExclusionMapCount {
-                    actual: removed_map_count,
-                });
-            }
-            Ok(MapExclusionsUpdate::Cleared { removed_map_count })
-        }
-        actual => Err(DecodeError::InvalidPathExclusionsUpdateType { actual }),
-    }
 }
 
 #[cfg(test)]

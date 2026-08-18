@@ -1,225 +1,206 @@
 # Movement
 
-daRPC uses the client's normal main-thread actions for turning and movement.
-Ordinary player input can still replace or cancel a route.
+daRPC exposes the game client's stock movement and a narrow exact-route
+control surface. It does not replace or improve the client's native planner.
+An external bot that needs obstacle avoidance, group-aware costs, or reliable
+replanning should own those decisions and submit short exact routes.
 
-| Use | Route or state |
+## Consumer surface
+
+| Need | HTTP or SSE interface |
 | --- | --- |
-| Read position and walking state | `GET /clients/{client}/status` |
-| Read the complete current planned route | `GET /clients/{client}/status` |
-| Turn | `POST /clients/{client}/turn` |
-| Step, pathfind, or install an exact route | `POST /clients/{client}/walk` |
-| Configure per-map pathfinding exclusions | `PUT /clients/{client}/maps/{map_id}/path-exclusions` |
-| Request a server resynchronization | `POST /clients/{client}/resync` |
-| Watch movement changes | [Walking and character action events](events.md#walking-and-character-action-events) |
+| Current map, position, walking flag, and planned route | `GET /clients/{client}/status` |
+| Visible players, creatures, NPCs, and their positions | `GET /clients/{client}/objects` |
+| Current group state and members | `GET /clients/{client}/group` |
+| Static map bytes for an external planner | `GET /maps/{map_id}/download` |
+| One cardinal step, a stock destination walk, or an exact route | `POST /clients/{client}/walk` |
+| Stop the current route | `DELETE /clients/{client}/walk` |
+| Ordered movement and world updates | `GET /clients/{client}/events` |
 
-## Turning
+Coordinates are zero-based. Read the current map ID, dimensions, and position
+from status before submitting movement.
 
-```console
-curl --request POST \
-  --header "Content-Type: application/json" \
-  --data '{"direction":"north"}' \
-  "http://127.0.0.1:2626/clients/ZiLo/turn"
+## Choosing a movement mode
+
+### One step
+
+Submit one direction when the controller wants to drive the character one tile
+at a time:
+
+```json
+{"direction":"north"}
 ```
 
-The direction must be `north`, `east`, `south`, or `west`. daRPC calls the
-client's native direction path on its main thread. An observed direction
-request produces `character.turned` with the requested direction.
+The DLL calls the stock walk helper. A rejected step returns a command failure.
+If the helper accepts the step but the character never reaches the adjacent
+tile, `walking.stopped` reports `obstructed`.
 
-## Walking one step
+### Stock destination
 
-Use the same `/walk` route with a direction:
+Submit a destination to ask the client's built-in planner to build and execute
+its normal ground route:
 
-```console
-curl --request POST \
-  --header "Content-Type: application/json" \
-  --data '{"direction":"south"}' \
-  "http://127.0.0.1:2626/clients/ZiLo/walk"
+```json
+{"destination":{"x":120,"y":85}}
 ```
 
-This performs a native directional step. It does not create a queued route, so
-`is_walking` remains false and the resulting position arrives through
-`location.changed`.
+This mode is intentionally vanilla. daRPC does not change native collision
+answers, add player or monster exclusions, retry a rejected edge, or rebuild a
+stalled route. Use it when the game's ordinary shortest-path behavior is good
+enough. A valid tile with no native path reports `no_path`.
 
-## Walking to a tile
+### Exact route
 
-```console
-curl --request POST \
-  --header "Content-Type: application/json" \
-  --data '{"destination":{"x":20,"y":14}}' \
-  "http://127.0.0.1:2626/clients/ZiLo/walk"
-```
+Submit a map-tagged list of absolute tiles when an external planner owns the
+route:
 
-Coordinates are zero-based and must satisfy `0 <= x < width` and
-`0 <= y < height`. Bad directions, malformed choice bodies, and out-of-map
-tiles return `400 Bad Request`. A client that is not in game or has no current
-map returns `409 Conflict`.
-
-## Walking an exact route
-
-An external planner can install a map-tagged sequence of absolute tiles:
-
-```console
-curl --request POST \
-  --header "Content-Type: application/json" \
-  --data '{"route":{"map_id":3001,"tiles":[{"x":11,"y":22},{"x":12,"y":22},{"x":12,"y":23}]}}' \
-  "http://127.0.0.1:2626/clients/ZiLo/walk"
-```
-
-The first tile must equal the character's confirmed position. A route contains
-from 1 through 256 unique in-map tiles, and each edge must move one cardinal
-tile. The DLL validates the current map, every edge, and both native collision
-views before resetting movement. It then appends goal-to-start 12-byte records
-through the client's native vector helper and lets the normal movement,
-animation, packet, and acknowledgement pacing consume them.
-
-Exact routes do not use the breadth-first search and do not inherit native
-replanning. If a later step becomes blocked, daRPC resets the route and emits
-`walking.obstructed`; the external controller decides whether and how to
-replan. Split longer paths into segments and wait for route or location events
-before submitting the next segment.
-
-Direct installation passes static, codec, native Windows, and live client
-tests. The initial live trial installed two cardinal edges on the supported
-7.41 client, reached both confirmed tiles, emitted `walking.route_changed`,
-`walking.started`, `location.changed`, and `walking.stopped`, and cleared the
-route afterward. Repeat this short open-area trial before treating another
-client fingerprint as supported. Test a warp-ending segment only after that
-trial behaves normally.
-
-Never include two maps in one route. End a map segment on its warp tile, wait
-for the atomic `location.changed` event containing the new map and entry
-position, validate both, and then submit the next map-tagged segment.
-
-## Excluding policy tiles from native pathfinding
-
-The DLL keeps a session-scoped sparse registry of excluded tiles for every
-configured map and activates the matching entry automatically on map change.
-See [Path exclusions](path-exclusions.md) for its REST resources, limits,
-lifetime, collision behavior, and `map.exclusions_changed` event.
-
-## Pathfinding
-
-For destination walks, daRPC asks the game client's own pathfinder to build the
-route. It does not choose a target, chase creatures, or attack automatically.
-The result is best effort because the world can change after a route is built
-and the server always has the final say about whether a step succeeds.
-
-Every destination request uses this same augmented native breadth-first search,
-whether it came from daRPC, a ground right-click, or a right-click pursuit. A
-pursuit supplies the four tiles adjacent to its moving target as goals; an
-ordinary walk supplies one destination. The pathfinder checks three inputs:
-
-- The complete map data prevents off-screen walls from being treated as open
-  space just because the client has not drawn them yet.
-- The live world view accounts for doors and other current changes.
-- A fixed-size daRPC occupancy grid prevents the client from treating a visible
-  player's tile as passable. Lookups are constant time during the search.
-  Snapshots rebuild the grid, while player draw, move, and remove events update
-  only the affected tiles outside the search loop.
-
-A route can therefore fail even when its destination is inside the map. When
-no route is available at command time, the command completes with
-`state: "failed"` and `failure: "no_path"`.
-
-### Recalculating a route
-
-daRPC keeps the destination while a destination route is active, including a
-route started by right-clicking in the game. When a queued step is blocked, it
-keeps the route and retries that step after one second, then once more after
-another second. If the second retry also fails, it recalculates the route from
-the character's latest confirmed tile. The same retry sequence begins when an
-accepted step makes no confirmed progress for one second. An authoritative
-server position correction still causes an immediate recalculation.
-
-Every submitted step still passes the client's normal live safety check. If a
-new obstacle leaves no path at that moment, daRPC retries for up to five seconds.
-The delay grows from 250 milliseconds to one second so repeated attempts do not
-overload the client. A new movement request, a map change, invalid client state,
-confirmed progress, or the five-second limit ends that recovery attempt.
-
-This recovery applies to destination walks started by daRPC and native ground
-routes started directly in the game. Pursuits use the same augmented search but
-retain their normal moving-target timer, which repeatedly rebuilds the four
-adjacent goals as the target moves. Exact externally supplied routes remain
-caller-selected and are not replanned automatically.
-
-## Resynchronizing position
-
-```console
-curl --request POST \
-  "http://127.0.0.1:2626/clients/ZiLo/resync"
-```
-
-This submits the same opcode-only refresh packet as the client's F5 key. The
-server normally responds by sending authoritative client state again. When an
-authoritative user-position packet arrives during a daRPC-owned walk, daRPC
-cancels the stale native route and rebuilds it from the corrected position to
-the retained destination on the next main-thread tick. This also applies when
-the server initiates the correction after rejecting a step or detecting a
-collision; calling `/resync` is not required for route recovery.
-
-Every observed F5 refresh, including one sent by this endpoint, publishes the
-transient [`client.resync`](events.md#client-command-events) event. The event
-means the client sent the request. It does not mean the server has answered or
-that resynchronization is complete.
-
-## Walking events
-
-`planned_route` on character status retains the client's current native plan:
-
-```text
-planned_route: {
-    generation: u32,
-    tiles: [{ x: i32, y: i32 }, ...]
+```json
+{
+  "route": {
+    "map_id": 3001,
+    "tiles": [
+      {"x":11,"y":22},
+      {"x":12,"y":22},
+      {"x":12,"y":23}
+    ]
+  }
 }
 ```
 
-`tiles` is absolute and ordered from the character's current tile through the
-goal. It is empty when no queued path remains. `planned_route` is null only
-before route telemetry is available, such as outside a supported in-game
-world.
+The route must:
 
-`walking.route_changed` carries the same `generation` and complete `tiles`
-array whenever the native plan changes. A new pathfinder build advances the
-generation even if it chooses the same tiles. Confirmed movement consumes the
-front step without changing the generation, so the next event has a shorter
-array beginning at the new current tile. Native pursuit can rebuild its plan
-repeatedly, and a blocked daRPC ground route can rebuild toward its retained
-destination. Each observed rebuild is therefore a separate revision. Consumers
-replace their saved route with the event payload rather than merging arrays.
+- contain 1 through 256 tiles;
+- start at the character's current confirmed position;
+- stay on the stated current map and inside its dimensions;
+- use unique tiles connected by cardinal one-tile edges; and
+- pass both native collision checks at submission time.
 
-`walking.started` includes the current position and the requested destination
-when daRPC knows it.
+The DLL places the validated route into the client's native route vector and
+starts its normal walker. Animation, packets, acknowledgements, and pacing
+remain client-owned. Route injection is not a teleport and does not bypass the
+live step validator.
 
-`walking.stopped` includes the final current position, the available
-destination, and `reached_destination`. The outcome is true only when the final
-position equals the requested tile. A route started directly through the game
-may not expose a reliable destination, so its destination and outcome can be
-null.
+If a later exact-route edge is rejected, daRPC emits
+`walking.obstructed`, then `walking.stopped` with reason `obstructed`,
+and clears the exact route. It does not retry or replan.
 
-`walking.obstructed` is emitted when a direct daRPC step or a queued native,
-exact, or pursuit route attempts a tile that the live step validator rejects.
-It includes `map_id`, `current`, `attempted`, `direction`, the retained
-destination when known, and a `mode` of `direct`, `native_route`,
-`exact_route`, or `pursuit`. Native daRPC destination walks may still perform
-their bounded replan after this event. Exact routes never do so automatically.
+## Cancelling movement
 
-`map.exclusions_changed` reports a replacement, removal, or complete clear of
-the session's per-map pathfinding policy. See
-[Path exclusions](path-exclusions.md#change-events) for its payload and
-resource readback behavior.
+`DELETE /clients/{client}/walk` resets the stock route, clears route
+telemetry, and emits `walking.stopped` with reason `cancelled` when a walk
+was active. The direct CLI equivalent is:
 
-The started and stopped events update `is_walking` in
-[character status](status.md). `walking.route_changed` updates
-`planned_route`; its empty array is the authoritative cleared plan.
+```console
+darpc walk --pid <pid> cancel
+```
+
+The reset cannot revoke a step the client has already accepted. A final
+`location.changed` can therefore arrive after cancellation. Replan from the
+latest confirmed position rather than the position reported by the cancel
+response.
+
+Replacing an active walk with another step, destination, or route emits reason
+`replaced`. Turning while a walk is active emits reason `cancelled`.
+
+Cancelling a queued command through
+`DELETE /clients/{client}/commands/{command_id}` is different. It prevents a
+command that has not begun from executing; it does not stop an already active
+route.
+
+## Recommended external-planner loop
+
+1. Read status, objects, and group state. Download and cache the raw map when
+   the map ID changes.
+2. Build the planner's own cost field. Static map collision can be combined
+   with temporary dynamic costs from visible objects.
+3. Plan from the latest confirmed position. A controller can treat creature
+   tiles and nearby safety margins as blocked or expensive, prefer proximity
+   to group members, and give unrelated players a smaller cost. Those policies
+   belong to the controller because they depend on its goal and risk tolerance.
+4. Submit a short exact-route prefix. Short prefixes reduce the amount of work
+   invalidated when an object moves.
+5. Replace the saved route whenever `walking.route_changed` arrives. Update
+   the start position from `location.changed`.
+6. On a terminal event, apply the reason-specific recovery below. Never wait
+   indefinitely for the same route to recover itself.
+
+A useful starting segment length is 4 through 16 edges. The best value depends
+on map density and how quickly the controller receives object updates.
+
+## Stop reasons
+
+`walking.stopped` contains:
+
+```text
+walking.stopped {
+    observation: EventObservation,
+    current: TilePosition,
+    destination: TilePosition?,
+    reached_destination: bool?,
+    reason: completed | obstructed | replaced | cancelled | position_corrected,
+}
+```
+
+| Reason | Meaning | Suggested controller action |
+| --- | --- | --- |
+| `completed` | The observed walk ended normally. If a destination is known, `reached_destination` says whether the final tile matches it. | Confirm the current position and submit the next segment if needed. |
+| `obstructed` | The walk ended before reaching its known destination, including a rejected edge or an accepted direct step that made no progress. | Penalize `walking.obstructed.attempted` when that event is present, otherwise use `destination`, then replan from `current`. |
+| `replaced` | A different route or movement command superseded this walk. | Track the replacement command and discard the old plan. |
+| `cancelled` | Movement was explicitly reset or cancelled. | Stop unless the controller deliberately requested cancellation as part of replanning. |
+| `position_corrected` | The server corrected the character position while walking. | Discard the route and reread status before planning again. |
+
+`destination` and `reached_destination` can be null for movement initiated
+inside the game when no reliable destination was observed.
+
+## Route and obstruction events
+
+`planned_route` in status is the latest observed client route:
+
+```text
+planned_route {
+    generation: u32,
+    tiles: Vec<TilePosition>,
+}
+```
+
+`walking.route_changed` carries the same fields. Tiles are absolute and
+ordered from the current tile toward the goal. A new native build advances the
+generation. Confirmed movement consumes tiles from the front without changing
+the generation. An empty tile list is the authoritative cleared route.
+
+`walking.obstructed` reports:
+
+```text
+walking.obstructed {
+    observation: EventObservation,
+    map_id: u32,
+    current: TilePosition,
+    attempted: TilePosition,
+    direction: north | east | south | west,
+    destination: TilePosition?,
+    mode: direct | native_route | exact_route | pursuit,
+}
+```
+
+The DLL reports the rejection but does not modify native routes or pursuits.
+Only a failed externally installed exact route is reset automatically.
+
+## Stream recovery and map changes
+
+SSE is ordered per client. If the consumer receives
+`stream.resync_required`, it must reread every resource it uses before
+planning again. At minimum, reread status, objects, and group state.
+
+Never submit one exact route across two maps. End the first segment on the warp
+tile, wait for the atomic `location.changed` event containing the new map and
+entry position, refresh the map and world inputs, and plan a new segment.
 
 ## Command completion
 
-Turn and walk requests use the common bounded main-thread command system. The
-HTTP response tells you whether the local command executed, failed, or remains
-queued. Later location and walking events describe what happened in the game;
-the command is not retried automatically.
+The HTTP command response reports whether the main-thread operation completed,
+failed, or remains queued. It does not prove that a multi-step walk later
+reached its destination. Use ordered location, route, obstruction, and stopped
+events for the movement outcome.
 
-See [Web API](web-api.md#native-command-results) for command status, timeout,
-and cancellation behavior.
+See [Web API](web-api.md#native-command-results) for command status and timeout
+behavior, and [Events](events.md) for stream ordering and recovery.

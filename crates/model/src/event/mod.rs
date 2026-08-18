@@ -1,8 +1,8 @@
 use crate::{
     CharacterModifiers, CharacterProfileUpdate, CharacterStats, ClientLifecycle, ClientMessage,
     ClientSnapshot, DialogUpdate, Direction, Effect, EntityUpdate, EquipmentSlot, ExchangeUpdate,
-    FieldMapUpdate, GroupUpdate, InventoryItem, LegendUpdate, MapExclusions, MapLocation,
-    ObjectUpdate, PlayerUpdate, SequenceNumber, Skill, Spell,
+    FieldMapUpdate, GroupUpdate, InventoryItem, LegendUpdate, MapLocation, ObjectUpdate,
+    PlayerUpdate, SequenceNumber, Skill, Spell,
 };
 use std::{error::Error, fmt};
 
@@ -22,7 +22,6 @@ pub enum StateUpdate {
     Status(StatusUpdate),
     Movement(MovementUpdate),
     PlannedRoute(PlannedRoute),
-    MapExclusions(MapExclusionsUpdate),
     Location(LocationUpdate),
     Effect(EffectUpdate),
     Object(ObjectUpdate),
@@ -40,21 +39,6 @@ pub enum StateUpdate {
     Group(GroupUpdate),
     Exchange(ExchangeUpdate),
     Legend(LegendUpdate),
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum MapExclusionsUpdate {
-    Replaced {
-        exclusions: MapExclusions,
-        map_count: u16,
-    },
-    Removed {
-        map_id: u32,
-        map_count: u16,
-    },
-    Cleared {
-        removed_map_count: u16,
-    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -274,6 +258,7 @@ pub enum MovementUpdate {
         current: TilePosition,
         destination: Option<TilePosition>,
         reached_destination: Option<bool>,
+        reason: MovementStopReason,
     },
     Obstructed {
         map_id: u32,
@@ -283,6 +268,15 @@ pub enum MovementUpdate {
         destination: Option<TilePosition>,
         mode: WalkMode,
     },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MovementStopReason {
+    Completed,
+    Obstructed,
+    Replaced,
+    Cancelled,
+    PositionCorrected,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -449,51 +443,6 @@ impl ClientSnapshot {
                 location.y = Some(current.y);
             }
             StateUpdate::PlannedRoute(route) => self.planned_route = Some(route),
-            StateUpdate::MapExclusions(update) => match update {
-                MapExclusionsUpdate::Replaced {
-                    exclusions,
-                    map_count,
-                } => {
-                    let result = self
-                        .map_exclusions
-                        .binary_search_by_key(&exclusions.map_id, |entry| entry.map_id);
-                    let expected_count = self.map_exclusions.len() + usize::from(result.is_err());
-                    if usize::from(map_count) != expected_count {
-                        return Err(ApplyEventError::MapExclusionCountMismatch {
-                            expected: expected_count,
-                            actual: usize::from(map_count),
-                        });
-                    }
-                    match result {
-                        Ok(index) => self.map_exclusions[index] = exclusions,
-                        Err(index) => self.map_exclusions.insert(index, exclusions),
-                    }
-                }
-                MapExclusionsUpdate::Removed { map_id, map_count } => {
-                    let index = self
-                        .map_exclusions
-                        .binary_search_by_key(&map_id, |entry| entry.map_id)
-                        .map_err(|_| ApplyEventError::MapExclusionsNotFound { map_id })?;
-                    let expected_count = self.map_exclusions.len() - 1;
-                    if usize::from(map_count) != expected_count {
-                        return Err(ApplyEventError::MapExclusionCountMismatch {
-                            expected: expected_count,
-                            actual: usize::from(map_count),
-                        });
-                    }
-                    self.map_exclusions.remove(index);
-                }
-                MapExclusionsUpdate::Cleared { removed_map_count } => {
-                    let expected_count = self.map_exclusions.len();
-                    if usize::from(removed_map_count) != expected_count {
-                        return Err(ApplyEventError::MapExclusionCountMismatch {
-                            expected: expected_count,
-                            actual: usize::from(removed_map_count),
-                        });
-                    }
-                    self.map_exclusions.clear();
-                }
-            },
             StateUpdate::Location(update) => {
                 let character = self
                     .character
@@ -810,13 +759,6 @@ pub enum ApplyEventError {
         collection: CollectionKind,
         slot: u8,
     },
-    MapExclusionsNotFound {
-        map_id: u32,
-    },
-    MapExclusionCountMismatch {
-        expected: usize,
-        actual: usize,
-    },
     LegendMarkNotFound,
 }
 
@@ -882,13 +824,6 @@ impl fmt::Display for ApplyEventError {
                 formatter,
                 "{} slot {slot} did not match the event baseline",
                 collection.as_str()
-            ),
-            Self::MapExclusionsNotFound { map_id } => {
-                write!(formatter, "path exclusions for map {map_id} do not exist")
-            }
-            Self::MapExclusionCountMismatch { expected, actual } => write!(
-                formatter,
-                "expected {expected} path-exclusion maps after update, received {actual}"
             ),
             Self::LegendMarkNotFound => {
                 formatter.write_str("legend mark did not match the retained legend state")
@@ -1090,7 +1025,6 @@ mod tests {
             exchange: None,
             legend: None,
             planned_route: None,
-            map_exclusions: Vec::new(),
         }
     }
 
@@ -1314,93 +1248,6 @@ mod tests {
                 tiles: Vec::new(),
             })
         );
-    }
-
-    #[test]
-    fn map_exclusion_updates_reduce_into_the_sorted_session_registry() {
-        let mut snapshot = empty_snapshot(ClientLifecycle::InGame);
-        for (sequence, exclusions) in [
-            MapExclusions {
-                map_id: 20,
-                tiles: vec![TilePosition { x: 2, y: 3 }],
-            },
-            MapExclusions {
-                map_id: 10,
-                tiles: vec![TilePosition { x: 4, y: 5 }],
-            },
-        ]
-        .into_iter()
-        .enumerate()
-        {
-            snapshot
-                .apply_event(StateEvent {
-                    sequence: u32::try_from(sequence + 2).unwrap(),
-                    revision: u32::try_from(sequence + 2).unwrap(),
-                    tick_ms: 20,
-                    update: StateUpdate::MapExclusions(MapExclusionsUpdate::Replaced {
-                        exclusions,
-                        map_count: u16::try_from(sequence + 1).unwrap(),
-                    }),
-                })
-                .unwrap();
-        }
-        assert_eq!(
-            snapshot
-                .map_exclusions
-                .iter()
-                .map(|entry| entry.map_id)
-                .collect::<Vec<_>>(),
-            vec![10, 20]
-        );
-
-        snapshot
-            .apply_event(StateEvent {
-                sequence: 4,
-                revision: 4,
-                tick_ms: 30,
-                update: StateUpdate::MapExclusions(MapExclusionsUpdate::Removed {
-                    map_id: 10,
-                    map_count: 1,
-                }),
-            })
-            .unwrap();
-        assert_eq!(snapshot.map_exclusions[0].map_id, 20);
-
-        snapshot
-            .apply_event(StateEvent {
-                sequence: 5,
-                revision: 5,
-                tick_ms: 40,
-                update: StateUpdate::MapExclusions(MapExclusionsUpdate::Cleared {
-                    removed_map_count: 1,
-                }),
-            })
-            .unwrap();
-        assert!(snapshot.map_exclusions.is_empty());
-
-        let mut snapshot = empty_snapshot(ClientLifecycle::InGame);
-        let error = snapshot
-            .apply_event(StateEvent {
-                sequence: 2,
-                revision: 2,
-                tick_ms: 50,
-                update: StateUpdate::MapExclusions(MapExclusionsUpdate::Replaced {
-                    exclusions: MapExclusions {
-                        map_id: 10,
-                        tiles: vec![TilePosition { x: 1, y: 2 }],
-                    },
-                    map_count: 2,
-                }),
-            })
-            .unwrap_err();
-        assert_eq!(
-            error,
-            ApplyEventError::MapExclusionCountMismatch {
-                expected: 1,
-                actual: 2,
-            }
-        );
-        assert!(snapshot.map_exclusions.is_empty());
     }
 
     fn item(slot: u8, quantity: u32) -> InventoryItem {

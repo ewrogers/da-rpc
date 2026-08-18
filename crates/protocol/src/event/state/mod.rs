@@ -145,6 +145,7 @@ pub(super) fn encode_movement(
             current,
             destination,
             reached_destination,
+            reason,
         } => {
             if destination.is_some() != reached_destination.is_some() {
                 return Err(EncodeError::InvalidMovementOutcome);
@@ -156,6 +157,13 @@ pub(super) fn encode_movement(
                 None => 0,
                 Some(false) => 1,
                 Some(true) => 2,
+            });
+            output.push(match reason {
+                MovementStopReason::Completed => 1,
+                MovementStopReason::Obstructed => 2,
+                MovementStopReason::Replaced => 3,
+                MovementStopReason::Cancelled => 4,
+                MovementStopReason::PositionCorrected => 5,
             });
         }
         MovementUpdate::Obstructed {
@@ -207,10 +215,19 @@ pub(super) fn decode_movement(
                     });
                 }
             };
+            let reason = match reader.read_u8()? {
+                1 => MovementStopReason::Completed,
+                2 => MovementStopReason::Obstructed,
+                3 => MovementStopReason::Replaced,
+                4 => MovementStopReason::Cancelled,
+                5 => MovementStopReason::PositionCorrected,
+                actual => return Err(DecodeError::InvalidMovementStopReason { actual }),
+            };
             Ok(MovementUpdate::Stopped {
                 current,
                 destination,
                 reached_destination,
+                reason,
             })
         }
         3 => {

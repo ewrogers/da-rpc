@@ -22,12 +22,11 @@ pub use command::{
     GoldTransfer, GroupCommand, GroupInvitationAction, GroupText, ItemSlot, ItemTransfer,
     MAX_CHANT_TEXT_LEN, MAX_COMMAND_TIMEOUT_MS, MAX_COMMAND_WAIT_MS, MAX_DIALOG_INPUT_LEN,
     MAX_GROUP_NAME_LEN, MAX_ITEM_SLOT, MAX_MESSAGE_CONTENT_LEN, MAX_MESSAGE_RECIPIENT_LEN,
-    MAX_PATH_EXCLUSION_DIMENSION, MAX_PATH_EXCLUSION_MAPS, MAX_PATH_EXCLUSION_TILES,
-    MAX_PATH_EXCLUSION_TOTAL_TILES, MAX_RAW_PACKET_PAYLOAD_LEN, MAX_SKILL_SLOT,
-    MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT, MAX_WALK_ROUTE_TILES, MAX_WHO_NAME_LEN, MAX_WHO_PLAYERS,
-    MAX_WHO_TITLE_LEN, MessageCommand, MessageContent, MessageRecipient, PathExclusions, RawPacket,
-    RawPacketDirection, RouteTile, SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput,
-    SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkRoute, WalkTarget,
+    MAX_RAW_PACKET_PAYLOAD_LEN, MAX_SKILL_SLOT, MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT,
+    MAX_WALK_ROUTE_TILES, MAX_WHO_NAME_LEN, MAX_WHO_PLAYERS, MAX_WHO_TITLE_LEN, MessageCommand,
+    MessageContent, MessageRecipient, RawPacket, RawPacketDirection, RouteTile, SkillSlot,
+    SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition,
+    TransferTarget, WalkRoute, WalkTarget,
 };
 pub use diagnostics::{
     DiagnosticsMode, DiagnosticsOperation, HOOK_TIMING_STAGE_COUNT, HookTimingRecord,
@@ -49,8 +48,9 @@ pub use message::{
     Architecture, ComponentVersion, DiagnosticsRequest, DiagnosticsResponse, EchoRequest,
     EchoResponse, Hello, HelloAck, MAX_ECHO_TEXT_LEN, Message, MessageType, PROTOCOL_VERSION_1_0,
     PROTOCOL_VERSION_1_1, PROTOCOL_VERSION_1_2, PROTOCOL_VERSION_1_3, PROTOCOL_VERSION_1_4,
-    PROTOCOL_VERSION_1_5, Ping, Pong, SUPPORTED_VERSIONS, TickHealthRequest, TickHealthResponse,
-    VersionRange, protocol_version, protocol_version_major, protocol_version_minor,
+    PROTOCOL_VERSION_1_5, PROTOCOL_VERSION_1_6, Ping, Pong, SUPPORTED_VERSIONS, TickHealthRequest,
+    TickHealthResponse, VersionRange, protocol_version, protocol_version_major,
+    protocol_version_minor,
 };
 pub use player::{MAX_PLAYER_EQUIPMENT_ITEMS, MAX_PLAYER_IDENTITY_TEXT_LEN};
 pub use session::{

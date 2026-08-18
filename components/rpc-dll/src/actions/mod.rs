@@ -25,6 +25,7 @@ pub(crate) fn execute(command: CommandKind) -> Result<(), CommandFailure> {
         CommandKind::Walk(WalkTarget::Direction(direction)) => movement::walk(direction),
         CommandKind::Walk(WalkTarget::Destination { x, y }) => movement::walk_to(x, y),
         CommandKind::Walk(WalkTarget::Route(route)) => movement::walk_route(route),
+        CommandKind::Walk(WalkTarget::Cancel) => movement::cancel_walk(),
         CommandKind::UseSkill(slot) => skill::use_skill(slot),
         CommandKind::CastSpell(cast) => spell::cast(cast),
         CommandKind::UseItem(slot) => interaction::use_item(slot),
@@ -47,9 +48,6 @@ pub(crate) fn execute(command: CommandKind) -> Result<(), CommandFailure> {
         CommandKind::Assail => network::submit(&[0x13]),
         CommandKind::Resync => network::submit(&[0x38]),
         CommandKind::Message(message) => message::submit(message),
-        CommandKind::SetPathExclusions(exclusions) => movement::set_path_exclusions(exclusions),
-        CommandKind::RemovePathExclusions { map_id } => movement::remove_path_exclusions(map_id),
-        CommandKind::ClearPathExclusions => movement::clear_path_exclusions(),
         CommandKind::AddStat(stat) => stat::add(stat),
         CommandKind::SelectFieldMapDestination(command) => field_map::submit(command),
     }

@@ -215,8 +215,8 @@ mod tests {
         let server = PipeServer::bind(pid, stop).unwrap();
         let hello = Hello {
             protocol_versions: VersionRange {
-                min: protocol_version(2, 0),
-                max: protocol_version(2, 0),
+                min: protocol_version(1, 7),
+                max: protocol_version(1, 7),
             },
             dll_instance_id: [0xAB; 16],
             process_id: pid,

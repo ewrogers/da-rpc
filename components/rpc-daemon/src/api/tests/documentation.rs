@@ -26,8 +26,6 @@ fn serves_the_openapi_contract_and_vendored_swagger_ui() {
         "/clients/{client}/events",
         "/clients/{client}/turn",
         "/clients/{client}/walk",
-        "/clients/{client}/maps/path-exclusions",
-        "/clients/{client}/maps/{map_id}/path-exclusions",
         "/clients/{client}/skills/use",
         "/clients/{client}/skills/swap",
         "/clients/{client}/spells/cast",

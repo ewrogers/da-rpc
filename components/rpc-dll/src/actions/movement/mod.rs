@@ -1,5 +1,6 @@
 use super::{module_base, read};
 use crate::hooks::path::{CanMoveFn, native_edge_allowed};
+use crate::movement_transition::{LocalMovementTransition, RouteActivation};
 use crate::process_memory::ProcessValue;
 use darpc_game_client::{
     ADVANCE_PATH_RVA, BUILD_PATH_RVA, MAP_CAN_MOVE_DIRECTION_RVA, RESET_MOVEMENT_RVA,
@@ -19,6 +20,9 @@ use std::{
 
 const LOCAL_Y_OFFSET: usize = 0x40;
 const LOCAL_X_OFFSET: usize = 0x44;
+const LOCAL_TRANSITION_ACTIVE_OFFSET: usize = 0x105;
+const LOCAL_STAGED_Y_OFFSET: usize = 0x108;
+const LOCAL_STAGED_X_OFFSET: usize = 0x10C;
 const MAP_WIDTH_OFFSET: usize = 0x1C4;
 const MAP_HEIGHT_OFFSET: usize = 0x1C8;
 const WALKING_STALL_TIMEOUT_MS: u32 = 1_000;
@@ -60,8 +64,6 @@ pub(super) fn turn(direction: Direction) -> Result<(), CommandFailure> {
 }
 
 pub(super) fn walk(direction: Direction) -> Result<(), CommandFailure> {
-    stop_current_movement(MovementStopReason::Replaced);
-    clear_route_destination();
     Movement::resolve()?.walk(direction)
 }
 
@@ -293,10 +295,15 @@ impl Movement {
     }
 
     fn walk(&self, direction: Direction) -> Result<(), CommandFailure> {
-        self.self_object()?;
-        let current = self.local_position()?;
+        let transition = self.local_transition()?;
+        if !transition.direct_walk_allowed() {
+            return Err(CommandFailure::Rejected);
+        }
+        let current = transition.committed_position();
         let destination =
             step_position(current, direction).ok_or(CommandFailure::InvalidDestination)?;
+        stop_current_movement(MovementStopReason::Replaced);
+        clear_route_destination();
         self.reset();
         // SAFETY: exact client validation fixes this RVA and ABI. The native
         // helper owns movement permission, collision, animation, and CMove.
@@ -318,7 +325,8 @@ impl Movement {
             return Err(CommandFailure::InvalidDestination);
         }
 
-        let position = self.local_position()?;
+        let replacement = self.local_transition()?.route_replacement();
+        let position = replacement.origin;
         self.reset();
         if position.x == x && position.y == y {
             return Ok(());
@@ -331,6 +339,9 @@ impl Movement {
                 != 0;
         if !built {
             return Err(CommandFailure::NoPath);
+        }
+        if replacement.activation == RouteActivation::AwaitStepCompletion {
+            return Ok(());
         }
         // SAFETY: the successful native builder populated this WorldPane's
         // route, and execution remains on the client main thread.
@@ -452,6 +463,29 @@ impl Movement {
         let x = read::<i32>(local.as_ptr() as usize + LOCAL_X_OFFSET)
             .ok_or(CommandFailure::InvalidState)?;
         Ok(TilePosition { x, y })
+    }
+
+    fn local_transition(&self) -> Result<LocalMovementTransition, CommandFailure> {
+        let local = self.self_object()?;
+        let address = local.as_ptr() as usize;
+        let committed = TilePosition {
+            x: read::<i32>(address + LOCAL_X_OFFSET).ok_or(CommandFailure::InvalidState)?,
+            y: read::<i32>(address + LOCAL_Y_OFFSET).ok_or(CommandFailure::InvalidState)?,
+        };
+        let active = read::<u8>(address + LOCAL_TRANSITION_ACTIVE_OFFSET)
+            .ok_or(CommandFailure::InvalidState)?
+            != 0;
+        let staged = if active {
+            TilePosition {
+                x: read::<i32>(address + LOCAL_STAGED_X_OFFSET)
+                    .ok_or(CommandFailure::InvalidState)?,
+                y: read::<i32>(address + LOCAL_STAGED_Y_OFFSET)
+                    .ok_or(CommandFailure::InvalidState)?,
+            }
+        } else {
+            committed
+        };
+        Ok(LocalMovementTransition::new(committed, staged, active))
     }
 
     fn map_id(&self) -> Result<u32, CommandFailure> {

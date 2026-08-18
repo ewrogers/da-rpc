@@ -100,6 +100,11 @@ walking lifecycle events. Terminal results remain queryable for a bounded
 period; new work may evict the oldest completed result rather than allowing
 retained history to consume pending queue capacity.
 
+The local self object keeps committed and staged tiles separate during a visual
+step. A replacement ground route uses the staged tile and remains queued until
+the native step-completion callback advances it. A direct step is rejected
+while that transition is active, before reset or prediction calls occur.
+
 An exact-route walk instead validates a map-tagged sequence of at most 256
 absolute tiles, appends the client's native 12-byte route records in reverse
 consumption order, and starts normal queued walking. The DLL observes native

@@ -35,6 +35,11 @@ The DLL calls the stock walk helper. A rejected step returns a command failure.
 If the helper accepts the step but the character never reaches the adjacent
 tile, `walking.stopped` reports `obstructed`.
 
+The client predicts each step until its visual transition commits. A second
+direct step submitted during that transition is rejected so it cannot overlap
+the prediction. Submit it again after the position update or use a destination
+route, which the client can queue safely.
+
 ### Stock destination
 
 Submit a destination to ask the client's built-in planner to build and execute
@@ -48,6 +53,12 @@ This mode is intentionally vanilla. daRPC does not change native collision
 answers, add player or monster exclusions, retry a rejected edge, or rebuild a
 stalled route. Use it when the game's ordinary shortest-path behavior is good
 enough. A valid tile with no native path reports `no_path`.
+
+When a destination replaces a route during an active step, the DLL builds from
+that step's staged destination and leaves the replacement queued. The client's
+normal step-completion callback commits the staged tile and starts the queued
+route. Repeated replacements update that queue without starting another
+prediction early.
 
 ### Exact route
 
@@ -108,8 +119,10 @@ The reset cannot revoke a step the client has already accepted. A final
 latest confirmed position rather than the position reported by the cancel
 response.
 
-Replacing an active walk with another step, destination, or route emits reason
-`replaced`. Turning while a walk is active emits reason `cancelled`.
+Replacing an active walk with a destination or route emits reason `replaced`.
+A direct step submitted during an active visual transition is rejected and
+leaves the current movement intact. Turning while a walk is active emits reason
+`cancelled`.
 
 Cancelling a queued command through
 `DELETE /clients/{client}/commands/{command_id}` is different. It prevents a

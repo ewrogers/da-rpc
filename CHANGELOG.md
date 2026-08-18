@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Build replacement destination routes from the client's staged step and defer
+  their execution until that step completes, preventing one-tile local position
+  desynchronization. Reject overlapping direct steps before native prediction.
 - Report `invalid_state` instead of `invalid_destination` when exact-route
   installation detects that the server-authoritative position and the
   client's native local position are desynchronized.

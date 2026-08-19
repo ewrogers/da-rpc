@@ -5,7 +5,7 @@ use std::{
     fs, io,
     mem::size_of,
     os::windows::{
-        ffi::OsStrExt,
+        ffi::{OsStrExt, OsStringExt},
         io::{AsRawHandle, FromRawHandle, OwnedHandle},
     },
     path::PathBuf,
@@ -31,9 +31,18 @@ struct SuspendedChild {
 
 impl SuspendedChild {
     fn create(executable: &Path, current_directory: &Path, arguments: &[OsString]) -> Result<Self> {
-        let application_name = wide_nul(executable.as_os_str(), "executable path")?;
-        let current_directory = wide_nul(current_directory.as_os_str(), "current directory")?;
-        let mut command_line = build_command_line(executable.as_os_str(), arguments)?;
+        let executable = OsString::from_wide(&normalize_windows_launch_path(
+            &executable.as_os_str().encode_wide().collect::<Vec<_>>(),
+        ));
+        let current_directory = OsString::from_wide(&normalize_windows_launch_path(
+            &current_directory
+                .as_os_str()
+                .encode_wide()
+                .collect::<Vec<_>>(),
+        ));
+        let application_name = wide_nul(&executable, "executable path")?;
+        let current_directory = wide_nul(&current_directory, "current directory")?;
+        let mut command_line = build_command_line(&executable, arguments)?;
         let startup_info = STARTUPINFOW {
             cb: u32::try_from(size_of::<STARTUPINFOW>()).map_err(|_| {
                 LoaderError::new(

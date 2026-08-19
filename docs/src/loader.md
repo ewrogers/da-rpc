@@ -37,6 +37,12 @@ Both attach and launch canonicalize and fingerprint the executable before any
 remote operation or child creation. Any other executable fails with
 `unsupported_client`.
 
+Before child creation, launch converts canonical verbatim drive and Universal
+Naming Convention (UNC) paths back to conventional Win32 form for the
+application name, command line, and working directory. Validation continues to
+use the canonical path, while the legacy client and its audio middleware see
+the path form produced by an ordinary Windows launch.
+
 The caller supplies the intended DLL path explicitly. The loader canonicalizes
 that path, requires the file name `darpc.dll`, validates its x86 Portable
 Executable headers, and resolves the required lifecycle exports. It does not
@@ -61,7 +67,8 @@ loader [--json] launch [--allow-multiple] [--diagnostics hook-timing] [--server 
 ```
 
 Arguments after the `--` separator are forwarded to the launched executable.
-The executable path is also supplied explicitly as its `argv[0]`.
+The executable path is also supplied explicitly as its `argv[0]` in
+conventional Win32 form.
 
 | Command | Purpose |
 |---|---|

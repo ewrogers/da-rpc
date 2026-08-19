@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- Launch clients with conventional Win32 executable and working-directory
+  paths after canonical validation, preserving legacy in-game audio loading.
 - Preserve inherited and client-selected processor affinity during launch
   instead of repeatedly forcing the complete system mask during startup.
 

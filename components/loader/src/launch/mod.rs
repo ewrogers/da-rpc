@@ -17,6 +17,34 @@ pub(crate) struct LaunchOutcome {
 mod platform;
 
 #[cfg(any(windows, test))]
+fn normalize_windows_launch_path(path: &[u16]) -> Vec<u16> {
+    const BACKSLASH: u16 = b'\\' as u16;
+    const COLON: u16 = b':' as u16;
+    const VERBATIM_PREFIX: &[u16] = &[BACKSLASH, BACKSLASH, b'?' as u16, BACKSLASH];
+    const UNC_PREFIX: &[u16] = &[b'U' as u16, b'N' as u16, b'C' as u16, BACKSLASH];
+
+    let Some(remainder) = path.strip_prefix(VERBATIM_PREFIX) else {
+        return path.to_vec();
+    };
+
+    if let Some(unc_path) = remainder.strip_prefix(UNC_PREFIX) {
+        let mut normalized = Vec::with_capacity(unc_path.len() + 2);
+        normalized.extend_from_slice(&[BACKSLASH, BACKSLASH]);
+        normalized.extend_from_slice(unc_path);
+        return normalized;
+    }
+
+    if matches!(remainder, [drive, COLON, BACKSLASH, ..] if
+        (*drive >= b'A' as u16 && *drive <= b'Z' as u16)
+            || (*drive >= b'a' as u16 && *drive <= b'z' as u16))
+    {
+        return remainder.to_vec();
+    }
+
+    path.to_vec()
+}
+
+#[cfg(any(windows, test))]
 fn append_argument(output: &mut Vec<u16>, argument: &[u16]) -> Result<()> {
     const BACKSLASH: u16 = b'\\' as u16;
     const QUOTE: u16 = b'"' as u16;
@@ -103,13 +131,48 @@ pub(crate) fn launch(
 
 #[cfg(test)]
 mod tests {
-    use super::append_argument;
+    use super::{append_argument, normalize_windows_launch_path};
 
     fn render(value: &str) -> String {
         let mut output = Vec::new();
         append_argument(&mut output, &value.encode_utf16().collect::<Vec<_>>())
             .expect("test argument should be valid");
         String::from_utf16(&output).expect("quoted argument should be valid UTF-16")
+    }
+
+    fn normalize(value: &str) -> String {
+        String::from_utf16(&normalize_windows_launch_path(
+            &value.encode_utf16().collect::<Vec<_>>(),
+        ))
+        .expect("normalized path should remain UTF-16")
+    }
+
+    #[test]
+    fn normalizes_verbatim_drive_paths_for_client_launch() {
+        assert_eq!(
+            normalize(r"\\?\C:\Dark Ages\Darkages.exe"),
+            r"C:\Dark Ages\Darkages.exe"
+        );
+    }
+
+    #[test]
+    fn normalizes_verbatim_unc_paths_for_client_launch() {
+        assert_eq!(
+            normalize(r"\\?\UNC\server\share\Darkages.exe"),
+            r"\\server\share\Darkages.exe"
+        );
+    }
+
+    #[test]
+    fn preserves_conventional_and_non_file_device_paths() {
+        assert_eq!(
+            normalize(r"C:\Dark Ages\Darkages.exe"),
+            r"C:\Dark Ages\Darkages.exe"
+        );
+        assert_eq!(
+            normalize(r"\\?\Volume{01234567}\Darkages.exe"),
+            r"\\?\Volume{01234567}\Darkages.exe"
+        );
     }
 
     #[test]

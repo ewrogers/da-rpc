@@ -458,6 +458,7 @@ impl MainThreadCache {
         unsafe { (&*self.0.get()).self_id }
     }
 
+    #[cfg(not(test))]
     pub(super) unsafe fn position_desynchronized(&self, map_id: u32, local: TilePosition) -> bool {
         // SAFETY: the caller guarantees exclusive main-thread access.
         unsafe { (&*self.0.get()).position_desynchronized(map_id, local) }

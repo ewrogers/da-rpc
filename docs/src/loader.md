@@ -37,6 +37,12 @@ Both attach and launch canonicalize and fingerprint the executable before any
 remote operation or child creation. Any other executable fails with
 `unsupported_client`.
 
+Before child creation, launch converts canonical verbatim drive and Universal
+Naming Convention (UNC) paths back to conventional Win32 form for the
+application name, command line, and working directory. Validation continues to
+use the canonical path, while the legacy client and its audio middleware see
+the path form produced by an ordinary Windows launch.
+
 The caller supplies the intended DLL path explicitly. The loader canonicalizes
 that path, requires the file name `darpc.dll`, validates its x86 Portable
 Executable headers, and resolves the required lifecycle exports. It does not
@@ -61,7 +67,8 @@ loader [--json] launch [--allow-multiple] [--diagnostics hook-timing] [--server 
 ```
 
 Arguments after the `--` separator are forwarded to the launched executable.
-The executable path is also supplied explicitly as its `argv[0]`.
+The executable path is also supplied explicitly as its `argv[0]` in
+conventional Win32 form.
 
 | Command | Purpose |
 |---|---|
@@ -254,9 +261,8 @@ The implemented launch path:
 3. Uses the executable parent directory as the child working directory.
 4. Creates the child with `CREATE_SUSPENDED`, general handle inheritance
    disabled, and no copied standard handles.
-5. Replaces any inherited processor affinity with the complete system affinity
-   mask while the child remains suspended. Launch fails and cleans up the owned
-   child if Windows cannot apply the mask.
+5. Leaves the child processor affinity inherited from the launcher and permits
+   the client to manage it during startup.
 6. Validates the child as x86 and records its creation time without requiring
    module enumeration before Windows user-mode loader startup.
 7. Resolves a selected server to dotted IPv4 and prepends the address and
@@ -269,11 +275,7 @@ The implemented launch path:
 10. Loads `darpc.dll` and calls `darpc_initialize` while the primary thread
    remains suspended.
 11. Resumes the primary thread only after patching and initialization succeeds.
-12. Starts a detached monitor for the bounded startup window and returns without
-   waiting for it. The monitor reapplies the complete system affinity mask if
-   client startup restores a single-processor mask. Direct loader launches and
-   daemon REST launches share this path.
-13. Terminates and waits for only that owned child if any launch operation
+12. Terminates and waits for only that owned child if any launch operation
    fails.
 
 The loader and launched child are the same architecture and run in the same
@@ -327,8 +329,7 @@ cargo build `
 
 The launch checks confirm that initialization was logged before the target
 entered `main`, arguments and the executable working directory were preserved,
-the child uses the complete system processor affinity mask, handles were not
-inherited, a normal process can exit, and a failed initialization leaves no
+handles were not inherited, a normal process can exit, and a failed initialization leaves no
 suspended child. The same sequence runs in the Windows workflow.
 
 The live-client checks are intentionally local and require a legally obtained

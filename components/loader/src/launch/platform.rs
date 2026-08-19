@@ -5,26 +5,22 @@ use std::{
     fs, io,
     mem::size_of,
     os::windows::{
-        ffi::OsStrExt,
+        ffi::{OsStrExt, OsStringExt},
         io::{AsRawHandle, FromRawHandle, OwnedHandle},
     },
     path::PathBuf,
-    ptr, thread,
-    time::{Duration, Instant},
+    ptr,
 };
 use windows_sys::Win32::{
     Foundation::{WAIT_FAILED, WAIT_OBJECT_0, WAIT_TIMEOUT},
     System::Threading::{
-        CREATE_SUSPENDED, CreateProcessW, DETACHED_PROCESS, GetProcessAffinityMask,
-        PROCESS_INFORMATION, ResumeThread, STARTF_USESTDHANDLES, STARTUPINFOW,
-        SetProcessAffinityMask, TerminateProcess, WaitForSingleObject,
+        CREATE_SUSPENDED, CreateProcessW, PROCESS_INFORMATION, ResumeThread, STARTF_USESTDHANDLES,
+        STARTUPINFOW, TerminateProcess, WaitForSingleObject,
     },
 };
 
 const CHILD_TERMINATION_EXIT_CODE: u32 = 1;
 const CHILD_TERMINATION_TIMEOUT_MS: u32 = 5_000;
-const CHILD_AFFINITY_STABILIZATION_MS: u64 = 5_000;
-const CHILD_AFFINITY_POLL_MS: u64 = 25;
 const RESUME_FAILED: u32 = u32::MAX;
 
 struct SuspendedChild {
@@ -35,9 +31,18 @@ struct SuspendedChild {
 
 impl SuspendedChild {
     fn create(executable: &Path, current_directory: &Path, arguments: &[OsString]) -> Result<Self> {
-        let application_name = wide_nul(executable.as_os_str(), "executable path")?;
-        let current_directory = wide_nul(current_directory.as_os_str(), "current directory")?;
-        let mut command_line = build_command_line(executable.as_os_str(), arguments)?;
+        let executable = OsString::from_wide(&normalize_windows_launch_path(
+            &executable.as_os_str().encode_wide().collect::<Vec<_>>(),
+        ));
+        let current_directory = OsString::from_wide(&normalize_windows_launch_path(
+            &current_directory
+                .as_os_str()
+                .encode_wide()
+                .collect::<Vec<_>>(),
+        ));
+        let application_name = wide_nul(&executable, "executable path")?;
+        let current_directory = wide_nul(&current_directory, "current directory")?;
+        let mut command_line = build_command_line(&executable, arguments)?;
         let startup_info = STARTUPINFOW {
             cb: u32::try_from(size_of::<STARTUPINFOW>()).map_err(|_| {
                 LoaderError::new(
@@ -96,13 +101,11 @@ impl SuspendedChild {
         // SAFETY: same invariant as above, for the primary thread handle.
         let primary_thread = unsafe { OwnedHandle::from_raw_handle(process_information.hThread) };
 
-        let child = Self {
+        Ok(Self {
             process: TargetProcess::from_created(process_information.dwProcessId, process_handle),
             primary_thread,
             terminate_on_drop: true,
-        };
-        child.set_full_system_affinity()?;
-        Ok(child)
+        })
     }
 
     fn pid(&self) -> u32 {
@@ -111,10 +114,6 @@ impl SuspendedChild {
 
     fn process(&self) -> &TargetProcess {
         &self.process
-    }
-
-    fn set_full_system_affinity(&self) -> Result<()> {
-        set_full_system_affinity(&self.process)
     }
 
     fn resume(&mut self) -> Result<()> {
@@ -144,87 +143,8 @@ impl SuspendedChild {
         Ok(())
     }
 
-    fn finish_startup(&mut self, creation_time: u64) -> Result<()> {
-        self.start_affinity_monitor(creation_time)?;
+    fn finish_startup(&mut self) {
         self.terminate_on_drop = false;
-        Ok(())
-    }
-
-    fn start_affinity_monitor(&self, creation_time: u64) -> Result<()> {
-        let executable = std::env::current_exe().map_err(|error| {
-            LoaderError::from_io(
-                ErrorKind::LaunchFailed,
-                "failed to locate loader for affinity monitoring",
-                error,
-            )
-        })?;
-        let application_name = wide_nul(executable.as_os_str(), "loader path")?;
-        let arguments = [
-            OsString::from(AFFINITY_MONITOR_ARGUMENT),
-            OsString::from(self.pid().to_string()),
-            OsString::from(creation_time.to_string()),
-        ];
-        let mut command_line = build_command_line(executable.as_os_str(), &arguments)?;
-        let startup_info = STARTUPINFOW {
-            cb: u32::try_from(size_of::<STARTUPINFOW>()).map_err(|_| {
-                LoaderError::new(
-                    ErrorKind::Internal,
-                    "affinity monitor startup information size does not fit u32",
-                )
-            })?,
-            ..Default::default()
-        };
-        let mut process_information = PROCESS_INFORMATION::default();
-
-        // SAFETY: the application and writable command-line buffers are
-        // NUL-terminated and live for the call. Handle inheritance is disabled,
-        // and DETACHED_PROCESS keeps the monitor independent from the caller's
-        // console and redirected standard handles.
-        let succeeded = unsafe {
-            CreateProcessW(
-                application_name.as_ptr(),
-                command_line.as_mut_ptr(),
-                ptr::null(),
-                ptr::null(),
-                0,
-                DETACHED_PROCESS,
-                ptr::null(),
-                ptr::null(),
-                &startup_info,
-                &mut process_information,
-            )
-        };
-
-        if succeeded == 0 {
-            return Err(LoaderError::from_io(
-                ErrorKind::LaunchFailed,
-                format!(
-                    "failed to start affinity monitor for child process {}",
-                    self.pid()
-                ),
-                io::Error::last_os_error(),
-            ));
-        }
-
-        if process_information.hProcess.is_null() || process_information.hThread.is_null() {
-            close_incomplete_process(&process_information);
-            return Err(LoaderError::new(
-                ErrorKind::LaunchFailed,
-                format!(
-                    "affinity monitor for child process {} returned incomplete process information",
-                    self.pid()
-                ),
-            ));
-        }
-
-        // SAFETY: CreateProcessW succeeded and returned two non-null owned
-        // handles. Dropping them detaches this loader without stopping the
-        // monitor process.
-        drop(unsafe { OwnedHandle::from_raw_handle(process_information.hProcess) });
-        // SAFETY: same invariant as above for the monitor's primary thread.
-        drop(unsafe { OwnedHandle::from_raw_handle(process_information.hThread) });
-
-        Ok(())
     }
 
     fn terminate(&mut self) -> Result<()> {
@@ -266,113 +186,6 @@ impl SuspendedChild {
             )),
         }
     }
-}
-
-fn affinity_masks(process: &TargetProcess) -> Result<(usize, usize)> {
-    let mut process_mask = 0;
-    let mut system_mask = 0;
-
-    // SAFETY: process owns a valid process handle, and both mask outputs are
-    // writable for the duration of the call.
-    let succeeded = unsafe {
-        GetProcessAffinityMask(
-            process.handle().as_raw_handle(),
-            &mut process_mask,
-            &mut system_mask,
-        )
-    };
-
-    if succeeded == 0 {
-        return Err(LoaderError::from_io(
-            ErrorKind::LaunchFailed,
-            format!(
-                "failed to read affinity for child process {}",
-                process.pid()
-            ),
-            io::Error::last_os_error(),
-        ));
-    }
-
-    if system_mask == 0 {
-        return Err(LoaderError::new(
-            ErrorKind::LaunchFailed,
-            format!(
-                "Windows returned an empty system affinity mask for child process {}",
-                process.pid()
-            ),
-        ));
-    }
-
-    Ok((process_mask, system_mask))
-}
-
-fn set_full_system_affinity(process: &TargetProcess) -> Result<()> {
-    let (inherited_mask, system_mask) = affinity_masks(process)?;
-
-    // SAFETY: process owns a valid process handle. system_mask came from
-    // GetProcessAffinityMask for this process and therefore contains only
-    // processors available to the child process's primary group.
-    let succeeded =
-        unsafe { SetProcessAffinityMask(process.handle().as_raw_handle(), system_mask) };
-
-    if succeeded == 0 {
-        return Err(LoaderError::from_io(
-            ErrorKind::LaunchFailed,
-            format!(
-                "failed to set full system affinity for child process {}",
-                process.pid()
-            ),
-            io::Error::last_os_error(),
-        ));
-    }
-
-    eprintln!(
-        "Set child process {} affinity from {inherited_mask:#x} to {system_mask:#x}",
-        process.pid()
-    );
-    Ok(())
-}
-
-fn stabilize_full_system_affinity(process: &TargetProcess) -> Result<()> {
-    let deadline = Instant::now() + Duration::from_millis(CHILD_AFFINITY_STABILIZATION_MS);
-
-    loop {
-        if !process.is_running()? {
-            return Ok(());
-        }
-
-        let affinity_result = affinity_masks(process).and_then(|(process_mask, system_mask)| {
-            if process_mask == system_mask {
-                Ok(())
-            } else {
-                set_full_system_affinity(process)
-            }
-        });
-        if let Err(error) = affinity_result {
-            if !process.is_running()? {
-                return Ok(());
-            }
-            return Err(error);
-        }
-        if Instant::now() >= deadline {
-            return Ok(());
-        }
-        thread::sleep(Duration::from_millis(CHILD_AFFINITY_POLL_MS));
-    }
-}
-
-pub(super) fn monitor_affinity(pid: u32, creation_time: u64) -> Result<()> {
-    let process = TargetProcess::open_for_affinity(pid)?;
-    let observed_creation_time = process.inspect_created()?.creation_time;
-
-    if observed_creation_time != creation_time {
-        return Err(LoaderError::new(
-            ErrorKind::ProcessMissing,
-            format!("process {pid} identity changed before affinity monitoring began"),
-        ));
-    }
-
-    stabilize_full_system_affinity(&process)
 }
 
 impl Drop for SuspendedChild {
@@ -522,11 +335,9 @@ pub(super) fn run(
     if let Err(error) = child.resume() {
         return Err(cleanup_launch_error(&mut child, error));
     }
-    if let Err(error) = child.finish_startup(outcome.inspection.creation_time) {
-        return Err(cleanup_launch_error(&mut child, error));
-    }
-
+    child.finish_startup();
     eprintln!("Resumed child process {pid}");
+
     Ok(LaunchOutcome {
         pid,
         inspection: outcome.inspection,
@@ -549,7 +360,7 @@ fn cleanup_launch_error(child: &mut SuspendedChild, error: LoaderError) -> Loade
 
 #[cfg(test)]
 mod tests {
-    use super::{SuspendedChild, stabilize_full_system_affinity, wait_for_process};
+    use super::{SuspendedChild, wait_for_process};
     use std::{
         ffi::OsString,
         fs,
@@ -560,61 +371,8 @@ mod tests {
     use windows_sys::Win32::{
         Foundation::WAIT_TIMEOUT,
         Security::SECURITY_ATTRIBUTES,
-        System::Threading::{
-            CreateEventW, GetExitCodeProcess, GetProcessAffinityMask, SetProcessAffinityMask,
-            WaitForSingleObject,
-        },
+        System::Threading::{CreateEventW, GetExitCodeProcess, WaitForSingleObject},
     };
-
-    #[test]
-    fn suspended_child_affinity_can_be_restored_to_the_full_system_mask() {
-        let executable = std::env::current_exe().expect("failed to locate test executable");
-        let current_directory = executable
-            .parent()
-            .expect("test executable should have a parent directory");
-        let mut child = SuspendedChild::create(&executable, current_directory, &[])
-            .expect("failed to create suspended affinity probe");
-        let handle = child.process().handle().as_raw_handle();
-        let mut process_mask = 0;
-        let mut system_mask = 0;
-
-        // SAFETY: child owns a valid process handle and both outputs are
-        // writable for the duration of the call.
-        assert_ne!(
-            unsafe { GetProcessAffinityMask(handle, &mut process_mask, &mut system_mask) },
-            0,
-            "failed to read child affinity"
-        );
-        assert_ne!(system_mask, 0, "system affinity mask should not be empty");
-        assert_eq!(
-            process_mask, system_mask,
-            "new child should start with the full system affinity mask"
-        );
-
-        let single_processor_mask = 1usize << system_mask.trailing_zeros();
-        // SAFETY: child owns a valid process handle and the selected bit came
-        // from its system affinity mask.
-        assert_ne!(
-            unsafe { SetProcessAffinityMask(handle, single_processor_mask) },
-            0,
-            "failed to restrict child affinity for the probe"
-        );
-
-        child
-            .set_full_system_affinity()
-            .expect("failed to restore full child affinity");
-        // SAFETY: same valid handle and writable outputs as above.
-        assert_ne!(
-            unsafe { GetProcessAffinityMask(handle, &mut process_mask, &mut system_mask) },
-            0,
-            "failed to verify child affinity"
-        );
-        assert_eq!(process_mask, system_mask);
-
-        child
-            .terminate()
-            .expect("failed to terminate suspended affinity probe");
-    }
 
     #[test]
     fn process_creation_does_not_inherit_handles() {
@@ -664,9 +422,6 @@ mod tests {
                 .expect("failed to wait for handle probe"),
             "handle probe timed out"
         );
-        stabilize_full_system_affinity(child.process())
-            .expect("an exited child should complete affinity stabilization");
-
         let mut exit_code = u32::MAX;
         // SAFETY: child owns a valid process handle and exit_code is
         // writable. The wait above established that the child exited.

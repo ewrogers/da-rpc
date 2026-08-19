@@ -282,29 +282,11 @@ try {
     )
     $LaunchArguments += $Payload
 
-    $LaunchStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
     $Result = Invoke-Loader -CommandArgs $LaunchArguments
-    $LaunchStopwatch.Stop()
     Assert-True ($Result.command -eq "launch") "launch result had the wrong command"
     Assert-True $Result.changed "launch did not report a state change"
     Assert-True $Result.darpc_loaded "launch did not observe darpc.dll"
-    Assert-True `
-        ($LaunchStopwatch.ElapsedMilliseconds -lt 4000) `
-        "launch waited for the affinity monitoring window"
-
     $Process = Get-Process -Id $Result.pid -ErrorAction Stop
-    $FullAffinity = $Process.ProcessorAffinity.ToInt64()
-    $SingleProcessorAffinity = $FullAffinity -band (-$FullAffinity)
-    $Process.ProcessorAffinity = [IntPtr] $SingleProcessorAffinity
-    $AffinityDeadline = [DateTime]::UtcNow.AddSeconds(1)
-
-    while ($Process.ProcessorAffinity.ToInt64() -ne $FullAffinity) {
-        if ([DateTime]::UtcNow -ge $AffinityDeadline) {
-            throw "background affinity monitor did not restore the full system mask"
-        }
-        Start-Sleep -Milliseconds 25
-        $Process.Refresh()
-    }
 
     Wait-ForFile $LaunchReport
     $ReportLines = @(Get-Content -Encoding UTF8 $LaunchReport)

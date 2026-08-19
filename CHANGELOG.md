@@ -2,13 +2,6 @@
 
 ## Unreleased
 
-### Fixed
-
-- Launch clients with conventional Win32 executable and working-directory
-  paths after canonical validation, preserving legacy in-game audio loading.
-- Preserve inherited and client-selected processor affinity during launch
-  instead of repeatedly forcing the complete system mask during startup.
-
 ## 1.6.1 - 2026-08-18
 
 ### Fixed
@@ -19,9 +12,10 @@
 - Report `invalid_state` instead of `invalid_destination` when exact-route
   installation detects that the server-authoritative position and the
   client's native local position are desynchronized.
-- Return from client launches without waiting for the bounded affinity
-  monitoring window, while retaining post-launch correction in a detached
-  monitor.
+- Launch clients with conventional Win32 executable and working-directory
+  paths after canonical validation, preserving legacy in-game audio loading.
+- Preserve inherited and client-selected processor affinity during launch
+  instead of overriding it during or after startup.
 
 ## 1.6.0 - 2026-08-18
 

@@ -35,6 +35,11 @@ The DLL calls the stock walk helper. A rejected step returns a command failure.
 If the helper accepts the step but the character never reaches the adjacent
 tile, `walking.stopped` reports `obstructed`.
 
+The client predicts each step until its visual transition commits. A second
+direct step submitted during that transition is rejected so it cannot overlap
+the prediction. Submit it again after the position update or use a destination
+route, which the client can queue safely.
+
 ### Stock destination
 
 Submit a destination to ask the client's built-in planner to build and execute
@@ -48,6 +53,12 @@ This mode is intentionally vanilla. daRPC does not change native collision
 answers, add player or monster exclusions, retry a rejected edge, or rebuild a
 stalled route. Use it when the game's ordinary shortest-path behavior is good
 enough. A valid tile with no native path reports `no_path`.
+
+When a destination replaces a route during an active step, the DLL builds from
+that step's staged destination and leaves the replacement queued. The client's
+normal step-completion callback commits the staged tile and starts the queued
+route. Repeated replacements update that queue without starting another
+prediction early.
 
 ### Exact route
 
@@ -75,6 +86,15 @@ The route must:
 - use unique tiles connected by cardinal one-tile edges; and
 - pass both native collision checks at submission time.
 
+The DLL validates the route against both the packet-confirmed position used by
+state and events and the position of the client's native local self object. If
+those positions or their map IDs disagree, the client is locally
+desynchronized and the command fails with `invalid_state`. The route is not
+installed, even when its first tile matches `/status`, because native walking
+would start from the stale local object. Stop submitting routes until the
+client has resynchronized; the supported client normally refreshes its local
+world state when the user presses F5. Reread `/status` before planning again.
+
 The DLL places the validated route into the client's native route vector and
 starts its normal walker. Animation, packets, acknowledgements, and pacing
 remain client-owned. Route injection is not a teleport and does not bypass the
@@ -99,8 +119,10 @@ The reset cannot revoke a step the client has already accepted. A final
 latest confirmed position rather than the position reported by the cancel
 response.
 
-Replacing an active walk with another step, destination, or route emits reason
-`replaced`. Turning while a walk is active emits reason `cancelled`.
+Replacing an active walk with a destination or route emits reason `replaced`.
+A direct step submitted during an active visual transition is rejected and
+leaves the current movement intact. Turning while a walk is active emits reason
+`cancelled`.
 
 Cancelling a queued command through
 `DELETE /clients/{client}/commands/{command_id}` is different. It prevents a

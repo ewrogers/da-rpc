@@ -193,6 +193,13 @@ impl StateCache {
         (previous != current).then_some(LifecycleUpdate { previous, current })
     }
 
+    pub(super) fn position_desynchronized(&self, map_id: u32, local: TilePosition) -> bool {
+        let (Some(map), Some((x, y))) = (self.map, self.position) else {
+            return false;
+        };
+        map.id != map_id || local != TilePosition { x, y }
+    }
+
     #[cfg(not(test))]
     pub(super) const fn position(&self) -> Option<(i32, i32)> {
         self.position
@@ -449,6 +456,12 @@ impl MainThreadCache {
     pub(super) unsafe fn self_id(&self) -> Option<u32> {
         // SAFETY: the caller guarantees exclusive main-thread access.
         unsafe { (&*self.0.get()).self_id }
+    }
+
+    #[cfg(not(test))]
+    pub(super) unsafe fn position_desynchronized(&self, map_id: u32, local: TilePosition) -> bool {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&*self.0.get()).position_desynchronized(map_id, local) }
     }
 
     pub(super) unsafe fn gold(&self) -> Option<u32> {

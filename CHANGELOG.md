@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- Preserve inherited and client-selected processor affinity during launch
+  instead of repeatedly forcing the complete system mask during startup.
+
 ## 1.6.1 - 2026-08-18
 
 ### Fixed

@@ -79,13 +79,6 @@ impl Command {
 fn main() -> ExitCode {
     let mut arguments: Vec<OsString> = env::args_os().skip(1).collect();
 
-    if arguments
-        .first()
-        .is_some_and(|argument| argument == launch::AFFINITY_MONITOR_ARGUMENT)
-    {
-        return run_affinity_monitor(&arguments);
-    }
-
     let format = parse_output_format(&mut arguments);
 
     let command = match parse_command(arguments) {
@@ -105,34 +98,6 @@ fn main() -> ExitCode {
         }
         Err(error) => {
             print_error(format, Some(command_name), &error);
-            ExitCode::from(error.kind().exit_code())
-        }
-    }
-}
-
-fn run_affinity_monitor(arguments: &[OsString]) -> ExitCode {
-    let result = (|| {
-        if arguments.len() != 3 {
-            return Err(invalid_arguments("invalid affinity monitor arguments"));
-        }
-
-        let pid = arguments[1]
-            .to_str()
-            .and_then(|value| value.parse::<u32>().ok())
-            .filter(|pid| *pid != 0)
-            .ok_or_else(|| invalid_arguments("invalid affinity monitor process identifier"))?;
-        let creation_time = arguments[2]
-            .to_str()
-            .and_then(|value| value.parse::<u64>().ok())
-            .ok_or_else(|| invalid_arguments("invalid affinity monitor process identity"))?;
-
-        launch::monitor_affinity(pid, creation_time)
-    })();
-
-    match result {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(error) => {
-            eprintln!("{error}");
             ExitCode::from(error.kind().exit_code())
         }
     }

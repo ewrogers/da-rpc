@@ -254,9 +254,8 @@ The implemented launch path:
 3. Uses the executable parent directory as the child working directory.
 4. Creates the child with `CREATE_SUSPENDED`, general handle inheritance
    disabled, and no copied standard handles.
-5. Replaces any inherited processor affinity with the complete system affinity
-   mask while the child remains suspended. Launch fails and cleans up the owned
-   child if Windows cannot apply the mask.
+5. Leaves the child processor affinity inherited from the launcher and permits
+   the client to manage it during startup.
 6. Validates the child as x86 and records its creation time without requiring
    module enumeration before Windows user-mode loader startup.
 7. Resolves a selected server to dotted IPv4 and prepends the address and
@@ -269,11 +268,7 @@ The implemented launch path:
 10. Loads `darpc.dll` and calls `darpc_initialize` while the primary thread
    remains suspended.
 11. Resumes the primary thread only after patching and initialization succeeds.
-12. Starts a detached monitor for the bounded startup window and returns without
-   waiting for it. The monitor reapplies the complete system affinity mask if
-   client startup restores a single-processor mask. Direct loader launches and
-   daemon REST launches share this path.
-13. Terminates and waits for only that owned child if any launch operation
+12. Terminates and waits for only that owned child if any launch operation
    fails.
 
 The loader and launched child are the same architecture and run in the same
@@ -327,8 +322,7 @@ cargo build `
 
 The launch checks confirm that initialization was logged before the target
 entered `main`, arguments and the executable working directory were preserved,
-the child uses the complete system processor affinity mask, handles were not
-inherited, a normal process can exit, and a failed initialization leaves no
+handles were not inherited, a normal process can exit, and a failed initialization leaves no
 suspended child. The same sequence runs in the Windows workflow.
 
 The live-client checks are intentionally local and require a legally obtained

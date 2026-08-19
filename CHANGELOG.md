@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.6.1 - 2026-08-18
+
 ### Fixed
 
 - Build replacement destination routes from the client's staged step and defer

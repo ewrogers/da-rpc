@@ -9,13 +9,15 @@ use axum::{
 };
 use darpc_model::{
     ClientLifecycle, ClientSnapshot as GameSnapshot, CreatureKind, Direction as ModelDirection,
-    InventoryItem, Skill, Spell, SpellTargetType as ModelSpellTargetType, WorldObject, emote_code,
-    is_client_emote_code,
+    InventoryItem, Skill, Spell, SpellTargetType as ModelSpellTargetType,
+    WalkMode as ModelWalkMode, WorldObject, emote_code, is_client_emote_code,
 };
 use darpc_protocol::{
     CommandFailure as ProtocolFailure, CommandKind as ProtocolKind, CommandOperation,
     CommandResult as ProtocolResult, CommandState as ProtocolState,
-    CommandStatus as ProtocolStatus, DEFAULT_COMMAND_TIMEOUT_MS, MAX_COMMAND_TIMEOUT_MS,
+    CommandStatus as ProtocolStatus, DEFAULT_COMMAND_TIMEOUT_MS,
+    ExactRouteInvalidState as ProtocolExactRouteInvalidState,
+    ExactRouteInvalidStateReason as ProtocolExactRouteInvalidStateReason, MAX_COMMAND_TIMEOUT_MS,
     MAX_COMMAND_WAIT_MS, MAX_ITEM_SLOT, MAX_SKILL_SLOT, MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT,
     MAX_WALK_ROUTE_TILES, RouteTile, SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput,
     SpellSlot, SpellTarget, WalkRoute, WalkTarget,
@@ -286,6 +288,49 @@ pub(crate) struct CommandStatus {
     execution_us: Option<u32>,
     main_thread_id: Option<u32>,
     failure: Option<CommandFailure>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    diagnostics: Option<ExactRouteInvalidStateDiagnostics>,
+}
+
+#[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
+pub(crate) struct ExactRouteInvalidStateDiagnostics {
+    reason: ExactRouteInvalidStateReason,
+    route_map_id: u32,
+    packet_map_id: Option<u32>,
+    native_map_id: Option<u32>,
+    packet_position: Option<DiagnosticTilePosition>,
+    native_position: Option<DiagnosticTilePosition>,
+    staged_position: Option<DiagnosticTilePosition>,
+    transition_active: Option<bool>,
+    route_mode: Option<DiagnosticWalkMode>,
+    current_destination: Option<DiagnosticTilePosition>,
+}
+
+#[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum ExactRouteInvalidStateReason {
+    MapTransitionPending,
+    NativeMapUnavailable,
+    NativeMapMismatch,
+    NativeTransitionUnavailable,
+    ConfirmedMapMismatch,
+    ConfirmedPositionMismatch,
+    MapDimensionsUnavailable,
+}
+
+#[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
+pub(crate) struct DiagnosticTilePosition {
+    x: i32,
+    y: i32,
+}
+
+#[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum DiagnosticWalkMode {
+    NativeRoute,
+    ExactRoute,
+    Direct,
+    Pursuit,
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
@@ -491,6 +536,15 @@ async fn route(
         CommandReply::Result(ProtocolResult::Status(status)) => {
             Ok(CommandStatus::new(pid, identity, status))
         }
+        CommandReply::Result(ProtocolResult::ExactRouteInvalidState {
+            status,
+            diagnostics,
+        }) => Ok(CommandStatus::with_exact_route_diagnostics(
+            pid,
+            identity,
+            status,
+            diagnostics,
+        )),
         CommandReply::Result(ProtocolResult::Busy) | CommandReply::Busy => Err(ApiError::new(
             StatusCode::TOO_MANY_REQUESTS,
             "command_queue_full",
@@ -698,6 +752,82 @@ impl CommandStatus {
             execution_us: status.execution_us,
             main_thread_id: status.main_thread_id,
             failure: status.failure.map(CommandFailure::from),
+            diagnostics: None,
+        }
+    }
+
+    fn with_exact_route_diagnostics(
+        pid: u32,
+        identity: ClientIdentity,
+        status: ProtocolStatus,
+        diagnostics: ProtocolExactRouteInvalidState,
+    ) -> Self {
+        Self {
+            diagnostics: Some(diagnostics.into()),
+            ..Self::new(pid, identity, status)
+        }
+    }
+}
+
+impl From<ProtocolExactRouteInvalidState> for ExactRouteInvalidStateDiagnostics {
+    fn from(value: ProtocolExactRouteInvalidState) -> Self {
+        Self {
+            reason: value.reason.into(),
+            route_map_id: value.route_map_id,
+            packet_map_id: value.packet_map_id,
+            native_map_id: value.native_map_id,
+            packet_position: value.packet_position.map(Into::into),
+            native_position: value.native_position.map(Into::into),
+            staged_position: value.staged_position.map(Into::into),
+            transition_active: value.transition_active,
+            route_mode: value.route_mode.map(Into::into),
+            current_destination: value.current_destination.map(Into::into),
+        }
+    }
+}
+
+impl From<ProtocolExactRouteInvalidStateReason> for ExactRouteInvalidStateReason {
+    fn from(value: ProtocolExactRouteInvalidStateReason) -> Self {
+        match value {
+            ProtocolExactRouteInvalidStateReason::MapTransitionPending => {
+                Self::MapTransitionPending
+            }
+            ProtocolExactRouteInvalidStateReason::NativeMapUnavailable => {
+                Self::NativeMapUnavailable
+            }
+            ProtocolExactRouteInvalidStateReason::NativeMapMismatch => Self::NativeMapMismatch,
+            ProtocolExactRouteInvalidStateReason::NativeTransitionUnavailable => {
+                Self::NativeTransitionUnavailable
+            }
+            ProtocolExactRouteInvalidStateReason::ConfirmedMapMismatch => {
+                Self::ConfirmedMapMismatch
+            }
+            ProtocolExactRouteInvalidStateReason::ConfirmedPositionMismatch => {
+                Self::ConfirmedPositionMismatch
+            }
+            ProtocolExactRouteInvalidStateReason::MapDimensionsUnavailable => {
+                Self::MapDimensionsUnavailable
+            }
+        }
+    }
+}
+
+impl From<darpc_model::TilePosition> for DiagnosticTilePosition {
+    fn from(value: darpc_model::TilePosition) -> Self {
+        Self {
+            x: value.x,
+            y: value.y,
+        }
+    }
+}
+
+impl From<ModelWalkMode> for DiagnosticWalkMode {
+    fn from(value: ModelWalkMode) -> Self {
+        match value {
+            ModelWalkMode::NativeRoute => Self::NativeRoute,
+            ModelWalkMode::ExactRoute => Self::ExactRoute,
+            ModelWalkMode::Direct => Self::Direct,
+            ModelWalkMode::Pursuit => Self::Pursuit,
         }
     }
 }
@@ -765,5 +895,55 @@ impl From<ProtocolFailure> for CommandFailure {
             ProtocolFailure::InvalidArguments => Self::InvalidArguments,
             ProtocolFailure::InvalidTarget => Self::InvalidTarget,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exact_route_invalid_state_diagnostics_are_exposed_in_command_json() {
+        let status = ProtocolStatus {
+            command_id: 7,
+            kind: ProtocolKind::Diagnostic,
+            state: ProtocolState::Failed,
+            enqueued_tick_ms: 10,
+            deadline_tick_ms: 1_010,
+            started_tick_ms: Some(11),
+            completed_tick_ms: Some(12),
+            execution_us: Some(15),
+            main_thread_id: Some(42),
+            failure: Some(ProtocolFailure::InvalidState),
+        };
+        let diagnostics = ProtocolExactRouteInvalidState {
+            reason: ProtocolExactRouteInvalidStateReason::ConfirmedPositionMismatch,
+            route_map_id: 500,
+            packet_map_id: Some(500),
+            native_map_id: Some(500),
+            packet_position: Some(darpc_model::TilePosition { x: 10, y: 20 }),
+            native_position: Some(darpc_model::TilePosition { x: 10, y: 20 }),
+            staged_position: Some(darpc_model::TilePosition { x: 11, y: 20 }),
+            transition_active: Some(true),
+            route_mode: Some(ModelWalkMode::ExactRoute),
+            current_destination: Some(darpc_model::TilePosition { x: 30, y: 20 }),
+        };
+        let command = CommandStatus::with_exact_route_diagnostics(
+            42,
+            ClientIdentity {
+                pid: 42,
+                process_creation_time: 100,
+                dll_instance_id: [1; 16],
+            },
+            status,
+            diagnostics,
+        );
+
+        let json = serde_json::to_value(command).unwrap();
+        assert_eq!(json["failure"], "invalid_state");
+        assert_eq!(json["diagnostics"]["reason"], "confirmed_position_mismatch");
+        assert_eq!(json["diagnostics"]["staged_position"]["x"], 11);
+        assert_eq!(json["diagnostics"]["route_mode"], "exact_route");
+        assert_eq!(json["diagnostics"]["current_destination"]["x"], 30);
     }
 }

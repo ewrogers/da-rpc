@@ -168,7 +168,8 @@ async fn request(
             ProtocolResult::Unavailable
             | ProtocolResult::Who { .. }
             | ProtocolResult::Legend { .. }
-            | ProtocolResult::Player { .. } => return Err(unavailable(pid)),
+            | ProtocolResult::Player { .. }
+            | ProtocolResult::ExactRouteInvalidState { .. } => return Err(unavailable(pid)),
         }
     }
 }

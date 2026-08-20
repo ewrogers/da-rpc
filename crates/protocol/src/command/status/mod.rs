@@ -1,9 +1,11 @@
 use super::*;
 use crate::{
     DecodeError, EncodeError,
-    message::{PayloadReader, push_u16, push_u32},
+    message::{PayloadReader, push_i32, push_u16, push_u32},
 };
-use darpc_model::{CharacterClass, LegendMark, UserState, WhoList, WhoPlayer, WorldObject};
+use darpc_model::{
+    CharacterClass, LegendMark, TilePosition, UserState, WalkMode, WhoList, WhoPlayer, WorldObject,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 // Submit carries the same bounded pointer-free command representation.
@@ -79,6 +81,58 @@ pub enum CommandFailure {
     InvalidTarget,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ExactRouteInvalidStateReason {
+    MapTransitionPending,
+    NativeMapUnavailable,
+    NativeMapMismatch,
+    NativeTransitionUnavailable,
+    ConfirmedMapMismatch,
+    ConfirmedPositionMismatch,
+    MapDimensionsUnavailable,
+}
+
+impl ExactRouteInvalidStateReason {
+    const fn wire_value(self) -> u8 {
+        match self {
+            Self::MapTransitionPending => 0,
+            Self::NativeMapUnavailable => 1,
+            Self::NativeMapMismatch => 2,
+            Self::NativeTransitionUnavailable => 3,
+            Self::ConfirmedMapMismatch => 4,
+            Self::ConfirmedPositionMismatch => 5,
+            Self::MapDimensionsUnavailable => 6,
+        }
+    }
+
+    fn from_wire(actual: u8) -> Result<Self, DecodeError> {
+        match actual {
+            0 => Ok(Self::MapTransitionPending),
+            1 => Ok(Self::NativeMapUnavailable),
+            2 => Ok(Self::NativeMapMismatch),
+            3 => Ok(Self::NativeTransitionUnavailable),
+            4 => Ok(Self::ConfirmedMapMismatch),
+            5 => Ok(Self::ConfirmedPositionMismatch),
+            6 => Ok(Self::MapDimensionsUnavailable),
+            actual => Err(DecodeError::InvalidExactRouteStateReason { actual }),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ExactRouteInvalidState {
+    pub reason: ExactRouteInvalidStateReason,
+    pub route_map_id: u32,
+    pub packet_map_id: Option<u32>,
+    pub native_map_id: Option<u32>,
+    pub packet_position: Option<TilePosition>,
+    pub native_position: Option<TilePosition>,
+    pub staged_position: Option<TilePosition>,
+    pub transition_active: Option<bool>,
+    pub route_mode: Option<WalkMode>,
+    pub current_destination: Option<TilePosition>,
+}
+
 impl CommandFailure {
     const fn wire_value(self) -> u8 {
         match self {
@@ -129,6 +183,10 @@ pub struct CommandStatus {
 #[allow(clippy::large_enum_variant)]
 pub enum CommandResult {
     Status(CommandStatus),
+    ExactRouteInvalidState {
+        status: CommandStatus,
+        diagnostics: ExactRouteInvalidState,
+    },
     Who {
         status: CommandStatus,
         list: WhoList,
@@ -239,6 +297,14 @@ pub(crate) fn encode_response(
             output.push(0);
             encode_status(output, *status);
         }
+        CommandResult::ExactRouteInvalidState {
+            status,
+            diagnostics,
+        } => {
+            output.push(7);
+            encode_status(output, *status);
+            encode_exact_route_invalid_state(output, *diagnostics);
+        }
         CommandResult::Who { status, list } => {
             output.push(4);
             encode_status(output, *status);
@@ -305,9 +371,95 @@ pub(crate) fn decode_response(
                 player: Box::new(player),
             }
         }
+        7 => CommandResult::ExactRouteInvalidState {
+            status: decode_status(reader)?,
+            diagnostics: decode_exact_route_invalid_state(reader)?,
+        },
         actual => return Err(DecodeError::InvalidCommandResult { actual }),
     };
     Ok(CommandResponse { request_id, result })
+}
+
+fn encode_exact_route_invalid_state(output: &mut Vec<u8>, value: ExactRouteInvalidState) {
+    output.push(value.reason.wire_value());
+    push_u32(output, value.route_map_id);
+    push_optional_u32(output, value.packet_map_id);
+    push_optional_u32(output, value.native_map_id);
+    push_optional_position(output, value.packet_position);
+    push_optional_position(output, value.native_position);
+    push_optional_position(output, value.staged_position);
+    match value.transition_active {
+        Some(active) => {
+            output.push(1);
+            output.push(u8::from(active));
+        }
+        None => output.push(0),
+    }
+    match value.route_mode {
+        Some(mode) => {
+            output.push(1);
+            output.push(match mode {
+                WalkMode::NativeRoute => 0,
+                WalkMode::ExactRoute => 1,
+                WalkMode::Direct => 2,
+                WalkMode::Pursuit => 3,
+            });
+        }
+        None => output.push(0),
+    }
+    push_optional_position(output, value.current_destination);
+}
+
+fn decode_exact_route_invalid_state(
+    reader: &mut PayloadReader<'_>,
+) -> Result<ExactRouteInvalidState, DecodeError> {
+    Ok(ExactRouteInvalidState {
+        reason: ExactRouteInvalidStateReason::from_wire(reader.read_u8()?)?,
+        route_map_id: reader.read_u32()?,
+        packet_map_id: read_optional_u32(reader)?,
+        native_map_id: read_optional_u32(reader)?,
+        packet_position: read_optional_position(reader)?,
+        native_position: read_optional_position(reader)?,
+        staged_position: read_optional_position(reader)?,
+        transition_active: if reader.read_bool()? {
+            Some(reader.read_bool()?)
+        } else {
+            None
+        },
+        route_mode: if reader.read_bool()? {
+            Some(match reader.read_u8()? {
+                0 => WalkMode::NativeRoute,
+                1 => WalkMode::ExactRoute,
+                2 => WalkMode::Direct,
+                3 => WalkMode::Pursuit,
+                actual => return Err(DecodeError::InvalidMovementMode { actual }),
+            })
+        } else {
+            None
+        },
+        current_destination: read_optional_position(reader)?,
+    })
+}
+
+fn push_optional_position(output: &mut Vec<u8>, value: Option<TilePosition>) {
+    output.push(u8::from(value.is_some()));
+    if let Some(value) = value {
+        push_i32(output, value.x);
+        push_i32(output, value.y);
+    }
+}
+
+fn read_optional_position(
+    reader: &mut PayloadReader<'_>,
+) -> Result<Option<TilePosition>, DecodeError> {
+    if reader.read_bool()? {
+        Ok(Some(TilePosition {
+            x: reader.read_i32()?,
+            y: reader.read_i32()?,
+        }))
+    } else {
+        Ok(None)
+    }
 }
 
 fn encode_who(output: &mut Vec<u8>, list: &WhoList) -> Result<(), EncodeError> {

@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Added
+
+- Include packet, native-object, map, transition, route-mode, and destination
+  diagnostics when an exact-route command fails with `invalid_state`.
+
+### Fixed
+
+- Make exact-route replacement transactional so rejected mid-walk routes leave
+  the native route, destination tracking, and walking lifecycle untouched.
+- Build accepted mid-step exact routes from the staged destination and defer
+  their first step until the active client transition commits.
+- Treat server movement corrections as route-invalidating updates so external
+  exact routes stop without requiring a manual F5 refresh.
+
 ## 1.6.1 - 2026-08-18
 
 ### Fixed

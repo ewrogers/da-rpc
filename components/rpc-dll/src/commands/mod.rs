@@ -4,12 +4,13 @@ mod storage;
 use darpc_model::{Direction, EquipmentSlot, MessageKind};
 use darpc_protocol::{
     ChantText, CharacterStat, CommandFailure, CommandKind, CommandOperation, CommandResult,
-    CommandState, CommandStatus, DialogAction, DialogCommand, DialogText, ExchangeCommand,
-    FieldMapSelectionCommand, GoldTransfer, GroupCommand, GroupInvitationAction, GroupText,
-    ItemSlot, ItemTransfer, MAX_MESSAGE_CONTENT_LEN, MAX_MESSAGE_RECIPIENT_LEN,
-    MAX_WALK_ROUTE_TILES, MessageCommand, MessageContent, MessageDialogCommand, MessageRecipient,
-    RawPacket, RawPacketDirection, RouteTile, SkillSlot, SlotSwap, SpellArguments, SpellCast,
-    SpellInput, SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkRoute, WalkTarget,
+    CommandState, CommandStatus, DialogAction, DialogCommand, DialogText, ExactRouteInvalidState,
+    ExactRouteInvalidStateReason, ExchangeCommand, FieldMapSelectionCommand, GoldTransfer,
+    GroupCommand, GroupInvitationAction, GroupText, ItemSlot, ItemTransfer,
+    MAX_MESSAGE_CONTENT_LEN, MAX_MESSAGE_RECIPIENT_LEN, MAX_WALK_ROUTE_TILES, MessageCommand,
+    MessageContent, MessageDialogCommand, MessageRecipient, RawPacket, RawPacketDirection,
+    RouteTile, SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget,
+    TilePosition, TransferTarget, WalkRoute, WalkTarget,
 };
 use std::{
     num::NonZeroU32,
@@ -197,6 +198,14 @@ fn wait_for(command_id: u32, wait_ms: u16) -> CommandResult {
                 player: Box::new(player),
             };
         }
+        if status.state == CommandState::Failed
+            && let Some(diagnostics) = slot.exact_route_diagnostic()
+        {
+            return CommandResult::ExactRouteInvalidState {
+                status,
+                diagnostics,
+            };
+        }
         if status.state.is_terminal() || wait_ms == 0 || Instant::now() >= deadline {
             return CommandResult::Status(status);
         }
@@ -244,12 +253,16 @@ fn execute(slot_index: usize) {
     slot.has_main_thread_id.store(true, Ordering::Relaxed);
     let started = Instant::now();
     let kind = slot.kind();
+    let is_exact_route = matches!(kind, CommandKind::Walk(WalkTarget::Route(_)));
     let is_who = matches!(kind, CommandKind::Who);
     let is_cast = matches!(kind, CommandKind::CastSpell(_));
     let waits_for_response = matches!(
         kind,
         CommandKind::Who | CommandKind::Legend | CommandKind::InspectPlayer(_)
     );
+    if is_exact_route {
+        crate::diagnostics::clear_invalid_exact_route_state();
+    }
     let result = panic::catch_unwind(|| {
         if is_who {
             execute_who(slot.command_id.load(Ordering::Relaxed))
@@ -260,6 +273,12 @@ fn execute(slot_index: usize) {
         }
     })
     .unwrap_or(Err(CommandFailure::Internal));
+    if is_exact_route
+        && result == Err(CommandFailure::InvalidState)
+        && let Some(diagnostics) = crate::diagnostics::take_invalid_exact_route_state()
+    {
+        slot.store_exact_route_diagnostic(diagnostics);
+    }
     let execution_us = u32::try_from(started.elapsed().as_micros()).unwrap_or(u32::MAX);
     slot.execution_us.store(execution_us, Ordering::Relaxed);
     slot.has_execution_us.store(true, Ordering::Relaxed);

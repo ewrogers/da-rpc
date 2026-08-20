@@ -112,6 +112,41 @@ fn command_messages_round_trip() {
                 failure: Some(CommandFailure::NoPath),
             }),
         }),
+        Message::CommandResponse(CommandResponse {
+            request_id: 210,
+            result: CommandResult::ExactRouteInvalidState {
+                status: CommandStatus {
+                    command_id: 95,
+                    kind: CommandKind::Walk(WalkTarget::Route(
+                        WalkRoute::new(
+                            3000,
+                            &[RouteTile { x: 11, y: 20 }, RouteTile { x: 12, y: 20 }],
+                        )
+                        .unwrap(),
+                    )),
+                    state: CommandState::Failed,
+                    enqueued_tick_ms: 10,
+                    deadline_tick_ms: 1_010,
+                    started_tick_ms: Some(11),
+                    completed_tick_ms: Some(12),
+                    execution_us: Some(15),
+                    main_thread_id: Some(42),
+                    failure: Some(CommandFailure::InvalidState),
+                },
+                diagnostics: ExactRouteInvalidState {
+                    reason: ExactRouteInvalidStateReason::ConfirmedPositionMismatch,
+                    route_map_id: 3000,
+                    packet_map_id: Some(3000),
+                    native_map_id: Some(3000),
+                    packet_position: Some(TilePosition { x: 10, y: 20 }),
+                    native_position: Some(TilePosition { x: 10, y: 20 }),
+                    staged_position: Some(TilePosition { x: 11, y: 20 }),
+                    transition_active: Some(true),
+                    route_mode: Some(WalkMode::ExactRoute),
+                    current_destination: Some(TilePosition { x: 30, y: 20 }),
+                },
+            },
+        }),
         Message::CommandRequest(CommandRequest {
             request_id: 234,
             operation: CommandOperation::Submit {

@@ -440,6 +440,9 @@ fn pending_who_command(response: &CommandResult, pid: u32) -> Result<Option<u32>
         darpc_protocol::CommandResult::Player { .. } => {
             Err(protocol_error(pid, "Who returned a player response"))
         }
+        darpc_protocol::CommandResult::ExactRouteInvalidState { .. } => {
+            Err(protocol_error(pid, "Who returned exact-route diagnostics"))
+        }
         darpc_protocol::CommandResult::Status(status)
             if status.state == darpc_protocol::CommandState::Accepted =>
         {
@@ -523,6 +526,10 @@ fn pending_legend_command(response: &CommandResult, pid: u32) -> Result<Option<u
         darpc_protocol::CommandResult::Player { .. } => {
             Err(protocol_error(pid, "Legend returned a player response"))
         }
+        darpc_protocol::CommandResult::ExactRouteInvalidState { .. } => Err(protocol_error(
+            pid,
+            "Legend returned exact-route diagnostics",
+        )),
         darpc_protocol::CommandResult::Status(status)
             if status.state == darpc_protocol::CommandState::Accepted =>
         {
@@ -633,7 +640,8 @@ fn pending_player_command(response: &CommandResult, pid: u32) -> Result<Option<u
         )
         .with_pid(pid)),
         darpc_protocol::CommandResult::Who { .. }
-        | darpc_protocol::CommandResult::Legend { .. } => Err(protocol_error(
+        | darpc_protocol::CommandResult::Legend { .. }
+        | darpc_protocol::CommandResult::ExactRouteInvalidState { .. } => Err(protocol_error(
             pid,
             "Inspect returned an unrelated response",
         )),

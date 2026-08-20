@@ -1,7 +1,9 @@
+use darpc_protocol::ExactRouteInvalidState;
 use darpc_protocol::{
     DiagnosticsMode, DiagnosticsOperation, DiagnosticsResponse, HOOK_TIMING_STAGE_COUNT,
     HookTimingRecord, HookTimingStage,
 };
+use std::cell::Cell;
 use std::sync::atomic::{AtomicU8, AtomicU32, AtomicU64, Ordering};
 use std::time::Instant;
 
@@ -49,6 +51,10 @@ static MODE: AtomicU8 = AtomicU8::new(DiagnosticsMode::Disabled as u8);
 static COUNTERS: [Counters; HOOK_TIMING_STAGE_COUNT] =
     [const { Counters::new() }; HOOK_TIMING_STAGE_COUNT];
 
+thread_local! {
+    static EXACT_ROUTE_INVALID_STATE: Cell<Option<ExactRouteInvalidState>> = const { Cell::new(None) };
+}
+
 pub(crate) fn initialize(hook_timing: bool) {
     reset();
     set_mode(if hook_timing {
@@ -60,6 +66,18 @@ pub(crate) fn initialize(hook_timing: bool) {
 
 pub(crate) fn disable() {
     set_mode(DiagnosticsMode::Disabled);
+}
+
+pub(crate) fn clear_invalid_exact_route_state() {
+    EXACT_ROUTE_INVALID_STATE.set(None);
+}
+
+pub(crate) fn observe_invalid_exact_route_state(diagnostic: ExactRouteInvalidState) {
+    EXACT_ROUTE_INVALID_STATE.set(Some(diagnostic));
+}
+
+pub(crate) fn take_invalid_exact_route_state() -> Option<ExactRouteInvalidState> {
+    EXACT_ROUTE_INVALID_STATE.take()
 }
 
 #[inline]
@@ -147,6 +165,7 @@ fn snapshot(request_id: u32) -> DiagnosticsResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use darpc_protocol::ExactRouteInvalidStateReason;
 
     #[test]
     fn runtime_control_resets_and_preserves_mode() {
@@ -168,5 +187,26 @@ mod tests {
         assert_eq!(reset.mode, DiagnosticsMode::HookTiming);
         assert_eq!(reset.hook_timings[2].call_count, 0);
         disable();
+    }
+
+    #[test]
+    fn exact_route_invalid_state_is_scoped_to_the_executing_thread() {
+        let diagnostics = ExactRouteInvalidState {
+            reason: ExactRouteInvalidStateReason::NativeMapMismatch,
+            route_map_id: 500,
+            packet_map_id: Some(500),
+            native_map_id: Some(501),
+            packet_position: None,
+            native_position: None,
+            staged_position: None,
+            transition_active: None,
+            route_mode: None,
+            current_destination: None,
+        };
+
+        clear_invalid_exact_route_state();
+        observe_invalid_exact_route_state(diagnostics);
+        assert_eq!(take_invalid_exact_route_state(), Some(diagnostics));
+        assert_eq!(take_invalid_exact_route_state(), None);
     }
 }

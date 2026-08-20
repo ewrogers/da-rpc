@@ -222,6 +222,11 @@ Native actions are queued for the client main thread. A response contains a
 `command_id`, command kind, current state, timing information, and an optional
 failure reason.
 
+Failed exact-route replacements can also contain `diagnostics`. It reports the
+packet-confirmed and native committed positions, an active staged destination,
+map IDs, transition state, route mode, and current destination. The field is
+absent from other command results.
+
 Command states are:
 
 ```text

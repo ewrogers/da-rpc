@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.6.3 - 2026-08-21
+
 ### Fixed
 
 - Avoid attaching generic spell failure feedback to a target when several cast

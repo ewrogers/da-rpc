@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.6.2 - 2026-08-20
+
 ### Added
 
 - Add an optional loader and REST launch patch that reveals up to 255 ground

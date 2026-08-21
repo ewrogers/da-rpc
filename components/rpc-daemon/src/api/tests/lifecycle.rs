@@ -53,7 +53,7 @@ fn rejects_arbitrary_launch_arguments() {
 #[test]
 fn accepts_a_full_client_path_and_defaults_the_server_port() {
     let request: LaunchOptions = serde_json::from_str(
-        r#"{"client_path":"D:\\Games\\Dark Ages\\Darkages.exe","server":"da0.kru.com","skip_exchange_alerts":true}"#,
+        r#"{"client_path":"D:\\Games\\Dark Ages\\Darkages.exe","server":"da0.kru.com","show_items_with_alt":true,"skip_exchange_alerts":true}"#,
     )
     .unwrap();
     let options = ManagedLaunchOptions::try_from(request).unwrap();
@@ -62,6 +62,7 @@ fn accepts_a_full_client_path_and_defaults_the_server_port() {
         std::path::PathBuf::from(r"D:\Games\Dark Ages\Darkages.exe")
     );
     assert!(options.skip_exchange_alerts);
+    assert!(options.show_items_with_alt);
     let server = options.server.unwrap();
     assert_eq!(server.host, "da0.kru.com");
     assert_eq!(server.port, 2610);
@@ -103,6 +104,7 @@ fn rejects_invalid_server_strings() {
         let request = LaunchOptions {
             client_path: r"C:\Darkages.exe".into(),
             allow_multiple: false,
+            show_items_with_alt: false,
             skip_exchange_alerts: false,
             skip_intro: false,
             skip_notice: false,

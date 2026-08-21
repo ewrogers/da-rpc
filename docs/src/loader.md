@@ -62,7 +62,7 @@ loader [--json] inspect <pid>
 loader [--json] attach [--diagnostics hook-timing] <pid> <dll-path>
 loader [--json] detach <pid> <dll-path>
 loader [--json] launch [--allow-multiple] [--diagnostics hook-timing] [--server <host[:port]>] \
-    [--skip-intro] [--skip-notice] [--skip-exchange-alerts] \
+    [--show-items-with-alt] [--skip-intro] [--skip-notice] [--skip-exchange-alerts] \
     <executable-path> <dll-path> [-- <argument>...]
 ```
 
@@ -87,7 +87,7 @@ loader.exe --json attach 3780 .\darpc.dll
 loader.exe detach 3780 .\darpc.dll
 ```
 
-The five optional launch patches are independent, may be combined, and are
+The six optional launch patches are independent, may be combined, and are
 disabled by default. Every supported-client launch also applies a mandatory
 bootstrap sequence patch before the child resumes. It resets the outgoing
 encrypted-packet sequence in the communications worker immediately before
@@ -107,6 +107,7 @@ starting it partially patched.
 | --- | --- |
 | `--allow-multiple` | Bypasses the local `Nexon.SingleInstance` result check. |
 | `--server <host[:port]>` | Resolves the host to IPv4, enables the client's positional endpoint parser, and disables fallback to the official endpoint. The default port is 2610. |
+| `--show-items-with-alt` | Reveals up to 255 ground items as translucent hints while either Alt key is held, including items hidden behind static map art. |
 | `--skip-intro` | Enters the client's normal post-video state directly. |
 | `--skip-notice` | Hides both notice-window paths, enables early title-menu pointer input, and removes the fixed one-second transfer delay while preserving normal notice and transfer processing. |
 | `--skip-exchange-alerts` | Replaces the one-button alert shown after a player exchange completes or is cancelled with the same text in the floating game-message bar. Exchange state and item or gold transfers are unchanged. |
@@ -118,13 +119,16 @@ diagnosis. Omitting the option keeps timing disabled.
 
 ### Standard launch profile
 
-The standard project profile passes all five launch options explicitly:
+The standard project profile passes the five general launch options explicitly:
 
 ```text
 loader.exe launch --allow-multiple --server <host[:port]> \
     --skip-intro --skip-notice --skip-exchange-alerts \
     <executable-path> <dll-path>
 ```
+
+Add `--show-items-with-alt` when the optional Alt reveal behavior is
+desired.
 
 Use `--server 127.0.0.1:2610` when intentionally routing through
 [Arbiter](https://github.com/ewrogers/Arbiter), a Dark Ages network analyzer and
@@ -380,10 +384,12 @@ Complete the interactive portion of behavioral acceptance privately:
 Verify optional launch patches with automated current-user launches where
 practical. Exercise each option independently, then launch two clients
 concurrently with `--allow-multiple --skip-intro --skip-notice` and, when needed,
-`--skip-exchange-alerts` or `--server <host[:port]>`. Confirm that the intro and
+`--skip-exchange-alerts`, `--show-items-with-alt`, or
+`--server <host[:port]>`. Confirm that the intro and
 notice are absent, both clients reach normal login, terminal exchange alerts
-are absent only when requested, the selected endpoint is used, and ordinary
-login and exit behavior remain intact. An unflagged launch remains the
+are absent only when requested, holding Alt reveals ground items only when
+requested, the selected endpoint is used, and ordinary login and exit behavior
+remain intact. An unflagged launch remains the
 comparison case. An explicit server is strict: if that connection fails, the
 client follows its normal disconnected cleanup and does not retry the compiled
 official endpoint.

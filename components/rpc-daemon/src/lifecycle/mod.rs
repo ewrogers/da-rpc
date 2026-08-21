@@ -16,6 +16,7 @@ pub(crate) struct ServerEndpoint {
 pub(crate) struct LaunchOptions {
     pub(crate) client_path: PathBuf,
     pub(crate) allow_multiple: bool,
+    pub(crate) show_items_with_alt: bool,
     pub(crate) skip_exchange_alerts: bool,
     pub(crate) skip_intro: bool,
     pub(crate) skip_notice: bool,
@@ -106,6 +107,9 @@ impl LoaderControl {
         let mut arguments = vec![OsString::from("launch")];
         if options.allow_multiple {
             arguments.push(OsString::from("--allow-multiple"));
+        }
+        if options.show_items_with_alt {
+            arguments.push(OsString::from("--show-items-with-alt"));
         }
         if let Some(server) = options.server.as_ref() {
             arguments.push(OsString::from("--server"));
@@ -246,6 +250,7 @@ mod tests {
         let arguments = control.launch_arguments(&LaunchOptions {
             client_path: PathBuf::from("Darkages.exe"),
             allow_multiple: true,
+            show_items_with_alt: true,
             skip_exchange_alerts: true,
             skip_intro: true,
             skip_notice: true,
@@ -260,6 +265,7 @@ mod tests {
             [
                 "launch",
                 "--allow-multiple",
+                "--show-items-with-alt",
                 "--server",
                 "127.0.0.1:2610",
                 "--skip-intro",

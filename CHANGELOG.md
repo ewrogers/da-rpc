@@ -4,6 +4,8 @@
 
 ### Added
 
+- Add an optional loader and REST launch patch that reveals up to 255 ground
+  items while either Alt key is held.
 - Include packet, native-object, map, transition, route-mode, and destination
   diagnostics when an exact-route command fails with `invalid_state`.
 

@@ -51,6 +51,7 @@ static SUBMIT_COMMAND_ID: AtomicU32 = AtomicU32::new(0);
 static SUBMIT_OBSERVED: AtomicBool = AtomicBool::new(false);
 static SUBMITTING_SELF_LOOK: AtomicBool = AtomicBool::new(false);
 static CLIENT_SELF_LOOK_PENDING: AtomicBool = AtomicBool::new(false);
+static CLIENT_SELF_LOOK_RESPONSE_PENDING: AtomicBool = AtomicBool::new(false);
 static CLIENT_SELF_LOOK_TICK: AtomicU32 = AtomicU32::new(0);
 const CLIENT_SELF_LOOK_GRACE_MS: u32 = 5_000;
 #[derive(Clone, Copy)]
@@ -144,6 +145,7 @@ pub(crate) fn reset() {
     SUBMIT_OBSERVED.store(false, Ordering::Release);
     SUBMITTING_SELF_LOOK.store(false, Ordering::Release);
     CLIENT_SELF_LOOK_PENDING.store(false, Ordering::Release);
+    CLIENT_SELF_LOOK_RESPONSE_PENDING.store(false, Ordering::Release);
     CLIENT_SELF_LOOK_TICK.store(0, Ordering::Release);
     INTERCEPT_PENDING.store(false, Ordering::Release);
     request_tracking::reset();
@@ -215,10 +217,15 @@ fn submit_self_look(pending: Pending, tick_ms: u32) {
 }
 
 pub(crate) fn observe_client_self_look(tick_ms: u32) {
+    observe_client_self_look_with_self_id(crate::state::self_id(), tick_ms);
+}
+
+fn observe_client_self_look_with_self_id(self_id: Option<u32>, tick_ms: u32) {
     if SUBMITTING_SELF_LOOK.load(Ordering::Acquire) {
         return;
     }
     CLIENT_SELF_LOOK_TICK.store(tick_ms, Ordering::Release);
+    CLIENT_SELF_LOOK_RESPONSE_PENDING.store(self_id.is_some(), Ordering::Release);
     CLIENT_SELF_LOOK_PENDING.store(true, Ordering::Release);
 }
 
@@ -441,10 +448,15 @@ pub(crate) fn release(queued: QueuedPlayer) {
 }
 
 pub(crate) fn observe_self_look(body: &[u8], tick_ms: u32) {
+    observe_self_look_with_self_id(crate::state::self_id(), body, tick_ms);
+}
+
+fn observe_self_look_with_self_id(self_id: Option<u32>, body: &[u8], tick_ms: u32) {
     let Some(current) = parse_self_identity(body) else {
         return;
     };
-    if let Some(id) = crate::state::self_id() {
+    CLIENT_SELF_LOOK_RESPONSE_PENDING.store(false, Ordering::Release);
+    if let Some(id) = self_id {
         let _ = complete_self_request(id, tick_ms);
     }
     observe_self_identity(current, tick_ms);
@@ -469,6 +481,14 @@ fn intercept_self_response_for(id: u32, body: &[u8], tick_ms: u32) -> bool {
     let Some(current) = parse_self_identity(body) else {
         return false;
     };
+    // A user request must refresh the client's native self-profile cache. The
+    // normal post-dispatch observer will still complete any internal request.
+    if CLIENT_SELF_LOOK_RESPONSE_PENDING.swap(false, Ordering::AcqRel)
+        && tick_ms.wrapping_sub(CLIENT_SELF_LOOK_TICK.load(Ordering::Acquire))
+            <= CLIENT_SELF_LOOK_GRACE_MS
+    {
+        return false;
+    }
     if !complete_self_request(id, tick_ms) {
         return false;
     }
@@ -832,6 +852,7 @@ mod tests {
             tick_ms: 10,
         });
         request_tracking::mark_in_flight(7, 10);
+        observe_client_self_look_with_self_id(None, 10);
 
         assert!(intercept_self_response_with_self_id(None, &self_look(), 11));
         assert!(request_tracking::ready_for_next(11));
@@ -1069,5 +1090,25 @@ mod tests {
         assert_eq!(self_identity().unwrap().display_class, "Summoner");
         assert_eq!(crate::group::member_count(), 2);
         assert!(!intercept_self_response_for(7, &body, 12));
+    }
+
+    #[test]
+    fn user_self_look_response_precedes_internal_suppression() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset();
+        crate::group::reset();
+        assert!(track_self_look(automatic_pending(7), 10));
+        observe_client_self_look_with_self_id(Some(7), 11);
+
+        let body = self_look();
+        assert!(!intercept_self_response_for(7, &body, 12));
+        assert!(INTERCEPT_PENDING.load(Ordering::Acquire));
+
+        observe_self_look_with_self_id(Some(7), &body, 12);
+        assert!(request_tracking::ready_for_next(12));
+        assert!(!INTERCEPT_PENDING.load(Ordering::Acquire));
+        assert!(!CLIENT_SELF_LOOK_RESPONSE_PENDING.load(Ordering::Acquire));
     }
 }

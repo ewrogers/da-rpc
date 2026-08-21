@@ -19,6 +19,8 @@
   their first step until the active client transition commits.
 - Treat server movement corrections as route-invalidating updates so external
   exact routes stop without requiring a manual F5 refresh.
+- Preserve user-requested self-look responses when an automatic local-player
+  inspection is still pending so the native legend view refreshes immediately.
 
 ## 1.6.1 - 2026-08-18
 

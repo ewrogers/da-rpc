@@ -10,7 +10,9 @@ use self::{
     audio::AudioUpdate,
     message::ParsedMessage,
     object::WorldUpdate,
-    state::{CollectionDirty, Position, SpelledUpdate, StatePacketUpdate, UserAppearance},
+    state::{
+        CollectionDirty, MoveUpdate, Position, SpelledUpdate, StatePacketUpdate, UserAppearance,
+    },
     visual::VisualUpdate,
 };
 use darpc_game_client::RawObjects;
@@ -160,7 +162,7 @@ pub(crate) enum ServerUpdate<'a> {
     StatPoints(u8),
     UserAppearance(UserAppearance),
     UserPosition(Position),
-    Move(Position),
+    Move(MoveUpdate),
     Effect(SpelledUpdate),
     World(WorldUpdate),
     Message(ParsedMessage<'a>),

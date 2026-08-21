@@ -1,6 +1,9 @@
 use super::{module_base, read};
 use crate::hooks::path::{CanMoveFn, native_edge_allowed};
-use crate::movement_transition::{LocalMovementTransition, RouteActivation};
+use crate::movement_transition::{
+    ConfirmedLocation, ExactRouteState, LocalMovementTransition, RouteActivation,
+    commit_route_replacement, position_correction_clears_route, transactional_replace,
+};
 use crate::process_memory::ProcessValue;
 use darpc_game_client::{
     ADVANCE_PATH_RVA, BUILD_PATH_RVA, MAP_CAN_MOVE_DIRECTION_RVA, RESET_MOVEMENT_RVA,
@@ -10,7 +13,9 @@ use darpc_game_client::{
     WORLD_PANE_ROUTE_VECTOR_OFFSET,
 };
 use darpc_model::{Direction, MovementStopReason, MovementUpdate, TilePosition, WalkMode};
-use darpc_protocol::{CommandFailure, RouteTile, WalkRoute};
+use darpc_protocol::{
+    CommandFailure, ExactRouteInvalidState, ExactRouteInvalidStateReason, RouteTile, WalkRoute,
+};
 use std::{
     ffi::c_void,
     mem,
@@ -80,13 +85,13 @@ pub(super) fn walk_to(x: i32, y: i32) -> Result<(), CommandFailure> {
 }
 
 pub(super) fn walk_route(route: WalkRoute) -> Result<(), CommandFailure> {
-    stop_current_movement(MovementStopReason::Replaced);
-    clear_route_destination();
-    let result = Movement::resolve()?.walk_route(route);
-    if result.is_err() {
-        clear_route_destination();
-    }
-    result
+    let movement = Movement::resolve()
+        .map_err(|failure| invalid_unresolved_exact_route_state(route.map_id(), failure))?;
+    transactional_replace(
+        || movement.walk_route(route),
+        |installed| movement.commit_walk_route(*installed),
+    )
+    .map(|_| ())
 }
 
 pub(super) fn cancel_walk() -> Result<(), CommandFailure> {
@@ -223,7 +228,7 @@ pub(crate) fn reset_tracking() {
 
 pub(crate) fn observe_position_correction() {
     stop_current_movement(MovementStopReason::PositionCorrected);
-    if ROUTE_MODE.load(Ordering::Acquire) == 2 {
+    if position_correction_clears_route(route_mode()) {
         if let Ok(movement) = Movement::resolve() {
             movement.reset();
         }
@@ -265,6 +270,13 @@ pub(crate) fn observe_queued_step(world: *mut c_void, direction: u8, moved: bool
 struct Movement {
     module_base: usize,
     world: NonNull<c_void>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct InstalledExactRoute {
+    destination: Option<TilePosition>,
+    activation: RouteActivation,
+    has_steps: bool,
 }
 
 impl Movement {
@@ -354,21 +366,24 @@ impl Movement {
         }
     }
 
-    fn walk_route(&self, route: WalkRoute) -> Result<(), CommandFailure> {
-        if crate::state::map_transition_pending() || self.map_id()? != route.map_id() {
-            return Err(CommandFailure::InvalidState);
-        }
-        let width = self.read_world::<i32>(MAP_WIDTH_OFFSET)?;
-        let height = self.read_world::<i32>(MAP_HEIGHT_OFFSET)?;
-        let position = self.local_position()?;
-        if crate::state::position_desynchronized(route.map_id(), position) {
-            return Err(CommandFailure::InvalidState);
-        }
+    fn walk_route(&self, route: WalkRoute) -> Result<InstalledExactRoute, CommandFailure> {
+        let state = self.exact_route_state(route.map_id());
+        let replacement = state.validate().map_err(|diagnostic| {
+            observe_invalid_exact_route_state(diagnostic);
+            CommandFailure::InvalidState
+        })?;
+        let width = self
+            .read_world::<i32>(MAP_WIDTH_OFFSET)
+            .map_err(|failure| invalid_exact_route_state(state, failure))?;
+        let height = self
+            .read_world::<i32>(MAP_HEIGHT_OFFSET)
+            .map_err(|failure| invalid_exact_route_state(state, failure))?;
         let tiles = route.tiles();
         let Some(first) = tiles.first() else {
             return Err(CommandFailure::InvalidDestination);
         };
-        if i32::from(first.x) != position.x || i32::from(first.y) != position.y {
+        if i32::from(first.x) != replacement.origin.x || i32::from(first.y) != replacement.origin.y
+        {
             return Err(CommandFailure::InvalidDestination);
         }
 
@@ -393,7 +408,12 @@ impl Movement {
 
         self.reset();
         if tiles.len() == 1 {
-            return Ok(());
+            return Ok(InstalledExactRoute {
+                destination: (replacement.activation == RouteActivation::AwaitStepCompletion)
+                    .then_some(replacement.origin),
+                activation: replacement.activation,
+                has_steps: false,
+            });
         }
         for index in (0..tiles.len() - 1).rev() {
             let source = tiles[index];
@@ -434,20 +454,51 @@ impl Movement {
                 .write(1);
         }
         let destination = tiles.last().expect("nonempty route was validated");
-        set_route_destination(
-            i32::from(destination.x),
-            i32::from(destination.y),
-            WalkMode::ExactRoute,
+        Ok(InstalledExactRoute {
+            destination: Some(TilePosition {
+                x: i32::from(destination.x),
+                y: i32::from(destination.y),
+            }),
+            activation: replacement.activation,
+            has_steps: true,
+        })
+    }
+
+    fn exact_route_state(&self, route_map_id: u32) -> ExactRouteState {
+        ExactRouteState {
+            route_map_id,
+            native_map_id: self.map_id().ok(),
+            confirmed: crate::state::confirmed_location()
+                .map(|(map_id, position)| ConfirmedLocation { map_id, position }),
+            transition: self.local_transition().ok(),
+            map_transition_pending: crate::state::map_transition_pending(),
+            route_mode: route_mode(),
+            current_destination: route_destination(),
+        }
+    }
+
+    fn commit_walk_route(&self, installed: InstalledExactRoute) {
+        let tick_ms = darpc_win32::pipe::sender_tick_ms();
+        commit_route_replacement(
+            || stop_current_movement(MovementStopReason::Replaced),
+            || {
+                if let Some(destination) = installed.destination {
+                    set_route_destination(destination.x, destination.y, WalkMode::ExactRoute);
+                } else {
+                    clear_route_destination();
+                }
+            },
+            || {
+                let _ = crate::route::observe(self.world.as_ptr(), tick_ms);
+            },
         );
-        let _ = crate::route::observe(self.world.as_ptr(), darpc_win32::pipe::sender_tick_ms());
-        // SAFETY: the route vector and count were installed above using the
-        // client's native allocator and exact record layout.
-        if unsafe { self.advance_fn()(self.world.as_ptr()) } != 0 {
-            Ok(())
-        } else {
-            self.reset();
-            clear_route_destination();
-            Err(CommandFailure::Rejected)
+        if installed.activation == RouteActivation::AwaitStepCompletion {
+            observe_step_result(true);
+        } else if installed.has_steps {
+            // SAFETY: the exact route was fully validated and installed on
+            // this live WorldPane. The active-transition case returned above,
+            // so this cannot overlap an existing predicted step.
+            let _ = unsafe { self.advance_fn()(self.world.as_ptr()) };
         }
     }
 
@@ -590,6 +641,53 @@ fn route_direction(source: RouteTile, destination: RouteTile) -> Option<Directio
         (-1, 0) => Some(Direction::West),
         _ => None,
     }
+}
+
+fn route_mode() -> Option<WalkMode> {
+    if !HAS_ROUTE_DESTINATION.load(Ordering::Acquire) {
+        return None;
+    }
+    match ROUTE_MODE.load(Ordering::Relaxed) {
+        0 => Some(WalkMode::Direct),
+        1 => Some(WalkMode::NativeRoute),
+        2 => Some(WalkMode::ExactRoute),
+        _ => None,
+    }
+}
+
+fn observe_invalid_exact_route_state(diagnostic: ExactRouteInvalidState) {
+    crate::diagnostics::observe_invalid_exact_route_state(diagnostic);
+}
+
+fn invalid_exact_route_state(state: ExactRouteState, failure: CommandFailure) -> CommandFailure {
+    if failure == CommandFailure::InvalidState {
+        observe_invalid_exact_route_state(
+            state.invalid(ExactRouteInvalidStateReason::MapDimensionsUnavailable),
+        );
+    }
+    failure
+}
+
+fn invalid_unresolved_exact_route_state(
+    route_map_id: u32,
+    failure: CommandFailure,
+) -> CommandFailure {
+    if failure == CommandFailure::InvalidState {
+        let state = ExactRouteState {
+            route_map_id,
+            native_map_id: None,
+            confirmed: crate::state::confirmed_location()
+                .map(|(map_id, position)| ConfirmedLocation { map_id, position }),
+            transition: None,
+            map_transition_pending: crate::state::map_transition_pending(),
+            route_mode: route_mode(),
+            current_destination: route_destination(),
+        };
+        if let Err(diagnostic) = state.validate() {
+            observe_invalid_exact_route_state(diagnostic);
+        }
+    }
+    failure
 }
 
 fn set_route_destination(x: i32, y: i32, mode: WalkMode) {

@@ -441,8 +441,10 @@ character.emoted {
 step. `reached_destination` is known only when there was a retained destination.
 The stop reason distinguishes normal completion, obstruction, replacement,
 explicit cancellation, and a server position correction. An obstruction
-reports the rejected edge first. daRPC does not replan; a rejected exact route
-is reset and leaves recovery to the consumer.
+reports the rejected edge first. daRPC does not replan; a later rejected edge
+resets the executing exact route and leaves recovery to the consumer. A
+replacement rejected during preflight leaves the existing route intact and
+emits no replacement, route-change, or obstruction event.
 Action events mean the request reached the client's normal action boundary.
 They do not promise that the server accepted the result.
 

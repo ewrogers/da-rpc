@@ -62,8 +62,8 @@ overlap. No overlap rejects the connection.
 The only currently supported version is 1.6 (`0x0106`). Version 1.6 removes
 the path-exclusion snapshot, state update, and commands; adds walk
 cancellation and an explicit reason to stopped movement; and includes retained
-message-dialog state, its full-state update, and the dismiss command. Peers
-advertise only 1.6.
+message-dialog state, its full-state update, the dismiss command, and exact-route
+invalid-state diagnostics. Peers advertise only 1.6.
 
 ## Message types
 
@@ -1209,6 +1209,23 @@ enum CommandResult: u8 {
     Who { status: CommandStatus, list: WhoList } = 4,
     Legend { status: CommandStatus, marks: Vec<LegendMark> } = 5,
     Player { status: CommandStatus, id: u32, profile: PlayerProfile } = 6,
+    ExactRouteInvalidState {
+        status: CommandStatus,
+        diagnostics: ExactRouteInvalidState,
+    } = 7,
+}
+
+struct ExactRouteInvalidState {
+    reason: ExactRouteInvalidStateReason;
+    route_map_id: u32;
+    packet_map_id: Option<u32>;
+    native_map_id: Option<u32>;
+    packet_position: Option<TilePosition>;
+    native_position: Option<TilePosition>;
+    staged_position: Option<TilePosition>;
+    transition_active: Option<bool>;
+    route_mode: Option<WalkMode>;
+    current_destination: Option<TilePosition>;
 }
 
 struct WhoList {
@@ -1228,10 +1245,11 @@ struct WhoPlayer {
 }
 ```
 
-`InvalidState` includes exact-route installation while the packet-confirmed
-map or position disagrees with the client's native local self object. This
-protects the native walker from receiving a route whose source tile is valid
-for authoritative state but not for the locally rendered client state.
+`InvalidState` includes exact-route installation while the packet-confirmed map
+or position disagrees with the client's effective native origin. That origin is
+the committed tile while idle and the staged destination during an active
+transition. Result tag `7` carries the rejected state without changing the
+existing route.
 
 Each optional field is encoded as a strict Boolean followed by its `u32` value
 when present. Submission only validates and copies bounded scalar values on the

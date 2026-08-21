@@ -437,6 +437,9 @@ pub enum DecodeError {
     InvalidCommandFailure {
         actual: u8,
     },
+    InvalidExactRouteStateReason {
+        actual: u8,
+    },
     InvalidCommandResult {
         actual: u8,
     },
@@ -763,6 +766,9 @@ impl fmt::Display for DecodeError {
             }
             Self::InvalidCommandFailure { actual } => {
                 write!(formatter, "invalid command failure {actual}")
+            }
+            Self::InvalidExactRouteStateReason { actual } => {
+                write!(formatter, "invalid exact-route state reason {actual}")
             }
             Self::InvalidCommandResult { actual } => {
                 write!(formatter, "invalid command result {actual}")

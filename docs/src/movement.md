@@ -81,19 +81,39 @@ route:
 The route must:
 
 - contain 1 through 256 tiles;
-- start at the character's current confirmed position;
+- start at the character's current confirmed position, or at the staged
+  destination of an active step;
 - stay on the stated current map and inside its dimensions;
 - use unique tiles connected by cardinal one-tile edges; and
 - pass both native collision checks at submission time.
 
-The DLL validates the route against both the packet-confirmed position used by
-state and events and the position of the client's native local self object. If
-those positions or their map IDs disagree, the client is locally
-desynchronized and the command fails with `invalid_state`. The route is not
-installed, even when its first tile matches `/status`, because native walking
-would start from the stale local object. Stop submitting routes until the
-client has resynchronized; the supported client normally refreshes its local
-world state when the user presses F5. Reread `/status` before planning again.
+The native self object has separate committed and staged positions during a
+visual step. The DLL validates an idle route against the committed position and
+an active-step replacement against the staged destination. The
+packet-confirmed position must match that effective origin. This allows an
+acknowledged step to finish visually without treating its older committed tile
+as a desynchronization.
+
+That distinction explains most observed packet/native differences. After an
+acknowledgement, packet state can already be at the staged tile while the
+object's committed tile remains one step behind until animation completion.
+This is healthy when `transition_active` is true and staged position matches the
+packet. A persistent mismatch was produced when an overlapping prediction was
+calculated from the older committed tile and then installed after the client
+committed the prior step. Exact-route deferral and direct-step rejection prevent
+that sequence. A server correction can create another temporary mismatch until
+the following authoritative position refresh completes.
+
+Validation is transactional. Map, position, transition, tile, edge, or
+collision rejection leaves the route already executing in the client and all
+daRPC destination and walking tracking unchanged. Only a fully validated and
+installed route emits `walking.stopped` with reason `replaced`, updates route
+tracking, and emits `walking.route_changed`, in that order.
+
+An accepted active-step replacement is placed in the native route vector but
+is not advanced immediately. The normal client step-completion callback first
+commits the staged tile and then advances the replacement. Repeated
+replacements therefore cannot start overlapping predictions.
 
 The DLL places the validated route into the client's native route vector and
 starts its normal walker. Animation, packets, acknowledgements, and pacing
@@ -103,6 +123,12 @@ live step validator.
 If a later exact-route edge is rejected, daRPC emits
 `walking.obstructed`, then `walking.stopped` with reason `obstructed`,
 and clears the exact route. It does not retry or replan.
+
+When the server sends a confirmed position correction, daRPC stops and clears
+an external exact route immediately. The stock client requests its authoritative
+position when the correction differs from the local object, so normal recovery
+does not require F5. Wait for the resulting location update and replan. F5
+remains a manual fallback if the client does not complete that refresh.
 
 ## Cancelling movement
 
@@ -226,3 +252,11 @@ events for the movement outcome.
 
 See [Web API](web-api.md#native-command-results) for command status and timeout
 behavior, and [Events](events.md) for stream ordering and recovery.
+
+An exact-route `invalid_state` response includes `diagnostics` with the route,
+packet, and native map IDs; packet, committed native, and staged positions;
+transition-active state; current route mode; and current destination. Missing
+values are `null`. Use the `reason` field to distinguish map transition,
+unavailable native state, map mismatch, position mismatch, and unavailable map
+dimensions. A rejected replacement has not changed the route reported by these
+fields.

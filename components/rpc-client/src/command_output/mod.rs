@@ -1,6 +1,9 @@
 use crate::output::json_string;
 use darpc_model::WorldObject;
-use darpc_protocol::{CommandFailure, CommandKind, CommandResult, CommandState, CommandStatus};
+use darpc_protocol::{
+    CommandFailure, CommandKind, CommandResult, CommandState, CommandStatus,
+    ExactRouteInvalidState, ExactRouteInvalidStateReason,
+};
 
 pub(crate) fn render_human(
     action: &str,
@@ -76,6 +79,24 @@ pub(crate) fn render_human(
             optional(status.main_thread_id),
             failure(status.failure),
         ),
+        CommandResult::ExactRouteInvalidState {
+            status,
+            diagnostics,
+        } => format!(
+            concat!(
+                "{} failed: pid={} request_id={} round_trip_ms={} command_id={} ",
+                "kind={} state={} failure={} diagnostics={:?}"
+            ),
+            action,
+            pid,
+            request_id,
+            round_trip_ms,
+            status.command_id,
+            kind(status.kind),
+            state(status.state),
+            failure(status.failure),
+            diagnostics,
+        ),
         result => format!(
             "{action} completed: pid={pid} request_id={request_id} round_trip_ms={round_trip_ms} result={}",
             result_name(result)
@@ -117,8 +138,19 @@ pub(crate) fn render_json(
             )
         }
         CommandResult::Status(status) => {
-            render_status_json(action, pid, request_id, round_trip_ms, status)
+            render_status_json(action, pid, request_id, round_trip_ms, status, None)
         }
+        CommandResult::ExactRouteInvalidState {
+            status,
+            diagnostics,
+        } => render_status_json(
+            action,
+            pid,
+            request_id,
+            round_trip_ms,
+            status,
+            Some(diagnostics),
+        ),
         result => format!(
             concat!(
                 "{{\"ok\":true,\"command\":{},\"pid\":{},\"request_id\":{},",
@@ -176,14 +208,18 @@ fn render_status_json(
     request_id: u32,
     round_trip_ms: u32,
     status: CommandStatus,
+    diagnostics: Option<ExactRouteInvalidState>,
 ) -> String {
+    let diagnostics = diagnostics.map_or_else(String::new, |value| {
+        format!(",\"diagnostics\":{}", exact_route_diagnostics_json(value))
+    });
     format!(
         concat!(
             "{{\"ok\":true,\"command\":{},\"pid\":{},\"request_id\":{},",
             "\"round_trip_ms\":{},\"result\":\"status\",\"status\":{{",
             "\"command_id\":{},\"kind\":{},\"state\":{},\"enqueued_tick_ms\":{},",
             "\"deadline_tick_ms\":{},\"started_tick_ms\":{},\"completed_tick_ms\":{},",
-            "\"execution_us\":{},\"main_thread_id\":{},\"failure\":{}}}}}"
+            "\"execution_us\":{},\"main_thread_id\":{},\"failure\":{}{}}}}}"
         ),
         json_string(action),
         pid,
@@ -201,7 +237,63 @@ fn render_status_json(
         status
             .failure
             .map_or_else(|| "null".into(), |value| json_string(failure_name(value))),
+        diagnostics,
     )
+}
+
+fn exact_route_diagnostics_json(value: ExactRouteInvalidState) -> String {
+    format!(
+        concat!(
+            "{{\"reason\":{},\"route_map_id\":{},\"packet_map_id\":{},",
+            "\"native_map_id\":{},\"packet_position\":{},\"native_position\":{},",
+            "\"staged_position\":{},\"transition_active\":{},\"route_mode\":{},",
+            "\"current_destination\":{}}}"
+        ),
+        json_string(exact_route_reason(value.reason)),
+        value.route_map_id,
+        optional_json(value.packet_map_id),
+        optional_json(value.native_map_id),
+        position_json(value.packet_position),
+        position_json(value.native_position),
+        position_json(value.staged_position),
+        value
+            .transition_active
+            .map_or_else(|| "null".into(), |active| active.to_string()),
+        value
+            .route_mode
+            .map_or_else(|| "null".into(), |mode| json_string(walk_mode(mode))),
+        position_json(value.current_destination),
+    )
+}
+
+fn position_json(position: Option<darpc_model::TilePosition>) -> String {
+    position.map_or_else(
+        || "null".into(),
+        |position| format!("{{\"x\":{},\"y\":{}}}", position.x, position.y),
+    )
+}
+
+fn exact_route_reason(reason: ExactRouteInvalidStateReason) -> &'static str {
+    match reason {
+        ExactRouteInvalidStateReason::MapTransitionPending => "map_transition_pending",
+        ExactRouteInvalidStateReason::NativeMapUnavailable => "native_map_unavailable",
+        ExactRouteInvalidStateReason::NativeMapMismatch => "native_map_mismatch",
+        ExactRouteInvalidStateReason::NativeTransitionUnavailable => {
+            "native_transition_unavailable"
+        }
+        ExactRouteInvalidStateReason::ConfirmedMapMismatch => "confirmed_map_mismatch",
+        ExactRouteInvalidStateReason::ConfirmedPositionMismatch => "confirmed_position_mismatch",
+        ExactRouteInvalidStateReason::MapDimensionsUnavailable => "map_dimensions_unavailable",
+    }
+}
+
+fn walk_mode(mode: darpc_model::WalkMode) -> &'static str {
+    match mode {
+        darpc_model::WalkMode::NativeRoute => "native_route",
+        darpc_model::WalkMode::ExactRoute => "exact_route",
+        darpc_model::WalkMode::Direct => "direct",
+        darpc_model::WalkMode::Pursuit => "pursuit",
+    }
 }
 
 fn kind(kind: CommandKind) -> &'static str {
@@ -269,6 +361,7 @@ fn failure_name(failure: CommandFailure) -> &'static str {
 fn result_name(result: CommandResult) -> &'static str {
     match result {
         CommandResult::Status(_) => "status",
+        CommandResult::ExactRouteInvalidState { .. } => "exact_route_invalid_state",
         CommandResult::Who { .. } => "who",
         CommandResult::Legend { .. } => "legend",
         CommandResult::Busy => "busy",
@@ -453,8 +546,14 @@ fn optional_json(value: Option<u32>) -> String {
 #[cfg(test)]
 mod tests {
     use super::render_json;
-    use darpc_model::{CharacterClass, LegendIcon, LegendMark, UserState, WhoList, WhoPlayer};
-    use darpc_protocol::{CommandKind, CommandResult, CommandState, CommandStatus};
+    use darpc_model::{
+        CharacterClass, LegendIcon, LegendMark, TilePosition, UserState, WalkMode, WhoList,
+        WhoPlayer,
+    };
+    use darpc_protocol::{
+        CommandFailure, CommandKind, CommandResult, CommandState, CommandStatus,
+        ExactRouteInvalidState, ExactRouteInvalidStateReason,
+    };
 
     fn status(kind: CommandKind) -> CommandStatus {
         CommandStatus {
@@ -482,6 +581,42 @@ mod tests {
         );
         assert!(output.contains("\"execution_us\":0"));
         assert!(output.contains("\"state\":\"executed\""));
+    }
+
+    #[test]
+    fn exact_route_invalid_state_json_includes_position_diagnostics() {
+        let mut failed = status(CommandKind::Diagnostic);
+        failed.state = CommandState::Failed;
+        failed.failure = Some(CommandFailure::InvalidState);
+        let output = render_json(
+            "walk",
+            42,
+            1,
+            3,
+            CommandResult::ExactRouteInvalidState {
+                status: failed,
+                diagnostics: ExactRouteInvalidState {
+                    reason: ExactRouteInvalidStateReason::ConfirmedPositionMismatch,
+                    route_map_id: 500,
+                    packet_map_id: Some(500),
+                    native_map_id: Some(500),
+                    packet_position: Some(TilePosition { x: 10, y: 20 }),
+                    native_position: Some(TilePosition { x: 10, y: 20 }),
+                    staged_position: Some(TilePosition { x: 11, y: 20 }),
+                    transition_active: Some(true),
+                    route_mode: Some(WalkMode::ExactRoute),
+                    current_destination: Some(TilePosition { x: 30, y: 20 }),
+                },
+            },
+        );
+
+        let value: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(
+            value["status"]["diagnostics"]["reason"],
+            "confirmed_position_mismatch"
+        );
+        assert_eq!(value["status"]["diagnostics"]["staged_position"]["x"], 11);
+        assert_eq!(value["status"]["diagnostics"]["route_mode"], "exact_route");
     }
 
     #[test]

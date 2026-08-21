@@ -409,10 +409,10 @@ pub(crate) fn merge_snapshot_position(raw: &mut RawStateSnapshot) {
 }
 
 #[cfg(not(test))]
-pub(crate) fn position_desynchronized(map_id: u32, local: TilePosition) -> bool {
+pub(crate) fn confirmed_location() -> Option<(u32, TilePosition)> {
     // SAFETY: commands execute on the client main thread, which is the sole
     // cache producer.
-    unsafe { CACHE.position_desynchronized(map_id, local) }
+    unsafe { CACHE.confirmed_location() }
 }
 
 pub(crate) fn mark_collection_dirty(kind: CollectionKind, slot: u8, tick_ms: u32) {
@@ -1134,6 +1134,10 @@ mod tests {
         };
 
         assert!(!cache.position_desynchronized(600, TilePosition { x: 15, y: 6 }));
+        assert_eq!(
+            cache.confirmed_location(),
+            Some((600, TilePosition { x: 15, y: 6 }))
+        );
         assert!(cache.position_desynchronized(600, TilePosition { x: 14, y: 6 }));
         assert!(cache.position_desynchronized(601, TilePosition { x: 15, y: 6 }));
         assert!(!StateCache::default().position_desynchronized(600, TilePosition { x: 15, y: 6 }));

@@ -24,7 +24,7 @@ pub(crate) enum StatePacketUpdate {
     StatPoints(u8),
     UserAppearance(UserAppearance),
     UserPosition(Position),
-    Move(Position),
+    Move(MoveUpdate),
     Effect(SpelledUpdate),
     Collection(CollectionDirty),
     SpellCancelled,
@@ -46,6 +46,12 @@ pub(crate) struct UserAppearance {
 pub(crate) struct Position {
     pub(crate) x: i32,
     pub(crate) y: i32,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) struct MoveUpdate {
+    pub(crate) position: Position,
+    pub(crate) corrected: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -179,7 +185,7 @@ fn parse_user_position(body: &[u8]) -> Result<Position, ParseError> {
     })
 }
 
-fn parse_move(body: &[u8]) -> Result<Option<Position>, ParseError> {
+fn parse_move(body: &[u8]) -> Result<Option<MoveUpdate>, ParseError> {
     let mut reader = Reader::new(body);
     reader.expect(MOVE_OPCODE)?;
     let direction = reader.u8()?;
@@ -194,9 +200,12 @@ fn parse_move(body: &[u8]) -> Result<Option<Position>, ParseError> {
         4 => (0, 0),
         _ => return Ok(None),
     };
-    Ok(Some(Position {
-        x: previous_x + dx,
-        y: previous_y + dy,
+    Ok(Some(MoveUpdate {
+        position: Position {
+            x: previous_x + dx,
+            y: previous_y + dy,
+        },
+        corrected: direction == 4,
     }))
 }
 
@@ -534,11 +543,17 @@ mod tests {
         );
         assert_eq!(
             update(&[0x0B, 1, 0, 43, 0, 40, 0, 0, 0, 0, 7]).unwrap(),
-            Some(StatePacketUpdate::Move(Position { x: 44, y: 40 }))
+            Some(StatePacketUpdate::Move(MoveUpdate {
+                position: Position { x: 44, y: 40 },
+                corrected: false,
+            }))
         );
         assert_eq!(
             update(&[0x0B, 4, 0, 43, 0, 40, 0, 0, 0, 0, 7]).unwrap(),
-            Some(StatePacketUpdate::Move(Position { x: 43, y: 40 }))
+            Some(StatePacketUpdate::Move(MoveUpdate {
+                position: Position { x: 43, y: 40 },
+                corrected: true,
+            }))
         );
         assert_eq!(
             update(&[0x0B, 5, 0, 43, 0, 40, 0, 0, 0, 0, 7]).unwrap(),

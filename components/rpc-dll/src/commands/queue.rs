@@ -1,5 +1,7 @@
 use super::*;
 
+const EXACT_ROUTE_DIAGNOSTIC_BYTES: usize = 48;
+
 pub(super) struct CommandSlot {
     pub(super) state: AtomicU8,
     pub(super) queued: AtomicBool,
@@ -21,6 +23,8 @@ pub(super) struct CommandSlot {
     pub(super) main_thread_id: AtomicU32,
     pub(super) has_main_thread_id: AtomicBool,
     pub(super) failure: AtomicU8,
+    exact_route_diagnostic: [AtomicU8; EXACT_ROUTE_DIAGNOSTIC_BYTES],
+    has_exact_route_diagnostic: AtomicBool,
 }
 
 impl CommandSlot {
@@ -46,6 +50,8 @@ impl CommandSlot {
             main_thread_id: AtomicU32::new(0),
             has_main_thread_id: AtomicBool::new(false),
             failure: AtomicU8::new(0),
+            exact_route_diagnostic: [const { AtomicU8::new(0) }; EXACT_ROUTE_DIAGNOSTIC_BYTES],
+            has_exact_route_diagnostic: AtomicBool::new(false),
         }
     }
 
@@ -79,6 +85,8 @@ impl CommandSlot {
         self.main_thread_id.store(0, Ordering::Relaxed);
         self.has_main_thread_id.store(false, Ordering::Relaxed);
         self.failure.store(0, Ordering::Relaxed);
+        self.has_exact_route_diagnostic
+            .store(false, Ordering::Relaxed);
         self.queued.store(true, Ordering::Relaxed);
         self.state.store(ACCEPTED, Ordering::Release);
     }
@@ -129,6 +137,28 @@ impl CommandSlot {
         self.state.store(EMPTY, Ordering::Release);
     }
 
+    pub(super) fn store_exact_route_diagnostic(&self, value: ExactRouteInvalidState) {
+        let bytes = encode_exact_route_diagnostic(value);
+        self.has_exact_route_diagnostic
+            .store(false, Ordering::Relaxed);
+        for (destination, source) in self.exact_route_diagnostic.iter().zip(bytes) {
+            destination.store(source, Ordering::Relaxed);
+        }
+        self.has_exact_route_diagnostic
+            .store(true, Ordering::Release);
+    }
+
+    pub(super) fn exact_route_diagnostic(&self) -> Option<ExactRouteInvalidState> {
+        if !self.has_exact_route_diagnostic.load(Ordering::Acquire) {
+            return None;
+        }
+        let mut bytes = [0; EXACT_ROUTE_DIAGNOSTIC_BYTES];
+        for (destination, source) in bytes.iter_mut().zip(&self.exact_route_diagnostic) {
+            *destination = source.load(Ordering::Relaxed);
+        }
+        Some(decode_exact_route_diagnostic(bytes))
+    }
+
     pub(super) fn kind(&self) -> CommandKind {
         let length = usize::from(self.argument_length.load(Ordering::Relaxed));
         let mut input = [0; MAX_COMMAND_TILE_BYTES];
@@ -143,6 +173,132 @@ impl CommandSlot {
             &input[..length.min(MAX_COMMAND_TILE_BYTES)],
         )
     }
+}
+
+fn encode_exact_route_diagnostic(
+    value: ExactRouteInvalidState,
+) -> [u8; EXACT_ROUTE_DIAGNOSTIC_BYTES] {
+    let mut bytes = [0; EXACT_ROUTE_DIAGNOSTIC_BYTES];
+    bytes[0] = match value.reason {
+        ExactRouteInvalidStateReason::MapTransitionPending => 0,
+        ExactRouteInvalidStateReason::NativeMapUnavailable => 1,
+        ExactRouteInvalidStateReason::NativeMapMismatch => 2,
+        ExactRouteInvalidStateReason::NativeTransitionUnavailable => 3,
+        ExactRouteInvalidStateReason::ConfirmedMapMismatch => 4,
+        ExactRouteInvalidStateReason::ConfirmedPositionMismatch => 5,
+        ExactRouteInvalidStateReason::MapDimensionsUnavailable => 6,
+    };
+    write_u32(&mut bytes, 1, value.route_map_id);
+    let mut flags = 0;
+    write_optional_u32(&mut bytes, 6, value.packet_map_id, &mut flags, 0x01);
+    write_optional_u32(&mut bytes, 10, value.native_map_id, &mut flags, 0x02);
+    write_optional_position(&mut bytes, 14, value.packet_position, &mut flags, 0x04);
+    write_optional_position(&mut bytes, 22, value.native_position, &mut flags, 0x08);
+    write_optional_position(&mut bytes, 30, value.staged_position, &mut flags, 0x10);
+    if let Some(active) = value.transition_active {
+        flags |= 0x20;
+        bytes[38] = u8::from(active);
+    }
+    if let Some(mode) = value.route_mode {
+        flags |= 0x40;
+        bytes[39] = match mode {
+            darpc_model::WalkMode::NativeRoute => 0,
+            darpc_model::WalkMode::ExactRoute => 1,
+            darpc_model::WalkMode::Direct => 2,
+            darpc_model::WalkMode::Pursuit => 3,
+        };
+    }
+    write_optional_position(&mut bytes, 40, value.current_destination, &mut flags, 0x80);
+    bytes[5] = flags;
+    bytes
+}
+
+fn decode_exact_route_diagnostic(
+    bytes: [u8; EXACT_ROUTE_DIAGNOSTIC_BYTES],
+) -> ExactRouteInvalidState {
+    let flags = bytes[5];
+    ExactRouteInvalidState {
+        reason: match bytes[0] {
+            0 => ExactRouteInvalidStateReason::MapTransitionPending,
+            1 => ExactRouteInvalidStateReason::NativeMapUnavailable,
+            2 => ExactRouteInvalidStateReason::NativeMapMismatch,
+            3 => ExactRouteInvalidStateReason::NativeTransitionUnavailable,
+            4 => ExactRouteInvalidStateReason::ConfirmedMapMismatch,
+            5 => ExactRouteInvalidStateReason::ConfirmedPositionMismatch,
+            6 => ExactRouteInvalidStateReason::MapDimensionsUnavailable,
+            _ => unreachable!("stored exact-route diagnostic reason is valid"),
+        },
+        route_map_id: read_u32(&bytes, 1),
+        packet_map_id: read_optional_u32(&bytes, 6, flags, 0x01),
+        native_map_id: read_optional_u32(&bytes, 10, flags, 0x02),
+        packet_position: read_optional_position(&bytes, 14, flags, 0x04),
+        native_position: read_optional_position(&bytes, 22, flags, 0x08),
+        staged_position: read_optional_position(&bytes, 30, flags, 0x10),
+        transition_active: (flags & 0x20 != 0).then(|| bytes[38] != 0),
+        route_mode: (flags & 0x40 != 0).then(|| match bytes[39] {
+            0 => darpc_model::WalkMode::NativeRoute,
+            1 => darpc_model::WalkMode::ExactRoute,
+            2 => darpc_model::WalkMode::Direct,
+            3 => darpc_model::WalkMode::Pursuit,
+            _ => unreachable!("stored exact-route diagnostic mode is valid"),
+        }),
+        current_destination: read_optional_position(&bytes, 40, flags, 0x80),
+    }
+}
+
+fn write_optional_u32(
+    bytes: &mut [u8],
+    offset: usize,
+    value: Option<u32>,
+    flags: &mut u8,
+    flag: u8,
+) {
+    if let Some(value) = value {
+        *flags |= flag;
+        write_u32(bytes, offset, value);
+    }
+}
+
+fn read_optional_u32(bytes: &[u8], offset: usize, flags: u8, flag: u8) -> Option<u32> {
+    (flags & flag != 0).then(|| read_u32(bytes, offset))
+}
+
+fn write_optional_position(
+    bytes: &mut [u8],
+    offset: usize,
+    value: Option<darpc_model::TilePosition>,
+    flags: &mut u8,
+    flag: u8,
+) {
+    if let Some(value) = value {
+        *flags |= flag;
+        write_u32(bytes, offset, value.x as u32);
+        write_u32(bytes, offset + 4, value.y as u32);
+    }
+}
+
+fn read_optional_position(
+    bytes: &[u8],
+    offset: usize,
+    flags: u8,
+    flag: u8,
+) -> Option<darpc_model::TilePosition> {
+    (flags & flag != 0).then(|| darpc_model::TilePosition {
+        x: read_u32(bytes, offset) as i32,
+        y: read_u32(bytes, offset + 4) as i32,
+    })
+}
+
+fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
+    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+}
+
+fn read_u32(bytes: &[u8], offset: usize) -> u32 {
+    u32::from_le_bytes(
+        bytes[offset..offset + 4]
+            .try_into()
+            .expect("stored diagnostic contains four bytes"),
+    )
 }
 
 pub(super) struct CommandQueue {
@@ -187,5 +343,32 @@ impl CommandQueue {
         for entry in &self.entries {
             entry.store(0, Ordering::Relaxed);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use darpc_model::WalkMode;
+
+    #[test]
+    fn retained_slot_preserves_exact_route_invalid_state_diagnostics() {
+        let slot = CommandSlot::new();
+        let diagnostics = ExactRouteInvalidState {
+            reason: ExactRouteInvalidStateReason::ConfirmedPositionMismatch,
+            route_map_id: 500,
+            packet_map_id: Some(500),
+            native_map_id: Some(500),
+            packet_position: Some(darpc_model::TilePosition { x: 10, y: 20 }),
+            native_position: Some(darpc_model::TilePosition { x: 10, y: 20 }),
+            staged_position: Some(darpc_model::TilePosition { x: 11, y: 20 }),
+            transition_active: Some(true),
+            route_mode: Some(WalkMode::ExactRoute),
+            current_destination: Some(darpc_model::TilePosition { x: 30, y: 20 }),
+        };
+
+        assert_eq!(slot.exact_route_diagnostic(), None);
+        slot.store_exact_route_diagnostic(diagnostics);
+        assert_eq!(slot.exact_route_diagnostic(), Some(diagnostics));
     }
 }

@@ -316,6 +316,7 @@ Available launch options are:
 {
     client_path,
     allow_multiple: false,
+    show_items_with_alt: false,
     skip_exchange_alerts: false,
     skip_intro: false,
     skip_notice: false,
@@ -329,6 +330,8 @@ directory. `server` accepts `host` or `host:port`, with port 2610 as the
 default. `skip_exchange_alerts` replaces the one-button result shown after a
 completed or cancelled player exchange with the same text in the floating
 game-message bar without changing the exchange itself.
+`show_items_with_alt` applies the launch-only ground-item patch and
+reveals up to 255 items while either Alt key is held.
 The API does not accept arbitrary game arguments or request-selected loader and
 DLL paths.
 

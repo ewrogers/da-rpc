@@ -1,7 +1,10 @@
 //! Integration boundary for the supported Dark Ages 7.41 game client.
 
+mod ground_items;
 mod runtime;
 mod state;
+
+pub use ground_items::{GROUND_ITEM_REVEAL_PATCH, GroundItemRevealPatch};
 
 pub use runtime::{
     ADVANCE_PATH_RVA, BUILD_BREADTH_FIRST_PATH_ENTRY, BUILD_BREADTH_FIRST_PATH_RVA, BUILD_PATH_RVA,

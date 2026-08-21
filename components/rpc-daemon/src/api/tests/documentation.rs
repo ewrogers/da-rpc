@@ -244,6 +244,7 @@ fn serves_the_openapi_contract_and_vendored_swagger_ui() {
             .any(|field| field == "client_path")
     );
     assert!(schemas["LaunchOptions"]["properties"]["skip_exchange_alerts"].is_object());
+    assert!(schemas["LaunchOptions"]["properties"]["show_items_with_alt"].is_object());
     assert!(schemas["LoadResult"]["properties"]["was_loaded"].is_object());
     assert!(schemas["LoadResult"]["properties"]["changed"].is_null());
     assert!(schemas["UnloadResult"]["properties"]["was_unloaded"].is_object());

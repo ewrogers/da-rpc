@@ -38,7 +38,7 @@ usage:
     loader [--json] attach [--diagnostics hook-timing] <pid> <dll-path>
     loader [--json] detach <pid> <dll-path>
     loader [--json] launch [--allow-multiple] [--diagnostics hook-timing] [--server <host[:port]>] \
-        [--skip-intro] [--skip-notice] [--skip-exchange-alerts] \
+        [--show-items-with-alt] [--skip-intro] [--skip-notice] [--skip-exchange-alerts] \
         <executable-path> <dll-path> [-- <argument>...]";
 
 #[derive(Debug, Eq, PartialEq)]
@@ -196,6 +196,7 @@ fn parse_launch(mut arguments: impl Iterator<Item = OsString>) -> Result<Command
     while let Some(argument) = arguments.next() {
         match argument.to_str() {
             Some("--allow-multiple") => patches.allow_multiple = true,
+            Some("--show-items-with-alt") => patches.show_items_with_alt = true,
             Some("--diagnostics") => {
                 if initialize_options.hook_timing() {
                     return Err(invalid_arguments(
@@ -542,6 +543,7 @@ mod tests {
             parse_command(arguments(&[
                 "launch",
                 "--allow-multiple",
+                "--show-items-with-alt",
                 "--skip-intro",
                 "--skip-notice",
                 "--skip-exchange-alerts",
@@ -556,6 +558,7 @@ mod tests {
                 patches: LaunchPatches {
                     allow_multiple: true,
                     command_line_endpoint: false,
+                    show_items_with_alt: true,
                     skip_exchange_alerts: true,
                     skip_intro: true,
                     skip_notice: true,

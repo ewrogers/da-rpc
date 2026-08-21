@@ -5,22 +5,27 @@ use darpc_game_client::{
     SKIP_INTRO_PATCHES, SKIP_NOTICE_PATCHES,
 };
 #[cfg(windows)]
-use darpc_game_client::{BOOTSTRAP_SEQUENCE_PATCH, BootstrapSequencePatch};
+use darpc_game_client::{
+    BOOTSTRAP_SEQUENCE_PATCH, BootstrapSequencePatch, GROUND_ITEM_REVEAL_PATCH,
+    GroundItemRevealPatch,
+};
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(crate) struct LaunchPatches {
     pub(crate) allow_multiple: bool,
     pub(crate) command_line_endpoint: bool,
+    pub(crate) show_items_with_alt: bool,
     pub(crate) skip_exchange_alerts: bool,
     pub(crate) skip_intro: bool,
     pub(crate) skip_notice: bool,
 }
 
 impl LaunchPatches {
-    #[cfg(windows)]
+    #[cfg(any(windows, test))]
     pub(crate) const fn is_empty(self) -> bool {
         !self.allow_multiple
             && !self.command_line_endpoint
+            && !self.show_items_with_alt
             && !self.skip_exchange_alerts
             && !self.skip_intro
             && !self.skip_notice
@@ -93,6 +98,18 @@ mod platform {
         encrypt_packet: usize,
     }
 
+    struct ResolvedGroundItemRevealPatch<'a> {
+        definition: &'a GroundItemRevealPatch,
+        collector_hook: usize,
+        frame_hook: usize,
+        key_down_hook: usize,
+        key_up_hook: usize,
+        input_get_event_manager: usize,
+        render_world_object: usize,
+        invalidate_pane: usize,
+        world_item_vtable: usize,
+    }
+
     pub(crate) fn apply(
         process: &TargetProcess,
         selection: LaunchPatches,
@@ -108,6 +125,10 @@ mod platform {
         let bootstrap = apply_default_patches
             .then(|| resolve_bootstrap(process, image_base, BOOTSTRAP_SEQUENCE_PATCH))
             .transpose()?;
+        let ground_items = selection
+            .show_items_with_alt
+            .then(|| resolve_ground_item_reveal(process, image_base, &GROUND_ITEM_REVEAL_PATCH))
+            .transpose()?;
 
         for patch in resolved {
             write_patch(process, &patch)?;
@@ -115,6 +136,10 @@ mod platform {
                 "Applied {} at RVA 0x{:08X}",
                 patch.definition.name, patch.definition.rva
             );
+        }
+
+        if let Some(ground_items) = ground_items {
+            install_ground_item_reveal(process, &ground_items)?;
         }
 
         if let Some(bootstrap) = bootstrap {
@@ -272,6 +297,66 @@ mod platform {
         })
     }
 
+    fn resolve_ground_item_reveal<'a>(
+        process: &TargetProcess,
+        image_base: usize,
+        definition: &'a GroundItemRevealPatch,
+    ) -> Result<ResolvedGroundItemRevealPatch<'a>> {
+        validate_ground_item_definition(definition)?;
+
+        let collector_hook = checked_address(image_base, definition.collector_hook_rva)?;
+        let frame_hook = checked_address(image_base, definition.frame_hook_rva)?;
+        let key_down_hook = checked_address(image_base, definition.key_down_hook_rva)?;
+        let key_up_hook = checked_address(image_base, definition.key_up_hook_rva)?;
+        let static_render_mode_selector =
+            checked_address(image_base, definition.static_render_mode_selector_rva)?;
+
+        for (address, expected, name) in [
+            (
+                collector_hook,
+                definition.collector_hook_expected,
+                "ground-item collector hook",
+            ),
+            (
+                frame_hook,
+                definition.frame_hook_expected,
+                "ground-item frame hook",
+            ),
+            (
+                key_down_hook,
+                definition.key_down_hook_expected,
+                "ground-item Alt key-down hook",
+            ),
+            (
+                key_up_hook,
+                definition.key_up_hook_expected,
+                "ground-item Alt key-up hook",
+            ),
+            (
+                static_render_mode_selector,
+                definition.static_render_mode_selector_expected,
+                "ground-item static render-mode selector",
+            ),
+        ] {
+            validate_bytes(process, address, expected, name)?;
+        }
+
+        Ok(ResolvedGroundItemRevealPatch {
+            definition,
+            collector_hook,
+            frame_hook,
+            key_down_hook,
+            key_up_hook,
+            input_get_event_manager: checked_address(
+                image_base,
+                definition.input_get_event_manager_rva,
+            )?,
+            render_world_object: checked_address(image_base, definition.render_world_object_rva)?,
+            invalidate_pane: checked_address(image_base, definition.invalidate_pane_rva)?,
+            world_item_vtable: checked_address(image_base, definition.world_item_vtable_rva)?,
+        })
+    }
+
     fn checked_address(image_base: usize, rva: u32) -> Result<usize> {
         image_base
             .checked_add(rva as usize)
@@ -330,6 +415,356 @@ mod platform {
 
         let _ = allocation.persist();
         eprintln!("Applied default bootstrap sequence patch with stub at 0x{stub_address:08X}");
+        Ok(())
+    }
+
+    fn install_ground_item_reveal(
+        process: &TargetProcess,
+        patch: &ResolvedGroundItemRevealPatch<'_>,
+    ) -> Result<()> {
+        let definition = patch.definition;
+        let state = remote::RemoteAllocation::new(process, definition.state_size)?;
+        let collector =
+            remote::RemoteAllocation::new(process, definition.collector_stub_template.len())?;
+        let frame = remote::RemoteAllocation::new(process, definition.frame_stub_template.len())?;
+        let key_down =
+            remote::RemoteAllocation::new(process, definition.key_down_stub_template.len())?;
+        let key_up = remote::RemoteAllocation::new(process, definition.key_up_stub_template.len())?;
+
+        let state_address = state.address() as usize;
+        let collector_address = collector.address() as usize;
+        let frame_address = frame.address() as usize;
+        let key_down_address = key_down.address() as usize;
+        let key_up_address = key_up.address() as usize;
+
+        let collector_stub = ground_item_collector_stub(collector_address, state_address, patch)?;
+        let frame_stub = ground_item_frame_stub(frame_address, state_address, patch)?;
+        let key_down_stub = ground_item_key_transition_stub(
+            key_down_address,
+            state_address,
+            patch.key_down_hook,
+            definition.key_down_hook_expected.len(),
+            definition.key_down_stub_template,
+            patch.invalidate_pane,
+            definition.state_pane_offset,
+        )?;
+        let key_up_stub = ground_item_key_transition_stub(
+            key_up_address,
+            state_address,
+            patch.key_up_hook,
+            definition.key_up_hook_expected.len(),
+            definition.key_up_stub_template,
+            patch.invalidate_pane,
+            definition.state_pane_offset,
+        )?;
+
+        prepare_executable_stub(
+            process,
+            &collector,
+            &collector_stub,
+            "ground-item collector stub",
+        )?;
+        prepare_executable_stub(process, &frame, &frame_stub, "ground-item frame stub")?;
+        prepare_executable_stub(
+            process,
+            &key_down,
+            &key_down_stub,
+            "ground-item key-down stub",
+        )?;
+        prepare_executable_stub(process, &key_up, &key_up_stub, "ground-item key-up stub")?;
+
+        let hooks = [
+            (
+                patch.collector_hook,
+                definition.collector_hook_expected,
+                collector_address,
+                "ground-item collector hook",
+            ),
+            (
+                patch.frame_hook,
+                definition.frame_hook_expected,
+                frame_address,
+                "ground-item frame hook",
+            ),
+            (
+                patch.key_down_hook,
+                definition.key_down_hook_expected,
+                key_down_address,
+                "ground-item Alt key-down hook",
+            ),
+            (
+                patch.key_up_hook,
+                definition.key_up_hook_expected,
+                key_up_address,
+                "ground-item Alt key-up hook",
+            ),
+        ];
+        let replacements = hooks
+            .iter()
+            .map(|(address, expected, stub_address, _)| {
+                jump_hook(*address, *stub_address, expected.len())
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let allocations = [state, collector, frame, key_down, key_up];
+
+        for (installed, ((address, _, _, name), replacement)) in
+            hooks.into_iter().zip(replacements).enumerate()
+        {
+            if let Err(error) = write_code(process, address, &replacement, name) {
+                let mut cleanup_error = None;
+                for (address, expected, _, name) in hooks[..=installed].iter().rev().copied() {
+                    if let Err(error) = write_code(process, address, expected, name) {
+                        cleanup_error.get_or_insert(error);
+                    }
+                }
+
+                if let Some(cleanup_error) = cleanup_error {
+                    for allocation in allocations {
+                        let _ = allocation.persist();
+                    }
+                    return Err(LoaderError::new(
+                        ErrorKind::RemoteOperationFailed,
+                        format!(
+                            "{error}; also failed to restore a ground-item hook: {cleanup_error}"
+                        ),
+                    ));
+                }
+
+                return Err(error);
+            }
+        }
+
+        for allocation in allocations {
+            let _ = allocation.persist();
+        }
+        eprintln!("Applied Alt ground-item reveal patch with state at 0x{state_address:08X}");
+        Ok(())
+    }
+
+    fn prepare_executable_stub(
+        process: &TargetProcess,
+        allocation: &remote::RemoteAllocation<'_>,
+        stub: &[u8],
+        name: &str,
+    ) -> Result<()> {
+        let address = allocation.address() as usize;
+        allocation.write_bytes(stub)?;
+        validate_bytes(process, address, stub, name)?;
+        protect(process, address, stub.len(), PAGE_EXECUTE_READ)?;
+        flush(process, address, stub.len())
+    }
+
+    fn ground_item_collector_stub(
+        stub_address: usize,
+        state_address: usize,
+        patch: &ResolvedGroundItemRevealPatch<'_>,
+    ) -> Result<Vec<u8>> {
+        let definition = patch.definition;
+        let mut stub = definition.collector_stub_template.to_vec();
+        write_u32(&mut stub, 0x3A, patch.world_item_vtable, "collector vtable")?;
+        write_u32(&mut stub, 0x4A, state_address, "collector state count")?;
+        write_u32(
+            &mut stub,
+            0x4F,
+            definition.capacity as usize,
+            "collector capacity",
+        )?;
+        write_u32(
+            &mut stub,
+            0x5A,
+            checked_offset(state_address, definition.state_entries_offset)?,
+            "collector entries",
+        )?;
+        write_u32(&mut stub, 0x70, state_address, "collector state count")?;
+        write_u32(
+            &mut stub,
+            0x76,
+            checked_offset(state_address, 4)?,
+            "collector last item",
+        )?;
+        write_u32(
+            &mut stub,
+            0x7E,
+            checked_offset(state_address, 8)?,
+            "collector pane",
+        )?;
+        write_rel32(
+            &mut stub,
+            0x99,
+            checked_offset(stub_address, 0x9D)?,
+            checked_offset(
+                patch.collector_hook,
+                definition.collector_hook_expected.len(),
+            )?,
+            "collector continuation",
+        )?;
+        Ok(stub)
+    }
+
+    fn ground_item_frame_stub(
+        stub_address: usize,
+        state_address: usize,
+        patch: &ResolvedGroundItemRevealPatch<'_>,
+    ) -> Result<Vec<u8>> {
+        let definition = patch.definition;
+        let mut stub = definition.frame_stub_template.to_vec();
+        write_u32(
+            &mut stub,
+            0x0D,
+            checked_offset(state_address, definition.state_pane_offset)?,
+            "frame pane state",
+        )?;
+        write_u32(&mut stub, 0x13, state_address, "frame item count")?;
+        write_rel32(
+            &mut stub,
+            0x26,
+            checked_offset(stub_address, 0x2A)?,
+            patch.input_get_event_manager,
+            "frame event manager call",
+        )?;
+        write_u32(&mut stub, 0x3B, state_address, "frame item count")?;
+        write_u32(
+            &mut stub,
+            0x46,
+            checked_offset(state_address, definition.state_entries_offset)?,
+            "frame entries",
+        )?;
+        write_u32(&mut stub, 0x52, patch.world_item_vtable, "frame vtable")?;
+        write_u32(
+            &mut stub,
+            0x79,
+            checked_offset(state_address, 4)?,
+            "frame last item",
+        )?;
+        write_u32(
+            &mut stub,
+            0x8D,
+            checked_offset(state_address, 8)?,
+            "frame pane",
+        )?;
+        write_rel32(
+            &mut stub,
+            0x92,
+            checked_offset(stub_address, 0x96)?,
+            patch.render_world_object,
+            "frame render call",
+        )?;
+        write_rel32(
+            &mut stub,
+            0xB6,
+            checked_offset(stub_address, 0xBA)?,
+            checked_offset(patch.frame_hook, definition.frame_hook_expected.len())?,
+            "frame continuation",
+        )?;
+        Ok(stub)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn ground_item_key_transition_stub(
+        stub_address: usize,
+        state_address: usize,
+        hook_address: usize,
+        hook_length: usize,
+        template: &[u8],
+        invalidate_pane: usize,
+        state_pane_offset: usize,
+    ) -> Result<Vec<u8>> {
+        let mut stub = template.to_vec();
+        write_u32(
+            &mut stub,
+            0x31,
+            checked_offset(state_address, state_pane_offset)?,
+            "key-transition pane state",
+        )?;
+        write_rel32(
+            &mut stub,
+            0x3C,
+            checked_offset(stub_address, 0x40)?,
+            invalidate_pane,
+            "key-transition pane invalidation",
+        )?;
+        write_rel32(
+            &mut stub,
+            0x50,
+            checked_offset(stub_address, 0x54)?,
+            checked_offset(hook_address, hook_length)?,
+            "key-transition continuation",
+        )?;
+        Ok(stub)
+    }
+
+    fn jump_hook(address: usize, stub_address: usize, length: usize) -> Result<Vec<u8>> {
+        if length < 5 {
+            return Err(LoaderError::new(
+                ErrorKind::Internal,
+                "ground-item hook is shorter than a near jump",
+            ));
+        }
+        let mut hook = vec![0x90; length];
+        hook[0] = 0xE9;
+        hook[1..5].copy_from_slice(&rel32(checked_offset(address, 5)?, stub_address)?);
+        Ok(hook)
+    }
+
+    fn write_u32(stub: &mut [u8], offset: usize, value: usize, name: &str) -> Result<()> {
+        let value = u32::try_from(value).map_err(|_| {
+            LoaderError::new(
+                ErrorKind::RemoteOperationFailed,
+                format!("{name} address does not fit the 32-bit client"),
+            )
+        })?;
+        let destination = stub.get_mut(offset..offset + 4).ok_or_else(|| {
+            LoaderError::new(
+                ErrorKind::Internal,
+                format!("{name} relocation is out of range"),
+            )
+        })?;
+        destination.copy_from_slice(&value.to_le_bytes());
+        Ok(())
+    }
+
+    fn write_rel32(
+        stub: &mut [u8],
+        offset: usize,
+        next_instruction: usize,
+        target: usize,
+        name: &str,
+    ) -> Result<()> {
+        let destination = stub.get_mut(offset..offset + 4).ok_or_else(|| {
+            LoaderError::new(
+                ErrorKind::Internal,
+                format!("{name} relocation is out of range"),
+            )
+        })?;
+        destination.copy_from_slice(&rel32(next_instruction, target)?);
+        Ok(())
+    }
+
+    fn checked_offset(address: usize, offset: usize) -> Result<usize> {
+        address
+            .checked_add(offset)
+            .ok_or_else(|| LoaderError::new(ErrorKind::Internal, "patch address overflow"))
+    }
+
+    fn validate_ground_item_definition(definition: &GroundItemRevealPatch) -> Result<()> {
+        let hook_lengths = [
+            definition.collector_hook_expected.len(),
+            definition.frame_hook_expected.len(),
+            definition.key_down_hook_expected.len(),
+            definition.key_up_hook_expected.len(),
+        ];
+        if hook_lengths.iter().any(|length| *length < 5)
+            || definition.static_render_mode_selector_expected.is_empty()
+            || definition.collector_stub_template.len() < 0x9D
+            || definition.frame_stub_template.len() < 0xBA
+            || definition.key_down_stub_template.len() < 0x54
+            || definition.key_up_stub_template.len() < 0x54
+        {
+            return Err(LoaderError::new(
+                ErrorKind::Internal,
+                "invalid ground-item reveal patch definition",
+            ));
+        }
         Ok(())
     }
 
@@ -490,7 +925,10 @@ mod platform {
     #[cfg(all(test, target_arch = "x86"))]
     mod tests {
         use super::{
-            LaunchPatch, ResolvedBootstrapPatch, apply_at_base, bootstrap_sequence_stub, rel32,
+            GROUND_ITEM_REVEAL_PATCH, LaunchPatch, ResolvedBootstrapPatch,
+            ResolvedGroundItemRevealPatch, apply_at_base, bootstrap_sequence_stub,
+            ground_item_collector_stub, ground_item_frame_stub, ground_item_key_transition_stub,
+            jump_hook, rel32,
         };
         use crate::process::TargetProcess;
         use std::{ptr, slice};
@@ -590,6 +1028,100 @@ mod platform {
             assert_eq!(stub[16], 0xE9);
             assert_eq!(&stub[17..], &rel32(0x1015, 0x3000).unwrap());
         }
+
+        #[test]
+        fn ground_item_stubs_relocate_client_and_state_addresses() {
+            let patch = resolved_ground_item_patch();
+            let state = 0x00B7_0000;
+
+            let collector_address = 0x1000_0000;
+            let collector = ground_item_collector_stub(collector_address, state, &patch).unwrap();
+            assert_eq!(read_u32(&collector, 0x3A), 0x0068_B1AC);
+            assert_eq!(read_u32(&collector, 0x4A), state as u32);
+            assert_eq!(read_u32(&collector, 0x4F), 255);
+            assert_eq!(read_u32(&collector, 0x5A), 0x00B7_0100);
+            assert_eq!(read_u32(&collector, 0x70), state as u32);
+            assert_eq!(read_u32(&collector, 0x76), 0x00B7_0004);
+            assert_eq!(read_u32(&collector, 0x7E), 0x00B7_0008);
+            assert_eq!(
+                &collector[0x99..0x9D],
+                &rel32(collector_address + 0x9D, patch.collector_hook + 5).unwrap()
+            );
+
+            let frame_address = 0x2000_0000;
+            let frame = ground_item_frame_stub(frame_address, state, &patch).unwrap();
+            assert_eq!(read_u32(&frame, 0x0D), 0x00B7_0028);
+            assert_eq!(read_u32(&frame, 0x13), state as u32);
+            assert_eq!(
+                &frame[0x26..0x2A],
+                &rel32(frame_address + 0x2A, patch.input_get_event_manager).unwrap()
+            );
+            assert_eq!(read_u32(&frame, 0x3B), state as u32);
+            assert_eq!(read_u32(&frame, 0x46), 0x00B7_0100);
+            assert_eq!(read_u32(&frame, 0x52), 0x0068_B1AC);
+            assert_eq!(read_u32(&frame, 0x79), 0x00B7_0004);
+            assert_eq!(read_u32(&frame, 0x8D), 0x00B7_0008);
+            assert_eq!(
+                &frame[0x92..0x96],
+                &rel32(frame_address + 0x96, patch.render_world_object).unwrap()
+            );
+            assert_eq!(
+                &frame[0xB6..0xBA],
+                &rel32(frame_address + 0xBA, patch.frame_hook + 6).unwrap()
+            );
+        }
+
+        #[test]
+        fn ground_item_key_stubs_and_hooks_preserve_full_instructions() {
+            let patch = resolved_ground_item_patch();
+            let state = 0x00B7_0000;
+            let stub_address = 0x3000_0000;
+            let stub = ground_item_key_transition_stub(
+                stub_address,
+                state,
+                patch.key_down_hook,
+                patch.definition.key_down_hook_expected.len(),
+                patch.definition.key_down_stub_template,
+                patch.invalidate_pane,
+                patch.definition.state_pane_offset,
+            )
+            .unwrap();
+
+            assert_eq!(read_u32(&stub, 0x31), 0x00B7_0028);
+            assert_eq!(
+                &stub[0x3C..0x40],
+                &rel32(stub_address + 0x40, patch.invalidate_pane).unwrap()
+            );
+            assert_eq!(
+                &stub[0x50..0x54],
+                &rel32(stub_address + 0x54, patch.key_down_hook + 5).unwrap()
+            );
+
+            let five_byte = jump_hook(0x0046_7C10, 0x1000_0000, 5).unwrap();
+            assert_eq!(five_byte[0], 0xE9);
+            assert_eq!(&five_byte[1..5], &rel32(0x0046_7C15, 0x1000_0000).unwrap());
+            let six_byte = jump_hook(0x005C_E280, 0x2000_0000, 6).unwrap();
+            assert_eq!(six_byte[0], 0xE9);
+            assert_eq!(six_byte[5], 0x90);
+        }
+
+        fn resolved_ground_item_patch() -> ResolvedGroundItemRevealPatch<'static> {
+            ResolvedGroundItemRevealPatch {
+                definition: &GROUND_ITEM_REVEAL_PATCH,
+                collector_hook: 0x005D_3740,
+                frame_hook: 0x005C_E280,
+                key_down_hook: 0x0046_7C10,
+                key_up_hook: 0x0046_7E30,
+                input_get_event_manager: 0x0042_7380,
+                render_world_object: 0x005D_3190,
+                invalidate_pane: 0x0054_9F60,
+                world_item_vtable: 0x0068_B1AC,
+            }
+        }
+
+        fn read_u32(bytes: &[u8], offset: usize) -> u32 {
+            u32::from_le_bytes(bytes[offset..offset + 4].try_into().unwrap())
+        }
     }
 }
 
@@ -603,7 +1135,14 @@ mod tests {
     #[test]
     fn selects_independent_and_combined_patch_groups() {
         assert!(LaunchPatches::default().selected(false).is_empty());
+        assert!(LaunchPatches::default().is_empty());
         assert_eq!(LaunchPatches::default().selected(true).len(), 1);
+        let ground_items = LaunchPatches {
+            show_items_with_alt: true,
+            ..Default::default()
+        };
+        assert!(ground_items.selected(false).is_empty());
+        assert!(!ground_items.is_empty());
         assert_eq!(
             LaunchPatches {
                 skip_exchange_alerts: true,
@@ -653,6 +1192,7 @@ mod tests {
             LaunchPatches {
                 allow_multiple: true,
                 command_line_endpoint: true,
+                show_items_with_alt: true,
                 skip_exchange_alerts: true,
                 skip_intro: true,
                 skip_notice: true,
@@ -665,6 +1205,7 @@ mod tests {
             LaunchPatches {
                 allow_multiple: true,
                 command_line_endpoint: true,
+                show_items_with_alt: true,
                 skip_exchange_alerts: true,
                 skip_intro: true,
                 skip_notice: true,

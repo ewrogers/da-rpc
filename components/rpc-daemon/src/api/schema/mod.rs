@@ -142,6 +142,9 @@ pub(super) struct LaunchOptions {
     /// Allow another Dark Ages client process to start.
     #[serde(default)]
     pub(super) allow_multiple: bool,
+    /// Reveal up to 255 ground items while either Alt key is held.
+    #[serde(default)]
+    pub(super) show_items_with_alt: bool,
     /// Replace completed and cancelled exchange alerts with floating messages.
     #[serde(default)]
     pub(super) skip_exchange_alerts: bool,
@@ -165,6 +168,7 @@ impl TryFrom<LaunchOptions> for ManagedLaunchOptions {
         Ok(Self {
             client_path,
             allow_multiple: options.allow_multiple,
+            show_items_with_alt: options.show_items_with_alt,
             skip_exchange_alerts: options.skip_exchange_alerts,
             skip_intro: options.skip_intro,
             skip_notice: options.skip_notice,

@@ -260,6 +260,12 @@ impl SpellFeedbackTracker {
             });
         }
         let (reason, active_spell) = parse_failure(feedback)?;
+        if self.pending.len() != 1 {
+            // Identifier-free feedback cannot distinguish these casts. Clear
+            // every candidate so later feedback cannot inherit stale context.
+            self.pending.clear();
+            return None;
+        }
         let cast = self.pending.pop_front()?;
         Some(SpellFeedback::Failed {
             cast: cast.resolve(tick_ms, feedback),
@@ -398,6 +404,22 @@ mod tests {
         }
     }
 
+    fn targeted_cast(sequence: u32, tick_ms: u32, slot: u8, id: u32) -> StateEvent {
+        StateEvent {
+            sequence,
+            revision: sequence,
+            tick_ms,
+            update: StateUpdate::Ability(AbilityUpdate::SpellCast {
+                slot,
+                arguments: ModelArguments::Target {
+                    id: Some(id),
+                    x: 0,
+                    y: 0,
+                },
+            }),
+        }
+    }
+
     fn message(sequence: u32, tick_ms: u32, text: &str) -> StateEvent {
         StateEvent {
             sequence,
@@ -443,6 +465,53 @@ mod tests {
         assert_eq!(cast.slot, 1);
         assert!(matches!(reason, SpellFailureReason::Failed));
         assert!(tracker.pending.is_empty());
+    }
+
+    #[test]
+    fn out_of_order_failure_feedback_does_not_claim_cast_context() {
+        let identity = ClientIdentity {
+            pid: 42,
+            process_creation_time: 100,
+            dll_instance_id: [1; 16],
+        };
+        let mut trackers = SpellFeedbackTrackers::default();
+        trackers.observe(
+            identity,
+            None,
+            &targeted_cast(1, 100, 4, 54_691),
+            Some("Ard Fas Nadur"),
+            Some("first monster"),
+        );
+        trackers.observe(
+            identity,
+            None,
+            &targeted_cast(2, 110, 4, 54_689),
+            Some("Ard Fas Nadur"),
+            Some("second monster"),
+        );
+
+        assert!(
+            trackers
+                .observe(
+                    identity,
+                    None,
+                    &message(3, 130, "You already cast that spell."),
+                    None,
+                    None,
+                )
+                .is_none()
+        );
+        assert!(
+            trackers
+                .observe(
+                    identity,
+                    None,
+                    &message(4, 140, "You already cast that spell."),
+                    None,
+                    None,
+                )
+                .is_none()
+        );
     }
 
     #[test]

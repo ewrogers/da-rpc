@@ -186,10 +186,12 @@ for each connected DLL instance and compares later system feedback with that
 queue. A submission expires after five seconds.
 
 A named success such as `You cast Mist` matches the oldest queued cast with
-that spell name. Generic failures match the oldest queued cast. This keeps
-rapid instant casts in order while allowing named replies to find the right
-submission. The queue is held only in memory and is cleared when the DLL
-disconnects or the daemon restarts.
+that spell name. Generic failures match a cast only when exactly one submission
+is pending. When several submissions are pending, the feedback does not contain
+enough information to prove which cast failed, so the daemon discards the
+ambiguous candidates and emits only the original `message.system` event. The
+queue is held only in memory and is cleared when the DLL disconnects or the
+daemon restarts.
 
 The system message `You failed to concentrate.` matches a queued `Fas Spiorad`
 cast by name and produces `spell.failed` with reason `failed`.

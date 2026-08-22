@@ -128,7 +128,9 @@ event hook commits that staged map only when the following position arrives.
 Snapshots and ordinary movement publication pause across this short boundary.
 
 Consumers therefore see one `location.changed` event containing a consistent
-map and position.
+map and position. The event is published before ordinary per-object
+disappearance events retire the previous map's visible-object view. No
+collection-reset event is emitted.
 
 ## Planned route capture
 

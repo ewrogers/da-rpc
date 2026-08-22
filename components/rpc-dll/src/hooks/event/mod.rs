@@ -485,6 +485,9 @@ fn observe_event_inner(event: *const core::ffi::c_void) {
         packet::ServerUpdate::Exchange(body) => {
             crate::exchange::observe_server(body, tick_ms);
         }
+        packet::ServerUpdate::ResyncCompleted => {
+            state::observe_resync_completed(tick_ms);
+        }
     }
 }
 

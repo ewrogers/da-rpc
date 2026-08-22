@@ -609,7 +609,6 @@ fn object_updates_use_noun_action_event_names() {
         (ObjectUpdate::Appeared(item.clone()), "item.appeared"),
         (ObjectUpdate::Disappeared(item.clone()), "item.disappeared"),
         (ObjectUpdate::Moved(item), "item.moved"),
-        (ObjectUpdate::Cleared, "objects.cleared"),
     ];
 
     for (index, (update, expected)) in cases.into_iter().enumerate() {

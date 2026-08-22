@@ -140,5 +140,4 @@ pub enum ObjectUpdate {
     Disappeared(WorldObject),
     Moved(WorldObject),
     DirectionChanged(WorldObject),
-    Cleared,
 }

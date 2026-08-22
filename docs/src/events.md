@@ -160,13 +160,39 @@ discriminator `client_resync`:
 ```text
 ClientResync {
     observation: EventObservation,
+    resync_id: u32,
 }
 ```
 
 This event means the client requested fresh server state. It does not mean the
-server has responded or that resynchronization has completed. The request also
-clears the retained visible-object set before the server redraws it, publishing
-`objects.cleared` before the new object appearances.
+server has responded. For `POST /clients/{client}/resync`, `resync_id` equals
+the `resync_id` and `command_id` in the HTTP response. A physical F5 request
+receives a DLL-local nonzero identifier from the same sequence.
+
+The payload-free server `0x22` `RefreshUserOK` response publishes
+`client.resync_completed` with the JSON discriminator
+`client_resync_completed`:
+
+```text
+ClientResyncCompleted {
+    observation: EventObservation,
+    resync_id: u32,
+}
+```
+
+The identifier correlates the response with the outgoing request. Consumers
+that pause movement for a refresh wait for the matching completion event, not
+the HTTP command status or `client.resync`, before releasing movement. Both
+events are transient, so the event stream must be established before the HTTP
+request. If the stream is lost, retain the safe paused state and issue a new
+refresh after reconnecting.
+
+Refresh completion is separate from visible-object reconciliation. daRPC
+retains the visible-object set while the server redraws it. Newly observed IDs
+publish their normal appeared event, and retained IDs that do not return
+publish their normal disappeared event after the redraw becomes quiet.
+Consumers do not clear or rebuild object state for a refresh, and there is no
+object-reconciliation completion event.
 
 Begin speech with `//` to escape interception. The DLL removes one slash before
 submission, so `//walk x,y` is spoken as `/walk x,y` and does not publish a
@@ -676,9 +702,26 @@ WorldObject =
   | Item { kind: "item", id, sprite, dye_color, x, y, z_index }
 ```
 
-An appeared or changed event carries the object after the update. A disappeared
-event carries the last retained object. `objects.cleared` contains only the
-observation and marks a map or world boundary.
+Appeared, moved, and direction-changed events carry the object after the
+update. A disappeared event carries the last retained object. Refreshes and map
+changes publish these same per-object lifecycle events instead of a
+collection-wide clear event.
+
+Reduce the stream into retained object state as follows:
+
+- Upsert `object` by ID for appeared, moved, and direction-changed events.
+- Remove `object.id` for disappeared events.
+- For `player.replaced`, remove every `previous` ID and upsert `current`.
+- For `player.inspected`, upsert `player` when retaining profile data.
+- Do nothing to the object collection for `client.resync` or
+  `client.resync_completed`.
+- On a map change, apply `location.changed` first and then the following
+  disappearance events in delivery order. Do not clear objects when the
+  location event arrives.
+
+An appeared event can replace an already retained ID when a redraw supplies
+changed fields. These reducer rules therefore remain idempotent across ordinary
+draws, F5 reconciliation, and map changes.
 
 `player.inspected` is one atomic completion event:
 
@@ -952,7 +995,7 @@ trying to infer state from only the changed field.
 | --- | --- | --- |
 | Stream | `stream.ready`, `stream.resync_required`, `stream.closed` | Reread every resource the consumer uses. |
 | Client lifecycle | `client.logged_in`, `client.disconnected` | `/status` |
-| Client requests | `client.command`, `client.resync` | None; transient events are not replayed. |
+| Client requests | `client.command`, `client.resync`, `client.resync_completed` | None; transient events are not replayed. |
 | Status | `stats.changed`, `vitals.changed`, `progression.changed`, `gold.changed`, `weight.changed`, `modifiers.changed`, `location.changed`, `blind.changed`, `action_restriction.changed`, `character.appearance_changed`, `character.hidden_changed`, `character.profile_changed` | `/status` |
 | Walking | `walking.started`, `walking.stopped`, `walking.obstructed`, `walking.route_changed`, `character.turned`, `character.emoted` | `/status` |
 | Inventory | `item.added`, `item.removed`, `item.changed`, `item.used`, `item.dropped`, `item.given`, `item.picked_up`, `gold.dropped`, `gold.given` | `/items`, then `/status` for gold |
@@ -960,7 +1003,7 @@ trying to infer state from only the changed field.
 | Skills | `skill.added`, `skill.removed`, `skill.changed`, `skill.cooldown`, `skill.ready`, `skill.used` | `/skills` |
 | Spells | `spell.added`, `spell.removed`, `spell.changed`, `spell.cooldown`, `spell.ready`, `spell.begin`, `spell.chant`, `spell.cast`, `spell.cancelled`, `spell.succeeded`, `spell.failed`, `spell.received` | `/spells`, then `/status` for casting state |
 | Effects | `effect.added`, `effect.removed`, `effect.changed` | `/effects` |
-| World objects | `player.appeared`, `player.replaced`, `player.inspected`, `player.disappeared`, `player.moved`, `player.direction_changed`; the corresponding appeared, disappeared, moved, and direction events for monsters and Mundanes; `item.appeared`, `item.disappeared`, `item.moved`; `objects.cleared` | `/objects` |
+| World objects | `player.appeared`, `player.replaced`, `player.inspected`, `player.disappeared`, `player.moved`, `player.direction_changed`; the corresponding appeared, disappeared, moved, and direction events for monsters and Mundanes; `item.appeared`, `item.disappeared`, `item.moved` | `/objects` |
 | World visuals | `player.animated`, `player.effect`, `player.damaged`, and the corresponding monster and Mundane events | None; transient events are not replayed. |
 | Audio | `sound.played`, `music.started`, `music.stopped` | None; transient events are not replayed. |
 | Messages | `message.say`, `message.shout`, `message.chant`, `message.whisper`, `message.guild`, `message.group`, `message.system`, `message.world`, `message.internal` | `/messages`, except transient chants |

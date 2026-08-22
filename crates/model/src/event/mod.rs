@@ -118,7 +118,12 @@ pub enum ActionUpdate {
     Turned {
         direction: Direction,
     },
-    Resync,
+    Resync {
+        resync_id: u32,
+    },
+    ResyncCompleted {
+        resync_id: u32,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -462,7 +467,6 @@ impl ClientSnapshot {
                         width: map.width,
                         height: map.height,
                     });
-                    self.objects = Some(Vec::new());
                 } else {
                     let location = character
                         .location
@@ -558,7 +562,6 @@ impl ClientSnapshot {
                         merge_player_observation(current, &mut object);
                         *current = object;
                     }
-                    ObjectUpdate::Cleared => objects.clear(),
                 }
                 objects.sort_unstable_by_key(WorldObjectSortKey::of);
             }
@@ -1189,6 +1192,8 @@ mod tests {
     #[test]
     fn map_change_clears_walking_and_the_previous_maps_route() {
         let mut snapshot = empty_snapshot(ClientLifecycle::InGame);
+        let visible = player(8, "Monitor", 10, 20);
+        snapshot.objects = Some(vec![visible.clone()]);
         snapshot.character = Some(crate::CharacterSnapshot {
             id: Some(7),
             name: Some("Silo".into()),
@@ -1263,9 +1268,9 @@ mod tests {
             })
             .unwrap();
 
-        let character = snapshot.character.unwrap();
+        let character = snapshot.character.as_ref().unwrap();
         assert!(!character.is_walking);
-        assert_eq!(character.location.unwrap().id, 2);
+        assert_eq!(character.location.as_ref().unwrap().id, 2);
         assert_eq!(
             snapshot.planned_route,
             Some(PlannedRoute {
@@ -1273,6 +1278,17 @@ mod tests {
                 tiles: Vec::new(),
             })
         );
+        assert_eq!(snapshot.objects.as_deref(), Some(&[visible.clone()][..]));
+
+        snapshot
+            .apply_event(StateEvent {
+                sequence: 3,
+                revision: 3,
+                tick_ms: 20,
+                update: StateUpdate::Object(ObjectUpdate::Disappeared(visible)),
+            })
+            .unwrap();
+        assert_eq!(snapshot.objects.as_deref(), Some(&[][..]));
     }
 
     fn item(slot: u8, quantity: u32) -> InventoryItem {

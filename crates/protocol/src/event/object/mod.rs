@@ -21,10 +21,6 @@ pub(super) fn encode_object_update(
             output.push(4);
             object
         }
-        ObjectUpdate::Cleared => {
-            output.push(5);
-            return Ok(());
-        }
     };
     crate::snapshot::objects::encode_object(output, object)
 }
@@ -33,8 +29,8 @@ pub(super) fn decode_object_update(
     reader: &mut PayloadReader<'_>,
 ) -> Result<ObjectUpdate, DecodeError> {
     let kind = reader.read_u8()?;
-    if kind == 5 {
-        return Ok(ObjectUpdate::Cleared);
+    if !(1..=4).contains(&kind) {
+        return Err(DecodeError::InvalidObjectUpdateType { actual: kind });
     }
     let object = crate::snapshot::objects::decode_object(reader)?;
     match kind {
@@ -42,7 +38,7 @@ pub(super) fn decode_object_update(
         2 => Ok(ObjectUpdate::Disappeared(object)),
         3 => Ok(ObjectUpdate::Moved(object)),
         4 => Ok(ObjectUpdate::DirectionChanged(object)),
-        actual => Err(DecodeError::InvalidObjectUpdateType { actual }),
+        _ => unreachable!("validated object update type is matched"),
     }
 }
 

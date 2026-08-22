@@ -85,6 +85,7 @@ pub(crate) enum ClientEvent {
     StreamReady(StreamReady),
     ClientCommand(ClientCommand),
     ClientResync(ClientResync),
+    ClientResyncCompleted(ClientResyncCompleted),
     ClientLoggedIn(ClientLifecycleChanged),
     ClientDisconnected(ClientLifecycleChanged),
     SoundPlayed(SoundPlayed),
@@ -165,7 +166,6 @@ pub(crate) enum ClientEvent {
     ItemAppeared(ObjectChanged),
     ItemDisappeared(ObjectChanged),
     ItemMoved(ObjectChanged),
-    ObjectsCleared(ObjectsCleared),
     Message(Message),
     DialogOpened(DialogOpened),
     DialogChanged(DialogChanged),
@@ -203,6 +203,7 @@ impl ClientEvent {
             Self::StreamReady(_) => "stream.ready",
             Self::ClientCommand(_) => "client.command",
             Self::ClientResync(_) => "client.resync",
+            Self::ClientResyncCompleted(_) => "client.resync_completed",
             Self::ClientLoggedIn(_) => "client.logged_in",
             Self::ClientDisconnected(_) => "client.disconnected",
             Self::SoundPlayed(_) => "sound.played",
@@ -283,7 +284,6 @@ impl ClientEvent {
             Self::ItemAppeared(_) => "item.appeared",
             Self::ItemDisappeared(_) => "item.disappeared",
             Self::ItemMoved(_) => "item.moved",
-            Self::ObjectsCleared(_) => "objects.cleared",
             Self::Message(message) => message.event_name(),
             Self::DialogOpened(_) => "dialog.opened",
             Self::DialogChanged(_) => "dialog.changed",
@@ -321,6 +321,7 @@ impl ClientEvent {
             Self::StreamReady(value) => value.event_sequence,
             Self::ClientCommand(value) => value.observation.event_sequence,
             Self::ClientResync(value) => value.observation.event_sequence,
+            Self::ClientResyncCompleted(value) => value.observation.event_sequence,
             Self::ClientLoggedIn(value) | Self::ClientDisconnected(value) => {
                 value.observation.event_sequence
             }
@@ -402,7 +403,6 @@ impl ClientEvent {
             Self::PlayerDamaged(value)
             | Self::MonsterDamaged(value)
             | Self::MundaneDamaged(value) => value.observation.event_sequence,
-            Self::ObjectsCleared(value) => value.observation.event_sequence,
             Self::Message(message) => message.sequence(),
             Self::DialogOpened(value) => value.observation.event_sequence,
             Self::DialogChanged(value) => value.observation.event_sequence,

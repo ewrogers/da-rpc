@@ -46,7 +46,14 @@ pub(super) fn encode_action(output: &mut Vec<u8>, update: ActionUpdate) {
         }
         ActionUpdate::Emoted { code } => output.extend_from_slice(&[8, code]),
         ActionUpdate::Turned { direction } => output.extend_from_slice(&[9, direction.raw()]),
-        ActionUpdate::Resync => output.push(10),
+        ActionUpdate::Resync { resync_id } => {
+            output.push(10);
+            push_u32(output, resync_id);
+        }
+        ActionUpdate::ResyncCompleted { resync_id } => {
+            output.push(11);
+            push_u32(output, resync_id);
+        }
     }
 }
 
@@ -101,9 +108,22 @@ pub(super) fn decode_action(reader: &mut PayloadReader<'_>) -> Result<ActionUpda
                 .map(|direction| ActionUpdate::Turned { direction })
                 .ok_or(DecodeError::InvalidDirection { actual })
         }
-        10 => Ok(ActionUpdate::Resync),
+        10 => Ok(ActionUpdate::Resync {
+            resync_id: decode_resync_id(reader)?,
+        }),
+        11 => Ok(ActionUpdate::ResyncCompleted {
+            resync_id: decode_resync_id(reader)?,
+        }),
         actual => Err(DecodeError::InvalidStateUpdateType { actual }),
     }
+}
+
+fn decode_resync_id(reader: &mut PayloadReader<'_>) -> Result<u32, DecodeError> {
+    let resync_id = reader.read_u32()?;
+    if resync_id == 0 {
+        return Err(DecodeError::InvalidCommandId);
+    }
+    Ok(resync_id)
 }
 
 pub(super) fn encode_ability(

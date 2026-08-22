@@ -375,11 +375,6 @@ pub(crate) struct PlayerReplaced {
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
-pub(crate) struct ObjectsCleared {
-    pub(super) observation: EventObservation,
-}
-
-#[derive(Clone, Debug, Serialize, ToSchema)]
 pub(crate) struct StreamResyncRequired {
     pub(super) pid: u32,
     pub(super) instance_id: String,

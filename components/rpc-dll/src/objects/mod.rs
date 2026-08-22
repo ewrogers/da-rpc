@@ -5,6 +5,7 @@ use darpc_game_client::{
 use darpc_model::{CreatureKind, Direction, HumanVisual, ObjectUpdate, PlayerVisual, WorldObject};
 
 const VIEW_DISTANCE: u32 = 18;
+const REFRESH_RECONCILIATION_QUIET_MS: u32 = 1_000;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum QueuedObjectUpdate {
@@ -12,7 +13,6 @@ pub(crate) enum QueuedObjectUpdate {
     Disappeared(RawWorldObject),
     Moved(RawWorldObject),
     DirectionChanged(RawWorldObject),
-    Cleared,
 }
 
 impl QueuedObjectUpdate {
@@ -22,14 +22,35 @@ impl QueuedObjectUpdate {
             Self::Disappeared(object) => ObjectUpdate::Disappeared(object_model(object)),
             Self::Moved(object) => ObjectUpdate::Moved(object_model(object)),
             Self::DirectionChanged(object) => ObjectUpdate::DirectionChanged(object_model(object)),
-            Self::Cleared => ObjectUpdate::Cleared,
         }
+    }
+
+    pub(crate) const fn object_id(self) -> u32 {
+        let (Self::Appeared(object)
+        | Self::Disappeared(object)
+        | Self::Moved(object)
+        | Self::DirectionChanged(object)) = self;
+        object_id(object)
     }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct ObjectCache {
     entries: [Option<RawWorldObject>; MAX_WORLD_OBJECTS],
+    reconciliation: ObjectReconciliation,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct ObjectReconciliation {
+    phase: ReconciliationPhase,
+    pending: [bool; MAX_WORLD_OBJECTS],
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ReconciliationPhase {
+    Idle,
+    AwaitingResponse,
+    QuietUntil(u32),
 }
 
 impl Default for ObjectCache {
@@ -42,13 +63,73 @@ impl ObjectCache {
     pub(crate) const fn empty() -> Self {
         Self {
             entries: [None; MAX_WORLD_OBJECTS],
+            reconciliation: ObjectReconciliation::idle(),
         }
     }
 
     pub(crate) fn replace(&mut self, objects: &RawObjects) {
+        self.reconciliation.reset();
         for (destination, source) in self.entries.iter_mut().zip(objects.entries.iter()) {
             *destination = *source;
         }
+    }
+
+    pub(crate) fn begin_reconciliation(&mut self) {
+        self.reconciliation.phase = ReconciliationPhase::AwaitingResponse;
+        for (pending, entry) in self
+            .reconciliation
+            .pending
+            .iter_mut()
+            .zip(self.entries.iter())
+        {
+            *pending = entry.is_some();
+        }
+    }
+
+    pub(crate) fn observe_reconciliation_activity(&mut self, tick_ms: u32) {
+        if !matches!(self.reconciliation.phase, ReconciliationPhase::Idle) {
+            self.reconciliation.phase = ReconciliationPhase::QuietUntil(
+                tick_ms.wrapping_add(REFRESH_RECONCILIATION_QUIET_MS),
+            );
+        }
+    }
+
+    pub(crate) fn draw(&mut self, object: RawWorldObject) -> Option<QueuedObjectUpdate> {
+        if let Some(index) = self.find(object_id(object)) {
+            self.reconciliation.pending[index] = false;
+        }
+        self.upsert(object)
+    }
+
+    pub(crate) fn finish_reconciliation(
+        &mut self,
+        tick_ms: u32,
+        mut emit: impl FnMut(QueuedObjectUpdate),
+    ) {
+        let ReconciliationPhase::QuietUntil(deadline) = self.reconciliation.phase else {
+            return;
+        };
+        if !crate::wrapping_time::deadline_reached(tick_ms, deadline) {
+            return;
+        }
+
+        self.reconciliation.phase = ReconciliationPhase::Idle;
+        for index in 0..self.entries.len() {
+            if !self.reconciliation.pending[index] {
+                continue;
+            }
+            let Some(object) = self.entries[index] else {
+                continue;
+            };
+            self.remove_at(index);
+            emit(QueuedObjectUpdate::Disappeared(object));
+        }
+        self.reconciliation.pending.fill(false);
+    }
+
+    pub(crate) fn reset(&mut self) {
+        self.entries.fill(None);
+        self.reconciliation.reset();
     }
 
     pub(crate) fn merge_snapshot_sprites(&self, objects: &mut RawObjects) {
@@ -282,12 +363,13 @@ impl ObjectCache {
         Some(QueuedObjectUpdate::Disappeared(object))
     }
 
-    pub(crate) fn clear(&mut self) -> Option<QueuedObjectUpdate> {
-        if self.entries.iter().all(Option::is_none) {
-            return None;
+    pub(crate) fn clear(&mut self, mut emit: impl FnMut(QueuedObjectUpdate)) {
+        self.reconciliation.reset();
+        for entry in &mut self.entries {
+            if let Some(object) = entry.take() {
+                emit(QueuedObjectUpdate::Disappeared(object));
+            }
         }
-        self.entries.fill(None);
-        Some(QueuedObjectUpdate::Cleared)
     }
 
     fn find(&self, id: u32) -> Option<usize> {
@@ -297,6 +379,7 @@ impl ObjectCache {
     }
 
     fn remove_at(&mut self, index: usize) {
+        self.reconciliation.pending[index] = false;
         let Some(RawWorldObject::Item { x, y, z_index, .. }) = self.entries[index] else {
             self.entries[index] = None;
             return;
@@ -334,6 +417,19 @@ impl ObjectCache {
                 .count(),
         )
         .unwrap_or(u16::MAX)
+    }
+}
+
+impl ObjectReconciliation {
+    const fn idle() -> Self {
+        Self {
+            phase: ReconciliationPhase::Idle,
+            pending: [false; MAX_WORLD_OBJECTS],
+        }
+    }
+
+    fn reset(&mut self) {
+        *self = Self::idle();
     }
 }
 
@@ -600,9 +696,10 @@ mod tests {
     }
 
     #[test]
-    fn culls_one_out_of_range_object_at_a_time_and_clears_atomically() {
+    fn culls_one_out_of_range_object_at_a_time_and_clears_with_disappearances() {
         let mut cache = ObjectCache::empty();
-        cache.upsert(player(1, 10, 10, 0));
+        let retained = player(1, 10, 10, 0);
+        cache.upsert(retained);
         cache.upsert(creature(2, 40, 40, 0));
 
         assert!(matches!(
@@ -613,8 +710,95 @@ mod tests {
             }))
         ));
         assert_eq!(cache.take_outside(10, 10), None);
-        assert_eq!(cache.clear(), Some(QueuedObjectUpdate::Cleared));
-        assert_eq!(cache.clear(), None);
+        let mut updates = Vec::new();
+        cache.clear(|update| updates.push(update));
+        assert_eq!(updates, [QueuedObjectUpdate::Disappeared(retained)]);
+        cache.clear(|update| updates.push(update));
+        assert_eq!(updates.len(), 1);
+    }
+
+    #[test]
+    fn refresh_reconciliation_emits_only_natural_lifecycle_changes() {
+        let mut cache = ObjectCache::empty();
+        let retained = player(1, 10, 10, 0);
+        let stale = creature(2, 12, 10, 1);
+        let appeared = item(3, 11, 10);
+        cache.upsert(retained);
+        cache.upsert(stale);
+
+        cache.begin_reconciliation();
+        cache.observe_reconciliation_activity(100);
+        assert_eq!(cache.draw(retained), None);
+        assert_eq!(
+            cache.draw(appeared),
+            Some(QueuedObjectUpdate::Appeared(appeared))
+        );
+
+        let mut updates = Vec::new();
+        cache.finish_reconciliation(1_099, |update| updates.push(update));
+        assert!(updates.is_empty());
+        cache.finish_reconciliation(1_100, |update| updates.push(update));
+        assert_eq!(updates, [QueuedObjectUpdate::Disappeared(stale)]);
+        assert_eq!(cache.get(1), Some(retained));
+        assert_eq!(cache.get(2), None);
+        assert_eq!(cache.get(3), Some(appeared));
+    }
+
+    #[test]
+    fn refresh_without_a_response_retains_last_known_objects() {
+        let mut cache = ObjectCache::empty();
+        let retained = player(1, 10, 10, 0);
+        cache.upsert(retained);
+        cache.begin_reconciliation();
+
+        let mut updates = Vec::new();
+        cache.finish_reconciliation(u32::MAX, |update| updates.push(update));
+        assert!(updates.is_empty());
+        assert_eq!(cache.get(1), Some(retained));
+    }
+
+    #[test]
+    fn refresh_response_without_draws_removes_stale_objects() {
+        let mut cache = ObjectCache::empty();
+        let stale = creature(2, 12, 10, 1);
+        cache.upsert(stale);
+        cache.begin_reconciliation();
+        cache.observe_reconciliation_activity(100);
+
+        let mut updates = Vec::new();
+        cache.finish_reconciliation(1_100, |update| updates.push(update));
+        assert_eq!(updates, [QueuedObjectUpdate::Disappeared(stale)]);
+    }
+
+    #[test]
+    fn refresh_activity_extends_the_quiet_deadline() {
+        let mut cache = ObjectCache::empty();
+        let stale = creature(2, 12, 10, 1);
+        cache.upsert(stale);
+        cache.begin_reconciliation();
+        cache.observe_reconciliation_activity(100);
+        cache.observe_reconciliation_activity(900);
+
+        let mut updates = Vec::new();
+        cache.finish_reconciliation(1_899, |update| updates.push(update));
+        assert!(updates.is_empty());
+        cache.finish_reconciliation(1_900, |update| updates.push(update));
+        assert_eq!(updates, [QueuedObjectUpdate::Disappeared(stale)]);
+    }
+
+    #[test]
+    fn refresh_quiet_deadline_wraps_with_the_client_tick() {
+        let mut cache = ObjectCache::empty();
+        let stale = creature(2, 12, 10, 1);
+        cache.upsert(stale);
+        cache.begin_reconciliation();
+        cache.observe_reconciliation_activity(u32::MAX - 500);
+
+        let mut updates = Vec::new();
+        cache.finish_reconciliation(498, |update| updates.push(update));
+        assert!(updates.is_empty());
+        cache.finish_reconciliation(499, |update| updates.push(update));
+        assert_eq!(updates, [QueuedObjectUpdate::Disappeared(stale)]);
     }
 
     #[test]

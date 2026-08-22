@@ -53,6 +53,10 @@ fn assert_routes_action_sequence(
     snapshot: ModelClientSnapshot,
 ) {
     let final_command_id = 8 + u32::try_from(expected_kinds.len()).unwrap();
+    let final_resync_id = expected_kinds
+        .last()
+        .is_some_and(|kind| matches!(kind, CommandKind::Resync))
+        .then_some(final_command_id);
     let mut registry = Registry::new();
     let hello = hello();
     let identity = RegistryClientIdentity::from_hello(hello);
@@ -122,6 +126,12 @@ fn assert_routes_action_sequence(
     assert_eq!(response.status(), StatusCode::OK, "route failed: {path}");
     let response = response_json(response);
     assert_eq!(response["command_id"], final_command_id);
+    assert_eq!(
+        response
+            .get("resync_id")
+            .and_then(serde_json::Value::as_u64),
+        final_resync_id.map(u64::from)
+    );
     assert_eq!(response["state"], "executed");
     worker.join().unwrap();
 }

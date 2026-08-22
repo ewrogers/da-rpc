@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+### Changed
+
+- Reconcile F5 refreshes and map changes into ordinary world-object appearance
+  and disappearance events so consumers never need to clear and rebuild
+  retained object state.
+
+### Removed
+
+- Remove the protocol 1.7 object-clear update and the SSE `objects.cleared`
+  event. Protocol version negotiation remains at 1.7; update the DLL and its
+  controller or daemon together when adopting this change.
+
 ## 1.6.4 - 2026-08-22
 
 ### Added

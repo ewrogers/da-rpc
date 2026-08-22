@@ -31,7 +31,8 @@ A map change arrives in two parts. The client first receives the new map
 identity and size, then receives the character's position on that map. daRPC
 holds the first part until the position arrives and publishes both together in
 one `location.changed` event. It does not expose a new map with coordinates
-left over from the previous map.
+left over from the previous map. The stream publishes `location.changed` first,
+then one disappearance event for each object retained from the previous view.
 
 ## Visible objects
 
@@ -163,9 +164,9 @@ route can return `504` when the game server does not respond.
 The initial baseline walks the client's retained object collection. A creature
 name or numeric sprite can be unavailable after a late attach when the client
 no longer retains the original draw details. Pressing the normal client refresh
-key clears the retained visible-object set before the server redraws nearby
-objects. Numeric creature sprites learned from those draw packets are retained
-through the follow-up snapshot.
+key asks the server to redraw nearby objects. daRPC reconciles those packets
+against the retained visible-object set. Numeric creature sprites learned from
+the redraw are retained through the follow-up snapshot.
 
 ## Object events
 
@@ -195,8 +196,28 @@ item.moved
 ```
 
 Each object event carries the complete public object after the change.
-Disappearance carries the last retained object. `objects.cleared` marks a map
-or world boundary, including an explicit client refresh, and carries no object.
+Treat appeared, moved, and direction-changed events as upserts by stable object
+ID. A redraw can publish an appeared event with replacement fields for an ID
+that is already retained. Disappearance carries the last retained object and
+removes that ID. `player.replaced` removes every ID in `previous` and upserts
+`current`; `player.inspected` upserts `player` when profile state is retained.
+
+Map changes remove the previous view through ordinary disappearance events.
+Consumers update the map on `location.changed`, then apply the following object
+events in delivery order. They do not clear the collection in response to the
+location event or a separate world-boundary event.
+
+An F5 or `POST /clients/{client}/resync` refresh also uses normal lifecycle
+events. daRPC retains the current set while redraw packets arrive, suppresses
+unchanged stable IDs, publishes appearances for new IDs, and publishes
+disappearances for retained IDs that do not return. Reconciliation completes
+after one second without another authoritative position or redraw packet. The
+quiet period starts only after the first such response, so no response leaves
+the last-known view intact. `client.resync` reports only that the request was
+sent. The matching `client.resync_completed` reports the server's payload-free
+`RefreshUserOK` response, but it does not mark object reconciliation complete.
+A concurrent `GET /objects` returns the retained, progressively reconciled view
+rather than an intentionally empty intermediate collection.
 
 The server normally sends draw events for objects entering view but may not send
 an explicit removal when the local character simply walks out of range. After

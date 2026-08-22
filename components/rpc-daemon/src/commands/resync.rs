@@ -11,7 +11,7 @@ use darpc_protocol::CommandKind as ProtocolKind;
     post,
     path = "/clients/{client}/resync",
     summary = "Resynchronize client state",
-    description = "Submits the same opcode-only 0x38 client refresh packet as the F5 key.",
+    description = "Submits the same opcode-only 0x38 client refresh packet as the F5 key. The response resync_id correlates client.resync and client.resync_completed SSE events; HTTP completion confirms command submission only.",
     params(("client" = String, Path)),
     responses(
         (status = 200, body = super::CommandStatus),

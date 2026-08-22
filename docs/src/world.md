@@ -46,7 +46,7 @@ The response can contain four object kinds:
 | `player` | ID, optional name, x/y, direction, `is_hidden`, `is_solid`, optional visual, and optional inspected profile |
 | `monster` | ID, optional sprite, x/y, direction, and `is_solid` |
 | `mundane` | ID, optional name and sprite, x/y, direction, and `is_solid` |
-| `item` | ID, sprite, x/y, per-tile `z_index`, and `is_solid` |
+| `item` | ID, sprite, `dye_color`, x/y, per-tile `z_index`, and `is_solid` |
 
 Mundane is the Dark Ages name for a non-player character (NPC). The `npc`
 filter remains accepted as an alias. Item sprite values have the client's
@@ -68,7 +68,7 @@ WorldObject =
     Player { id, name?, x, y, direction, is_hidden, is_solid, visual?, profile? }
   | Monster { id, sprite?, x, y, direction, is_solid }
   | Mundane { id, sprite?, name?, x, y, direction, is_solid }
-  | Item { id, sprite, x, y, z_index, is_solid }
+  | Item { id, sprite, dye_color, x, y, z_index, is_solid }
 ```
 
 Filter the result with a comma-separated `types` query:

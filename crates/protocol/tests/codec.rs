@@ -224,6 +224,7 @@ fn snapshot() -> ClientSnapshot {
             WorldObject::Item {
                 id: 12,
                 sprite: 7,
+                dye_color: 2,
                 x: 42,
                 y: 30,
                 z_index: 0,

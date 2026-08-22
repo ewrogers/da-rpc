@@ -282,6 +282,7 @@ fn game_snapshot() -> ModelClientSnapshot {
             ModelWorldObject::Item {
                 id: 4,
                 sprite: 300,
+                dye_color: 5,
                 x: 13,
                 y: 20,
                 z_index: 0,

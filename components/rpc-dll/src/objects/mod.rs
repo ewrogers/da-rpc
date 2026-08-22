@@ -386,12 +386,14 @@ pub(crate) fn object_model(raw: RawWorldObject) -> WorldObject {
         RawWorldObject::Item {
             id,
             sprite,
+            dye_color,
             x,
             y,
             z_index,
         } => WorldObject::Item {
             id,
             sprite,
+            dye_color,
             x,
             y,
             z_index,
@@ -673,6 +675,7 @@ mod tests {
         RawWorldObject::Item {
             id,
             sprite: 7,
+            dye_color: 2,
             x,
             y,
             z_index: 0,

@@ -81,10 +81,12 @@ fn parse_objects(body: &[u8], objects: &mut RawObjects) -> Result<(), ParseError
                 }
             }
             ITEM_TAG => {
-                reader.skip(3)?;
+                let dye_color = reader.u8()?;
+                reader.skip(2)?;
                 RawWorldObject::Item {
                     id,
                     sprite: tagged_sprite & SPRITE_MASK,
+                    dye_color,
                     x,
                     y,
                     z_index: 0,
@@ -297,7 +299,7 @@ mod tests {
         let draw = update(
             &[
                 0x07, 0, 2, 0, 10, 0, 20, 0, 0, 0, 1, 0x40, 5, 0, 0, 0, 0, 1, 0, 0, 0, 11, 0, 21,
-                0, 0, 0, 2, 0x80, 7, 0, 0, 0,
+                0, 0, 0, 2, 0x80, 7, 6, 0, 0,
             ],
             &mut objects,
         )
@@ -305,6 +307,10 @@ mod tests {
         .unwrap();
         assert_eq!(draw, WorldUpdate::Draw);
         assert_eq!(objects.count, 2);
+        assert!(matches!(
+            objects.entries[1],
+            Some(RawWorldObject::Item { dye_color: 6, .. })
+        ));
 
         assert_eq!(
             update(&[0x0C, 0, 0, 0, 1, 0, 10, 0, 20, 1], &mut objects).unwrap(),

@@ -66,6 +66,7 @@ pub enum RawWorldObject {
     Item {
         id: u32,
         sprite: u16,
+        dye_color: u8,
         x: i32,
         y: i32,
         z_index: u16,
@@ -150,6 +151,7 @@ mod tests {
             assert!(objects.push(RawWorldObject::Item {
                 id,
                 sprite: 7,
+                dye_color: 2,
                 x,
                 y: 20,
                 z_index: u16::MAX,

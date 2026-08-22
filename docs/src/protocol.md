@@ -52,6 +52,7 @@ const VERSION_1_3: u16 = 0x0103;
 const VERSION_1_4: u16 = 0x0104;
 const VERSION_1_5: u16 = 0x0105;
 const VERSION_1_6: u16 = 0x0106;
+const VERSION_1_7: u16 = 0x0107;
 ```
 
 The protocol number is a wire-schema revision, not a Semantic Versioning
@@ -59,11 +60,8 @@ compatibility promise. Each peer advertises an inclusive, continuous range of
 versions it can decode, and the controller selects the highest version in the
 overlap. No overlap rejects the connection.
 
-The only currently supported version is 1.6 (`0x0106`). Version 1.6 removes
-the path-exclusion snapshot, state update, and commands; adds walk
-cancellation and an explicit reason to stopped movement; and includes retained
-message-dialog state, its full-state update, the dismiss command, and exact-route
-invalid-state diagnostics. Peers advertise only 1.6.
+The only currently supported version is 1.7 (`0x0107`). Version 1.7 adds the
+palette dye color to ground-item object records. Peers advertise only 1.7.
 
 ## Message types
 
@@ -479,6 +477,7 @@ enum WorldObject: u8 {
         x: i32;
         y: i32;
         sprite: u16;
+        dye_color: u8;
         z_index: u16;
     },
 }

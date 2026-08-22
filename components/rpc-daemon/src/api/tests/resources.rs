@@ -14,7 +14,7 @@ fn serves_health_and_client_resources() {
     );
     assert_eq!(
         clients["clients"][0]["connection"]["protocol_version"],
-        "1.6"
+        "1.7"
     );
     assert_eq!(
         clients["clients"][0]["connection"]["client_version"],
@@ -233,6 +233,7 @@ fn filters_world_objects_by_type() {
     assert_eq!(all["objects"][1]["is_solid"], false);
     assert_eq!(all["objects"][2]["is_solid"], true);
     assert_eq!(all["objects"][3]["is_solid"], false);
+    assert_eq!(all["objects"][3]["dye_color"], 5);
 
     let filtered = json("/clients/silo/objects?types=npc,player");
     let kinds = filtered["objects"]

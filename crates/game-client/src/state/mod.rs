@@ -369,6 +369,7 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
             8 => RawWorldObject::Item {
                 id,
                 sprite: self.read_u16(add(object, 0x7C)?)?,
+                dye_color: self.read_u8(add(object, 0xB4)?)?,
                 x,
                 y,
                 z_index: 0,

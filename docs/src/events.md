@@ -160,15 +160,39 @@ discriminator `client_resync`:
 ```text
 ClientResync {
     observation: EventObservation,
+    resync_id: u32,
 }
 ```
 
 This event means the client requested fresh server state. It does not mean the
-server has responded or that resynchronization has completed. daRPC retains the
-visible-object set while the server redraws it. Newly observed IDs publish their
-normal appeared event, and retained IDs that do not return publish their normal
-disappeared event after the redraw becomes quiet. Consumers do not clear or
-rebuild object state for a refresh. There is no separate completion event.
+server has responded. For `POST /clients/{client}/resync`, `resync_id` equals
+the `resync_id` and `command_id` in the HTTP response. A physical F5 request
+receives a DLL-local nonzero identifier from the same sequence.
+
+The payload-free server `0x22` `RefreshUserOK` response publishes
+`client.resync_completed` with the JSON discriminator
+`client_resync_completed`:
+
+```text
+ClientResyncCompleted {
+    observation: EventObservation,
+    resync_id: u32,
+}
+```
+
+The identifier correlates the response with the outgoing request. Consumers
+that pause movement for a refresh wait for the matching completion event, not
+the HTTP command status or `client.resync`, before releasing movement. Both
+events are transient, so the event stream must be established before the HTTP
+request. If the stream is lost, retain the safe paused state and issue a new
+refresh after reconnecting.
+
+Refresh completion is separate from visible-object reconciliation. daRPC
+retains the visible-object set while the server redraws it. Newly observed IDs
+publish their normal appeared event, and retained IDs that do not return
+publish their normal disappeared event after the redraw becomes quiet.
+Consumers do not clear or rebuild object state for a refresh, and there is no
+object-reconciliation completion event.
 
 Begin speech with `//` to escape interception. The DLL removes one slash before
 submission, so `//walk x,y` is spoken as `/walk x,y` and does not publish a
@@ -689,7 +713,8 @@ Reduce the stream into retained object state as follows:
 - Remove `object.id` for disappeared events.
 - For `player.replaced`, remove every `previous` ID and upsert `current`.
 - For `player.inspected`, upsert `player` when retaining profile data.
-- Do nothing to the object collection for `client.resync`.
+- Do nothing to the object collection for `client.resync` or
+  `client.resync_completed`.
 - On a map change, apply `location.changed` first and then the following
   disappearance events in delivery order. Do not clear objects when the
   location event arrives.
@@ -970,7 +995,7 @@ trying to infer state from only the changed field.
 | --- | --- | --- |
 | Stream | `stream.ready`, `stream.resync_required`, `stream.closed` | Reread every resource the consumer uses. |
 | Client lifecycle | `client.logged_in`, `client.disconnected` | `/status` |
-| Client requests | `client.command`, `client.resync` | None; transient events are not replayed. |
+| Client requests | `client.command`, `client.resync`, `client.resync_completed` | None; transient events are not replayed. |
 | Status | `stats.changed`, `vitals.changed`, `progression.changed`, `gold.changed`, `weight.changed`, `modifiers.changed`, `location.changed`, `blind.changed`, `action_restriction.changed`, `character.appearance_changed`, `character.hidden_changed`, `character.profile_changed` | `/status` |
 | Walking | `walking.started`, `walking.stopped`, `walking.obstructed`, `walking.route_changed`, `character.turned`, `character.emoted` | `/status` |
 | Inventory | `item.added`, `item.removed`, `item.changed`, `item.used`, `item.dropped`, `item.given`, `item.picked_up`, `gold.dropped`, `gold.given` | `/items`, then `/status` for gold |

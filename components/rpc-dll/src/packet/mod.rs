@@ -173,12 +173,16 @@ pub(crate) enum ServerUpdate<'a> {
     Dialog(&'a [u8]),
     Group(&'a [u8]),
     Exchange(&'a [u8]),
+    ResyncCompleted,
 }
 
 pub(crate) fn update<'a>(
     body: &'a [u8],
     objects: &mut RawObjects,
 ) -> Result<Option<ServerUpdate<'a>>, ParseError> {
+    if body == [0x22] {
+        return Ok(Some(ServerUpdate::ResyncCompleted));
+    }
     if let Some(update) = action_delay::update(body)? {
         return Ok(Some(ServerUpdate::ActionDelay(update)));
     }
@@ -238,6 +242,16 @@ mod tests {
     fn ignores_unknown_packets() {
         let mut objects = RawObjects::empty();
         assert!(update(&[0xFF], &mut objects).unwrap().is_none());
+    }
+
+    #[test]
+    fn parses_payload_free_refresh_completion() {
+        let mut objects = RawObjects::empty();
+        assert_eq!(
+            update(&[0x22], &mut objects),
+            Ok(Some(ServerUpdate::ResyncCompleted))
+        );
+        assert_eq!(update(&[0x22, 0], &mut objects), Ok(None));
     }
 
     #[test]

@@ -68,6 +68,13 @@ pub(crate) struct Turned {
 #[derive(Clone, Debug, Serialize, ToSchema)]
 pub(crate) struct ClientResync {
     pub(super) observation: EventObservation,
+    resync_id: u32,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub(crate) struct ClientResyncCompleted {
+    pub(super) observation: EventObservation,
+    resync_id: u32,
 }
 
 pub(super) fn expand_action(observation: EventObservation, update: ActionUpdate) -> ClientEvent {
@@ -122,6 +129,15 @@ pub(super) fn expand_action(observation: EventObservation, update: ActionUpdate)
             observation,
             direction: direction.into(),
         }),
-        ActionUpdate::Resync => ClientEvent::ClientResync(ClientResync { observation }),
+        ActionUpdate::Resync { resync_id } => ClientEvent::ClientResync(ClientResync {
+            observation,
+            resync_id,
+        }),
+        ActionUpdate::ResyncCompleted { resync_id } => {
+            ClientEvent::ClientResyncCompleted(ClientResyncCompleted {
+                observation,
+                resync_id,
+            })
+        }
     }
 }

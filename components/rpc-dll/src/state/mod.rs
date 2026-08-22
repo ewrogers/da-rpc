@@ -81,6 +81,10 @@ pub(crate) fn observe_audio(update: AudioUpdate, tick_ms: u32) {
     push_event(QueuedStateUpdate::Audio(update), tick_ms);
 }
 
+pub(crate) fn observe_resync_completed(tick_ms: u32) {
+    action::observe_resync_completed(tick_ms);
+}
+
 #[cfg_attr(
     test,
     expect(dead_code, reason = "called by the production-only actions module")
@@ -318,6 +322,7 @@ pub(crate) fn reset() {
     EVENT_SEQUENCE.store(0, Ordering::Release);
     NEXT_LIFECYCLE_POLL_MS.store(0, Ordering::Release);
     QUEUE.reset();
+    action::reset();
     #[cfg(all(windows, not(test)))]
     crate::actions::movement::reset_tracking();
     // SAFETY: reset runs before the event hook is installed and after the IPC

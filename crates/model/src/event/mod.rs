@@ -118,7 +118,12 @@ pub enum ActionUpdate {
     Turned {
         direction: Direction,
     },
-    Resync,
+    Resync {
+        resync_id: u32,
+    },
+    ResyncCompleted {
+        resync_id: u32,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

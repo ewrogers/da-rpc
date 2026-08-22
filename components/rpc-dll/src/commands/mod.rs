@@ -48,6 +48,7 @@ const CANCELLED: u8 = 6;
 const TIMED_OUT: u8 = 7;
 
 static NEXT_COMMAND_ID: AtomicU32 = AtomicU32::new(1);
+static SUBMITTING_RESYNC_COMMAND_ID: AtomicU32 = AtomicU32::new(0);
 static PENDING_CAST_COMMAND_ID: AtomicU32 = AtomicU32::new(0);
 static PENDING_CAST_DEADLINE_TICK_MS: AtomicU32 = AtomicU32::new(0);
 static SLOTS: [CommandSlot; COMMAND_CAPACITY] = [const { CommandSlot::new() }; COMMAND_CAPACITY];
@@ -58,10 +59,20 @@ pub(crate) fn reset() {
     crate::who::reset();
     QUEUE.reset();
     NEXT_COMMAND_ID.store(1, Ordering::Relaxed);
+    SUBMITTING_RESYNC_COMMAND_ID.store(0, Ordering::Relaxed);
     PENDING_CAST_COMMAND_ID.store(0, Ordering::Relaxed);
     PENDING_CAST_DEADLINE_TICK_MS.store(0, Ordering::Relaxed);
     for slot in &SLOTS {
         slot.clear();
+    }
+}
+
+pub(crate) fn outgoing_resync_id() -> u32 {
+    let command_id = SUBMITTING_RESYNC_COMMAND_ID.swap(0, Ordering::AcqRel);
+    if command_id == 0 {
+        next_command_id()
+    } else {
+        command_id
     }
 }
 
@@ -256,6 +267,8 @@ fn execute(slot_index: usize) {
     let is_exact_route = matches!(kind, CommandKind::Walk(WalkTarget::Route(_)));
     let is_who = matches!(kind, CommandKind::Who);
     let is_cast = matches!(kind, CommandKind::CastSpell(_));
+    let is_resync = matches!(kind, CommandKind::Resync);
+    let command_id = slot.command_id.load(Ordering::Relaxed);
     let waits_for_response = matches!(
         kind,
         CommandKind::Who | CommandKind::Legend | CommandKind::InspectPlayer(_)
@@ -263,16 +276,27 @@ fn execute(slot_index: usize) {
     if is_exact_route {
         crate::diagnostics::clear_invalid_exact_route_state();
     }
+    if is_resync {
+        SUBMITTING_RESYNC_COMMAND_ID.store(command_id, Ordering::Release);
+    }
     let result = panic::catch_unwind(|| {
         if is_who {
-            execute_who(slot.command_id.load(Ordering::Relaxed))
+            execute_who(command_id)
         } else if let CommandKind::InspectPlayer(id) = kind {
-            execute_player(slot.command_id.load(Ordering::Relaxed), id.get())
+            execute_player(command_id, id.get())
         } else {
             execute_command(kind)
         }
     })
     .unwrap_or(Err(CommandFailure::Internal));
+    if is_resync {
+        let _ = SUBMITTING_RESYNC_COMMAND_ID.compare_exchange(
+            command_id,
+            0,
+            Ordering::AcqRel,
+            Ordering::Relaxed,
+        );
+    }
     if is_exact_route
         && result == Err(CommandFailure::InvalidState)
         && let Some(diagnostics) = crate::diagnostics::take_invalid_exact_route_state()
@@ -647,6 +671,20 @@ mod tests {
     use std::sync::Mutex;
 
     static TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn correlates_command_and_physical_resync_ids() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset();
+        SUBMITTING_RESYNC_COMMAND_ID.store(7, Ordering::Relaxed);
+
+        assert_eq!(outgoing_resync_id(), 7);
+        let physical_resync_id = outgoing_resync_id();
+        assert_ne!(physical_resync_id, 0);
+        assert_ne!(physical_resync_id, 7);
+    }
 
     #[test]
     fn executes_one_diagnostic_per_tick() {

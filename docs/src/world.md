@@ -214,9 +214,10 @@ disappearances for retained IDs that do not return. Reconciliation completes
 after one second without another authoritative position or redraw packet. The
 quiet period starts only after the first such response, so no response leaves
 the last-known view intact. `client.resync` reports only that the request was
-sent, and no separate event marks reconciliation complete. A concurrent
-`GET /objects` returns this retained, progressively reconciled view rather than
-an intentionally empty intermediate collection.
+sent. The matching `client.resync_completed` reports the server's payload-free
+`RefreshUserOK` response, but it does not mark object reconciliation complete.
+A concurrent `GET /objects` returns the retained, progressively reconciled view
+rather than an intentionally empty intermediate collection.
 
 The server normally sends draw events for objects entering view but may not send
 an explicit removal when the local character simply walks out of range. After

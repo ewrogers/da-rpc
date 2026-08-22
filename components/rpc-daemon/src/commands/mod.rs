@@ -278,6 +278,9 @@ pub(crate) struct CommandStatus {
     pid: u32,
     instance_id: String,
     command_id: u32,
+    /// Resync correlation ID, equal to command_id and present only for resync commands.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resync_id: Option<u32>,
     kind: CommandKind,
     state: CommandState,
     enqueued_tick_ms: u32,
@@ -736,10 +739,12 @@ const fn default_timeout_ms() -> u16 {
 
 impl CommandStatus {
     fn new(pid: u32, identity: ClientIdentity, status: ProtocolStatus) -> Self {
+        let resync_id = matches!(status.kind, ProtocolKind::Resync).then_some(status.command_id);
         Self {
             pid,
             instance_id: hex(&identity.dll_instance_id),
             command_id: status.command_id,
+            resync_id,
             kind: status.kind.into(),
             state: status.state.into(),
             enqueued_tick_ms: status.enqueued_tick_ms,

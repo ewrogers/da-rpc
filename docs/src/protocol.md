@@ -812,7 +812,8 @@ enum ActionUpdate: u8 {
     EquipmentUnequipped { slot: u8 } = 7,
     Emoted { code: u8 } = 8,
     Turned(Direction) = 9,
-    Resync = 10,
+    Resync { resync_id: u32 } = 10,
+    ResyncCompleted { resync_id: u32 } = 11,
 }
 
 enum SpellCastArguments: u8 {
@@ -1097,13 +1098,20 @@ game packet contents.
 client packet function.
 
 `Resync` submits the opcode-only client refresh packet `0x38`, matching the F5
-key behavior. The DLL retains the current object set while the server redraws
-it. Stable IDs observed in the redraw remain retained, newly observed IDs
-publish `Appeared`, and IDs not observed before one second of redraw inactivity
-publish `Disappeared`. The quiet period begins only after the first authoritative
-position or redraw response, so a refresh with no server response preserves the
-last-known object set. Reconciliation has no separate completion update; the
-ordered object updates are the complete externally visible result.
+key behavior. The outgoing packet publishes `Resync` with a nonzero DLL-local
+identifier. An HTTP-triggered refresh uses its command ID as the resync ID. A
+payload-free server `0x22` `RefreshUserOK` packet publishes `ResyncCompleted`
+with the matching identifier. Requests and responses are correlated in their
+observed order.
+
+The DLL retains the current object set while the server redraws it. Stable IDs
+observed in the redraw remain retained, newly observed IDs publish `Appeared`,
+and IDs not observed before one second of redraw inactivity publish
+`Disappeared`. The quiet period begins only after the first authoritative
+position or redraw response, so a refresh with no redraw response preserves
+the last-known object set. `ResyncCompleted` acknowledges the server refresh;
+it is not an object-reconciliation completion update. The ordered object
+updates are the complete externally visible reconciliation result.
 
 enum GroupCommand: u8 {
     Invite { target: string8 } = 1,

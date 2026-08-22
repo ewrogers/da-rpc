@@ -85,6 +85,7 @@ pub(crate) enum ClientEvent {
     StreamReady(StreamReady),
     ClientCommand(ClientCommand),
     ClientResync(ClientResync),
+    ClientResyncCompleted(ClientResyncCompleted),
     ClientLoggedIn(ClientLifecycleChanged),
     ClientDisconnected(ClientLifecycleChanged),
     SoundPlayed(SoundPlayed),
@@ -202,6 +203,7 @@ impl ClientEvent {
             Self::StreamReady(_) => "stream.ready",
             Self::ClientCommand(_) => "client.command",
             Self::ClientResync(_) => "client.resync",
+            Self::ClientResyncCompleted(_) => "client.resync_completed",
             Self::ClientLoggedIn(_) => "client.logged_in",
             Self::ClientDisconnected(_) => "client.disconnected",
             Self::SoundPlayed(_) => "sound.played",
@@ -319,6 +321,7 @@ impl ClientEvent {
             Self::StreamReady(value) => value.event_sequence,
             Self::ClientCommand(value) => value.observation.event_sequence,
             Self::ClientResync(value) => value.observation.event_sequence,
+            Self::ClientResyncCompleted(value) => value.observation.event_sequence,
             Self::ClientLoggedIn(value) | Self::ClientDisconnected(value) => {
                 value.observation.event_sequence
             }

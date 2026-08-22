@@ -199,7 +199,17 @@ or the character appears stuck against a wall.
 
 Sending the packet publishes the transient [`client.resync`](events.md#client-command-events)
 event. That event confirms that daRPC observed the outgoing request. It does
-not confirm that the server responded or completed the refresh.
+not confirm that the server responded. The command response includes a
+`resync_id` equal to its `command_id`, and `client.resync` carries the same
+value.
+
+The server's payload-free `0x22` `RefreshUserOK` response publishes the
+transient `client.resync_completed` event with the matching `resync_id`.
+Consumers that pause movement for refresh must establish the event stream
+before making the request and wait for this matching event before releasing
+movement. The HTTP `200 OK`, `202 Accepted`, and `client.resync` signals cover
+command submission only. If the event stream disconnects before completion,
+keep movement paused and issue a new refresh after reconnecting.
 
 daRPC reconciles the refreshed visible-object set by stable entity ID. New IDs
 publish their normal appeared events, missing retained IDs publish their normal
@@ -207,8 +217,9 @@ disappeared events, and unchanged IDs remain retained. Consumers do not clear
 or rebuild object state in response to the refresh. Missing IDs are removed
 after one second without another authoritative position or redraw response. If
 the server never responds, daRPC preserves the last-known object set. There is
-no separate refresh-completed event; apply the ordered lifecycle events as
-described in [World](world.md#object-events).
+no object-reconciliation completion event; apply the ordered lifecycle events
+as described in [World](world.md#object-events). `client.resync_completed`
+acknowledges the server refresh and does not replace those object events.
 
 If the server replies with a corrected position while a daRPC destination walk
 is active, daRPC keeps the destination and recalculates the route from the

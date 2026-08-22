@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.6.4 - 2026-08-22
+
 ### Added
 
 - Report ground-item palette `dye_color` values through snapshots, REST, SSE,

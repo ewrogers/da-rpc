@@ -149,7 +149,7 @@ try {
     $Hello = Invoke-Darpc -CommandArgs @("hello", "--pid", "$($Process.Id)")
     Assert-True ($Hello.command -eq "hello") "hello command identity was incorrect"
     Assert-True ($Hello.pid -eq $Process.Id) "hello reported the wrong PID"
-    Assert-True ($Hello.protocol_version -eq "1.6") "hello negotiated an unexpected protocol"
+    Assert-True ($Hello.protocol_version -eq "1.7") "hello negotiated an unexpected protocol"
     Assert-True ($Hello.architecture -eq "x86") "hello reported an unexpected architecture"
     Assert-True ($Hello.sequence -eq 0) "hello sequence was not zero"
 

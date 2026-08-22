@@ -204,7 +204,11 @@ not confirm that the server responded or completed the refresh.
 daRPC reconciles the refreshed visible-object set by stable entity ID. New IDs
 publish their normal appeared events, missing retained IDs publish their normal
 disappeared events, and unchanged IDs remain retained. Consumers do not clear
-or rebuild object state in response to the refresh.
+or rebuild object state in response to the refresh. Missing IDs are removed
+after one second without another authoritative position or redraw response. If
+the server never responds, daRPC preserves the last-known object set. There is
+no separate refresh-completed event; apply the ordered lifecycle events as
+described in [World](world.md#object-events).
 
 If the server replies with a corrected position while a daRPC destination walk
 is active, daRPC keeps the destination and recalculates the route from the

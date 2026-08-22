@@ -63,7 +63,9 @@ overlap. No overlap rejects the connection.
 The only currently supported version is 1.7 (`0x0107`). Version 1.7 adds the
 palette dye color to ground-item object records and removes the collection-wide
 object-clear update in favor of individual disappearance updates. Peers
-advertise only 1.7.
+advertise only 1.7. Object-update discriminant 5 is retired and rejected. A
+peer built against the earlier 1.7 schema can still emit that value, so deploy
+the DLL and its controller or daemon together when adopting this change.
 
 ## Message types
 
@@ -778,6 +780,7 @@ enum ObjectUpdate: u8 {
     Disappeared(WorldObject) = 2,
     Moved(WorldObject) = 3,
     DirectionChanged(WorldObject) = 4,
+    // 5 is retired.
 }
 
 struct StatusUpdate {
@@ -956,7 +959,9 @@ for unavailable, `1` for false, and `2` for true, and its presence must match
 the destination.
 
 Object updates also carry absolute values. Appeared, disappeared, moved, and
-direction-changed updates include the complete object at that boundary.
+direction-changed updates include the complete object at that boundary. Treat
+`Appeared` as an upsert by object ID because a redraw can replace the retained
+snapshot for an existing ID. Treat `Disappeared` as removal by ID.
 Map transitions and refresh reconciliation publish one disappeared update for
 each retained object that leaves the observed collection; there is no
 collection-reset update.
@@ -1097,7 +1102,8 @@ it. Stable IDs observed in the redraw remain retained, newly observed IDs
 publish `Appeared`, and IDs not observed before one second of redraw inactivity
 publish `Disappeared`. The quiet period begins only after the first authoritative
 position or redraw response, so a refresh with no server response preserves the
-last-known object set.
+last-known object set. Reconciliation has no separate completion update; the
+ordered object updates are the complete externally visible result.
 
 enum GroupCommand: u8 {
     Invite { target: string8 } = 1,

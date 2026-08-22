@@ -168,7 +168,7 @@ server has responded or that resynchronization has completed. daRPC retains the
 visible-object set while the server redraws it. Newly observed IDs publish their
 normal appeared event, and retained IDs that do not return publish their normal
 disappeared event after the redraw becomes quiet. Consumers do not clear or
-rebuild object state for a refresh.
+rebuild object state for a refresh. There is no separate completion event.
 
 Begin speech with `//` to escape interception. The DLL removes one slash before
 submission, so `//walk x,y` is spoken as `/walk x,y` and does not publish a
@@ -678,9 +678,25 @@ WorldObject =
   | Item { kind: "item", id, sprite, dye_color, x, y, z_index }
 ```
 
-An appeared or changed event carries the object after the update. A disappeared
-event carries the last retained object. Refreshes and map changes publish these
-same per-object lifecycle events instead of a collection-wide clear event.
+Appeared, moved, and direction-changed events carry the object after the
+update. A disappeared event carries the last retained object. Refreshes and map
+changes publish these same per-object lifecycle events instead of a
+collection-wide clear event.
+
+Reduce the stream into retained object state as follows:
+
+- Upsert `object` by ID for appeared, moved, and direction-changed events.
+- Remove `object.id` for disappeared events.
+- For `player.replaced`, remove every `previous` ID and upsert `current`.
+- For `player.inspected`, upsert `player` when retaining profile data.
+- Do nothing to the object collection for `client.resync`.
+- On a map change, apply `location.changed` first and then the following
+  disappearance events in delivery order. Do not clear objects when the
+  location event arrives.
+
+An appeared event can replace an already retained ID when a redraw supplies
+changed fields. These reducer rules therefore remain idempotent across ordinary
+draws, F5 reconciliation, and map changes.
 
 `player.inspected` is one atomic completion event:
 

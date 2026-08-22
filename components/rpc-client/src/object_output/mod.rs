@@ -52,13 +52,14 @@ pub(crate) fn render_human(output: &mut String, objects: Option<&[WorldObject]>)
             WorldObject::Item {
                 id,
                 sprite,
+                dye_color,
                 x,
                 y,
                 z_index,
             } => {
                 let _ = write!(
                     output,
-                    "\n  item id={id} sprite={sprite} x={x} y={y} z_index={z_index} is_solid=false"
+                    "\n  item id={id} sprite={sprite} dye_color={dye_color} x={x} y={y} z_index={z_index} is_solid=false"
                 );
             }
         }
@@ -99,12 +100,13 @@ pub(crate) fn json_value(object: &WorldObject) -> serde_json::Value {
         WorldObject::Item {
             id,
             sprite,
+            dye_color,
             x,
             y,
             z_index,
         } => json!({
-            "kind": "item", "id": id, "sprite": sprite, "x": x, "y": y,
-            "z_index": z_index, "is_solid": false,
+            "kind": "item", "id": id, "sprite": sprite, "dye_color": dye_color,
+            "x": x, "y": y, "z_index": z_index, "is_solid": false,
         }),
     }
 }
@@ -177,5 +179,30 @@ const fn direction_name(direction: Direction) -> &'static str {
         Direction::East => "east",
         Direction::South => "south",
         Direction::West => "west",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ground_item() -> WorldObject {
+        WorldObject::Item {
+            id: 7,
+            sprite: 321,
+            dye_color: 5,
+            x: 10,
+            y: 20,
+            z_index: 2,
+        }
+    }
+
+    #[test]
+    fn ground_item_output_includes_dye_color() {
+        let item = ground_item();
+        let mut output = String::new();
+        render_human(&mut output, Some(core::slice::from_ref(&item)));
+        assert!(output.contains("dye_color=5"));
+        assert_eq!(json_value(&item)["dye_color"], 5);
     }
 }

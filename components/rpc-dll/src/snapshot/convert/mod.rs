@@ -112,12 +112,14 @@ fn objects(raw: &RawObjects) -> Vec<WorldObject> {
             RawWorldObject::Item {
                 id,
                 sprite,
+                dye_color,
                 x,
                 y,
                 z_index,
             } => WorldObject::Item {
                 id,
                 sprite: sprite & SPRITE_ID_MASK,
+                dye_color,
                 x,
                 y,
                 z_index,

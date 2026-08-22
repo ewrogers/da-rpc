@@ -49,9 +49,9 @@ pub use message::{
     Architecture, ComponentVersion, DiagnosticsRequest, DiagnosticsResponse, EchoRequest,
     EchoResponse, Hello, HelloAck, MAX_ECHO_TEXT_LEN, Message, MessageType, PROTOCOL_VERSION_1_0,
     PROTOCOL_VERSION_1_1, PROTOCOL_VERSION_1_2, PROTOCOL_VERSION_1_3, PROTOCOL_VERSION_1_4,
-    PROTOCOL_VERSION_1_5, PROTOCOL_VERSION_1_6, Ping, Pong, SUPPORTED_VERSIONS, TickHealthRequest,
-    TickHealthResponse, VersionRange, protocol_version, protocol_version_major,
-    protocol_version_minor,
+    PROTOCOL_VERSION_1_5, PROTOCOL_VERSION_1_6, PROTOCOL_VERSION_1_7, Ping, Pong,
+    SUPPORTED_VERSIONS, TickHealthRequest, TickHealthResponse, VersionRange, protocol_version,
+    protocol_version_major, protocol_version_minor,
 };
 pub use message_dialog::{MAX_MESSAGE_DIALOG_TEXT_LEN, MAX_MESSAGE_DIALOGS};
 pub use player::{MAX_PLAYER_EQUIPMENT_ITEMS, MAX_PLAYER_IDENTITY_TEXT_LEN};

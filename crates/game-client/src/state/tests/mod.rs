@@ -383,6 +383,32 @@ fn captures_visible_world_objects_into_caller_storage() {
 }
 
 #[test]
+fn captures_ground_item_dye_color() {
+    let mut memory = FakeMemory::gameplay();
+    memory.u32(OBJECT + 0x2C, 8);
+    memory.u16(OBJECT + 0x7C, 0x8123);
+    memory.u8(OBJECT + 0xB4, 7);
+    let mut objects = RawObjects::empty();
+
+    StateWalker::new(&memory, BASE)
+        .capture_objects(THREAD_ID, Some((11, 22)), &mut objects)
+        .unwrap();
+
+    assert_eq!(objects.count, 1);
+    assert_eq!(
+        objects.entries[0],
+        Some(RawWorldObject::Item {
+            id: 0x1122_3344,
+            sprite: 0x8123,
+            dye_color: 7,
+            x: 11,
+            y: 22,
+            z_index: 0,
+        })
+    );
+}
+
+#[test]
 fn rejects_a_cyclic_world_object_tree() {
     let mut memory = FakeMemory::gameplay();
     memory.u32(NODE, NODE);

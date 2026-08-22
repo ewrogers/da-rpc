@@ -1,14 +1,14 @@
 use darpc_protocol::{
     Architecture, ComponentVersion, EndpointRole, Handshake, HandshakePhase, Hello, Message,
-    MessageDirection, PROTOCOL_VERSION_1_0, PROTOCOL_VERSION_1_1, PROTOCOL_VERSION_1_6, Ping,
+    MessageDirection, PROTOCOL_VERSION_1_0, PROTOCOL_VERSION_1_1, PROTOCOL_VERSION_1_7, Ping,
     SequenceCounter, SequenceError, SessionError, VersionRange, elapsed_tick_ms, negotiate_version,
 };
 
 fn hello() -> Hello {
     Hello {
         protocol_versions: VersionRange {
-            min: PROTOCOL_VERSION_1_6,
-            max: PROTOCOL_VERSION_1_6,
+            min: PROTOCOL_VERSION_1_7,
+            max: PROTOCOL_VERSION_1_7,
         },
         dll_instance_id: [0x5a; 16],
         process_id: 42,
@@ -43,7 +43,7 @@ fn dll_and_controller_complete_the_same_handshake() {
 
     assert!(dll.is_ready());
     assert!(controller.is_ready());
-    assert_eq!(dll.selected_version(), Some(PROTOCOL_VERSION_1_6));
+    assert_eq!(dll.selected_version(), Some(PROTOCOL_VERSION_1_7));
     assert_eq!(dll.dll_instance_id(), Some([0x5a; 16]));
 
     let ping = Message::Ping(Ping { request_id: 7 });
@@ -104,12 +104,12 @@ fn invalid_and_unsupported_versions_are_distinct() {
     );
     assert_eq!(
         negotiate_version(VersionRange {
-            min: 0x0107,
-            max: 0x0108,
+            min: 0x0108,
+            max: 0x0109,
         }),
         Err(SessionError::UnsupportedVersionRange {
-            min: 0x0107,
-            max: 0x0108,
+            min: 0x0108,
+            max: 0x0109,
         })
     );
 
@@ -143,7 +143,7 @@ fn dll_rejects_an_acknowledgement_for_the_wrong_offer() {
     );
 
     let wrong_instance = Message::HelloAck(darpc_protocol::HelloAck {
-        selected_version: PROTOCOL_VERSION_1_6,
+        selected_version: PROTOCOL_VERSION_1_7,
         dll_instance_id: [0x6b; 16],
     });
     assert_eq!(
@@ -161,7 +161,7 @@ fn controller_must_send_the_exact_acknowledgement() {
         .unwrap();
 
     let wrong = Message::HelloAck(darpc_protocol::HelloAck {
-        selected_version: PROTOCOL_VERSION_1_6,
+        selected_version: PROTOCOL_VERSION_1_7,
         dll_instance_id: [0x6b; 16],
     });
     assert!(matches!(

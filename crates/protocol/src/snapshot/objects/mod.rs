@@ -89,6 +89,7 @@ pub(crate) fn encode_object(output: &mut Vec<u8>, object: &WorldObject) -> Resul
         WorldObject::Item {
             id,
             sprite,
+            dye_color,
             x,
             y,
             z_index,
@@ -98,6 +99,7 @@ pub(crate) fn encode_object(output: &mut Vec<u8>, object: &WorldObject) -> Resul
             push_i32(output, *x);
             push_i32(output, *y);
             push_u16(output, *sprite);
+            output.push(*dye_color);
             push_u16(output, *z_index);
         }
     }
@@ -192,6 +194,7 @@ pub(crate) fn decode_object(reader: &mut PayloadReader<'_>) -> Result<WorldObjec
         3 => WorldObject::Item {
             id,
             sprite: reader.read_u16()?,
+            dye_color: reader.read_u8()?,
             x,
             y,
             z_index: reader.read_u16()?,

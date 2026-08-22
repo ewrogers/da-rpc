@@ -99,6 +99,7 @@ pub enum WorldObject {
     Item {
         id: u32,
         sprite: u16,
+        dye_color: u8,
         x: i32,
         y: i32,
         /// Zero is the bottom item at a tile. Higher values are drawn above it.

@@ -673,7 +673,7 @@ WorldObject =
     Player { kind: "player", id, name?, x, y, direction, profile? }
   | Monster { kind: "monster", id, sprite?, x, y, direction }
   | Mundane { kind: "mundane", id, sprite?, name?, x, y, direction }
-  | Item { kind: "item", id, sprite, x, y, z_index }
+  | Item { kind: "item", id, sprite, dye_color, x, y, z_index }
 ```
 
 An appeared or changed event carries the object after the update. A disappeared

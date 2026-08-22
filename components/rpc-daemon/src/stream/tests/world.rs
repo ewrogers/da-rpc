@@ -521,6 +521,10 @@ fn effect_updates_use_noun_action_event_names() {
         );
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].name(), expected);
+        if expected.starts_with("item.") {
+            let event = serde_json::to_value(&events[0]).unwrap();
+            assert_eq!(event["data"]["object"]["dye_color"], 5);
+        }
     }
 }
 
@@ -566,6 +570,7 @@ fn object_updates_use_noun_action_event_names() {
     let item = ModelWorldObject::Item {
         id: 4,
         sprite: 327,
+        dye_color: 5,
         x: 13,
         y: 20,
         z_index: 0,

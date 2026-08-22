@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 1.6.4 - 2026-08-22
+
+### Added
+
+- Report ground-item palette `dye_color` values through snapshots, REST, SSE,
+  and command-line output.
+
+### Changed
+
+- Advance the binary wire schema to protocol 1.7 for the expanded ground-item
+  object record.
+
 ## 1.6.3 - 2026-08-21
 
 ### Fixed

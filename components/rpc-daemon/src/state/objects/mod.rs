@@ -89,6 +89,7 @@ pub(crate) enum WorldObject {
     Item {
         id: u32,
         sprite: u16,
+        dye_color: u8,
         x: i32,
         y: i32,
         /// Per-tile stack order. Zero is the bottom item.
@@ -169,12 +170,14 @@ impl From<&ModelWorldObject> for WorldObject {
             ModelWorldObject::Item {
                 id,
                 sprite,
+                dye_color,
                 x,
                 y,
                 z_index,
             } => Self::Item {
                 id: *id,
                 sprite: *sprite,
+                dye_color: *dye_color,
                 x: *x,
                 y: *y,
                 z_index: *z_index,

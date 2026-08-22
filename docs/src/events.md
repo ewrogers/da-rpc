@@ -164,9 +164,11 @@ ClientResync {
 ```
 
 This event means the client requested fresh server state. It does not mean the
-server has responded or that resynchronization has completed. The request also
-clears the retained visible-object set before the server redraws it, publishing
-`objects.cleared` before the new object appearances.
+server has responded or that resynchronization has completed. daRPC retains the
+visible-object set while the server redraws it. Newly observed IDs publish their
+normal appeared event, and retained IDs that do not return publish their normal
+disappeared event after the redraw becomes quiet. Consumers do not clear or
+rebuild object state for a refresh.
 
 Begin speech with `//` to escape interception. The DLL removes one slash before
 submission, so `//walk x,y` is spoken as `/walk x,y` and does not publish a
@@ -677,8 +679,8 @@ WorldObject =
 ```
 
 An appeared or changed event carries the object after the update. A disappeared
-event carries the last retained object. `objects.cleared` contains only the
-observation and marks a map or world boundary.
+event carries the last retained object. Refreshes and map changes publish these
+same per-object lifecycle events instead of a collection-wide clear event.
 
 `player.inspected` is one atomic completion event:
 
@@ -960,7 +962,7 @@ trying to infer state from only the changed field.
 | Skills | `skill.added`, `skill.removed`, `skill.changed`, `skill.cooldown`, `skill.ready`, `skill.used` | `/skills` |
 | Spells | `spell.added`, `spell.removed`, `spell.changed`, `spell.cooldown`, `spell.ready`, `spell.begin`, `spell.chant`, `spell.cast`, `spell.cancelled`, `spell.succeeded`, `spell.failed`, `spell.received` | `/spells`, then `/status` for casting state |
 | Effects | `effect.added`, `effect.removed`, `effect.changed` | `/effects` |
-| World objects | `player.appeared`, `player.replaced`, `player.inspected`, `player.disappeared`, `player.moved`, `player.direction_changed`; the corresponding appeared, disappeared, moved, and direction events for monsters and Mundanes; `item.appeared`, `item.disappeared`, `item.moved`; `objects.cleared` | `/objects` |
+| World objects | `player.appeared`, `player.replaced`, `player.inspected`, `player.disappeared`, `player.moved`, `player.direction_changed`; the corresponding appeared, disappeared, moved, and direction events for monsters and Mundanes; `item.appeared`, `item.disappeared`, `item.moved` | `/objects` |
 | World visuals | `player.animated`, `player.effect`, `player.damaged`, and the corresponding monster and Mundane events | None; transient events are not replayed. |
 | Audio | `sound.played`, `music.started`, `music.stopped` | None; transient events are not replayed. |
 | Messages | `message.say`, `message.shout`, `message.chant`, `message.whisper`, `message.guild`, `message.group`, `message.system`, `message.world`, `message.internal` | `/messages`, except transient chants |

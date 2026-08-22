@@ -201,6 +201,11 @@ Sending the packet publishes the transient [`client.resync`](events.md#client-co
 event. That event confirms that daRPC observed the outgoing request. It does
 not confirm that the server responded or completed the refresh.
 
+daRPC reconciles the refreshed visible-object set by stable entity ID. New IDs
+publish their normal appeared events, missing retained IDs publish their normal
+disappeared events, and unchanged IDs remain retained. Consumers do not clear
+or rebuild object state in response to the refresh.
+
 If the server replies with a corrected position while a daRPC destination walk
 is active, daRPC keeps the destination and recalculates the route from the
 corrected tile. See [Resynchronizing position](movement.md#resynchronizing-position)

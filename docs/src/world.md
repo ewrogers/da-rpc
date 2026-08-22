@@ -163,9 +163,9 @@ route can return `504` when the game server does not respond.
 The initial baseline walks the client's retained object collection. A creature
 name or numeric sprite can be unavailable after a late attach when the client
 no longer retains the original draw details. Pressing the normal client refresh
-key clears the retained visible-object set before the server redraws nearby
-objects. Numeric creature sprites learned from those draw packets are retained
-through the follow-up snapshot.
+key asks the server to redraw nearby objects. daRPC reconciles those packets
+against the retained visible-object set. Numeric creature sprites learned from
+the redraw are retained through the follow-up snapshot.
 
 ## Object events
 
@@ -195,8 +195,17 @@ item.moved
 ```
 
 Each object event carries the complete public object after the change.
-Disappearance carries the last retained object. `objects.cleared` marks a map
-or world boundary, including an explicit client refresh, and carries no object.
+Disappearance carries the last retained object. Map changes remove the previous
+view through ordinary disappearance events, so consumers never clear the
+collection in response to a separate world-boundary event.
+
+An F5 or `POST /clients/{client}/resync` refresh also uses normal lifecycle
+events. daRPC retains the current set while redraw packets arrive, suppresses
+unchanged stable IDs, publishes appearances for new IDs, and publishes
+disappearances for retained IDs that do not return. Reconciliation completes
+after one second without another authoritative position or redraw packet. The
+quiet period starts only after the first such response, so no response leaves
+the last-known view intact.
 
 The server normally sends draw events for objects entering view but may not send
 an explicit removal when the local character simply walks out of range. After

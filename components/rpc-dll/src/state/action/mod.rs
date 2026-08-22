@@ -1,4 +1,4 @@
-use super::{QueuedStateUpdate, clear_world_objects, push_event};
+use super::{QueuedStateUpdate, begin_object_reconciliation, push_event};
 use darpc_model::{ActionUpdate, Direction, EquipmentSlot, TilePosition};
 
 pub(super) fn observe_outgoing(body: &[u8], tick_ms: u32) {
@@ -6,7 +6,7 @@ pub(super) fn observe_outgoing(body: &[u8], tick_ms: u32) {
         return;
     };
     if matches!(update, ActionUpdate::Resync) {
-        clear_world_objects(tick_ms);
+        begin_object_reconciliation();
     }
     push_event(QueuedStateUpdate::Action(update), tick_ms);
 }

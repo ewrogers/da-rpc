@@ -22,9 +22,6 @@ pub(super) fn expand(observation: EventObservation, update: ObjectUpdate) -> Opt
         ObjectUpdate::Disappeared(object) => (ObjectChangeKind::Disappeared, object),
         ObjectUpdate::Moved(object) => (ObjectChangeKind::Moved, object),
         ObjectUpdate::DirectionChanged(object) => (ObjectChangeKind::DirectionChanged, object),
-        ObjectUpdate::Cleared => {
-            return Some(ClientEvent::ObjectsCleared(ObjectsCleared { observation }));
-        }
     };
     let category = match &object {
         darpc_model::WorldObject::Player { .. } => ObjectCategory::Player,

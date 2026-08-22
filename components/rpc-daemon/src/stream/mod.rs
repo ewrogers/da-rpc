@@ -165,7 +165,6 @@ pub(crate) enum ClientEvent {
     ItemAppeared(ObjectChanged),
     ItemDisappeared(ObjectChanged),
     ItemMoved(ObjectChanged),
-    ObjectsCleared(ObjectsCleared),
     Message(Message),
     DialogOpened(DialogOpened),
     DialogChanged(DialogChanged),
@@ -283,7 +282,6 @@ impl ClientEvent {
             Self::ItemAppeared(_) => "item.appeared",
             Self::ItemDisappeared(_) => "item.disappeared",
             Self::ItemMoved(_) => "item.moved",
-            Self::ObjectsCleared(_) => "objects.cleared",
             Self::Message(message) => message.event_name(),
             Self::DialogOpened(_) => "dialog.opened",
             Self::DialogChanged(_) => "dialog.changed",
@@ -402,7 +400,6 @@ impl ClientEvent {
             Self::PlayerDamaged(value)
             | Self::MonsterDamaged(value)
             | Self::MundaneDamaged(value) => value.observation.event_sequence,
-            Self::ObjectsCleared(value) => value.observation.event_sequence,
             Self::Message(message) => message.sequence(),
             Self::DialogOpened(value) => value.observation.event_sequence,
             Self::DialogChanged(value) => value.observation.event_sequence,

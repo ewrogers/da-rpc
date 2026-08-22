@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Changed
+
+- Reconcile F5 refreshes and map changes into ordinary world-object appearance
+  and disappearance events. Remove the protocol and SSE `objects.cleared`
+  event so consumers never need to clear and rebuild retained object state.
+
 ## 1.6.4 - 2026-08-22
 
 ### Added

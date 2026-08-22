@@ -16,6 +16,25 @@ impl MainThreadObjects {
         unsafe { (&mut *self.0.get()).replace(objects) };
     }
 
+    pub(in crate::state) unsafe fn begin_reconciliation(&self) {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&mut *self.0.get()).begin_reconciliation() };
+    }
+
+    pub(in crate::state) unsafe fn observe_reconciliation_activity(&self, tick_ms: u32) {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&mut *self.0.get()).observe_reconciliation_activity(tick_ms) };
+    }
+
+    pub(in crate::state) unsafe fn finish_reconciliation(
+        &self,
+        tick_ms: u32,
+        emit: impl FnMut(QueuedObjectUpdate),
+    ) {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&mut *self.0.get()).finish_reconciliation(tick_ms, emit) };
+    }
+
     pub(in crate::state) unsafe fn merge_snapshot_sprites(&self, objects: &mut RawObjects) {
         // SAFETY: the caller guarantees exclusive main-thread access.
         unsafe { (&*self.0.get()).merge_snapshot_sprites(objects) };
@@ -53,7 +72,7 @@ impl MainThreadObjects {
         object: RawWorldObject,
     ) -> Option<QueuedObjectUpdate> {
         // SAFETY: the caller guarantees exclusive main-thread access.
-        unsafe { (&mut *self.0.get()).upsert(object) }
+        unsafe { (&mut *self.0.get()).draw(object) }
     }
 
     pub(in crate::state) unsafe fn move_object(
@@ -100,8 +119,13 @@ impl MainThreadObjects {
         unsafe { (&mut *self.0.get()).take_outside(x, y) }
     }
 
-    pub(in crate::state) unsafe fn clear(&self) -> Option<QueuedObjectUpdate> {
+    pub(in crate::state) unsafe fn clear(&self, emit: impl FnMut(QueuedObjectUpdate)) {
         // SAFETY: the caller guarantees exclusive main-thread access.
-        unsafe { (&mut *self.0.get()).clear() }
+        unsafe { (&mut *self.0.get()).clear(emit) }
+    }
+
+    pub(in crate::state) unsafe fn reset(&self) {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&mut *self.0.get()).reset() }
     }
 }

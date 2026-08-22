@@ -324,7 +324,7 @@ pub(crate) fn reset() {
     // consumer has stopped, so no other thread accesses the cache.
     unsafe { CACHE.replace(StateCache::default()) };
     // SAFETY: reset has the same exclusive lifecycle access described above.
-    unsafe { OBJECTS.clear() };
+    unsafe { OBJECTS.reset() };
     // SAFETY: reset has the same exclusive lifecycle access described above.
     unsafe { COLLECTIONS.reset() };
     crate::legend::reset();
@@ -444,15 +444,10 @@ pub(crate) fn mark_resync_required() {
     QUEUE.mark_resync_required(missing_sequence);
 }
 
-fn clear_world_objects(tick_ms: u32) {
+fn begin_object_reconciliation() {
     // SAFETY: outgoing packet observation runs on the client main thread,
     // which is the sole owner of the object cache.
-    unsafe { OBJECTS.clear() };
-    crate::player::cleared();
-    push_event(
-        QueuedStateUpdate::Object(QueuedObjectUpdate::Cleared),
-        tick_ms,
-    );
+    unsafe { OBJECTS.begin_reconciliation() };
 }
 
 #[cfg(all(windows, not(test)))]
@@ -499,6 +494,14 @@ pub(crate) fn observe_tick() {
     let tick_ms = sender_tick_ms();
     #[cfg(not(windows))]
     let tick_ms = 0;
+    // SAFETY: the tick hook runs on the client main thread, which is the sole
+    // owner of the object cache.
+    unsafe {
+        OBJECTS.finish_reconciliation(tick_ms, |update| {
+            crate::player::removed(update.object_id());
+            push_event(QueuedStateUpdate::Object(update), tick_ms);
+        });
+    }
     #[cfg(all(windows, not(test)))]
     observe_lifecycle(tick_ms);
     #[cfg(all(windows, not(test)))]
@@ -612,6 +615,9 @@ pub(crate) fn observe_stat_points(stat_points: u8, tick_ms: u32) {
 }
 
 pub(crate) fn observe_user_position(x: i32, y: i32, tick_ms: u32) {
+    // SAFETY: decoded server events run on the client main thread, which is
+    // the sole owner of the object cache.
+    unsafe { OBJECTS.observe_reconciliation_activity(tick_ms) };
     #[cfg(all(windows, not(test)))]
     crate::actions::movement::observe_position(TilePosition { x, y });
     // SAFETY: the event hook runs on the client main thread, which is the sole
@@ -626,8 +632,12 @@ fn publish_location_update(update: QueuedLocationUpdate, map_changed: bool, tick
     push_event(QueuedStateUpdate::Location(update), tick_ms);
     if map_changed {
         crate::player::cleared();
-        if let Some(update) = unsafe { OBJECTS.clear() } {
-            push_event(QueuedStateUpdate::Object(update), tick_ms);
+        // SAFETY: location updates run on the client main thread, which is the
+        // sole owner of the object cache.
+        unsafe {
+            OBJECTS.clear(|update| {
+                push_event(QueuedStateUpdate::Object(update), tick_ms);
+            });
         }
         if let Some(id) = unsafe { CACHE.self_id() } {
             crate::player::refresh_self(id);
@@ -666,6 +676,9 @@ pub(crate) fn observe_effect(icon: u16, duration: Option<EffectDuration>, tick_m
 pub(crate) fn observe_world(update: WorldUpdate, objects: &RawObjects, tick_ms: u32) {
     match update {
         WorldUpdate::Draw | WorldUpdate::DrawPlayer => {
+            // SAFETY: decoded server events run on the client main thread,
+            // which is the sole owner of the object cache.
+            unsafe { OBJECTS.observe_reconciliation_activity(tick_ms) };
             for object in objects
                 .entries
                 .iter()

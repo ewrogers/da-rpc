@@ -61,7 +61,9 @@ versions it can decode, and the controller selects the highest version in the
 overlap. No overlap rejects the connection.
 
 The only currently supported version is 1.7 (`0x0107`). Version 1.7 adds the
-palette dye color to ground-item object records. Peers advertise only 1.7.
+palette dye color to ground-item object records and removes the collection-wide
+object-clear update in favor of individual disappearance updates. Peers
+advertise only 1.7.
 
 ## Message types
 
@@ -776,7 +778,6 @@ enum ObjectUpdate: u8 {
     Disappeared(WorldObject) = 2,
     Moved(WorldObject) = 3,
     DirectionChanged(WorldObject) = 4,
-    Cleared = 5,
 }
 
 struct StatusUpdate {
@@ -956,8 +957,9 @@ the destination.
 
 Object updates also carry absolute values. Appeared, disappeared, moved, and
 direction-changed updates include the complete object at that boundary.
-`Cleared` contains no object and resets the observed collection at a map or
-world transition.
+Map transitions and refresh reconciliation publish one disappeared update for
+each retained object that leaves the observed collection; there is no
+collection-reset update.
 
 `ClientSnapshot.event_sequence` is the event boundary already represented by
 the snapshot. A controller discards queued events at or before that boundary
@@ -1090,7 +1092,12 @@ game packet contents.
 client packet function.
 
 `Resync` submits the opcode-only client refresh packet `0x38`, matching the F5
-key behavior.
+key behavior. The DLL retains the current object set while the server redraws
+it. Stable IDs observed in the redraw remain retained, newly observed IDs
+publish `Appeared`, and IDs not observed before one second of redraw inactivity
+publish `Disappeared`. The quiet period begins only after the first authoritative
+position or redraw response, so a refresh with no server response preserves the
+last-known object set.
 
 enum GroupCommand: u8 {
     Invite { target: string8 } = 1,

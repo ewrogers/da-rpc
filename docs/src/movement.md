@@ -130,6 +130,24 @@ position when the correction differs from the local object, so normal recovery
 does not require F5. Wait for the resulting location update and replan. F5
 remains a manual fallback if the client does not complete that refresh.
 
+## Resynchronizing during movement
+
+Physical F5 and `POST /clients/{client}/resync` use the same synchronization
+path. When a scheduled refresh reaches the front of that path, daRPC clears the
+queued route, but it does not interrupt a step the client has already accepted.
+If that step's visual transition is active, daRPC waits for its staged
+destination to become the committed native position before sending refresh
+packet `0x38`. This avoids asking the server to redraw while the client still
+exposes the prior committed tile.
+
+The HTTP response can arrive during this wait. `client.resync` marks the later
+packet submission, and the correlated `client.resync_completed` marks the
+server's `RefreshUserOK` response. A movement consumer should wait for the
+matching completion event before submitting its next walk. It does not need to
+measure the animation duration, poll native state, or clear and rebuild world
+objects. Server-driven correction refreshes remain immediate and do not enter
+this deferred user-request path.
+
 ## Cancelling movement
 
 `DELETE /clients/{client}/walk` resets the stock route, clears route

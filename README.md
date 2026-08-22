@@ -124,6 +124,38 @@ See the [development
 chapter](https://ewrogers.github.io/da-rpc/development.html) for the full build,
 test, documentation, Windows verification, and packaging workflow.
 
+## Client patches
+
+`loader.exe launch` starts a supported client in a paused state, applies the
+selected patches, injects daRPC, and then lets the game start. The loader checks
+the exact Dark Ages 7.41 client and the original bytes before changing anything.
+If a check fails, it stops the paused client instead of running a half-patched
+copy. `loader.exe attach` only injects daRPC into an already-running client. It
+does not apply these launch patches.
+
+Every normal `launch` applies these fixes:
+
+| Patch | What it does for the player |
+|---|---|
+| Login packet order fix | Keeps the first login packets in the order the server expects, both at startup and when returning from a game server to the login screen. |
+| Walking appearance sync fix | Finishes a translucent walking update as one complete appearance update, keeping the destination tile, sprite movement, and translucency in sync. |
+
+The other patches are optional. Add only the launch flags you want, and combine
+them in any order:
+
+| Launch flag | What it does for the player |
+|---|---|
+| `--allow-multiple` | Lets more than one Dark Ages client run on the same PC. |
+| `--server <host[:port]>` | Connects to the IPv4 server or local proxy you name. The port defaults to 2610. It will not quietly fall back to the official endpoint if that address is unavailable. |
+| `--show-items-with-alt` | Shows up to 255 ground items as translucent hints while either Alt key is held, including items hidden behind map art. |
+| `--skip-intro` | Skips the opening video and goes straight to the normal screen after it. |
+| `--skip-notice` | Skips both notice screens, lets the title menu accept mouse input right away, and removes the fixed one-second server-transfer pause. Real connection time still applies. |
+| `--skip-exchange-alerts` | Moves exchange completed and cancelled messages from a blocking OK box to the floating game-message bar. The trade and its item or gold transfers are unchanged. |
+
+See the [loader
+chapter](https://ewrogers.github.io/da-rpc/loader.html) for command examples,
+technical safeguards, and the source research behind each patch.
+
 ## API and documentation
 
 While `darpcd.exe` is running:

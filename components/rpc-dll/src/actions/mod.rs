@@ -16,7 +16,7 @@ use darpc_protocol::{CommandFailure, CommandKind, WalkTarget};
 use std::ptr;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 
-use crate::process_memory::read;
+use crate::{movement_transition::LocalMovementTransition, process_memory::read};
 
 pub(crate) fn execute(command: CommandKind) -> Result<(), CommandFailure> {
     match command {
@@ -46,7 +46,7 @@ pub(crate) fn execute(command: CommandKind) -> Result<(), CommandFailure> {
         CommandKind::Legend => network::submit(&[0x2D]),
         CommandKind::Raw(packet) => network::raw(packet),
         CommandKind::Assail => network::submit(&[0x13]),
-        CommandKind::Resync => network::submit(&[0x38]),
+        CommandKind::Resync => Err(CommandFailure::Internal),
         CommandKind::Message(message) => message::submit(message),
         CommandKind::AddStat(stat) => stat::add(stat),
         CommandKind::SelectFieldMapDestination(command) => field_map::submit(command),
@@ -58,6 +58,18 @@ pub(crate) fn execute(command: CommandKind) -> Result<(), CommandFailure> {
             Ok(())
         }
     }
+}
+
+pub(crate) fn begin_resync_transition() -> Result<LocalMovementTransition, CommandFailure> {
+    movement::begin_resync()
+}
+
+pub(crate) fn resync_transition() -> Result<LocalMovementTransition, CommandFailure> {
+    movement::resync_transition()
+}
+
+pub(crate) fn submit_resync_packet() -> Result<(), CommandFailure> {
+    network::submit(&[0x38])
 }
 
 fn module_base() -> Result<usize, CommandFailure> {

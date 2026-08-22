@@ -95,6 +95,7 @@ The outbound hook watches the common plaintext submission path for:
 - Ground-item pickup, equipment removal, emotes, and turning
 - Who requests, including whether daRPC or the player started each request
 - Object-information requests (`0x43` subtype 1), correlated by visible ID and order
+- Refresh requests and their payload-free `RefreshUserOK` responses
 - Public-speech slash commands and escaped literal slashes
 
 NPC dialog responses use native main-thread methods and are observed through
@@ -111,6 +112,16 @@ click animation alone is insufficient.
 This is how daRPC reports ability and action events for requests started
 through either daRPC or the normal game interface. It also helps keep spell
 replacement and cancellation ordering sensible.
+
+A second outbound detour validates the native refresh helper entry and inspects
+only its caller return address. Calls from either physical F5 site set one
+atomic pending flag and return without sending. The next client tick uses the
+same movement-safe coordinator as `POST /resync`: it resets queued movement,
+waits for any active step to commit, and then submits `0x38` through the normal
+packet path. Repeated physical requests coalesce. The validated
+movement-correction caller is deliberately passed through to the original
+helper so automatic recovery remains immediate. The detour does not allocate,
+log, perform interprocess communication, or walk client memory.
 
 Only the recognized, bounded fields needed by the state model are copied. Full
 packet bodies are not retained or written to the diagnostic log. Original

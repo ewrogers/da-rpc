@@ -103,6 +103,19 @@ pub(super) fn cancel_walk() -> Result<(), CommandFailure> {
     Ok(())
 }
 
+pub(super) fn begin_resync() -> Result<LocalMovementTransition, CommandFailure> {
+    let movement = Movement::resolve()?;
+    stop_current_movement(MovementStopReason::Cancelled);
+    movement.reset();
+    clear_route_destination();
+    crate::route::observe_current(darpc_win32::pipe::sender_tick_ms());
+    movement.local_transition()
+}
+
+pub(super) fn resync_transition() -> Result<LocalMovementTransition, CommandFailure> {
+    Movement::resolve()?.local_transition()
+}
+
 pub(super) fn interact(id: std::num::NonZeroU32) -> Result<(), CommandFailure> {
     let movement = Movement::resolve()?;
     let self_id = local_object_id()?;

@@ -192,24 +192,37 @@ resulting runtime state.
 
 ### Resynchronizing a client
 
-`POST /clients/{client}/resync` takes no request body. It sends the same
-opcode-only refresh packet as pressing F5 in the game client. Use it when the
-client appears out of sync with the server, such as after movement is rejected
-or the character appears stuck against a wall.
+`POST /clients/{client}/resync` takes no request body. It schedules the same
+opcode-only refresh as pressing F5 in the game client. Use it when the client
+appears out of sync with the server, such as after movement is rejected or the
+character appears stuck against a wall.
 
-Sending the packet publishes the transient [`client.resync`](events.md#client-command-events)
-event. That event confirms that daRPC observed the outgoing request. It does
-not confirm that the server responded. The command response includes a
-`resync_id` equal to its `command_id`, and `client.resync` carries the same
-value.
+Both paths use one DLL-local movement-safe coordinator. Before it sends each
+scheduled refresh, it cancels the current queued route. If the character is
+partway through a visual step, daRPC waits for that step's staged tile to commit before it sends packet
+`0x38`. A correction that changes the committed tile must remain stable for one
+additional client tick. There is no fixed sleep. User-initiated refreshes are
+serialized until their server acknowledgement arrives, and repeated physical
+F5 presses coalesce. Server-driven movement-correction refreshes bypass this
+delay and remain immediate.
+
+The HTTP response confirms that the coordinator accepted the command; it can
+arrive before the movement safe point and before the packet is sent. Sending
+the packet publishes the transient
+[`client.resync`](events.md#client-command-events) event. That event confirms
+that daRPC observed the actual outgoing request. It does not confirm that the
+server responded. The command response includes a `resync_id` equal to its
+`command_id`, and `client.resync` carries the same value.
 
 The server's payload-free `0x22` `RefreshUserOK` response publishes the
 transient `client.resync_completed` event with the matching `resync_id`.
 Consumers that pause movement for refresh must establish the event stream
 before making the request and wait for this matching event before releasing
-movement. The HTTP `200 OK`, `202 Accepted`, and `client.resync` signals cover
-command submission only. If the event stream disconnects before completion,
-keep movement paused and issue a new refresh after reconnecting.
+movement. The HTTP `200 OK` or `202 Accepted` covers scheduler acceptance,
+`client.resync` covers actual packet submission, and
+`client.resync_completed` covers the authoritative response. If the event
+stream disconnects before completion, keep movement paused and issue a new
+refresh after reconnecting.
 
 daRPC reconciles the refreshed visible-object set by stable entity ID. New IDs
 publish their normal appeared events, missing retained IDs publish their normal

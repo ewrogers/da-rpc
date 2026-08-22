@@ -1,3 +1,5 @@
+mod refresh;
+
 use darpc_game_client::{
     CLIENT_MAIN_THREAD_ID_RVA, CLIENT_PACKET_SUBMIT_ENTRY, CLIENT_PACKET_SUBMIT_RVA,
 };
@@ -19,6 +21,7 @@ use super::{
     support,
 };
 use crate::process_memory::read_exact;
+use refresh::PhysicalRefreshHook;
 
 pub(crate) const NAME: &str = "client_packet_submit";
 
@@ -40,6 +43,7 @@ static OUTGOING_READ_FAILURE_COUNT: AtomicU32 = AtomicU32::new(0);
 
 pub(crate) struct OutgoingHook {
     detour: InstalledDetour,
+    physical_refresh: PhysicalRefreshHook,
     heartbeat_priority: HeartbeatPriorityHook,
     relocated_bytes: u8,
     install_warning: Option<io::Error>,
@@ -49,6 +53,7 @@ pub(crate) struct OutgoingHook {
 pub(crate) struct OutgoingHealth {
     pub(crate) observation_count: u32,
     pub(crate) read_failure_count: u32,
+    pub(crate) physical_refresh_deferred_count: u32,
     pub(crate) prioritized_heartbeat_count: u32,
     pub(crate) delivered_heartbeat_count: u32,
     pub(crate) heartbeat_fallback_count: u32,
@@ -98,7 +103,7 @@ impl OutgoingHook {
             }
         };
         let install_warning = detour.take_resume_warning().map(support::detour_error);
-        let mut heartbeat_priority = match HeartbeatPriorityHook::install() {
+        let mut physical_refresh = match PhysicalRefreshHook::install() {
             Ok(hook) => hook,
             Err(error) => {
                 support::uninstall_detour(&mut detour, UNINSTALL_TIMEOUT, COMMIT_RETRY_INTERVAL)
@@ -108,10 +113,34 @@ impl OutgoingHook {
                 return Err(error);
             }
         };
-        let install_warning = install_warning.or(heartbeat_priority.take_install_warning());
+        let mut heartbeat_priority = match HeartbeatPriorityHook::install() {
+            Ok(hook) => hook,
+            Err(error) => {
+                let refresh_error = physical_refresh.uninstall().err();
+                let outgoing_error = support::uninstall_detour(
+                    &mut detour,
+                    UNINSTALL_TIMEOUT,
+                    COMMIT_RETRY_INTERVAL,
+                )
+                .err()
+                .map(support::detour_error);
+                if outgoing_error.is_none() {
+                    OUTGOING_TRAMPOLINE.store(0, Ordering::Release);
+                    OUTGOING_RELOCATED_BYTES.store(0, Ordering::Release);
+                }
+                if let Some(cleanup_error) = refresh_error.or(outgoing_error) {
+                    return Err(InstallError::from(cleanup_error));
+                }
+                return Err(error);
+            }
+        };
+        let install_warning = install_warning
+            .or(physical_refresh.take_install_warning())
+            .or(heartbeat_priority.take_install_warning());
         OUTGOING_HOOK_INSTALLED.store(true, Ordering::Release);
         Ok(Self {
             detour,
+            physical_refresh,
             heartbeat_priority,
             relocated_bytes,
             install_warning,
@@ -122,11 +151,16 @@ impl OutgoingHook {
         self.relocated_bytes
     }
 
+    pub(crate) const fn physical_refresh_relocated_bytes(&self) -> u8 {
+        self.physical_refresh.relocated_bytes()
+    }
+
     pub(crate) fn take_install_warning(&mut self) -> Option<io::Error> {
         self.install_warning.take()
     }
 
     pub(crate) fn uninstall(&mut self) -> io::Result<bool> {
+        let physical_refresh_changed = self.physical_refresh.uninstall()?;
         let heartbeat_changed = self.heartbeat_priority.uninstall()?;
         let changed =
             support::uninstall_detour(&mut self.detour, UNINSTALL_TIMEOUT, COMMIT_RETRY_INTERVAL)
@@ -134,7 +168,7 @@ impl OutgoingHook {
         OUTGOING_HOOK_INSTALLED.store(false, Ordering::Release);
         OUTGOING_TRAMPOLINE.store(0, Ordering::Release);
         OUTGOING_RELOCATED_BYTES.store(0, Ordering::Release);
-        Ok(heartbeat_changed || changed)
+        Ok(physical_refresh_changed || heartbeat_changed || changed)
     }
 }
 
@@ -143,6 +177,7 @@ pub(crate) fn health() -> OutgoingHealth {
     OutgoingHealth {
         observation_count: OUTGOING_OBSERVATION_COUNT.load(Ordering::Acquire),
         read_failure_count: OUTGOING_READ_FAILURE_COUNT.load(Ordering::Acquire),
+        physical_refresh_deferred_count: refresh::deferred_count(),
         prioritized_heartbeat_count: heartbeat.prioritized_count,
         delivered_heartbeat_count: heartbeat.delivered_count,
         heartbeat_fallback_count: heartbeat.fallback_count,

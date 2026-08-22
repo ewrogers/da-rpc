@@ -358,10 +358,12 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
             Ok(mut hook) => {
                 let _ = writeln!(
                     log,
-                    "event=hook_installed hook={} rva=0x{:08X} relocated_bytes={} heartbeat_submit_rva=0x{:08X} heartbeat_pop_rva=0x{:08X} heartbeat_empty_rva=0x{:08X}",
+                    "event=hook_installed hook={} rva=0x{:08X} relocated_bytes={} refresh_rva=0x{:08X} refresh_relocated_bytes={} heartbeat_submit_rva=0x{:08X} heartbeat_pop_rva=0x{:08X} heartbeat_empty_rva=0x{:08X}",
                     outgoing::NAME,
                     darpc_game_client::CLIENT_PACKET_SUBMIT_RVA,
                     hook.relocated_bytes(),
+                    darpc_game_client::REFRESH_USER_RVA,
+                    hook.physical_refresh_relocated_bytes(),
                     darpc_game_client::CLIENT_TRANSPORT_SUBMIT_RVA,
                     darpc_game_client::CLIENT_TRANSPORT_POP_RVA,
                     darpc_game_client::CLIENT_TRANSPORT_EMPTY_RVA
@@ -478,12 +480,17 @@ pub(crate) fn shutdown() -> io::Result<()> {
         match hook.uninstall() {
             Ok(true) => {
                 let final_health = outgoing::health();
+                let resync_health = crate::resync::health();
                 writeln!(
                     active.log,
-                    "event=hook_removed hook={} observations={} read_failures={} heartbeat_enqueued={} heartbeat_delivered={} heartbeat_fallbacks={} heartbeat_pending={}",
+                    "event=hook_removed hook={} observations={} read_failures={} physical_refreshes_deferred={} user_refreshes_submitted={} user_refreshes_completed={} user_refresh_failures={} heartbeat_enqueued={} heartbeat_delivered={} heartbeat_fallbacks={} heartbeat_pending={}",
                     outgoing::NAME,
                     final_health.observation_count,
                     final_health.read_failure_count,
+                    final_health.physical_refresh_deferred_count,
+                    resync_health.submission_count,
+                    resync_health.completion_count,
+                    resync_health.submission_failure_count,
                     final_health.prioritized_heartbeat_count,
                     final_health.delivered_heartbeat_count,
                     final_health.heartbeat_fallback_count,
@@ -604,6 +611,8 @@ pub(crate) fn shutdown() -> io::Result<()> {
             }
         }
     }
+
+    crate::resync::reset();
 
     writeln!(
         active.log,

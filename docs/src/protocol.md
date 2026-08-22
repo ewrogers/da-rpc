@@ -1097,12 +1097,23 @@ game packet contents.
 `Assail` submits the one-byte client packet body `0x13` through the confirmed
 client packet function.
 
-`Resync` submits the opcode-only client refresh packet `0x38`, matching the F5
-key behavior. The outgoing packet publishes `Resync` with a nonzero DLL-local
+`Resync` schedules the opcode-only client refresh packet `0x38`, matching the
+physical F5 behavior. Both origins enter one DLL-local coordinator. It cancels
+queued route movement and defers packet submission while the native local
+object reports an active visual step. Submission resumes after the staged tile
+is committed, or after a changed committed tile remains stable for one
+additional tick. The command's terminal status means the request was accepted
+by this coordinator; it does not mean the packet or server response was
+observed.
+
+The actual outgoing packet publishes `Resync` with a nonzero DLL-local
 identifier. An HTTP-triggered refresh uses its command ID as the resync ID. A
 payload-free server `0x22` `RefreshUserOK` packet publishes `ResyncCompleted`
-with the matching identifier. Requests and responses are correlated in their
-observed order.
+with the matching identifier. User-initiated requests are serialized and
+responses are correlated in their observed order because the server response
+has no identifier. Repeated physical F5 requests coalesce while one is pending.
+The server-driven movement-correction call to the same native refresh helper is
+not deferred.
 
 The DLL retains the current object set while the server redraws it. Stable IDs
 observed in the redraw remain retained, newly observed IDs publish `Appeared`,

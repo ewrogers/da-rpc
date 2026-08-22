@@ -2,11 +2,24 @@
 
 ## Unreleased
 
+## 1.7.0 - 2026-08-22
+
+### Added
+
+- Add the correlated `client.resync_completed` event for the payload-free
+  server `RefreshUserOK` response while retaining protocol version 1.7.
+
 ### Changed
 
 - Reconcile F5 refreshes and map changes into ordinary world-object appearance
   and disappearance events so consumers never need to clear and rebuild
   retained object state.
+- Route physical F5 and `POST /resync` through one movement-safe coordinator.
+  Queued movement is cancelled and refresh packet `0x38` is deferred until an
+  active step commits, while server-driven correction refreshes remain
+  immediate.
+- Inventory the mandatory and optional client launch patches in the README with
+  player-facing descriptions of each patch and its purpose.
 
 ### Removed
 

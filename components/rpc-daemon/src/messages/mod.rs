@@ -1,6 +1,6 @@
 use crate::registry::{ClientIdentity, ConnectionEvent, RegistrySnapshot};
 use chrono::{DateTime, Local, SecondsFormat, Utc};
-use darpc_model::{ClientMessage, MessageKind, StateUpdate};
+use darpc_model::{ClientMessage, MessageKind, StateEvent, StateUpdate};
 use serde::Serialize;
 use serde_json::{Map, Value};
 use std::{
@@ -304,27 +304,40 @@ impl MessageStore {
         }
     }
 
-    pub(crate) fn observe(&mut self, event: &ConnectionEvent, observed_at_utc: DateTime<Utc>) {
-        match event {
-            ConnectionEvent::Connected { pid, hello, .. } => {
-                let identity = ClientIdentity::from_hello(*hello);
-                self.clients
-                    .retain(|existing, _| existing.pid != *pid || *existing == identity);
-            }
-            ConnectionEvent::StateEvents {
-                identity, events, ..
-            } => {
-                for event in events {
-                    let StateUpdate::Message(message) = &event.update else {
-                        continue;
-                    };
-                    let Some(message) = StoredMessage::new(event, observed_at_utc, message) else {
-                        continue;
-                    };
-                    self.clients.entry(*identity).or_default().push(message);
-                }
-            }
-            _ => {}
+    pub(crate) fn observe_connection(&mut self, event: &ConnectionEvent) {
+        let ConnectionEvent::Connected { pid, hello, .. } = event else {
+            return;
+        };
+        let identity = ClientIdentity::from_hello(*hello);
+        self.clients
+            .retain(|existing, _| existing.pid != *pid || *existing == identity);
+    }
+
+    pub(crate) fn observe_state_events<'a>(
+        &mut self,
+        identity: ClientIdentity,
+        events: impl IntoIterator<Item = &'a StateEvent>,
+        observed_at_utc: DateTime<Utc>,
+    ) {
+        for event in events {
+            let StateUpdate::Message(message) = &event.update else {
+                continue;
+            };
+            let Some(message) = StoredMessage::new(event, observed_at_utc, message) else {
+                continue;
+            };
+            self.clients.entry(identity).or_default().push(message);
+        }
+    }
+
+    #[cfg(test)]
+    fn observe(&mut self, event: &ConnectionEvent, observed_at_utc: DateTime<Utc>) {
+        self.observe_connection(event);
+        if let ConnectionEvent::StateEvents {
+            identity, events, ..
+        } = event
+        {
+            self.observe_state_events(*identity, events, observed_at_utc);
         }
     }
 

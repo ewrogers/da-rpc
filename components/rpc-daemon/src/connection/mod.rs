@@ -136,6 +136,7 @@ impl TickRateMonitor {
 
 pub(crate) struct Worker {
     stop: Arc<AtomicBool>,
+    refresh_observation: Arc<AtomicBool>,
     commands: SyncSender<CommandCall>,
     _handle: JoinHandle<()>,
 }
@@ -143,6 +144,12 @@ pub(crate) struct Worker {
 impl Worker {
     pub(crate) fn stop(&self) {
         self.stop.store(true, Ordering::Release);
+    }
+
+    pub(crate) fn request_fresh_snapshot(&self) {
+        // The worker consumes this flag between bounded pipe operations and
+        // clears its event boundary before issuing the snapshot request.
+        self.refresh_observation.store(true, Ordering::Release);
     }
 
     pub(crate) fn route_command(&self, call: CommandCall) {
@@ -160,19 +167,36 @@ impl Worker {
 
 pub(crate) fn spawn(pid: u32, events: Sender<DaemonEvent>) -> io::Result<Worker> {
     let stop = Arc::new(AtomicBool::new(false));
+    let refresh_observation = Arc::new(AtomicBool::new(false));
     let (commands, command_receiver) = mpsc::sync_channel(WORKER_CAPACITY);
     let worker_stop = Arc::clone(&stop);
+    let worker_refresh_observation = Arc::clone(&refresh_observation);
     let handle = thread::Builder::new()
         .name(format!("darpcd-client-{pid}"))
-        .spawn(move || run(pid, events, &command_receiver, &worker_stop))?;
+        .spawn(move || {
+            run(
+                pid,
+                events,
+                &command_receiver,
+                &worker_stop,
+                &worker_refresh_observation,
+            );
+        })?;
     Ok(Worker {
         stop,
+        refresh_observation,
         commands,
         _handle: handle,
     })
 }
 
-fn run(pid: u32, events: Sender<DaemonEvent>, commands: &Receiver<CommandCall>, stop: &AtomicBool) {
+fn run(
+    pid: u32,
+    events: Sender<DaemonEvent>,
+    commands: &Receiver<CommandCall>,
+    stop: &AtomicBool,
+    refresh_observation: &AtomicBool,
+) {
     if !emit(&events, ConnectionEvent::Connecting { pid }) {
         return;
     }
@@ -220,6 +244,7 @@ fn run(pid: u32, events: Sender<DaemonEvent>, commands: &Receiver<CommandCall>, 
                     pid,
                     identity,
                     diagnostics_supported,
+                    refresh_observation,
                 ) && !stop.load(Ordering::Acquire)
                     && !emit(
                         &events,
@@ -292,6 +317,7 @@ fn monitor(
     pid: u32,
     identity: ClientIdentity,
     diagnostics_supported: bool,
+    refresh_observation: &AtomicBool,
 ) -> Result<(), ControllerError> {
     let mut request_id = 1_u32;
     let mut boundary = None;
@@ -299,6 +325,9 @@ fn monitor(
     let mut tick_rate = TickRateMonitor::default();
     let mut hook_timing = HookTimingMonitor::default();
     while !stop.load(Ordering::Acquire) {
+        if refresh_observation.swap(false, Ordering::AcqRel) {
+            boundary = None;
+        }
         if let Some(call) = next_command(commands) {
             if call.identity != identity {
                 let _ = call.reply.send(CommandReply::Unavailable);

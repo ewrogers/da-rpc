@@ -64,6 +64,13 @@ behavior without a demonstrated requirement.
 A new daemon connection begins with a complete client baseline. The DLL then
 sends smaller ordered updates as relevant game events occur.
 
+The daemon commits each complete snapshot or contiguous event batch once.
+That commit produces both the retained REST view and the matching live changes,
+so the two interfaces cannot accept different interpretations of one batch.
+If reduction fails, the daemon preserves the last valid snapshot internally,
+marks the public observation unavailable, closes the current event stream with
+`stream.resync_required`, and requests a fresh snapshot from the DLL.
+
 ```text
 client main thread -> bounded copy -> DLL state -> named pipe -> daemon -> REST / SSE
 ```

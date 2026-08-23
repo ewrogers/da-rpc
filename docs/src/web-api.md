@@ -42,6 +42,12 @@ rather than choosing one.
 Use `GET /clients` to discover the current path value and connection state for
 every tracked client.
 
+Observation-backed routes return `503 Service Unavailable` when no complete
+snapshot is available or when the daemon rejects an event batch during
+reduction. The daemon keeps the last valid snapshot internally but does not
+serve it as current data. A fresh snapshot restores the routes and establishes
+the boundary for new Server-Sent Events streams.
+
 ## Client registry
 
 ```console

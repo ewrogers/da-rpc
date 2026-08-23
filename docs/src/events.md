@@ -214,7 +214,8 @@ created before a subscription. It also does not resume from the browser's
 `Last-Event-ID` header.
 
 The daemon keeps a bounded 4,096-entry broadcast queue. If a subscriber falls
-behind, it publishes this final event and closes the connection:
+behind, or if the daemon cannot reduce a client event batch into its retained
+observation, it publishes this final event and closes the connection:
 
 ```text
 stream.resync_required
@@ -242,9 +243,12 @@ StreamClosed {
 ```
 
 For either event, discard assumptions based only on the old stream. Wait for
-the client to reconnect if necessary, open a new stream, wait for
-`stream.ready`, and reread the REST resources your tool uses. Message history
-has its own bounded lookback and can restore recent conversation context.
+the client observation to become available, or for the client to reconnect if
+necessary, then open a new stream, wait for `stream.ready`, and reread the REST
+resources your tool uses. A reduction failure temporarily returns `503 Service
+Unavailable` from observation-backed REST routes and new stream requests while
+the daemon obtains a fresh snapshot. Message history has its own bounded
+lookback and can restore recent conversation context.
 
 Fifteen-second SSE comments keep an idle connection observable. They do not
 change ordering or carry game data.

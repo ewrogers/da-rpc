@@ -1,7 +1,6 @@
-use darpc_model::{ClientSnapshot as GameSnapshot, StateEvent};
+use darpc_model::{ClientSnapshot as GameSnapshot, StateEvent, WorldObject};
 use darpc_protocol::{Architecture, Hello, protocol_version_major, protocol_version_minor};
-use std::collections::BTreeMap;
-use std::fmt::Write as _;
+use std::{collections::BTreeMap, fmt::Write as _, sync::Arc};
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) struct ClientIdentity {
@@ -107,8 +106,47 @@ enum TargetStatus {
 struct ClientRecord {
     hello: Hello,
     selected_version: u16,
-    snapshot: Option<GameSnapshot>,
+    snapshot: Option<Arc<GameSnapshot>>,
     snapshot_reason: Option<String>,
+}
+
+/// One accepted state event and publication context derived from its exact
+/// pre-event observation.
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) struct CommittedStateEvent {
+    pub(crate) event: StateEvent,
+    pub(crate) replaced_players: Vec<WorldObject>,
+}
+
+/// A validated registry change that contains everything needed for publication.
+/// Observation variants share the same accepted snapshot retained by the registry.
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) enum CommittedChange {
+    Connection(ConnectionEvent),
+    Snapshot {
+        pid: u32,
+        identity: ClientIdentity,
+        previous: Option<Arc<GameSnapshot>>,
+        current: Arc<GameSnapshot>,
+    },
+    StateEvents {
+        pid: u32,
+        identity: ClientIdentity,
+        events: Vec<CommittedStateEvent>,
+        current: Arc<GameSnapshot>,
+    },
+}
+
+/// The result of attempting one registry transition.
+#[derive(Debug, Eq, PartialEq)]
+pub(crate) enum CommitOutcome {
+    Ignored,
+    Applied(CommittedChange),
+    ObservationRejected {
+        pid: u32,
+        identity: ClientIdentity,
+        reason: String,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -129,7 +167,7 @@ pub(crate) struct ClientSnapshot {
     pub(crate) identity: Option<ClientIdentity>,
     pub(crate) hello: Option<Hello>,
     pub(crate) selected_version: Option<u16>,
-    pub(crate) game_snapshot: Option<GameSnapshot>,
+    pub(crate) game_snapshot: Option<Arc<GameSnapshot>>,
     pub(crate) snapshot_reason: Option<String>,
     pub(crate) reason: Option<String>,
 }
@@ -154,74 +192,125 @@ impl Registry {
         }
     }
 
-    pub(crate) fn apply(&mut self, event: &ConnectionEvent) -> bool {
+    /// Validates and applies one connection event.
+    ///
+    /// State-event batches are reduced into a private copy and become visible
+    /// only after every event succeeds. A failure retains the last valid
+    /// snapshot, marks it unavailable to consumers, and requires a fresh
+    /// snapshot before later events can be accepted.
+    #[must_use = "the caller must publish or recover from the commit outcome"]
+    pub(crate) fn commit(&mut self, event: ConnectionEvent) -> CommitOutcome {
         let pid = event.pid();
-        match event {
+        let event = match event {
             ConnectionEvent::Snapshot {
                 identity, snapshot, ..
             } => {
-                let Some(record) = self.clients.get_mut(identity) else {
-                    return false;
+                let Some(record) = self.clients.get_mut(&identity) else {
+                    return CommitOutcome::Ignored;
                 };
-                if record.snapshot.as_ref() == Some(snapshot.as_ref())
+                if record.snapshot.as_deref() == Some(snapshot.as_ref())
                     && record.snapshot_reason.is_none()
                 {
-                    return false;
+                    return CommitOutcome::Ignored;
                 }
-                record.snapshot = Some(snapshot.as_ref().clone());
+                let previous = record.snapshot.clone();
+                let current = Arc::from(snapshot);
+                record.snapshot = Some(Arc::clone(&current));
                 record.snapshot_reason = None;
-                return true;
+                return CommitOutcome::Applied(CommittedChange::Snapshot {
+                    pid,
+                    identity,
+                    previous,
+                    current,
+                });
             }
             ConnectionEvent::SnapshotUnavailable {
                 identity, reason, ..
             } => {
-                let Some(record) = self.clients.get_mut(identity) else {
-                    return false;
+                let Some(record) = self.clients.get_mut(&identity) else {
+                    return CommitOutcome::Ignored;
                 };
-                if record.snapshot_reason.as_ref() == Some(reason) {
-                    return false;
+                if record.snapshot_reason.as_ref() == Some(&reason) {
+                    return CommitOutcome::Ignored;
                 }
                 record.snapshot_reason = Some(reason.clone());
-                return true;
+                return CommitOutcome::Applied(CommittedChange::Connection(
+                    ConnectionEvent::SnapshotUnavailable {
+                        pid,
+                        identity,
+                        reason,
+                    },
+                ));
             }
             ConnectionEvent::StateEvents {
                 identity, events, ..
             } => {
                 if events.is_empty() {
-                    return false;
+                    return CommitOutcome::Ignored;
                 }
-                let Some(record) = self.clients.get_mut(identity) else {
-                    return false;
+                let Some(record) = self.clients.get_mut(&identity) else {
+                    return CommitOutcome::Ignored;
                 };
+                if record.snapshot_reason.is_some() {
+                    return CommitOutcome::Ignored;
+                }
                 let Some(current) = record.snapshot.as_ref() else {
-                    return false;
+                    return CommitOutcome::Ignored;
                 };
-                if let Err(error) = validate_collection_batches(events) {
+                if let Err(error) = validate_collection_batches(&events) {
                     let reason = format!("event reduction failed: {error}");
-                    if record.snapshot_reason.as_ref() == Some(&reason) {
-                        return false;
-                    }
-                    record.snapshot_reason = Some(reason);
-                    return true;
+                    record.snapshot_reason = Some(reason.clone());
+                    return CommitOutcome::ObservationRejected {
+                        pid,
+                        identity,
+                        reason,
+                    };
                 }
-                let mut next = current.clone();
-                for state_event in events {
+                let mut next = current.as_ref().clone();
+                let mut committed = Vec::with_capacity(events.len());
+                for state_event in &events {
+                    let replaced_players = replaced_players(&next, &state_event.update);
                     if let Err(error) = next.apply_event(state_event.clone()) {
                         let reason = format!("event reduction failed: {error}");
-                        if record.snapshot_reason.as_ref() == Some(&reason) {
-                            return false;
-                        }
-                        record.snapshot_reason = Some(reason);
-                        return true;
+                        record.snapshot_reason = Some(reason.clone());
+                        return CommitOutcome::ObservationRejected {
+                            pid,
+                            identity,
+                            reason,
+                        };
                     }
+                    committed.push(replaced_players);
                 }
-                record.snapshot = Some(next);
+                let current = Arc::new(next);
+                record.snapshot = Some(Arc::clone(&current));
                 record.snapshot_reason = None;
-                return true;
+                let events = events
+                    .into_iter()
+                    .zip(committed)
+                    .map(|(event, replaced_players)| CommittedStateEvent {
+                        event,
+                        replaced_players,
+                    })
+                    .collect();
+                return CommitOutcome::Applied(CommittedChange::StateEvents {
+                    pid,
+                    identity,
+                    events,
+                    current,
+                });
             }
-            _ => {}
-        }
-        let next = match event {
+            event => event,
+        };
+        self.commit_connection_event(event, pid)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn apply(&mut self, event: &ConnectionEvent) -> bool {
+        !matches!(self.commit(event.clone()), CommitOutcome::Ignored)
+    }
+
+    fn commit_connection_event(&mut self, event: ConnectionEvent, pid: u32) -> CommitOutcome {
+        let next = match &event {
             ConnectionEvent::Connecting { .. } => TargetStatus::Connecting,
             ConnectionEvent::Initializing { .. } => TargetStatus::Initializing,
             ConnectionEvent::NotLoaded { .. } => TargetStatus::NotLoaded,
@@ -253,7 +342,7 @@ impl Registry {
                         Some(TargetStatus::Connected(current)) if current != identity
                     )
                 {
-                    return false;
+                    return CommitOutcome::Ignored;
                 }
                 TargetStatus::Disconnected {
                     identity: *identity,
@@ -269,15 +358,15 @@ impl Registry {
             ConnectionEvent::Snapshot { .. }
             | ConnectionEvent::SnapshotUnavailable { .. }
             | ConnectionEvent::StateEvents { .. } => {
-                unreachable!("snapshot events return before target status reconciliation")
+                unreachable!("observation events return before target status reconciliation")
             }
         };
 
         if self.targets.get(&pid) == Some(&next) {
-            return false;
+            return CommitOutcome::Ignored;
         }
         self.targets.insert(pid, next);
-        true
+        CommitOutcome::Applied(CommittedChange::Connection(event))
     }
 
     pub(crate) fn remove(&mut self, pid: u32) -> bool {
@@ -327,6 +416,38 @@ impl Registry {
             .collect();
         RegistrySnapshot { clients }
     }
+}
+
+pub(crate) fn replaced_players(
+    snapshot: &GameSnapshot,
+    update: &darpc_model::StateUpdate,
+) -> Vec<WorldObject> {
+    let darpc_model::StateUpdate::Object(darpc_model::ObjectUpdate::Appeared(
+        darpc_model::WorldObject::Player {
+            id,
+            name: Some(name),
+            ..
+        },
+    )) = update
+    else {
+        return Vec::new();
+    };
+    snapshot.objects.as_ref().map_or_else(Vec::new, |objects| {
+        objects
+            .iter()
+            .filter(|object| {
+                matches!(
+                    object,
+                    darpc_model::WorldObject::Player {
+                        id: current_id,
+                        name: Some(current_name),
+                        ..
+                    } if current_id != id && current_name == name
+                )
+            })
+            .cloned()
+            .collect()
+    })
 }
 
 fn validate_collection_batches(events: &[StateEvent]) -> Result<(), String> {
@@ -462,8 +583,8 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        ClientIdentity, ClientSnapshotStatus, ConnectionEvent, Registry, TargetStatus, hex,
-        render_event, validate_collection_batches,
+        ClientIdentity, ClientSnapshotStatus, CommitOutcome, CommittedChange, ConnectionEvent,
+        Registry, TargetStatus, hex, render_event, validate_collection_batches,
     };
     use darpc_model::{
         CharacterClass, CharacterProgression, CharacterSnapshot, CharacterStats, CharacterVitals,
@@ -472,6 +593,7 @@ mod tests {
         SlotUpdate, StateEvent, StateUpdate, StatusUpdate, TilePosition,
     };
     use darpc_protocol::{Architecture, ComponentVersion, Hello, SUPPORTED_VERSIONS};
+    use std::sync::Arc;
 
     #[test]
     fn hexadecimal_identifiers_are_lowercase() {
@@ -559,21 +681,31 @@ mod tests {
         }
     }
 
+    fn commit_applied(registry: &mut Registry, event: ConnectionEvent) {
+        assert!(matches!(registry.commit(event), CommitOutcome::Applied(_)));
+    }
+
     #[test]
     fn replaces_changed_process_and_dll_identity() {
         let mut registry = Registry::new();
         let first = hello(1, 100);
         let second = hello(2, 200);
-        assert!(registry.apply(&ConnectionEvent::Connected {
-            pid: 42,
-            hello: first,
-            selected_version: SUPPORTED_VERSIONS.max,
-        }));
-        assert!(registry.apply(&ConnectionEvent::Connected {
-            pid: 42,
-            hello: second,
-            selected_version: SUPPORTED_VERSIONS.max,
-        }));
+        assert!(matches!(
+            registry.commit(ConnectionEvent::Connected {
+                pid: 42,
+                hello: first,
+                selected_version: SUPPORTED_VERSIONS.max,
+            }),
+            CommitOutcome::Applied(_)
+        ));
+        assert!(matches!(
+            registry.commit(ConnectionEvent::Connected {
+                pid: 42,
+                hello: second,
+                selected_version: SUPPORTED_VERSIONS.max,
+            }),
+            CommitOutcome::Applied(_)
+        ));
 
         assert_eq!(registry.clients.len(), 1);
         assert!(
@@ -593,22 +725,31 @@ mod tests {
         let mut registry = Registry::new();
         let first = hello(1, 100);
         let second = hello(2, 200);
-        registry.apply(&ConnectionEvent::Connected {
-            pid: 42,
-            hello: first,
-            selected_version: SUPPORTED_VERSIONS.max,
-        });
-        registry.apply(&ConnectionEvent::Connected {
-            pid: 42,
-            hello: second,
-            selected_version: SUPPORTED_VERSIONS.max,
-        });
+        commit_applied(
+            &mut registry,
+            ConnectionEvent::Connected {
+                pid: 42,
+                hello: first,
+                selected_version: SUPPORTED_VERSIONS.max,
+            },
+        );
+        commit_applied(
+            &mut registry,
+            ConnectionEvent::Connected {
+                pid: 42,
+                hello: second,
+                selected_version: SUPPORTED_VERSIONS.max,
+            },
+        );
 
-        assert!(!registry.apply(&ConnectionEvent::Disconnected {
-            pid: 42,
-            identity: Some(ClientIdentity::from_hello(first)),
-            reason: "stale".into(),
-        }));
+        assert_eq!(
+            registry.commit(ConnectionEvent::Disconnected {
+                pid: 42,
+                identity: Some(ClientIdentity::from_hello(first)),
+                reason: "stale".into(),
+            }),
+            CommitOutcome::Ignored
+        );
         assert_eq!(
             registry.targets.get(&42),
             Some(&TargetStatus::Connected(ClientIdentity::from_hello(second)))
@@ -619,11 +760,14 @@ mod tests {
     fn keeps_incompatible_identity_visible_but_unregistered() {
         let mut registry = Registry::new();
         let identity = ClientIdentity::from_hello(hello(3, 300));
-        assert!(registry.apply(&ConnectionEvent::Incompatible {
-            pid: 42,
-            identity: Some(identity),
-            reason: "unsupported protocol".into(),
-        }));
+        assert!(matches!(
+            registry.commit(ConnectionEvent::Incompatible {
+                pid: 42,
+                identity: Some(identity),
+                reason: "unsupported protocol".into(),
+            }),
+            CommitOutcome::Applied(_)
+        ));
         assert!(registry.clients.is_empty());
         assert!(matches!(
             registry.targets.get(&42),
@@ -643,7 +787,10 @@ mod tests {
             ConnectionEvent::NotLoaded { pid: 3 },
             ConnectionEvent::Busy { pid: 4 },
         ] {
-            assert!(registry.apply(&event));
+            assert!(matches!(
+                registry.commit(event.clone()),
+                CommitOutcome::Applied(_)
+            ));
             assert!(render_event(&event).contains("status="));
         }
         let disconnected = ConnectionEvent::Disconnected {
@@ -651,7 +798,10 @@ mod tests {
             identity: None,
             reason: "closed".into(),
         };
-        assert!(registry.apply(&disconnected));
+        assert!(matches!(
+            registry.commit(disconnected.clone()),
+            CommitOutcome::Applied(_)
+        ));
         assert!(render_event(&disconnected).contains("instance=unknown"));
 
         let snapshot = registry.snapshot();
@@ -663,11 +813,14 @@ mod tests {
     #[test]
     fn removes_a_disappeared_target_and_identity() {
         let mut registry = Registry::new();
-        registry.apply(&ConnectionEvent::Connected {
-            pid: 42,
-            hello: hello(1, 100),
-            selected_version: SUPPORTED_VERSIONS.max,
-        });
+        commit_applied(
+            &mut registry,
+            ConnectionEvent::Connected {
+                pid: 42,
+                hello: hello(1, 100),
+                selected_version: SUPPORTED_VERSIONS.max,
+            },
+        );
 
         assert!(registry.remove(42));
         assert!(registry.snapshot().clients.is_empty());
@@ -680,17 +833,23 @@ mod tests {
         let mut registry = Registry::new();
         let hello = hello(1, 100);
         let identity = ClientIdentity::from_hello(hello);
-        registry.apply(&ConnectionEvent::Connected {
-            pid: 42,
-            hello,
-            selected_version: SUPPORTED_VERSIONS.max,
-        });
+        commit_applied(
+            &mut registry,
+            ConnectionEvent::Connected {
+                pid: 42,
+                hello,
+                selected_version: SUPPORTED_VERSIONS.max,
+            },
+        );
 
-        assert!(registry.apply(&ConnectionEvent::SnapshotUnavailable {
-            pid: 42,
-            identity,
-            reason: "capture timed out".into(),
-        }));
+        assert!(matches!(
+            registry.commit(ConnectionEvent::SnapshotUnavailable {
+                pid: 42,
+                identity,
+                reason: "capture timed out".into(),
+            }),
+            CommitOutcome::Applied(_)
+        ));
         assert_eq!(
             registry.snapshot().clients[0].snapshot_reason.as_deref(),
             Some("capture timed out")
@@ -702,70 +861,79 @@ mod tests {
         let mut registry = Registry::new();
         let hello = hello(1, 100);
         let identity = ClientIdentity::from_hello(hello);
-        registry.apply(&ConnectionEvent::Connected {
-            pid: 42,
-            hello,
-            selected_version: SUPPORTED_VERSIONS.max,
-        });
-        registry.apply(&ConnectionEvent::Snapshot {
-            pid: 42,
-            identity,
-            snapshot: Box::new(game_snapshot()),
-        });
+        commit_applied(
+            &mut registry,
+            ConnectionEvent::Connected {
+                pid: 42,
+                hello,
+                selected_version: SUPPORTED_VERSIONS.max,
+            },
+        );
+        commit_applied(
+            &mut registry,
+            ConnectionEvent::Snapshot {
+                pid: 42,
+                identity,
+                snapshot: Box::new(game_snapshot()),
+            },
+        );
 
-        assert!(registry.apply(&ConnectionEvent::StateEvents {
-            pid: 42,
-            identity,
-            events: vec![
-                StateEvent {
-                    sequence: 1,
-                    revision: 2,
-                    tick_ms: 20,
-                    update: StateUpdate::Status(StatusUpdate {
-                        vitals: Some(CurrentVitals {
-                            health: 80,
-                            mana: 40,
+        assert!(matches!(
+            registry.commit(ConnectionEvent::StateEvents {
+                pid: 42,
+                identity,
+                events: vec![
+                    StateEvent {
+                        sequence: 1,
+                        revision: 2,
+                        tick_ms: 20,
+                        update: StateUpdate::Status(StatusUpdate {
+                            vitals: Some(CurrentVitals {
+                                health: 80,
+                                mana: 40,
+                            }),
+                            gold: Some(125),
+                            is_action_restricted: Some(true),
+                            ..StatusUpdate::default()
                         }),
-                        gold: Some(125),
-                        is_action_restricted: Some(true),
-                        ..StatusUpdate::default()
-                    }),
-                },
-                StateEvent {
-                    sequence: 2,
-                    revision: 3,
-                    tick_ms: 21,
-                    update: StateUpdate::Location(LocationUpdate {
-                        x: 43,
-                        y: 40,
-                        map: Some(MapChange {
-                            id: 3001,
-                            name: Some("Mileth".into()),
-                            width: 100,
-                            height: 80,
+                    },
+                    StateEvent {
+                        sequence: 2,
+                        revision: 3,
+                        tick_ms: 21,
+                        update: StateUpdate::Location(LocationUpdate {
+                            x: 43,
+                            y: 40,
+                            map: Some(MapChange {
+                                id: 3001,
+                                name: Some("Mileth".into()),
+                                width: 100,
+                                height: 80,
+                            }),
                         }),
-                    }),
-                },
-                StateEvent {
-                    sequence: 3,
-                    revision: 4,
-                    tick_ms: 22,
-                    update: StateUpdate::Effect(EffectUpdate::Added(Effect {
-                        icon: 300,
-                        duration: EffectDuration::White,
-                    })),
-                },
-                StateEvent {
-                    sequence: 4,
-                    revision: 5,
-                    tick_ms: 23,
-                    update: StateUpdate::Movement(MovementUpdate::Started {
-                        current: TilePosition { x: 43, y: 40 },
-                        destination: Some(TilePosition { x: 50, y: 45 }),
-                    }),
-                },
-            ],
-        }));
+                    },
+                    StateEvent {
+                        sequence: 3,
+                        revision: 4,
+                        tick_ms: 22,
+                        update: StateUpdate::Effect(EffectUpdate::Added(Effect {
+                            icon: 300,
+                            duration: EffectDuration::White,
+                        })),
+                    },
+                    StateEvent {
+                        sequence: 4,
+                        revision: 5,
+                        tick_ms: 23,
+                        update: StateUpdate::Movement(MovementUpdate::Started {
+                            current: TilePosition { x: 43, y: 40 },
+                            destination: Some(TilePosition { x: 50, y: 45 }),
+                        }),
+                    },
+                ],
+            }),
+            CommitOutcome::Applied(CommittedChange::StateEvents { .. })
+        ));
 
         let snapshot = registry.snapshot().clients[0]
             .game_snapshot
@@ -774,7 +942,7 @@ mod tests {
         assert_eq!(snapshot.revision, 5);
         assert_eq!(snapshot.event_sequence, 4);
         assert_eq!(snapshot.updated_tick_ms, 23);
-        let character = snapshot.character.unwrap();
+        let character = snapshot.character.as_ref().unwrap();
         assert_eq!(character.vitals.health, 80);
         assert_eq!(character.gold, 125);
         assert!(character.is_action_restricted);
@@ -796,6 +964,110 @@ mod tests {
                 icon: 300,
                 duration: EffectDuration::White,
             }])
+        );
+    }
+
+    #[test]
+    fn rejects_an_observation_atomically_until_a_fresh_snapshot_arrives() {
+        let mut registry = Registry::new();
+        let hello = hello(1, 100);
+        let identity = ClientIdentity::from_hello(hello);
+        commit_applied(
+            &mut registry,
+            ConnectionEvent::Connected {
+                pid: 42,
+                hello,
+                selected_version: SUPPORTED_VERSIONS.max,
+            },
+        );
+        commit_applied(
+            &mut registry,
+            ConnectionEvent::Snapshot {
+                pid: 42,
+                identity,
+                snapshot: Box::new(game_snapshot()),
+            },
+        );
+        let retained = registry.snapshot().clients[0]
+            .game_snapshot
+            .clone()
+            .unwrap();
+        let invalid = StateEvent {
+            sequence: 2,
+            revision: 2,
+            tick_ms: 20,
+            update: StateUpdate::Status(StatusUpdate {
+                gold: Some(999),
+                ..StatusUpdate::default()
+            }),
+        };
+
+        assert!(matches!(
+            registry.commit(ConnectionEvent::StateEvents {
+                pid: 42,
+                identity,
+                events: vec![invalid],
+            }),
+            CommitOutcome::ObservationRejected {
+                pid: 42,
+                identity: rejected_identity,
+                ..
+            } if rejected_identity == identity
+        ));
+        let unavailable = registry.snapshot();
+        let client = &unavailable.clients[0];
+        assert!(Arc::ptr_eq(
+            client.game_snapshot.as_ref().unwrap(),
+            &retained
+        ));
+        assert!(
+            client
+                .snapshot_reason
+                .as_deref()
+                .is_some_and(|reason| { reason.starts_with("event reduction failed:") })
+        );
+
+        assert_eq!(
+            registry.commit(ConnectionEvent::StateEvents {
+                pid: 42,
+                identity,
+                events: vec![StateEvent {
+                    sequence: 1,
+                    revision: 2,
+                    tick_ms: 21,
+                    update: StateUpdate::Status(StatusUpdate {
+                        gold: Some(125),
+                        ..StatusUpdate::default()
+                    }),
+                }],
+            }),
+            CommitOutcome::Ignored
+        );
+
+        let mut fresh = game_snapshot();
+        fresh.revision = 3;
+        fresh.event_sequence = 2;
+        fresh.character.as_mut().unwrap().gold = 125;
+        assert!(matches!(
+            registry.commit(ConnectionEvent::Snapshot {
+                pid: 42,
+                identity,
+                snapshot: Box::new(fresh),
+            }),
+            CommitOutcome::Applied(CommittedChange::Snapshot { .. })
+        ));
+        let recovered = registry.snapshot();
+        assert!(recovered.clients[0].snapshot_reason.is_none());
+        assert_eq!(
+            recovered.clients[0]
+                .game_snapshot
+                .as_ref()
+                .unwrap()
+                .character
+                .as_ref()
+                .unwrap()
+                .gold,
+            125
         );
     }
 

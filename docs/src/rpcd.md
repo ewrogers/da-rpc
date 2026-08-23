@@ -198,6 +198,13 @@ updates reduce into the retained state and appear in REST without another
 memory walk. A reported overflow or sequence or revision gap causes an
 immediate fresh snapshot.
 
+The registry validates and reduces each observation once before REST or
+Server-Sent Events can publish it. A rejected batch does not partially update
+the retained state and none of its events reach subscribers. The last valid
+snapshot remains available internally for recovery comparisons, but public
+state routes return `503 Service Unavailable` until the worker obtains and
+commits a fresh snapshot.
+
 Active spell effects are retained as a focused collection resource. Ordered
 add, remove, and relative-duration changes update that resource and the
 per-client event stream from the same event boundary.

@@ -450,6 +450,14 @@ pub(super) async fn client_events(
             Some(client.pid),
         )
     })?;
+    if let Some(reason) = client.snapshot_reason.as_deref() {
+        return Err(ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "event_stream_unavailable",
+            reason,
+            Some(client.pid),
+        ));
+    }
     let snapshot = client.game_snapshot.as_ref().ok_or_else(|| {
         ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,

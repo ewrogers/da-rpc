@@ -187,7 +187,7 @@ fn run(options: Options) -> Result<(), String> {
                 if workers.contains_key(&event.pid()) {
                     match auto_load.observe(&event) {
                         AutoLoadAction::Publish => {
-                            publish_event(&mut registry, &api_state, &event);
+                            publish_event(&mut registry, &api_state, &workers, event);
                         }
                         AutoLoadAction::Suppress => {}
                         AutoLoadAction::Start(attempt) => {
@@ -195,7 +195,8 @@ fn run(options: Options) -> Result<(), String> {
                             publish_event(
                                 &mut registry,
                                 &api_state,
-                                &registry::ConnectionEvent::Initializing { pid },
+                                &workers,
+                                registry::ConnectionEvent::Initializing { pid },
                             );
                             if let Err(error) = auto_load::spawn(
                                 pid,
@@ -210,7 +211,8 @@ fn run(options: Options) -> Result<(), String> {
                                 publish_event(
                                     &mut registry,
                                     &api_state,
-                                    &registry::ConnectionEvent::NotLoaded { pid },
+                                    &workers,
+                                    registry::ConnectionEvent::NotLoaded { pid },
                                 );
                             }
                         }
@@ -223,10 +225,10 @@ fn run(options: Options) -> Result<(), String> {
             }
             Ok(DaemonEvent::Status(event)) => {
                 if workers.contains_key(&event.pid()) {
-                    if matches!(event, registry::ConnectionEvent::Initializing { .. }) {
+                    if matches!(&event, registry::ConnectionEvent::Initializing { .. }) {
                         auto_load.suppress(event.pid());
                     }
-                    publish_event(&mut registry, &api_state, &event);
+                    publish_event(&mut registry, &api_state, &workers, event);
                 }
             }
             Ok(DaemonEvent::AutoLoadFinished {
@@ -250,7 +252,8 @@ fn run(options: Options) -> Result<(), String> {
                         publish_event(
                             &mut registry,
                             &api_state,
-                            &registry::ConnectionEvent::Connecting { pid },
+                            &workers,
+                            registry::ConnectionEvent::Connecting { pid },
                         );
                     }
                     Ok(outcome) => {
@@ -264,7 +267,8 @@ fn run(options: Options) -> Result<(), String> {
                         publish_event(
                             &mut registry,
                             &api_state,
-                            &registry::ConnectionEvent::NotLoaded { pid },
+                            &workers,
+                            registry::ConnectionEvent::NotLoaded { pid },
                         );
                     }
                     Err(error) => {
@@ -275,7 +279,8 @@ fn run(options: Options) -> Result<(), String> {
                         publish_event(
                             &mut registry,
                             &api_state,
-                            &registry::ConnectionEvent::NotLoaded { pid },
+                            &workers,
+                            registry::ConnectionEvent::NotLoaded { pid },
                         );
                     }
                 }
@@ -372,7 +377,9 @@ fn track_client(
         return false;
     }
     let event = registry::ConnectionEvent::Connecting { pid };
-    registry.apply(&event);
+    let registry::CommitOutcome::Applied(_) = registry.commit(event) else {
+        unreachable!("a newly tracked target must change registry state");
+    };
     match connection::spawn(pid, sender.clone()) {
         Ok(worker) => {
             workers.insert(pid, worker);
@@ -383,7 +390,9 @@ fn track_client(
                 identity: None,
                 reason: format!("failed to start connection worker: {error}"),
             };
-            registry.apply(&event);
+            let registry::CommitOutcome::Applied(_) = registry.commit(event.clone()) else {
+                unreachable!("a worker startup failure must change registry state");
+            };
             eprintln!("darpcd: {}", registry::render_event(&event));
         }
     }
@@ -394,15 +403,31 @@ fn track_client(
 fn publish_event(
     registry: &mut registry::Registry,
     api_state: &api::ApiState,
-    event: &registry::ConnectionEvent,
+    workers: &std::collections::BTreeMap<u32, connection::Worker>,
+    event: registry::ConnectionEvent,
 ) {
-    let previous = api_state.snapshot();
-    if registry.apply(event) {
-        api_state.publish(registry.snapshot());
-        api_state.publish_connection_event_from(event, &previous);
-        println!("{}", registry::render_event(event));
-        let _ = std::io::Write::flush(&mut std::io::stdout());
+    let rendered = registry::render_event(&event);
+    match registry.commit(event) {
+        registry::CommitOutcome::Ignored => return,
+        registry::CommitOutcome::Applied(change) => {
+            api_state.publish(registry.snapshot());
+            api_state.publish_committed(change);
+            println!("{rendered}");
+        }
+        registry::CommitOutcome::ObservationRejected {
+            pid,
+            identity,
+            reason,
+        } => {
+            api_state.publish(registry.snapshot());
+            api_state.reject_observation(pid, identity);
+            if let Some(worker) = workers.get(&pid) {
+                worker.request_fresh_snapshot();
+            }
+            eprintln!("darpcd: client pid={pid} observation rejected: {reason}");
+        }
     }
+    let _ = std::io::Write::flush(&mut std::io::stdout());
 }
 
 #[cfg(not(windows))]

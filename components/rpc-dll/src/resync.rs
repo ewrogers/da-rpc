@@ -7,14 +7,12 @@ use std::{
 #[cfg(all(windows, not(test)))]
 use darpc_protocol::CommandFailure;
 
-const PENDING_CAPACITY: usize = crate::commands::COMMAND_CAPACITY;
 const RESPONSE_TIMEOUT_MS: u32 = 1_000;
-const RESPONSE_QUIET_MS: u32 = 1_000;
 
 static PHYSICAL_REFRESH_REQUESTED: AtomicBool = AtomicBool::new(false);
 static SUBMISSION_COUNT: AtomicU32 = AtomicU32::new(0);
 static COMPLETION_COUNT: AtomicU32 = AtomicU32::new(0);
-static TIMEOUT_COUNT: AtomicU32 = AtomicU32::new(0);
+static FALLBACK_COUNT: AtomicU32 = AtomicU32::new(0);
 static SUBMISSION_FAILURE_COUNT: AtomicU32 = AtomicU32::new(0);
 static COORDINATOR: MainThreadCoordinator = MainThreadCoordinator::new();
 
@@ -23,7 +21,7 @@ static COORDINATOR: MainThreadCoordinator = MainThreadCoordinator::new();
 pub(crate) struct ResyncHealth {
     pub(crate) submission_count: u32,
     pub(crate) completion_count: u32,
-    pub(crate) timeout_count: u32,
+    pub(crate) fallback_count: u32,
     pub(crate) submission_failure_count: u32,
 }
 
@@ -44,76 +42,28 @@ enum Phase {
         origin: Origin,
     },
     AwaitingResponse {
-        origin: Origin,
         resync_id: u32,
         deadline_tick_ms: u32,
+        response_observed: bool,
     },
-    CoolingOff {
-        deadline_tick_ms: u32,
-    },
-}
-
-impl Phase {
-    const fn origin(self) -> Option<Origin> {
-        match self {
-            Self::Idle => None,
-            Self::Quiescing { origin, .. }
-            | Self::Submitting { origin }
-            | Self::AwaitingResponse { origin, .. } => Some(origin),
-            Self::CoolingOff { .. } => None,
-        }
-    }
 }
 
 #[derive(Debug, Eq, PartialEq)]
 struct Coordinator {
     phase: Phase,
-    pending: [Option<Origin>; PENDING_CAPACITY],
-    head: usize,
-    len: usize,
+    deferred_snapshot: bool,
 }
 
 impl Coordinator {
     const fn new() -> Self {
         Self {
             phase: Phase::Idle,
-            pending: [None; PENDING_CAPACITY],
-            head: 0,
-            len: 0,
+            deferred_snapshot: false,
         }
     }
 
     const fn is_idle(&self) -> bool {
         matches!(self.phase, Phase::Idle)
-    }
-
-    const fn has_pending(&self) -> bool {
-        self.len != 0
-    }
-
-    fn enqueue(&mut self, origin: Origin) -> bool {
-        if origin == Origin::Physical && self.contains_physical() {
-            return true;
-        }
-        if self.len == self.pending.len() {
-            return false;
-        }
-        let tail = (self.head + self.len) % self.pending.len();
-        self.pending[tail] = Some(origin);
-        self.len += 1;
-        true
-    }
-
-    fn peek(&self) -> Option<Origin> {
-        self.pending.get(self.head).copied().flatten()
-    }
-
-    fn pop(&mut self) -> Option<Origin> {
-        let origin = self.peek()?;
-        self.pending[self.head] = None;
-        self.head = (self.head + 1) % self.pending.len();
-        self.len -= 1;
-        Some(origin)
     }
 
     fn begin(&mut self, origin: Origin, transition: MovementTransition) {
@@ -146,15 +96,37 @@ impl Coordinator {
     }
 
     fn observe_outgoing(&mut self, resync_id: u32, tick_ms: u32) -> bool {
-        let Phase::Submitting { origin } = self.phase else {
-            return false;
-        };
+        match self.phase {
+            Phase::Submitting { .. } | Phase::Idle => {}
+            Phase::Quiescing { .. } | Phase::AwaitingResponse { .. } => return false,
+        }
         self.phase = Phase::AwaitingResponse {
-            origin,
             resync_id,
             deadline_tick_ms: tick_ms.wrapping_add(RESPONSE_TIMEOUT_MS),
+            response_observed: false,
         };
         true
+    }
+
+    fn observe_response_activity(&mut self) {
+        if let Phase::AwaitingResponse {
+            response_observed, ..
+        } = &mut self.phase
+        {
+            *response_observed = true;
+        }
+    }
+
+    fn defer_snapshot(&mut self) -> bool {
+        if self.is_idle() {
+            return false;
+        }
+        self.deferred_snapshot = true;
+        true
+    }
+
+    fn take_deferred_snapshot(&mut self) -> bool {
+        core::mem::take(&mut self.deferred_snapshot)
     }
 
     fn observe_timeout(&mut self, tick_ms: u32) -> Option<u32> {
@@ -169,43 +141,21 @@ impl Coordinator {
         if !crate::wrapping_time::deadline_reached(tick_ms, deadline_tick_ms) {
             return None;
         }
-        self.phase = Phase::CoolingOff {
-            deadline_tick_ms: tick_ms.wrapping_add(RESPONSE_QUIET_MS),
-        };
+        self.phase = Phase::Idle;
         Some(resync_id)
     }
 
-    fn observe_unmatched_completion(&mut self, tick_ms: u32) {
-        if matches!(self.phase, Phase::CoolingOff { .. }) {
-            self.phase = Phase::CoolingOff {
-                deadline_tick_ms: tick_ms.wrapping_add(RESPONSE_QUIET_MS),
-            };
-        }
-    }
-
-    fn finish_cooldown(&mut self, tick_ms: u32) -> bool {
-        let Phase::CoolingOff { deadline_tick_ms } = self.phase else {
-            return false;
+    fn observe_completed(&mut self) -> Option<u32> {
+        let Phase::AwaitingResponse {
+            resync_id,
+            response_observed: true,
+            ..
+        } = self.phase
+        else {
+            return None;
         };
-        if !crate::wrapping_time::deadline_reached(tick_ms, deadline_tick_ms) {
-            return false;
-        }
         self.phase = Phase::Idle;
-        true
-    }
-
-    fn observe_completed(&mut self, resync_id: u32) -> bool {
-        if matches!(
-            self.phase,
-            Phase::AwaitingResponse {
-                resync_id: expected,
-                ..
-            } if expected == resync_id
-        ) {
-            self.phase = Phase::Idle;
-            return true;
-        }
-        false
+        Some(resync_id)
     }
 
     fn submission_failed(&mut self, origin: Origin) -> bool {
@@ -218,16 +168,6 @@ impl Coordinator {
 
     fn reset(&mut self) {
         *self = Self::new();
-    }
-
-    fn contains_physical(&self) -> bool {
-        if self.phase.origin() == Some(Origin::Physical) {
-            return true;
-        }
-        (0..self.len).any(|offset| {
-            let index = (self.head + offset) % self.pending.len();
-            self.pending[index] == Some(Origin::Physical)
-        })
     }
 }
 
@@ -284,46 +224,42 @@ pub(crate) fn request_physical() {
 #[cfg(all(windows, not(test)))]
 pub(crate) fn request_command(command_id: u32) -> Result<(), CommandFailure> {
     // SAFETY: command execution runs on the client main thread.
-    let start_now = unsafe {
-        COORDINATOR.with(|coordinator| coordinator.is_idle() && !coordinator.has_pending())
-    };
-    if start_now {
-        let transition = crate::actions::begin_resync_transition()?;
-        // SAFETY: command execution runs on the client main thread.
-        unsafe {
-            COORDINATOR.with(|coordinator| {
-                coordinator.begin(Origin::Command(command_id), transition.into());
-            });
-        }
-        return Ok(());
+    let idle = unsafe { COORDINATOR.with(|coordinator| coordinator.is_idle()) };
+    if !idle {
+        return Err(CommandFailure::Rejected);
     }
+    let transition = crate::actions::begin_resync_transition()?;
     // SAFETY: command execution runs on the client main thread.
-    unsafe { COORDINATOR.with(|coordinator| coordinator.enqueue(Origin::Command(command_id))) }
-        .then_some(())
-        .ok_or(CommandFailure::Rejected)
+    unsafe {
+        COORDINATOR.with(|coordinator| {
+            coordinator.begin(Origin::Command(command_id), transition.into());
+        });
+    }
+    Ok(())
 }
 
 #[cfg(all(windows, not(test)))]
 pub(crate) fn observe_tick(tick_ms: u32) {
     if PHYSICAL_REFRESH_REQUESTED.swap(false, Ordering::AcqRel) {
         // SAFETY: tick observation runs on the client main thread.
-        let _ = unsafe { COORDINATOR.with(|coordinator| coordinator.enqueue(Origin::Physical)) };
+        let idle = unsafe { COORDINATOR.with(|coordinator| coordinator.is_idle()) };
+        if idle && let Ok(transition) = crate::actions::begin_resync_transition() {
+            // SAFETY: tick observation runs on the client main thread.
+            unsafe {
+                COORDINATOR.with(|coordinator| {
+                    coordinator.begin(Origin::Physical, transition.into());
+                });
+            }
+        }
     }
 
     // SAFETY: tick observation runs on the client main thread.
     let timed_out = unsafe { COORDINATOR.with(|coordinator| coordinator.observe_timeout(tick_ms)) };
     if let Some(resync_id) = timed_out {
-        TIMEOUT_COUNT.fetch_add(1, Ordering::Relaxed);
-        crate::state::observe_resync_timed_out(resync_id, tick_ms);
+        FALLBACK_COUNT.fetch_add(1, Ordering::Relaxed);
+        COMPLETION_COUNT.fetch_add(1, Ordering::Relaxed);
+        crate::state::observe_resync_fallback(resync_id, tick_ms);
     }
-
-    // SAFETY: tick observation runs on the client main thread.
-    unsafe {
-        COORDINATOR.with(|coordinator| {
-            coordinator.finish_cooldown(tick_ms);
-        });
-    }
-    begin_pending();
 
     // SAFETY: tick observation runs on the client main thread.
     let quiescing = unsafe {
@@ -360,54 +296,45 @@ pub(crate) fn observe_tick(tick_ms: u32) {
             unsafe { COORDINATOR.with(|coordinator| coordinator.submission_failed(origin)) };
         if failed {
             SUBMISSION_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed);
+            if take_deferred_snapshot() {
+                crate::state::mark_resync_required();
+            }
         }
     }
 }
 
-#[cfg(all(windows, not(test)))]
-fn begin_pending() {
-    // SAFETY: tick observation runs on the client main thread.
-    let origin = unsafe {
-        COORDINATOR.with(|coordinator| coordinator.is_idle().then(|| coordinator.peek()).flatten())
-    };
-    let Some(origin) = origin else {
-        return;
-    };
-    let Ok(transition) = crate::actions::begin_resync_transition() else {
-        return;
-    };
-    // SAFETY: tick observation runs on the client main thread.
-    unsafe {
-        COORDINATOR.with(|coordinator| {
-            debug_assert_eq!(coordinator.pop(), Some(origin));
-            coordinator.begin(origin, transition.into());
-        });
-    }
-}
-
-pub(crate) fn observe_outgoing(resync_id: u32, tick_ms: u32) {
+pub(crate) fn observe_outgoing(resync_id: u32, tick_ms: u32) -> bool {
     // SAFETY: outgoing observation runs on the client main thread.
     let submitted =
         unsafe { COORDINATOR.with(|coordinator| coordinator.observe_outgoing(resync_id, tick_ms)) };
     if submitted {
         SUBMISSION_COUNT.fetch_add(1, Ordering::Relaxed);
     }
+    submitted
 }
 
-pub(crate) fn observe_completed(resync_id: u32) {
+pub(crate) fn observe_response_activity() {
     // SAFETY: decoded server events run on the client main thread.
-    let completed =
-        unsafe { COORDINATOR.with(|coordinator| coordinator.observe_completed(resync_id)) };
-    if completed {
+    unsafe { COORDINATOR.with(Coordinator::observe_response_activity) };
+}
+
+pub(crate) fn defer_snapshot() -> bool {
+    // SAFETY: decoded server events run on the client main thread.
+    unsafe { COORDINATOR.with(Coordinator::defer_snapshot) }
+}
+
+pub(crate) fn take_deferred_snapshot() -> bool {
+    // SAFETY: refresh completion runs on the client main thread.
+    unsafe { COORDINATOR.with(Coordinator::take_deferred_snapshot) }
+}
+
+pub(crate) fn observe_completed() -> Option<u32> {
+    // SAFETY: decoded server events run on the client main thread.
+    let completed = unsafe { COORDINATOR.with(Coordinator::observe_completed) };
+    if completed.is_some() {
         COMPLETION_COUNT.fetch_add(1, Ordering::Relaxed);
     }
-}
-
-pub(crate) fn observe_unmatched_completion(tick_ms: u32) {
-    // SAFETY: decoded server events run on the client main thread.
-    unsafe {
-        COORDINATOR.with(|coordinator| coordinator.observe_unmatched_completion(tick_ms));
-    }
+    completed
 }
 
 #[cfg(windows)]
@@ -415,7 +342,7 @@ pub(crate) fn health() -> ResyncHealth {
     ResyncHealth {
         submission_count: SUBMISSION_COUNT.load(Ordering::Acquire),
         completion_count: COMPLETION_COUNT.load(Ordering::Acquire),
-        timeout_count: TIMEOUT_COUNT.load(Ordering::Acquire),
+        fallback_count: FALLBACK_COUNT.load(Ordering::Acquire),
         submission_failure_count: SUBMISSION_FAILURE_COUNT.load(Ordering::Acquire),
     }
 }
@@ -424,7 +351,7 @@ pub(crate) fn reset() {
     PHYSICAL_REFRESH_REQUESTED.store(false, Ordering::Release);
     SUBMISSION_COUNT.store(0, Ordering::Release);
     COMPLETION_COUNT.store(0, Ordering::Release);
-    TIMEOUT_COUNT.store(0, Ordering::Release);
+    FALLBACK_COUNT.store(0, Ordering::Release);
     SUBMISSION_FAILURE_COUNT.store(0, Ordering::Release);
     // SAFETY: lifecycle reset runs while the producer hooks are absent.
     unsafe {
@@ -490,21 +417,21 @@ mod tests {
     }
 
     #[test]
-    fn physical_refreshes_coalesce_while_commands_remain_ordered() {
+    fn active_refresh_stays_single_until_it_completes() {
         let mut coordinator = Coordinator::new();
         coordinator.begin(Origin::Command(1), transition(COMMITTED, COMMITTED, false));
+        assert!(!coordinator.is_idle());
 
-        assert!(coordinator.enqueue(Origin::Physical));
-        assert!(coordinator.enqueue(Origin::Physical));
-        assert!(coordinator.enqueue(Origin::Command(2)));
-        assert!(coordinator.has_pending());
-        assert_eq!(coordinator.len, 2);
-        assert_eq!(coordinator.pop(), Some(Origin::Physical));
-        assert_eq!(coordinator.pop(), Some(Origin::Command(2)));
+        assert_eq!(
+            coordinator.observe_transition(transition(COMMITTED, COMMITTED, false)),
+            Some(Origin::Command(1))
+        );
+        assert!(coordinator.observe_outgoing(1, 100));
+        assert!(!coordinator.is_idle());
     }
 
     #[test]
-    fn only_matching_response_releases_the_next_refresh() {
+    fn response_activity_and_refresh_ok_complete_the_refresh() {
         let mut coordinator = Coordinator::new();
         coordinator.begin(Origin::Command(12), transition(COMMITTED, COMMITTED, false));
         assert_eq!(
@@ -513,14 +440,43 @@ mod tests {
         );
         assert!(coordinator.observe_outgoing(12, 100));
 
-        assert!(!coordinator.observe_completed(99));
+        assert_eq!(coordinator.observe_completed(), None);
         assert!(!coordinator.is_idle());
-        assert!(coordinator.observe_completed(12));
+        coordinator.observe_response_activity();
+        assert_eq!(coordinator.observe_completed(), Some(12));
         assert!(coordinator.is_idle());
     }
 
     #[test]
-    fn missing_response_times_out_and_waits_for_a_quiet_second() {
+    fn refresh_defers_snapshot_recapture_until_completion() {
+        let mut coordinator = Coordinator::new();
+        assert!(!coordinator.defer_snapshot());
+
+        coordinator.begin(Origin::Command(12), transition(COMMITTED, COMMITTED, false));
+        assert!(coordinator.defer_snapshot());
+        assert_eq!(
+            coordinator.observe_transition(transition(COMMITTED, COMMITTED, false)),
+            Some(Origin::Command(12))
+        );
+        assert!(coordinator.observe_outgoing(12, 100));
+        coordinator.observe_response_activity();
+        assert_eq!(coordinator.observe_completed(), Some(12));
+        assert!(coordinator.take_deferred_snapshot());
+        assert!(!coordinator.take_deferred_snapshot());
+    }
+
+    #[test]
+    fn an_uncoordinated_outgoing_refresh_starts_a_transaction() {
+        let mut coordinator = Coordinator::new();
+
+        assert!(coordinator.observe_outgoing(21, 100));
+        coordinator.observe_response_activity();
+        assert_eq!(coordinator.observe_completed(), Some(21));
+        assert!(coordinator.is_idle());
+    }
+
+    #[test]
+    fn refresh_falls_back_after_one_second() {
         let mut coordinator = Coordinator::new();
         coordinator.begin(Origin::Command(12), transition(COMMITTED, COMMITTED, false));
         assert_eq!(
@@ -531,11 +487,6 @@ mod tests {
 
         assert_eq!(coordinator.observe_timeout(1_099), None);
         assert_eq!(coordinator.observe_timeout(1_100), Some(12));
-        assert!(!coordinator.finish_cooldown(2_099));
-
-        coordinator.observe_unmatched_completion(1_500);
-        assert!(!coordinator.finish_cooldown(2_499));
-        assert!(coordinator.finish_cooldown(2_500));
         assert!(coordinator.is_idle());
     }
 
@@ -543,6 +494,7 @@ mod tests {
     fn failed_submission_releases_the_coordinator() {
         let mut coordinator = Coordinator::new();
         coordinator.begin(Origin::Physical, transition(COMMITTED, COMMITTED, false));
+        assert!(coordinator.defer_snapshot());
         assert_eq!(
             coordinator.observe_transition(transition(COMMITTED, COMMITTED, false)),
             Some(Origin::Physical)
@@ -550,5 +502,6 @@ mod tests {
 
         assert!(coordinator.submission_failed(Origin::Physical));
         assert!(coordinator.is_idle());
+        assert!(coordinator.take_deferred_snapshot());
     }
 }

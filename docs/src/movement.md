@@ -141,27 +141,16 @@ packet `0x38`. This avoids asking the server to redraw while the client still
 exposes the prior committed tile.
 
 The HTTP response can arrive during this wait. `client.resync` marks the later
-packet submission, and the correlated `client.resync_completed` marks the
-server's `RefreshUserOK` response. A movement consumer should wait for the
-matching completion event before submitting its next walk. It does not need to
-measure the animation duration, poll native state, or clear and rebuild world
-objects. Server-driven correction refreshes remain immediate and do not enter
-this deferred user-request path.
+packet submission. The correlated `client.resync_completed` means daRPC closed
+the refresh window after `RefreshUserOK` or the one-second fallback. A movement
+consumer should wait for the matching completion event before submitting its
+next walk. It does not need to measure the animation duration, poll native
+state, or clear and rebuild world objects.
 
-If no `RefreshUserOK` arrives within one second of packet submission, daRPC
-publishes `client.resync_timed_out`. This is a failed synchronization, not a
-completion signal, so a movement consumer keeps movement paused. daRPC releases
-the stuck scheduler and waits for one quiet second before sending another
-refresh. Any late response restarts the quiet period instead of being matched
-to the next request.
-
-Keep one logical resync in flight per client. daRPC serializes accepted requests
-and reports its daemon-observed phase and pending count in the HTTP response,
-but those diagnostics are not a replacement for consumer-side request
-deduplication. A full resync scheduler returns `429 resync_queue_full`; an
-already active request is normal and does not return `resync_busy`. See
-[Resynchronizing a client](web-api.md#resynchronizing-a-client) for the response
-fields and error boundary.
+Server-driven correction refreshes remain immediate and do not enter this
+deferred user-request path. See
+[Refresh and resynchronization](resync.md) for coalescing, response fields,
+fallback behavior, and object reconciliation.
 
 ## Cancelling movement
 

@@ -435,7 +435,7 @@ fn observe_event_inner(event: *const core::ffi::c_void) {
         packet::ServerUpdate::UserAppearance(update) => {
             state::observe_status(update.status, tick_ms);
             if update.is_full {
-                state::mark_resync_required();
+                state::mark_refresh_snapshot_required();
             }
         }
         packet::ServerUpdate::UserPosition(position) => {
@@ -454,7 +454,7 @@ fn observe_event_inner(event: *const core::ffi::c_void) {
         packet::ServerUpdate::World(update) => {
             state::observe_world(update, &scratch.objects, tick_ms);
             if matches!(update, packet::object::WorldUpdate::DrawPlayer) {
-                state::mark_resync_required();
+                state::mark_refresh_snapshot_required();
                 if let Some(player) = scratch.objects.entries[0] {
                     crate::player::appeared(player);
                 }

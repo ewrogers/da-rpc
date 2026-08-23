@@ -3,6 +3,7 @@
 [Introduction](introduction.md)
 
 - [Using daRPC](web-api.md)
+  - [Refresh and resynchronization](resync.md)
   - [Live events](events.md)
   - [Raw packets](raw.md)
 - [Executable components](executables.md)

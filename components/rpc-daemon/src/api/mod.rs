@@ -65,19 +65,19 @@ use darpc_model::{ActionUpdate, SequenceNumber, StateUpdate};
 use darpc_protocol::{Hello, protocol_version_major, protocol_version_minor};
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashMap,
+    collections::{BTreeMap, HashMap},
     io,
     net::{SocketAddrV4, TcpListener},
     path::PathBuf,
     sync::{
-        Arc, Mutex, RwLock,
+        Arc, Mutex, RwLock, Weak,
         atomic::{AtomicU32, Ordering},
         mpsc::{self, Sender, SyncSender, TrySendError},
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
-use tokio::sync::{broadcast, oneshot};
+use tokio::sync::{Mutex as AsyncMutex, broadcast, oneshot};
 use utoipa::{IntoParams, OpenApi, ToSchema};
 use utoipa_swagger_ui::SwaggerUi;
 
@@ -108,6 +108,7 @@ pub(crate) struct ApiState {
     messages: Arc<RwLock<MessageStore>>,
     spell_feedback: Arc<Mutex<SpellFeedbackTrackers>>,
     resyncs: Arc<Mutex<ResyncTrackers>>,
+    resync_request_locks: Arc<Mutex<BTreeMap<RegistryClientIdentity, Weak<AsyncMutex<()>>>>>,
     maps_directory: Arc<RwLock<Option<PathBuf>>>,
     internal_message_sequence: Arc<AtomicU32>,
     stat_spends: Arc<Mutex<HashMap<u32, Instant>>>,
@@ -132,6 +133,7 @@ impl ApiState {
             messages: Arc::new(RwLock::new(MessageStore::default())),
             spell_feedback: Arc::new(Mutex::new(SpellFeedbackTrackers::default())),
             resyncs: Arc::new(Mutex::new(ResyncTrackers::default())),
+            resync_request_locks: Arc::new(Mutex::new(BTreeMap::new())),
             maps_directory: Arc::new(RwLock::new(None)),
             internal_message_sequence: Arc::new(AtomicU32::new(0)),
             stat_spends: Arc::new(Mutex::new(HashMap::new())),
@@ -212,16 +214,7 @@ impl ApiState {
                     .iter()
                     .find(|client| client.pid == *pid && client.identity == Some(*identity))
                     .and_then(|client| client.game_snapshot.as_ref());
-                if let Some(previous_snapshot) = previous_snapshot
-                    && previous_snapshot
-                        .character
-                        .as_ref()
-                        .map(|value| (value.appearance, value.is_hidden))
-                        != snapshot
-                            .character
-                            .as_ref()
-                            .map(|value| (value.appearance, value.is_hidden))
-                {
+                if let Some(previous_snapshot) = previous_snapshot {
                     let _ = self.published_events.send(PublishedEvent::Snapshot {
                         pid: *pid,
                         identity: *identity,
@@ -252,21 +245,24 @@ impl ApiState {
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
                 for state_event in events {
                     match &state_event.update {
-                        StateUpdate::Action(ActionUpdate::Resync { resync_id }) => self
-                            .resyncs
-                            .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner)
-                            .outgoing(*identity, *resync_id),
-                        StateUpdate::Action(ActionUpdate::ResyncCompleted { resync_id }) => self
-                            .resyncs
-                            .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner)
-                            .completed(*identity, *resync_id),
-                        StateUpdate::Action(ActionUpdate::ResyncTimedOut { resync_id }) => self
-                            .resyncs
-                            .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner)
-                            .timed_out(*identity, *resync_id),
+                        StateUpdate::Action(ActionUpdate::Resync { resync_id }) => {
+                            self.resyncs
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                .outgoing(*identity, *resync_id);
+                        }
+                        StateUpdate::Action(ActionUpdate::ResyncCompleted { resync_id }) => {
+                            self.resyncs
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                .completed(*identity, *resync_id);
+                        }
+                        StateUpdate::Action(ActionUpdate::ResyncTimedOut { resync_id }) => {
+                            self.resyncs
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                .timed_out(*identity, *resync_id);
+                        }
                         _ => {}
                     }
                     let replaced_players = previous_game_snapshot
@@ -356,6 +352,23 @@ impl ApiState {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .status(identity)
+    }
+
+    pub(crate) fn resync_request_lock(
+        &self,
+        identity: RegistryClientIdentity,
+    ) -> Arc<AsyncMutex<()>> {
+        let mut locks = self
+            .resync_request_locks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        locks.retain(|_, lock| lock.strong_count() != 0);
+        if let Some(lock) = locks.get(&identity).and_then(Weak::upgrade) {
+            return lock;
+        }
+        let lock = Arc::new(AsyncMutex::new(()));
+        locks.insert(identity, Arc::downgrade(&lock));
+        lock
     }
 
     fn publish_internal_message(

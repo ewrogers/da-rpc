@@ -86,8 +86,8 @@ pub(crate) fn observe_resync_completed(tick_ms: u32) {
 }
 
 #[cfg(all(windows, not(test)))]
-pub(crate) fn observe_resync_timed_out(resync_id: u32, tick_ms: u32) {
-    action::observe_resync_timed_out(resync_id, tick_ms);
+pub(crate) fn observe_resync_fallback(resync_id: u32, tick_ms: u32) {
+    action::observe_resync_fallback(resync_id, tick_ms);
 }
 
 #[cfg_attr(
@@ -327,7 +327,6 @@ pub(crate) fn reset() {
     EVENT_SEQUENCE.store(0, Ordering::Release);
     NEXT_LIFECYCLE_POLL_MS.store(0, Ordering::Release);
     QUEUE.reset();
-    action::reset();
     #[cfg(all(windows, not(test)))]
     crate::actions::movement::reset_tracking();
     // SAFETY: reset runs before the event hook is installed and after the IPC
@@ -454,17 +453,43 @@ pub(crate) fn mark_resync_required() {
     QUEUE.mark_resync_required(missing_sequence);
 }
 
+pub(crate) fn mark_refresh_snapshot_required() {
+    if !crate::resync::defer_snapshot() {
+        mark_resync_required();
+    }
+}
+
+fn mark_resync_required_after_events() {
+    let missing_sequence = next_nonzero(&EVENT_SEQUENCE);
+    QUEUE.mark_resync_required_after_events(missing_sequence);
+}
+
+fn finish_object_reconciliation(resync_id: u32, tick_ms: u32) {
+    complete_object_reconciliation(tick_ms);
+    push_event(
+        QueuedStateUpdate::Action(ActionUpdate::ResyncCompleted { resync_id }),
+        tick_ms,
+    );
+    if crate::resync::take_deferred_snapshot() {
+        mark_resync_required_after_events();
+    }
+}
+
 fn begin_object_reconciliation() {
     // SAFETY: outgoing packet observation runs on the client main thread,
     // which is the sole owner of the object cache.
     unsafe { OBJECTS.begin_reconciliation() };
 }
 
-#[cfg(all(windows, not(test)))]
-fn cancel_object_reconciliation() {
-    // SAFETY: resync timeout observation runs on the client main thread,
-    // which is the sole owner of the object cache.
-    unsafe { OBJECTS.cancel_reconciliation() };
+fn complete_object_reconciliation(tick_ms: u32) {
+    // SAFETY: refresh completion runs on the client main thread, which is the
+    // sole owner of the object cache.
+    unsafe {
+        OBJECTS.complete_reconciliation(|update| {
+            crate::player::removed(update.object_id());
+            push_event(QueuedStateUpdate::Object(update), tick_ms);
+        });
+    }
 }
 
 #[cfg(all(windows, not(test)))]
@@ -632,6 +657,7 @@ pub(crate) fn observe_stat_points(stat_points: u8, tick_ms: u32) {
 }
 
 pub(crate) fn observe_user_position(x: i32, y: i32, tick_ms: u32) {
+    crate::resync::observe_response_activity();
     // SAFETY: decoded server events run on the client main thread, which is
     // the sole owner of the object cache.
     unsafe { OBJECTS.observe_reconciliation_activity(tick_ms) };
@@ -693,6 +719,7 @@ pub(crate) fn observe_effect(icon: u16, duration: Option<EffectDuration>, tick_m
 pub(crate) fn observe_world(update: WorldUpdate, objects: &RawObjects, tick_ms: u32) {
     match update {
         WorldUpdate::Draw | WorldUpdate::DrawPlayer => {
+            crate::resync::observe_response_activity();
             // SAFETY: decoded server events run on the client main thread,
             // which is the sole owner of the object cache.
             unsafe { OBJECTS.observe_reconciliation_activity(tick_ms) };
@@ -990,6 +1017,33 @@ mod tests {
             }
         );
         assert_eq!(queue.take_after(2, 4), EventPollResult::Events(Vec::new()));
+    }
+
+    #[test]
+    fn deferred_resync_marker_delivers_earlier_events_before_snapshot() {
+        let queue = EventQueue::<4>::new();
+        queue.push(event(1));
+        queue.push(event(2));
+        queue.mark_resync_required_after_events(3);
+        queue.push(event(4));
+
+        assert_eq!(
+            queue.take_after(0, 4),
+            EventPollResult::Events(vec![
+                event(1).into_model().unwrap(),
+                event(2).into_model().unwrap(),
+            ])
+        );
+        assert_eq!(
+            queue.take_after(2, 4),
+            EventPollResult::ResyncRequired {
+                missing_sequence: 3,
+                latest_sequence: 4,
+            }
+        );
+
+        queue.discard_through(4);
+        assert_eq!(queue.take_after(4, 4), EventPollResult::Events(Vec::new()));
     }
 
     #[test]

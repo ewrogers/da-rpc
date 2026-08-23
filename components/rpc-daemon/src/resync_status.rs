@@ -3,7 +3,6 @@ use serde::Serialize;
 use std::collections::{BTreeMap, VecDeque};
 use utoipa::ToSchema;
 
-const MAX_PENDING_RESYNCS: usize = 64;
 const TERMINAL_RESYNC_RETENTION: usize = 64;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, ToSchema)]
@@ -23,7 +22,8 @@ pub(crate) struct ResyncSchedulerStatus {
     pub(crate) phase: ResyncPhase,
     /// Correlation ID of the active request, or null when idle.
     pub(crate) active_resync_id: Option<u32>,
-    /// Accepted resync requests waiting behind the active request.
+    /// Accepted resync requests waiting behind the active request. This is
+    /// always zero because refresh requests are coalesced into the active one.
     pub(crate) pending_count: u32,
 }
 
@@ -36,7 +36,6 @@ struct ActiveResync {
 #[derive(Debug, Default)]
 struct ResyncTracker {
     active: Option<ActiveResync>,
-    pending: VecDeque<u32>,
     terminal: VecDeque<u32>,
 }
 
@@ -44,7 +43,6 @@ impl ResyncTracker {
     fn accepted(&mut self, resync_id: u32) {
         if self.terminal.contains(&resync_id)
             || self.active.is_some_and(|active| active.id == resync_id)
-            || self.pending.contains(&resync_id)
         {
             return;
         }
@@ -53,8 +51,6 @@ impl ResyncTracker {
                 id: resync_id,
                 phase: ResyncPhase::WaitingToSend,
             });
-        } else if self.pending.len() < MAX_PENDING_RESYNCS {
-            self.pending.push_back(resync_id);
         }
     }
 
@@ -67,15 +63,6 @@ impl ResyncTracker {
             return;
         }
 
-        if let Some(index) = self.pending.iter().position(|id| *id == resync_id) {
-            self.pending.remove(index);
-        }
-        if let Some(previous) = self.active.take() {
-            if self.pending.len() == MAX_PENDING_RESYNCS {
-                self.pending.pop_back();
-            }
-            self.pending.push_front(previous.id);
-        }
         self.active = Some(ActiveResync {
             id: resync_id,
             phase: ResyncPhase::AwaitingResponse,
@@ -99,12 +86,7 @@ impl ResyncTracker {
         }
 
         if self.active.is_some_and(|active| active.id == resync_id) {
-            self.active = self.pending.pop_front().map(|id| ActiveResync {
-                id,
-                phase: ResyncPhase::WaitingToSend,
-            });
-        } else if let Some(index) = self.pending.iter().position(|id| *id == resync_id) {
-            self.pending.remove(index);
+            self.active = None;
         }
     }
 
@@ -112,8 +94,7 @@ impl ResyncTracker {
         ResyncSchedulerStatus {
             phase: self.active.map_or(ResyncPhase::Idle, |active| active.phase),
             active_resync_id: self.active.map(|active| active.id),
-            pending_count: u32::try_from(self.pending.len())
-                .expect("bounded resync pending count fits u32"),
+            pending_count: 0,
         }
     }
 }
@@ -191,7 +172,7 @@ mod tests {
                 pending_count: 0,
             }
         );
-        assert_eq!(trackers.accepted(identity, 9).pending_count, 1);
+        assert_eq!(trackers.accepted(identity, 9).pending_count, 0);
 
         trackers.outgoing(identity, 7);
         assert_eq!(
@@ -199,7 +180,7 @@ mod tests {
             ResyncSchedulerStatus {
                 phase: ResyncPhase::AwaitingResponse,
                 active_resync_id: Some(7),
-                pending_count: 1,
+                pending_count: 0,
             }
         );
 
@@ -207,8 +188,8 @@ mod tests {
         assert_eq!(
             trackers.status(identity),
             ResyncSchedulerStatus {
-                phase: ResyncPhase::WaitingToSend,
-                active_resync_id: Some(9),
+                phase: ResyncPhase::Idle,
+                active_resync_id: None,
                 pending_count: 0,
             }
         );
@@ -227,7 +208,7 @@ mod tests {
     }
 
     #[test]
-    fn timeout_advances_the_pending_request_and_is_terminal() {
+    fn timeout_is_terminal_without_queueing_a_follow_up() {
         let mut trackers = ResyncTrackers::default();
         let identity = identity();
 
@@ -240,15 +221,15 @@ mod tests {
         assert_eq!(
             trackers.status(identity),
             ResyncSchedulerStatus {
-                phase: ResyncPhase::WaitingToSend,
-                active_resync_id: Some(9),
+                phase: ResyncPhase::Idle,
+                active_resync_id: None,
                 pending_count: 0,
             }
         );
     }
 
     #[test]
-    fn inserts_an_unobserved_physical_refresh_before_http_work() {
+    fn an_observed_physical_refresh_replaces_stale_http_tracking() {
         let mut trackers = ResyncTrackers::default();
         let identity = identity();
 
@@ -261,10 +242,10 @@ mod tests {
             ResyncSchedulerStatus {
                 phase: ResyncPhase::AwaitingResponse,
                 active_resync_id: Some(11),
-                pending_count: 2,
+                pending_count: 0,
             }
         );
         trackers.completed(identity, 11);
-        assert_eq!(trackers.status(identity).active_resync_id, Some(7));
+        assert_eq!(trackers.status(identity).active_resync_id, None);
     }
 }

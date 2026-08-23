@@ -13,6 +13,7 @@ pub(crate) struct EventQueue<const N: usize> {
     read_position: AtomicU32,
     latest_sequence: AtomicU32,
     latest_dropped_sequence: AtomicU32,
+    deferred_resync_sequence: AtomicU32,
 }
 
 // SAFETY: the client main thread is the only producer, the IPC worker is the
@@ -28,6 +29,7 @@ impl<const N: usize> EventQueue<N> {
             read_position: AtomicU32::new(0),
             latest_sequence: AtomicU32::new(0),
             latest_dropped_sequence: AtomicU32::new(0),
+            deferred_resync_sequence: AtomicU32::new(0),
         }
     }
 
@@ -36,6 +38,7 @@ impl<const N: usize> EventQueue<N> {
         self.read_position.store(0, Ordering::Release);
         self.latest_sequence.store(0, Ordering::Release);
         self.latest_dropped_sequence.store(0, Ordering::Release);
+        self.deferred_resync_sequence.store(0, Ordering::Release);
     }
 
     pub(crate) fn push(&self, event: QueuedStateEvent) -> bool {
@@ -64,8 +67,16 @@ impl<const N: usize> EventQueue<N> {
             .store(missing_sequence, Ordering::Release);
     }
 
+    pub(crate) fn mark_resync_required_after_events(&self, missing_sequence: u32) {
+        self.latest_sequence
+            .store(missing_sequence, Ordering::Release);
+        self.deferred_resync_sequence
+            .store(missing_sequence, Ordering::Release);
+    }
+
     pub(crate) fn take_after(&self, after_sequence: u32, max_events: usize) -> EventPollResult {
         let dropped = self.latest_dropped_sequence.load(Ordering::Acquire);
+        let deferred = self.deferred_resync_sequence.load(Ordering::Acquire);
         let latest = self.latest_sequence.load(Ordering::Acquire);
         if SequenceNumber::new(dropped).is_after(SequenceNumber::new(after_sequence)) {
             return EventPollResult::ResyncRequired {
@@ -74,9 +85,32 @@ impl<const N: usize> EventQueue<N> {
             };
         }
 
+        if deferred != 0
+            && (SequenceNumber::new(after_sequence).next().get() == deferred
+                || !SequenceNumber::new(deferred).is_after(SequenceNumber::new(after_sequence)))
+        {
+            return EventPollResult::ResyncRequired {
+                missing_sequence: deferred,
+                latest_sequence: latest,
+            };
+        }
+
         let mut events = Vec::with_capacity(max_events.min(N));
         let mut expected = SequenceNumber::new(after_sequence).next().get();
         while events.len() < max_events {
+            let deferred = self.deferred_resync_sequence.load(Ordering::Acquire);
+            if deferred != 0
+                && (expected == deferred
+                    || SequenceNumber::new(expected).is_after(SequenceNumber::new(deferred)))
+            {
+                if events.is_empty() {
+                    return EventPollResult::ResyncRequired {
+                        missing_sequence: deferred,
+                        latest_sequence: self.latest_sequence.load(Ordering::Acquire),
+                    };
+                }
+                break;
+            }
             let Some(next) = self.peek() else {
                 break;
             };
@@ -87,6 +121,16 @@ impl<const N: usize> EventQueue<N> {
                 continue;
             }
             if next.sequence() != expected {
+                let deferred = self.deferred_resync_sequence.load(Ordering::Acquire);
+                if deferred == expected {
+                    if events.is_empty() {
+                        return EventPollResult::ResyncRequired {
+                            missing_sequence: deferred,
+                            latest_sequence: self.latest_sequence.load(Ordering::Acquire),
+                        };
+                    }
+                    break;
+                }
                 return EventPollResult::ResyncRequired {
                     missing_sequence: expected,
                     latest_sequence: latest,
@@ -153,6 +197,17 @@ impl<const N: usize> EventQueue<N> {
             if let Some(event) = self.pop() {
                 event.discard();
             }
+        }
+        let deferred = self.deferred_resync_sequence.load(Ordering::Acquire);
+        if deferred != 0
+            && !SequenceNumber::new(deferred).is_after(SequenceNumber::new(snapshot_sequence))
+        {
+            let _ = self.deferred_resync_sequence.compare_exchange(
+                deferred,
+                0,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            );
         }
     }
 

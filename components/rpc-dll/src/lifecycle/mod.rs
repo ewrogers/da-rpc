@@ -483,14 +483,14 @@ pub(crate) fn shutdown() -> io::Result<()> {
                 let resync_health = crate::resync::health();
                 writeln!(
                     active.log,
-                    "event=hook_removed hook={} observations={} read_failures={} physical_refreshes_deferred={} user_refreshes_submitted={} user_refreshes_completed={} user_refresh_timeouts={} user_refresh_failures={} heartbeat_enqueued={} heartbeat_delivered={} heartbeat_fallbacks={} heartbeat_pending={}",
+                    "event=hook_removed hook={} observations={} read_failures={} physical_refreshes_deferred={} user_refreshes_submitted={} user_refreshes_completed={} user_refresh_fallbacks={} user_refresh_failures={} heartbeat_enqueued={} heartbeat_delivered={} heartbeat_fallbacks={} heartbeat_pending={}",
                     outgoing::NAME,
                     final_health.observation_count,
                     final_health.read_failure_count,
                     final_health.physical_refresh_deferred_count,
                     resync_health.submission_count,
                     resync_health.completion_count,
-                    resync_health.timeout_count,
+                    resync_health.fallback_count,
                     resync_health.submission_failure_count,
                     final_health.prioritized_heartbeat_count,
                     final_health.delivered_heartbeat_count,

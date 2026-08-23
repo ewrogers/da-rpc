@@ -1,6 +1,35 @@
 use super::*;
 
 #[test]
+fn snapshot_recapture_publishes_an_unchanged_stream_boundary() {
+    let state = state();
+    let mut receiver = state.published_events.subscribe();
+    let previous = state.snapshot();
+    let mut snapshot = game_snapshot();
+    snapshot.revision += 1;
+    snapshot.event_sequence += 1;
+    let identity = RegistryClientIdentity::from_hello(hello());
+
+    state.publish_connection_event_from(
+        &ConnectionEvent::Snapshot {
+            pid: 42,
+            identity,
+            snapshot: Box::new(snapshot),
+        },
+        &previous,
+    );
+
+    assert!(matches!(
+        receiver.try_recv(),
+        Ok(PublishedEvent::Snapshot {
+            pid: 42,
+            identity: event_identity,
+            ..
+        }) if event_identity == identity
+    ));
+}
+
+#[test]
 fn serves_health_and_client_resources() {
     assert_eq!(json("/health")["status"], "ok");
 

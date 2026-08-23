@@ -197,86 +197,30 @@ opcode-only refresh as pressing F5 in the game client. Use it when the client
 appears out of sync with the server, such as after movement is rejected or the
 character appears stuck against a wall.
 
-Both paths use one DLL-local movement-safe coordinator. Before it sends each
-scheduled refresh, it cancels the current queued route. If the character is
-partway through a visual step, daRPC waits for that step's staged tile to commit before it sends packet
-`0x38`. A correction that changes the committed tile must remain stable for one
-additional client tick. There is no fixed sleep. User-initiated refreshes are
-serialized until their server acknowledgement arrives, and repeated physical
-F5 presses coalesce. Server-driven movement-correction refreshes bypass this
-delay and remain immediate.
-
-The HTTP response confirms that the coordinator accepted the command; it can
-arrive before the movement safe point and before the packet is sent. Sending
-the packet publishes the transient
-[`client.resync`](events.md#client-command-events) event. That event confirms
-that daRPC observed the actual outgoing request. It does not confirm that the
-server responded. The command response includes a `resync_id` equal to its
-`command_id`, and `client.resync` carries the same value.
-
-The command response also includes the daemon's current resync scheduler view:
+The response describes the one active refresh:
 
 ```text
-resync {
-    phase: idle | waiting_to_send | awaiting_response,
-    active_resync_id: u32?,
-    pending_count: u32,
+{
+    pid: u32,
+    instance_id: string,
+    resync_id: u32,
+    coalesced: bool,
+    resync: {
+        phase: idle | waiting_to_send | awaiting_response,
+        active_resync_id: u32?,
+        pending_count: u32,
+    },
 }
 ```
 
-`waiting_to_send` means the active request has been accepted but its outgoing
-packet has not been observed. This covers movement quiescing, packet submission,
-and the quiet recovery period after a timeout. `awaiting_response` begins when
-`client.resync` is observed and continues until the matching
-`client.resync_completed` or `client.resync_timed_out`. `pending_count` is the
-number of HTTP requests accepted by the resync scheduler behind the active
-request and does not include `active_resync_id`.
+`coalesced: true` means another F5 or HTTP request already owns the returned
+`resync_id`; daRPC did not send a second packet. `pending_count` is always zero
+in 1.7.0. The HTTP response does not mean the server redraw is finished. Follow
+`client.resync` and `client.resync_completed` on the event stream.
 
-This scheduler view is derived by `darpcd` from HTTP command results and the
-ordered resync events. A physical F5 press first becomes visible to the daemon
-when its outgoing packet produces `client.resync`. Use these fields for logs,
-status pages, and failure diagnostics. A controller should still keep one
-logical resync in flight and use the correlated completion event as its
-movement gate.
-
-The resync scheduler and the general command queue are separate bounded queues.
-If the resync scheduler is full, this endpoint returns HTTP `429` with error
-code `resync_queue_full` and includes the current scheduler view in
-`error.resync`. If the request never reaches that scheduler because the general
-command queue is full, the error remains `command_queue_full`. An active
-request by itself is normal serialized work, so daRPC does not return a
-`resync_busy` error.
-
-The server's payload-free `0x22` `RefreshUserOK` response publishes the
-transient `client.resync_completed` event with the matching `resync_id`.
-If that response is not observed within one second of `client.resync`, daRPC
-publishes `client.resync_timed_out`, releases the stuck active request, and
-waits for one quiet second before sending the next refresh. A late response
-restarts the quiet period instead of being correlated with the next request.
-Consumers that pause movement for refresh must establish the event stream
-before making the request and wait for this matching event before releasing
-movement. The HTTP `200 OK` or `202 Accepted` covers scheduler acceptance,
-`client.resync` covers actual packet submission, and
-`client.resync_completed` covers the authoritative response. A timeout is a
-failed synchronization and does not authorize movement. If the event stream
-disconnects before completion, keep movement paused and issue a new refresh
-after reconnecting.
-
-daRPC reconciles the refreshed visible-object set by stable entity ID. New IDs
-publish their normal appeared events, missing retained IDs publish their normal
-disappeared events, and unchanged IDs remain retained. Consumers do not clear
-or rebuild object state in response to the refresh. Missing IDs are removed
-after one second without another authoritative position or redraw response. If
-the server never responds, daRPC times out the refresh and preserves the
-last-known object set. There is
-no object-reconciliation completion event; apply the ordered lifecycle events
-as described in [World](world.md#object-events). `client.resync_completed`
-acknowledges the server refresh and does not replace those object events.
-
-If the server replies with a corrected position while a daRPC destination walk
-is active, daRPC keeps the destination and recalculates the route from the
-corrected tile. See [Resynchronizing position](movement.md#resynchronizing-position)
-for the complete movement behavior.
+See [Refresh and resynchronization](resync.md) for movement safety, the
+one-second fallback, object reconciliation, error codes, and the complete
+consumer sequence.
 
 Basic attacks require no request body:
 

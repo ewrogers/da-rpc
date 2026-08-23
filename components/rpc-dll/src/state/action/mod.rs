@@ -1,35 +1,16 @@
-use super::{
-    QueuedStateUpdate, begin_object_reconciliation, finish_object_reconciliation, push_event,
-};
+use super::{QueuedStateUpdate, push_event};
 use darpc_model::{ActionUpdate, Direction, EquipmentSlot, TilePosition};
 
 pub(super) fn observe_outgoing(body: &[u8], tick_ms: u32) {
-    let update = if is_resync_request(body) {
+    if is_resync_request(body) {
         let resync_id = crate::commands::outgoing_resync_id();
-        if !crate::resync::observe_outgoing(resync_id, tick_ms) {
-            return;
-        }
-        begin_object_reconciliation();
-        ActionUpdate::Resync { resync_id }
-    } else {
-        let Some(update) = parse(body) else {
-            return;
-        };
-        update
-    };
-    push_event(QueuedStateUpdate::Action(update), tick_ms);
-}
-
-pub(super) fn observe_resync_completed(tick_ms: u32) {
-    let Some(resync_id) = crate::resync::observe_completed() else {
+        super::refresh::observe_outgoing(resync_id, tick_ms);
+        return;
+    }
+    let Some(update) = parse(body) else {
         return;
     };
-    finish_object_reconciliation(resync_id, tick_ms);
-}
-
-#[cfg(all(windows, not(test)))]
-pub(super) fn observe_resync_fallback(resync_id: u32, tick_ms: u32) {
-    finish_object_reconciliation(resync_id, tick_ms);
+    push_event(QueuedStateUpdate::Action(update), tick_ms);
 }
 
 fn is_resync_request(body: &[u8]) -> bool {

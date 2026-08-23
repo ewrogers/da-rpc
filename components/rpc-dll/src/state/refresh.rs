@@ -1,4 +1,14 @@
-use darpc_model::TilePosition;
+//! Owns the complete DLL-local user refresh transaction.
+//!
+//! Callers report refresh requests, outgoing packets, authoritative redraw
+//! activity, and completion packets through this module. It alone sequences
+//! movement gating, object reconciliation, completion, fallback, and deferred
+//! snapshot recovery on the client main thread.
+
+use super::{
+    OBJECTS, QueuedStateUpdate, mark_resync_required, mark_resync_required_after_events, push_event,
+};
+use darpc_model::{ActionUpdate, TilePosition};
 use std::{
     cell::UnsafeCell,
     sync::atomic::{AtomicBool, AtomicU32, Ordering},
@@ -258,7 +268,7 @@ pub(crate) fn observe_tick(tick_ms: u32) {
     if let Some(resync_id) = timed_out {
         FALLBACK_COUNT.fetch_add(1, Ordering::Relaxed);
         COMPLETION_COUNT.fetch_add(1, Ordering::Relaxed);
-        crate::state::observe_resync_fallback(resync_id, tick_ms);
+        complete_transaction(resync_id, tick_ms);
     }
 
     // SAFETY: tick observation runs on the client main thread.
@@ -297,44 +307,77 @@ pub(crate) fn observe_tick(tick_ms: u32) {
         if failed {
             SUBMISSION_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed);
             if take_deferred_snapshot() {
-                crate::state::mark_resync_required();
+                mark_resync_required();
             }
         }
     }
 }
 
-pub(crate) fn observe_outgoing(resync_id: u32, tick_ms: u32) -> bool {
+pub(super) fn observe_outgoing(resync_id: u32, tick_ms: u32) {
     // SAFETY: outgoing observation runs on the client main thread.
     let submitted =
         unsafe { COORDINATOR.with(|coordinator| coordinator.observe_outgoing(resync_id, tick_ms)) };
-    if submitted {
-        SUBMISSION_COUNT.fetch_add(1, Ordering::Relaxed);
+    if !submitted {
+        return;
     }
-    submitted
+    SUBMISSION_COUNT.fetch_add(1, Ordering::Relaxed);
+
+    // SAFETY: outgoing packet observation runs on the client main thread,
+    // which is the sole owner of the object cache.
+    unsafe { OBJECTS.begin_reconciliation() };
+    push_event(
+        QueuedStateUpdate::Action(ActionUpdate::Resync { resync_id }),
+        tick_ms,
+    );
 }
 
-pub(crate) fn observe_response_activity() {
+pub(super) fn observe_authoritative_activity(tick_ms: u32) {
     // SAFETY: decoded server events run on the client main thread.
     unsafe { COORDINATOR.with(Coordinator::observe_response_activity) };
+    // SAFETY: decoded server events run on the client main thread, which is
+    // the sole owner of the object cache.
+    unsafe { OBJECTS.observe_reconciliation_activity(tick_ms) };
 }
 
-pub(crate) fn defer_snapshot() -> bool {
+pub(super) fn snapshot_required() {
     // SAFETY: decoded server events run on the client main thread.
-    unsafe { COORDINATOR.with(Coordinator::defer_snapshot) }
+    let deferred = unsafe { COORDINATOR.with(Coordinator::defer_snapshot) };
+    if !deferred {
+        mark_resync_required();
+    }
 }
 
-pub(crate) fn take_deferred_snapshot() -> bool {
-    // SAFETY: refresh completion runs on the client main thread.
-    unsafe { COORDINATOR.with(Coordinator::take_deferred_snapshot) }
-}
-
-pub(crate) fn observe_completed() -> Option<u32> {
+pub(super) fn observe_completed(tick_ms: u32) {
     // SAFETY: decoded server events run on the client main thread.
     let completed = unsafe { COORDINATOR.with(Coordinator::observe_completed) };
-    if completed.is_some() {
-        COMPLETION_COUNT.fetch_add(1, Ordering::Relaxed);
+    let Some(resync_id) = completed else {
+        return;
+    };
+    COMPLETION_COUNT.fetch_add(1, Ordering::Relaxed);
+    complete_transaction(resync_id, tick_ms);
+}
+
+fn complete_transaction(resync_id: u32, tick_ms: u32) {
+    // SAFETY: refresh completion runs on the client main thread, which is the
+    // sole owner of the object cache.
+    unsafe {
+        OBJECTS.complete_reconciliation(|update| {
+            crate::player::removed(update.object_id());
+            push_event(QueuedStateUpdate::Object(update), tick_ms);
+        });
     }
-    completed
+    push_event(
+        QueuedStateUpdate::Action(ActionUpdate::ResyncCompleted { resync_id }),
+        tick_ms,
+    );
+    if take_deferred_snapshot() {
+        mark_resync_required_after_events();
+    }
+}
+
+fn take_deferred_snapshot() -> bool {
+    // SAFETY: refresh completion runs on the client main thread.
+    unsafe { COORDINATOR.with(Coordinator::take_deferred_snapshot) }
 }
 
 #[cfg(windows)]
@@ -362,10 +405,13 @@ pub(crate) fn reset() {
 #[cfg(test)]
 mod tests {
     use super::{Coordinator, MovementTransition, Origin, Phase};
-    use darpc_model::TilePosition;
+    use darpc_model::{ActionUpdate, StateUpdate, TilePosition};
+    use darpc_protocol::EventPollResult;
+    use std::{sync::Mutex, time::Duration};
 
     const COMMITTED: TilePosition = TilePosition { x: 10, y: 20 };
     const STAGED: TilePosition = TilePosition { x: 11, y: 20 };
+    static INTERFACE_TEST: Mutex<()> = Mutex::new(());
 
     const fn transition(
         committed: TilePosition,
@@ -503,5 +549,40 @@ mod tests {
         assert!(coordinator.submission_failed(Origin::Physical));
         assert!(coordinator.is_idle());
         assert!(coordinator.take_deferred_snapshot());
+    }
+
+    #[test]
+    fn interface_orders_completion_before_deferred_snapshot_recovery() {
+        let _guard = INTERFACE_TEST.lock().unwrap();
+        super::super::reset();
+        super::reset();
+
+        super::observe_outgoing(12, 100);
+        super::snapshot_required();
+        super::observe_authoritative_activity(101);
+        super::observe_completed(102);
+
+        let EventPollResult::Events(events) = super::super::poll(0, 16, Duration::ZERO) else {
+            panic!("refresh events must precede snapshot recovery");
+        };
+        assert_eq!(events.len(), 2);
+        assert_eq!(
+            events[0].update,
+            StateUpdate::Action(ActionUpdate::Resync { resync_id: 12 })
+        );
+        assert_eq!(
+            events[1].update,
+            StateUpdate::Action(ActionUpdate::ResyncCompleted { resync_id: 12 })
+        );
+        assert_eq!(
+            super::super::poll(2, 16, Duration::ZERO),
+            EventPollResult::ResyncRequired {
+                missing_sequence: 3,
+                latest_sequence: 3,
+            }
+        );
+
+        super::super::reset();
+        super::reset();
     }
 }

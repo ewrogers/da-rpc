@@ -34,6 +34,11 @@ refresh. `waiting_to_send` covers movement settling and packet submission.
 `client.resync` always carries a nonzero `resync_id`. HTTP refreshes use the
 returned ID, while an in-game F5 receives a DLL-local ID.
 
+Inside the DLL, one refresh transaction owns movement gating, packet
+submission, object reconciliation, completion and fallback ordering, and
+deferred snapshot recovery. Packet hooks report observations to that module;
+they do not advance individual parts of the transaction themselves.
+
 The usual response is `200 OK`. A request can return `202 Accepted` while work
 is still active or when it joins an active refresh. A full general command
 queue returns `command_queue_full`. A narrow race where the DLL has already

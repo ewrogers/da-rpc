@@ -21,6 +21,8 @@
   Queued movement is cancelled and refresh packet `0x38` is deferred until an
   active step commits, while server-driven correction refreshes remain
   immediate.
+- Keep refresh coordination, object reconciliation, completion and fallback
+  ordering, and deferred snapshot recovery in one DLL state transaction.
 - Inventory the mandatory and optional client launch patches in the README with
   player-facing descriptions of each patch and its purpose.
 

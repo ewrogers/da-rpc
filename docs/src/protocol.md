@@ -632,6 +632,18 @@ enum StateUpdate: u8 {
     // 23 is retired.
     FieldMap(FieldMapUpdate) = 24,
     MessageDialogs(MessageDialogsState) = 25,
+    MapDownload(MapDownloadUpdate) = 26,
+}
+
+enum MapDownloadUpdate: u8 {
+    Requested(MapDownload) = 1,
+    Downloaded(MapDownload) = 2,
+}
+
+struct MapDownload {
+    map_id: u32;
+    width: u8;
+    height: u8;
 }
 
 struct MessageDialogsState {

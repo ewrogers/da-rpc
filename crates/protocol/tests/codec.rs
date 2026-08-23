@@ -9,12 +9,12 @@ use darpc_model::{
     ExchangeState, ExchangeUpdate, FieldMapDestination, FieldMapSelection, FieldMapState,
     FieldMapUpdate, Gender, GroupInvitation, GroupMember, GroupState, GroupUpdate, HumanVisual,
     InventoryItem, LegendIcon, LegendMark, LegendUpdate, LifecycleUpdate, LocationUpdate,
-    MapChange, MapLocation, MessageDialog, MessageDialogsState, MessageKind, MovementStopReason,
-    MovementUpdate, Nation, ObjectUpdate, PlannedRoute, PlayerEquipmentItem, PlayerIdentity,
-    PlayerInspectionChanges, PlayerInspectionTrigger, PlayerProfile, PlayerUpdate, PlayerVisual,
-    ProgressionStatus, Skill, SlotUpdate, Spell, SpellCancellationSource, SpellCastArguments,
-    SpellTargetType, StateEvent, StateUpdate, StatusUpdate, TilePosition, UserState, WalkMode,
-    WhoList, WhoPlayer, WorldObject,
+    MapChange, MapDownload, MapDownloadUpdate, MapLocation, MessageDialog, MessageDialogsState,
+    MessageKind, MovementStopReason, MovementUpdate, Nation, ObjectUpdate, PlannedRoute,
+    PlayerEquipmentItem, PlayerIdentity, PlayerInspectionChanges, PlayerInspectionTrigger,
+    PlayerProfile, PlayerUpdate, PlayerVisual, ProgressionStatus, Skill, SlotUpdate, Spell,
+    SpellCancellationSource, SpellCastArguments, SpellTargetType, StateEvent, StateUpdate,
+    StatusUpdate, TilePosition, UserState, WalkMode, WhoList, WhoPlayer, WorldObject,
 };
 use darpc_protocol::{
     Architecture, ChantText, CharacterStat, CommandFailure, CommandKind, CommandOperation,

@@ -23,6 +23,7 @@ pub enum StateUpdate {
     Movement(MovementUpdate),
     PlannedRoute(PlannedRoute),
     Location(LocationUpdate),
+    MapDownload(MapDownloadUpdate),
     Effect(EffectUpdate),
     Object(ObjectUpdate),
     Player(PlayerUpdate),
@@ -249,6 +250,19 @@ pub struct LocationUpdate {
     pub y: i32,
     /// Present only when this position completes a staged map transition.
     pub map: Option<MapChange>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct MapDownload {
+    pub map_id: u32,
+    pub width: u8,
+    pub height: u8,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum MapDownloadUpdate {
+    Requested(MapDownload),
+    Downloaded(MapDownload),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -599,7 +613,7 @@ impl ClientSnapshot {
                     .ok_or(ApplyEventError::CharacterUnavailable)?;
                 character.identity = Some(update.current);
             }
-            StateUpdate::Command(_) | StateUpdate::Message(_) => {}
+            StateUpdate::Command(_) | StateUpdate::MapDownload(_) | StateUpdate::Message(_) => {}
             StateUpdate::Inventory(update) => {
                 let inventory = self
                     .character

@@ -45,3 +45,40 @@ fn movement_stop_reason_codes_are_stable() {
         assert_eq!(output.last(), Some(&code));
     }
 }
+
+#[test]
+fn map_download_update_codes_are_stable() {
+    for (update, code) in [
+        (
+            MapDownloadUpdate::Requested(MapDownload {
+                map_id: 3001,
+                width: 100,
+                height: 80,
+            }),
+            1,
+        ),
+        (
+            MapDownloadUpdate::Downloaded(MapDownload {
+                map_id: 3001,
+                width: 100,
+                height: 80,
+            }),
+            2,
+        ),
+    ] {
+        let mut output = Vec::new();
+        encode_event(
+            &mut output,
+            &StateEvent {
+                sequence: 1,
+                revision: 2,
+                tick_ms: 3,
+                update: StateUpdate::MapDownload(update),
+            },
+        )
+        .unwrap();
+        assert_eq!(output[12], 26);
+        assert_eq!(output[13], code);
+        assert_eq!(&output[14..], &[0xB9, 0x0B, 0, 0, 100, 80]);
+    }
+}

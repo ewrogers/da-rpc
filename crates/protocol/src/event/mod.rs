@@ -7,10 +7,11 @@ use darpc_model::{
     AbilityUpdate, ActionUpdate, AudioUpdate, CharacterModifiers, CharacterProfileUpdate,
     CharacterStats, ClientCommand, ClientMessage, CollectionChange, CoreStatus, CurrentVitals,
     Direction, Effect, EffectDuration, EffectUpdate, Element, EntityUpdate, EquipmentSlot,
-    InventoryItem, LifecycleUpdate, LocationUpdate, MapChange, MessageKind, MovementStopReason,
-    MovementUpdate, ObjectUpdate, PlayerInspectionChanges, PlayerInspectionTrigger, PlayerUpdate,
-    ProgressionStatus, Skill, SlotUpdate, Spell, SpellCancellationSource, SpellCastArguments,
-    StateEvent, StateUpdate, StatusUpdate, TilePosition, WalkMode,
+    InventoryItem, LifecycleUpdate, LocationUpdate, MapChange, MapDownload, MapDownloadUpdate,
+    MessageKind, MovementStopReason, MovementUpdate, ObjectUpdate, PlayerInspectionChanges,
+    PlayerInspectionTrigger, PlayerUpdate, ProgressionStatus, Skill, SlotUpdate, Spell,
+    SpellCancellationSource, SpellCastArguments, StateEvent, StateUpdate, StatusUpdate,
+    TilePosition, WalkMode,
 };
 
 mod action;
@@ -209,6 +210,22 @@ fn encode_event(output: &mut Vec<u8>, event: &StateEvent) -> Result<(), EncodeEr
             output.push(25);
             crate::message_dialog::encode_state(output, update)?;
         }
+        StateUpdate::MapDownload(update) => {
+            output.push(26);
+            let download = match update {
+                MapDownloadUpdate::Requested(download) => {
+                    output.push(1);
+                    download
+                }
+                MapDownloadUpdate::Downloaded(download) => {
+                    output.push(2);
+                    download
+                }
+            };
+            push_u32(output, download.map_id);
+            output.push(download.width);
+            output.push(download.height);
+        }
         StateUpdate::Status(update) => {
             output.push(1);
             encode_status(output, *update);
@@ -349,6 +366,19 @@ fn decode_event(reader: &mut PayloadReader<'_>) -> Result<StateEvent, DecodeErro
         22 => StateUpdate::PlannedRoute(crate::snapshot::decode_planned_route(reader)?),
         24 => StateUpdate::FieldMap(crate::field_map::decode_update(reader)?),
         25 => StateUpdate::MessageDialogs(crate::message_dialog::decode_state(reader)?),
+        26 => {
+            let kind = reader.read_u8()?;
+            let download = MapDownload {
+                map_id: reader.read_u32()?,
+                width: reader.read_u8()?,
+                height: reader.read_u8()?,
+            };
+            StateUpdate::MapDownload(match kind {
+                1 => MapDownloadUpdate::Requested(download),
+                2 => MapDownloadUpdate::Downloaded(download),
+                actual => return Err(DecodeError::InvalidStateUpdateType { actual }),
+            })
+        }
         1 => StateUpdate::Status(decode_status(reader)?),
         2 => StateUpdate::Location(decode_location(reader)?),
         3 => StateUpdate::Effect(decode_effect(reader)?),

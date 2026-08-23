@@ -397,6 +397,27 @@ should use that discriminator rather than infer a remote monster form from
 published together so consumers never observe coordinates from one map paired
 with another map.
 
+## Map download events
+
+Map download events describe the native game client's cache-miss transfer, not
+the daemon's `GET /maps/{map_id}/download` route.
+
+| SSE event | JSON type | Meaning |
+| --- | --- | --- |
+| `map.requested` | `map_requested` | The native client submitted a matching `0x05` map request after cache validation failed. |
+| `map.downloaded` | `map_downloaded` | The native client returned from handling the final `0x3C` row after daRPC observed every prepared row. |
+
+Both payloads contain `observation`, `map_id`, `width`, and `height`. The
+completion event is published after the client's native final-row path has
+recomputed the map checksum, attempted the complete cache-file write, closed
+the loading pane, and applied the prepared map. The client does not report the
+cache writer's result, so `map.downloaded` confirms transfer completion and the
+native write attempt, not durable filesystem persistence.
+
+These events are transient and have no REST recovery route. A fresh daemon
+connection resumes from the DLL's current ordered event boundary; it does not
+invent a request for a cache hit or for a transfer that began before injection.
+
 ## Walking and character action events
 
 Read the current flags and position from `GET /clients/{client}/status`. See
@@ -987,6 +1008,7 @@ trying to infer state from only the changed field.
 | Client lifecycle | `client.logged_in`, `client.disconnected` | `/status` |
 | Client requests | `client.command`, `client.resync`, `client.resync_completed` | None; transient events are not replayed. |
 | Status | `stats.changed`, `vitals.changed`, `progression.changed`, `gold.changed`, `weight.changed`, `modifiers.changed`, `location.changed`, `blind.changed`, `action_restriction.changed`, `character.appearance_changed`, `character.hidden_changed`, `character.profile_changed` | `/status` |
+| Map downloads | `map.requested`, `map.downloaded` | None; transient events are not replayed. |
 | Walking | `walking.started`, `walking.stopped`, `walking.obstructed`, `walking.route_changed`, `character.turned`, `character.emoted` | `/status` |
 | Inventory | `item.added`, `item.removed`, `item.changed`, `item.used`, `item.dropped`, `item.given`, `item.picked_up`, `gold.dropped`, `gold.given` | `/items`, then `/status` for gold |
 | Equipment | `equipment.unequipped` | `/equipment` |

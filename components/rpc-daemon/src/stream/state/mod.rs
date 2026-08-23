@@ -263,6 +263,15 @@ pub(crate) struct MapChanged {
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
+/// A native game-client map download started or completed.
+pub(crate) struct MapDownloadChanged {
+    pub(super) observation: EventObservation,
+    pub(super) map_id: u32,
+    pub(super) width: u8,
+    pub(super) height: u8,
+}
+
+#[derive(Clone, Debug, Serialize, ToSchema)]
 pub(crate) struct BlindChanged {
     pub(super) observation: EventObservation,
     pub(super) is_blinded: bool,

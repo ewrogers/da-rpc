@@ -16,9 +16,10 @@ use darpc_model::{
     FieldMapState as ModelFieldMapState, FieldMapUpdate, Gender,
     InventoryItem as ModelInventoryItem, LegendIcon as ModelLegendIcon,
     LegendMark as ModelLegendMark, LegendUpdate, LifecycleUpdate, LocationUpdate, MapChange,
-    MessageDialog as ModelMessageDialog, MessageDialogsState as ModelMessageDialogsState,
-    MessageKind, MovementUpdate, PlannedRoute, Skill as ModelSkill, SlotUpdate,
-    Spell as ModelSpell, SpellCancellationSource as ModelSpellCancellationSource,
+    MapDownload, MapDownloadUpdate, MessageDialog as ModelMessageDialog,
+    MessageDialogsState as ModelMessageDialogsState, MessageKind, MovementUpdate, PlannedRoute,
+    Skill as ModelSkill, SlotUpdate, Spell as ModelSpell,
+    SpellCancellationSource as ModelSpellCancellationSource,
     SpellCastArguments as ModelSpellCastArguments, SpellTargetType, StateUpdate, StatusUpdate,
     TilePosition as ModelTilePosition,
 };

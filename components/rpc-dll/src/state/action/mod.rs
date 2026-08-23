@@ -12,6 +12,7 @@ pub(super) fn observe_outgoing(body: &[u8], tick_ms: u32) {
         // SAFETY: outgoing packet observation runs on the client main thread,
         // which is the sole owner of pending resync correlation state.
         unsafe { PENDING_RESYNCS.push(resync_id) };
+        crate::resync::observe_outgoing(resync_id);
         begin_object_reconciliation();
         ActionUpdate::Resync { resync_id }
     } else {
@@ -29,6 +30,7 @@ pub(super) fn observe_resync_completed(tick_ms: u32) {
     let Some(resync_id) = (unsafe { PENDING_RESYNCS.pop() }) else {
         return;
     };
+    crate::resync::observe_completed(resync_id);
     push_event(
         QueuedStateUpdate::Action(ActionUpdate::ResyncCompleted { resync_id }),
         tick_ms,

@@ -153,9 +153,11 @@ remaining text is split on commas; surrounding whitespace and empty entries are
 removed. For example, `/walk x, , y` publishes `command: "walk"` and
 `args: ["x", "y"]`. Commands are transient and have no REST recovery route.
 
-The outgoing opcode-only refresh packet used by F5 and
-`POST /clients/{client}/resync` publishes `client.resync` with the JSON
-discriminator `client_resync`:
+Physical F5 and `POST /clients/{client}/resync` use the same movement-safe
+refresh coordinator. It cancels queued route movement and, if a visual step is
+active, waits for the staged tile to become the committed tile before sending
+the opcode-only refresh packet. The observed outgoing packet then publishes
+`client.resync` with the JSON discriminator `client_resync`:
 
 ```text
 ClientResync {
@@ -164,10 +166,11 @@ ClientResync {
 }
 ```
 
-This event means the client requested fresh server state. It does not mean the
+This event confirms that the deferred packet was sent. It does not mean the
 server has responded. For `POST /clients/{client}/resync`, `resync_id` equals
 the `resync_id` and `command_id` in the HTTP response. A physical F5 request
-receives a DLL-local nonzero identifier from the same sequence.
+receives a DLL-local nonzero identifier from the same sequence. Repeated
+physical F5 presses coalesce while a refresh is already pending.
 
 The payload-free server `0x22` `RefreshUserOK` response publishes
 `client.resync_completed` with the JSON discriminator
@@ -186,6 +189,10 @@ the HTTP command status or `client.resync`, before releasing movement. Both
 events are transient, so the event stream must be established before the HTTP
 request. If the stream is lost, retain the safe paused state and issue a new
 refresh after reconnecting.
+
+The coordinator serializes user-initiated refreshes because `RefreshUserOK`
+does not carry an identifier. A server-driven movement-correction refresh is
+not deferred; it remains on the client's immediate recovery path.
 
 Refresh completion is separate from visible-object reconciliation. daRPC
 retains the visible-object set while the server redraws it. Newly observed IDs

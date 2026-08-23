@@ -145,6 +145,18 @@ pub const CLIENT_SOCKET_POINTER_RVA: usize = 0x0033_D958;
 pub const CLIENT_PACKET_SUBMIT_ENTRY: [u8; 9] =
     [0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x38, 0x89, 0x4D, 0xC8];
 
+/// Module-relative address of the native opcode-only RefreshUser request.
+pub const REFRESH_USER_RVA: usize = 0x001F_4640;
+
+/// Complete entry instructions required before deferring physical F5 refreshes.
+pub const REFRESH_USER_ENTRY: [u8; 9] = [0x55, 0x8B, 0xEC, 0x81, 0xEC, 0x8C, 0x00, 0x00, 0x00];
+
+/// Return addresses immediately after the two physical F5 refresh call sites.
+pub const PHYSICAL_REFRESH_CALLER_RETURN_RVAS: [usize; 2] = [0x001F_14B9, 0x001F_14EA];
+
+/// Return address after the server-driven movement-correction refresh call.
+pub const MOVEMENT_CORRECTION_REFRESH_CALLER_RETURN_RVA: usize = 0x001F_3070;
+
 /// Module-relative address of the transport queue submission routine.
 #[cfg(any(windows, test))]
 pub const CLIENT_TRANSPORT_SUBMIT_RVA: usize = 0x0018_6210;
@@ -182,9 +194,11 @@ mod tests {
         CLIENT_TRANSPORT_SUBMIT_RVA, EVENT_DISPATCH_ENTRY, EVENT_DISPATCH_RVA,
         EVENT_DISPATCHER_TICK_ENTRY, EVENT_DISPATCHER_TICK_RVA, FIELD_MAP_PANE_COL_RVA,
         GUI_BACK_PANE_GET_RVA, MAP_CAN_MOVE_DIRECTION_RVA, MAP_SIZE_HANDLER_ENTRY,
-        MAP_SIZE_HANDLER_RVA, QUEUED_STEP_CALL, QUEUED_STEP_CALL_RVA, RESET_MOVEMENT_RVA,
-        ROUTE_COLLISION_CALL, ROUTE_COLLISION_CALL_RVA, ROUTE_STEP_PUSH_BACK_RVA, SELF_OBJECT_RVA,
-        SKILL_ACTIVATE_RVA, SPELL_DELAY_ACTIVE_OFFSET, SPELL_DELAY_CONTROL_PANE_GET_RVA,
+        MAP_SIZE_HANDLER_RVA, MOVEMENT_CORRECTION_REFRESH_CALLER_RETURN_RVA,
+        PHYSICAL_REFRESH_CALLER_RETURN_RVAS, QUEUED_STEP_CALL, QUEUED_STEP_CALL_RVA,
+        REFRESH_USER_ENTRY, REFRESH_USER_RVA, RESET_MOVEMENT_RVA, ROUTE_COLLISION_CALL,
+        ROUTE_COLLISION_CALL_RVA, ROUTE_STEP_PUSH_BACK_RVA, SELF_OBJECT_RVA, SKILL_ACTIVATE_RVA,
+        SPELL_DELAY_ACTIVE_OFFSET, SPELL_DELAY_CONTROL_PANE_GET_RVA,
         SPELL_DELAY_CONTROL_PANE_POINTER_RVA, SPELL_DENIED_RVA, SPELL_NO_ARGS_RVA, SPELL_START_RVA,
         SPELL_TARGET_RVA, TURN_RVA, WALK_RVA, WORLD_PANE_ADJUSTMENT, WORLD_PANE_MAP_ID_OFFSET,
         WORLD_PANE_POINTER_RVA, WORLD_PANE_PURSUIT_TARGET_ID_OFFSET,
@@ -274,10 +288,20 @@ mod tests {
         assert_eq!(SPELL_NO_ARGS_RVA, 0x0009_AD40);
         assert_eq!(SPELL_START_RVA, 0x0009_B900);
         assert_eq!(CLIENT_PACKET_SUBMIT_RVA, 0x0016_3E00);
+        assert_eq!(REFRESH_USER_RVA, 0x001F_4640);
+        assert_eq!(
+            PHYSICAL_REFRESH_CALLER_RETURN_RVAS,
+            [0x001F_14B9, 0x001F_14EA]
+        );
+        assert_eq!(MOVEMENT_CORRECTION_REFRESH_CALLER_RETURN_RVA, 0x001F_3070);
         assert_eq!(CLIENT_MAIN_THREAD_ID_RVA, 0x0034_0400);
         assert_eq!(
             CLIENT_PACKET_SUBMIT_ENTRY,
             [0x55, 0x8B, 0xEC, 0x83, 0xEC, 0x38, 0x89, 0x4D, 0xC8]
+        );
+        assert_eq!(
+            REFRESH_USER_ENTRY,
+            [0x55, 0x8B, 0xEC, 0x81, 0xEC, 0x8C, 0x00, 0x00, 0x00]
         );
     }
 }

@@ -57,6 +57,7 @@ static QUEUE: CommandQueue = CommandQueue::new();
 pub(crate) fn reset() {
     #[cfg(windows)]
     crate::who::reset();
+    crate::resync::reset();
     QUEUE.reset();
     NEXT_COMMAND_ID.store(1, Ordering::Relaxed);
     SUBMITTING_RESYNC_COMMAND_ID.store(0, Ordering::Relaxed);
@@ -74,6 +75,21 @@ pub(crate) fn outgoing_resync_id() -> u32 {
     } else {
         command_id
     }
+}
+
+#[cfg(all(windows, not(test)))]
+pub(crate) fn begin_resync_submission(command_id: u32) {
+    SUBMITTING_RESYNC_COMMAND_ID.store(command_id, Ordering::Release);
+}
+
+#[cfg(all(windows, not(test)))]
+pub(crate) fn end_resync_submission(command_id: u32) {
+    let _ = SUBMITTING_RESYNC_COMMAND_ID.compare_exchange(
+        command_id,
+        0,
+        Ordering::AcqRel,
+        Ordering::Relaxed,
+    );
 }
 
 pub(crate) fn handle(operation: CommandOperation) -> CommandResult {
@@ -95,6 +111,8 @@ pub(crate) fn handle(operation: CommandOperation) -> CommandResult {
 }
 
 pub(crate) fn observe_tick() {
+    #[cfg(all(windows, not(test)))]
+    crate::resync::observe_tick();
     complete_pending_cast_if_due(now_tick_ms());
     for _ in 0..COMMANDS_PER_TICK {
         let Some(slot_index) = QUEUE.pop() else {
@@ -267,7 +285,6 @@ fn execute(slot_index: usize) {
     let is_exact_route = matches!(kind, CommandKind::Walk(WalkTarget::Route(_)));
     let is_who = matches!(kind, CommandKind::Who);
     let is_cast = matches!(kind, CommandKind::CastSpell(_));
-    let is_resync = matches!(kind, CommandKind::Resync);
     let command_id = slot.command_id.load(Ordering::Relaxed);
     let waits_for_response = matches!(
         kind,
@@ -276,27 +293,18 @@ fn execute(slot_index: usize) {
     if is_exact_route {
         crate::diagnostics::clear_invalid_exact_route_state();
     }
-    if is_resync {
-        SUBMITTING_RESYNC_COMMAND_ID.store(command_id, Ordering::Release);
-    }
     let result = panic::catch_unwind(|| {
         if is_who {
             execute_who(command_id)
         } else if let CommandKind::InspectPlayer(id) = kind {
             execute_player(command_id, id.get())
+        } else if matches!(kind, CommandKind::Resync) {
+            execute_resync(command_id)
         } else {
             execute_command(kind)
         }
     })
     .unwrap_or(Err(CommandFailure::Internal));
-    if is_resync {
-        let _ = SUBMITTING_RESYNC_COMMAND_ID.compare_exchange(
-            command_id,
-            0,
-            Ordering::AcqRel,
-            Ordering::Relaxed,
-        );
-    }
     if is_exact_route
         && result == Err(CommandFailure::InvalidState)
         && let Some(diagnostics) = crate::diagnostics::take_invalid_exact_route_state()
@@ -329,6 +337,16 @@ fn execute_player(command_id: u32, id: u32) -> Result<(), CommandFailure> {
 
 #[cfg(test)]
 const fn execute_player(_command_id: u32, _id: u32) -> Result<(), CommandFailure> {
+    Ok(())
+}
+
+#[cfg(all(windows, not(test)))]
+fn execute_resync(command_id: u32) -> Result<(), CommandFailure> {
+    crate::resync::request_command(command_id)
+}
+
+#[cfg(test)]
+const fn execute_resync(_command_id: u32) -> Result<(), CommandFailure> {
     Ok(())
 }
 

@@ -27,14 +27,19 @@ pub(crate) async fn cached_player(
     let registry = state.snapshot();
     let client = resolve_client(&registry, &identifier)?;
     let pid = client.pid;
+    if let Some(reason) = client.snapshot_reason.as_deref() {
+        return Err(ApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "observation_unavailable",
+            reason,
+            Some(pid),
+        ));
+    }
     let snapshot = client.game_snapshot.as_ref().ok_or_else(|| {
         ApiError::new(
             StatusCode::SERVICE_UNAVAILABLE,
             "observation_unavailable",
-            client
-                .snapshot_reason
-                .as_deref()
-                .unwrap_or("the client has not published an observation yet"),
+            "the client has not published an observation yet",
             Some(pid),
         )
     })?;

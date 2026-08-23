@@ -34,7 +34,8 @@ use crate::{
     },
     registry::{
         ClientIdentity as RegistryClientIdentity, ClientSnapshot as RegistryClientSnapshot,
-        ClientSnapshotStatus, ConnectionEvent, RegistrySnapshot, architecture, hex,
+        ClientSnapshotStatus, CommittedChange, ConnectionEvent, RegistrySnapshot, architecture,
+        hex,
     },
     resync_status::{ResyncSchedulerStatus, ResyncTrackers},
     state::{
@@ -186,110 +187,81 @@ impl ApiState {
         *current = Arc::new(snapshot);
     }
 
-    #[cfg(test)]
-    pub(crate) fn publish_connection_event(&self, event: &ConnectionEvent) {
-        let previous = self.snapshot();
-        self.publish_connection_event_from(event, &previous);
-    }
-
+    /// Publishes an already validated registry change without reducing it again.
     #[cfg_attr(not(windows), allow(dead_code))]
-    pub(crate) fn publish_connection_event_from(
-        &self,
-        event: &ConnectionEvent,
-        previous: &RegistrySnapshot,
-    ) {
+    pub(crate) fn publish_committed(&self, change: CommittedChange) {
         let observed_at_utc = Utc::now();
-        self.messages
-            .write()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .observe(event, observed_at_utc);
-        match event {
-            ConnectionEvent::Snapshot {
+        match change {
+            CommittedChange::Snapshot {
                 pid,
                 identity,
-                snapshot,
+                previous,
+                current,
             } => {
-                let previous_snapshot = previous
-                    .clients
-                    .iter()
-                    .find(|client| client.pid == *pid && client.identity == Some(*identity))
-                    .and_then(|client| client.game_snapshot.as_ref());
-                if let Some(previous_snapshot) = previous_snapshot {
+                if let Some(previous) = previous {
                     let _ = self.published_events.send(PublishedEvent::Snapshot {
-                        pid: *pid,
-                        identity: *identity,
-                        previous: Box::new(previous_snapshot.clone()),
-                        current: snapshot.clone(),
+                        pid,
+                        identity,
+                        previous,
+                        current,
                     });
                 }
             }
-            ConnectionEvent::StateEvents {
+            CommittedChange::StateEvents {
                 pid,
                 identity,
                 events,
+                current,
             } => {
-                let registry = self.snapshot();
-                let game_snapshot = registry
-                    .clients
-                    .iter()
-                    .find(|client| client.pid == *pid && client.identity == Some(*identity))
-                    .and_then(|client| client.game_snapshot.as_ref());
-                let mut previous_game_snapshot = previous
-                    .clients
-                    .iter()
-                    .find(|client| client.pid == *pid && client.identity == Some(*identity))
-                    .and_then(|client| client.game_snapshot.clone());
+                self.messages
+                    .write()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .observe_state_events(
+                        identity,
+                        events.iter().map(|committed| &committed.event),
+                        observed_at_utc,
+                    );
                 let mut spell_feedback = self
                     .spell_feedback
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
-                for state_event in events {
+                for committed in events {
+                    let state_event = committed.event;
                     match &state_event.update {
                         StateUpdate::Action(ActionUpdate::Resync { resync_id }) => {
                             self.resyncs
                                 .lock()
                                 .unwrap_or_else(std::sync::PoisonError::into_inner)
-                                .outgoing(*identity, *resync_id);
+                                .outgoing(identity, *resync_id);
                         }
                         StateUpdate::Action(ActionUpdate::ResyncCompleted { resync_id }) => {
                             self.resyncs
                                 .lock()
                                 .unwrap_or_else(std::sync::PoisonError::into_inner)
-                                .completed(*identity, *resync_id);
+                                .completed(identity, *resync_id);
                         }
                         StateUpdate::Action(ActionUpdate::ResyncTimedOut { resync_id }) => {
                             self.resyncs
                                 .lock()
                                 .unwrap_or_else(std::sync::PoisonError::into_inner)
-                                .timed_out(*identity, *resync_id);
+                                .timed_out(identity, *resync_id);
                         }
                         _ => {}
                     }
-                    let replaced_players = previous_game_snapshot
-                        .as_ref()
-                        .map_or_else(Vec::new, |snapshot| {
-                            replaced_players(snapshot, &state_event.update)
-                        });
-                    if previous_game_snapshot
-                        .as_mut()
-                        .is_some_and(|snapshot| snapshot.apply_event(state_event.clone()).is_err())
-                    {
-                        previous_game_snapshot = None;
-                    }
                     let (ability_name, target_name) =
-                        ability_context(game_snapshot, &state_event.update);
+                        ability_context(Some(current.as_ref()), &state_event.update);
                     let feedback = spell_feedback.observe(
-                        *identity,
-                        game_snapshot,
-                        state_event,
+                        identity,
+                        Some(current.as_ref()),
+                        &state_event,
                         ability_name.as_deref(),
                         target_name.as_deref(),
                     );
                     let _ = self.published_events.send(PublishedEvent::State {
-                        pid: *pid,
-                        identity: *identity,
-                        event: Box::new(state_event.clone()),
-                        replaced_players,
+                        pid,
+                        identity,
+                        event: Box::new(state_event),
+                        replaced_players: committed.replaced_players,
                         ability_name,
                         target_name,
                         feedback: feedback.map(Box::new),
@@ -297,32 +269,47 @@ impl ApiState {
                     });
                 }
             }
-            ConnectionEvent::Disconnected {
-                pid,
-                identity: Some(identity),
-                reason,
-            }
-            | ConnectionEvent::Incompatible {
-                pid,
-                identity: Some(identity),
-                reason,
-            } => {
-                self.spell_feedback
-                    .lock()
+            CommittedChange::Connection(event) => {
+                self.messages
+                    .write()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .remove(*identity);
-                self.resyncs
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .remove(*identity);
-                let _ = self.published_events.send(PublishedEvent::Closed {
-                    pid: *pid,
-                    identity: *identity,
-                    reason: reason.clone(),
-                });
+                    .observe_connection(&event);
+                match event {
+                    ConnectionEvent::Disconnected {
+                        pid,
+                        identity: Some(identity),
+                        reason,
+                    }
+                    | ConnectionEvent::Incompatible {
+                        pid,
+                        identity: Some(identity),
+                        reason,
+                    } => {
+                        self.spell_feedback
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .remove(identity);
+                        self.resyncs
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .remove(identity);
+                        let _ = self.published_events.send(PublishedEvent::Closed {
+                            pid,
+                            identity,
+                            reason,
+                        });
+                    }
+                    _ => {}
+                }
             }
-            _ => {}
         }
+    }
+
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub(crate) fn reject_observation(&self, pid: u32, identity: RegistryClientIdentity) {
+        let _ = self
+            .published_events
+            .send(PublishedEvent::ResyncRequired { pid, identity });
     }
 
     fn subscribe(&self) -> broadcast::Receiver<PublishedEvent> {
@@ -498,38 +485,6 @@ impl ApiState {
         self.emit(DaemonEvent::CommandsReady)?;
         Ok(receiver)
     }
-}
-
-fn replaced_players(
-    snapshot: &darpc_model::ClientSnapshot,
-    update: &darpc_model::StateUpdate,
-) -> Vec<darpc_model::WorldObject> {
-    let darpc_model::StateUpdate::Object(darpc_model::ObjectUpdate::Appeared(
-        darpc_model::WorldObject::Player {
-            id,
-            name: Some(name),
-            ..
-        },
-    )) = update
-    else {
-        return Vec::new();
-    };
-    snapshot.objects.as_ref().map_or_else(Vec::new, |objects| {
-        objects
-            .iter()
-            .filter(|object| {
-                matches!(
-                    object,
-                    darpc_model::WorldObject::Player {
-                        id: current_id,
-                        name: Some(current_name),
-                        ..
-                    } if current_id != id && current_name == name
-                )
-            })
-            .cloned()
-            .collect()
-    })
 }
 
 fn ability_context(

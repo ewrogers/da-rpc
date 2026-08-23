@@ -2,31 +2,93 @@ use super::*;
 
 #[test]
 fn snapshot_recapture_publishes_an_unchanged_stream_boundary() {
-    let state = state();
+    let (state, mut registry) = state_and_registry();
     let mut receiver = state.published_events.subscribe();
-    let previous = state.snapshot();
     let mut snapshot = game_snapshot();
     snapshot.revision += 1;
     snapshot.event_sequence += 1;
     let identity = RegistryClientIdentity::from_hello(hello());
 
-    state.publish_connection_event_from(
-        &ConnectionEvent::Snapshot {
+    commit_change(
+        &state,
+        &mut registry,
+        ConnectionEvent::Snapshot {
             pid: 42,
             identity,
             snapshot: Box::new(snapshot),
         },
-        &previous,
     );
 
+    let published = receiver.try_recv().unwrap();
+    let PublishedEvent::Snapshot {
+        pid,
+        identity: event_identity,
+        current,
+        ..
+    } = published
+    else {
+        panic!("expected a committed snapshot publication");
+    };
+    assert_eq!(pid, 42);
+    assert_eq!(event_identity, identity);
+    let retained = state.snapshot().clients[0].game_snapshot.clone().unwrap();
+    assert!(Arc::ptr_eq(&current, &retained));
+}
+
+#[test]
+fn rejected_observations_make_rest_and_new_streams_unavailable() {
+    let (state, mut registry) = state_and_registry();
+    let identity = RegistryClientIdentity::from_hello(hello());
+    let mut receiver = state.subscribe();
+    let retained = state.snapshot().clients[0].game_snapshot.clone().unwrap();
+
+    commit_change(
+        &state,
+        &mut registry,
+        ConnectionEvent::StateEvents {
+            pid: 42,
+            identity,
+            events: vec![StateEvent {
+                sequence: retained.event_sequence.wrapping_add(2),
+                revision: retained.revision.wrapping_add(1),
+                tick_ms: 600,
+                update: StateUpdate::Message(ModelClientMessage {
+                    kind: ModelMessageKind::System,
+                    sender: None,
+                    recipient: None,
+                    text: "rejected observation".into(),
+                }),
+            }],
+        },
+    );
+
+    let unavailable = state.snapshot();
+    assert!(Arc::ptr_eq(
+        unavailable.clients[0].game_snapshot.as_ref().unwrap(),
+        &retained
+    ));
+    assert!(unavailable.clients[0].snapshot_reason.is_some());
     assert!(matches!(
         receiver.try_recv(),
-        Ok(PublishedEvent::Snapshot {
+        Ok(PublishedEvent::ResyncRequired {
             pid: 42,
             identity: event_identity,
-            ..
         }) if event_identity == identity
     ));
+    assert!(matches!(
+        receiver.try_recv(),
+        Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+    ));
+    let messages = json_with_state(state.clone(), "/clients/42/messages");
+    assert_eq!(messages["messages"].as_array().unwrap().len(), 0);
+    for path in [
+        "/clients/42/status",
+        "/clients/42/players/zilo",
+        "/clients/42/events",
+    ] {
+        let response = response_with_state(state.clone(), path);
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
 }
 
 #[test]
@@ -130,23 +192,27 @@ fn serves_health_and_client_resources() {
 
 #[test]
 fn serves_normalized_message_history() {
-    let state = state();
+    let (state, mut registry) = state_and_registry();
     let identity = RegistryClientIdentity::from_hello(hello());
-    state.publish_connection_event(&ConnectionEvent::StateEvents {
-        pid: 42,
-        identity,
-        events: vec![StateEvent {
-            sequence: 3,
-            revision: 4,
-            tick_ms: 520,
-            update: StateUpdate::Message(ModelClientMessage {
-                kind: ModelMessageKind::Whisper,
-                sender: Some("Eidolon".into()),
-                recipient: Some("SiLo".into()),
-                text: "hello".into(),
-            }),
-        }],
-    });
+    commit_change(
+        &state,
+        &mut registry,
+        ConnectionEvent::StateEvents {
+            pid: 42,
+            identity,
+            events: vec![StateEvent {
+                sequence: 3,
+                revision: 4,
+                tick_ms: 520,
+                update: StateUpdate::Message(ModelClientMessage {
+                    kind: ModelMessageKind::Whisper,
+                    sender: Some("Eidolon".into()),
+                    recipient: Some("SiLo".into()),
+                    text: "hello".into(),
+                }),
+            }],
+        },
+    );
 
     let response = tokio::runtime::Builder::new_current_thread()
         .build()
@@ -211,35 +277,39 @@ fn serves_normalized_message_history() {
 
 #[test]
 fn correlates_spell_feedback_before_broadcasting_to_subscribers() {
-    let state = state();
+    let (state, mut registry) = state_and_registry();
     let identity = RegistryClientIdentity::from_hello(hello());
     let mut receiver = state.subscribe();
-    state.publish_connection_event(&ConnectionEvent::StateEvents {
-        pid: 42,
-        identity,
-        events: vec![
-            StateEvent {
-                sequence: 3,
-                revision: 4,
-                tick_ms: 520,
-                update: StateUpdate::Ability(AbilityUpdate::SpellCast {
-                    slot: 1,
-                    arguments: ModelSpellCastArguments::None,
-                }),
-            },
-            StateEvent {
-                sequence: 4,
-                revision: 5,
-                tick_ms: 545,
-                update: StateUpdate::Message(ModelClientMessage {
-                    kind: ModelMessageKind::System,
-                    sender: None,
-                    recipient: None,
-                    text: "You cast Mist.".into(),
-                }),
-            },
-        ],
-    });
+    commit_change(
+        &state,
+        &mut registry,
+        ConnectionEvent::StateEvents {
+            pid: 42,
+            identity,
+            events: vec![
+                StateEvent {
+                    sequence: 3,
+                    revision: 4,
+                    tick_ms: 520,
+                    update: StateUpdate::Ability(AbilityUpdate::SpellCast {
+                        slot: 1,
+                        arguments: ModelSpellCastArguments::None,
+                    }),
+                },
+                StateEvent {
+                    sequence: 4,
+                    revision: 5,
+                    tick_ms: 545,
+                    update: StateUpdate::Message(ModelClientMessage {
+                        kind: ModelMessageKind::System,
+                        sender: None,
+                        recipient: None,
+                        text: "You cast Mist.".into(),
+                    }),
+                },
+            ],
+        },
+    );
 
     assert!(matches!(
         receiver.try_recv().unwrap(),

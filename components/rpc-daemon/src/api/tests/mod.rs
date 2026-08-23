@@ -4,7 +4,7 @@ mod documentation;
 mod lifecycle;
 mod resources;
 
-use super::{ApiState, ClientList, LaunchOptions, replaced_players, resolve_client, router, start};
+use super::{ApiState, ClientList, LaunchOptions, resolve_client, router, start};
 use crate::{
     commands::{CommandReply, ROUTER_CAPACITY},
     event::DaemonEvent,
@@ -12,7 +12,10 @@ use crate::{
         LaunchOptions as ManagedLaunchOptions, LifecycleControl, LifecycleOperation,
         LifecycleOutcome, ManagementError,
     },
-    registry::{ClientIdentity as RegistryClientIdentity, ConnectionEvent, Registry},
+    registry::{
+        ClientIdentity as RegistryClientIdentity, CommitOutcome, ConnectionEvent, Registry,
+        replaced_players,
+    },
     stream::{PublishedEvent, SpellFeedback},
 };
 use axum::{
@@ -394,6 +397,10 @@ fn state() -> ApiState {
     state_with_snapshot(game_snapshot())
 }
 
+fn state_and_registry() -> (ApiState, Registry) {
+    state_and_registry_with_snapshot(game_snapshot())
+}
+
 fn player_profile() -> ModelPlayerProfile {
     ModelPlayerProfile {
         identity: ModelPlayerIdentity {
@@ -416,6 +423,10 @@ fn player_profile() -> ModelPlayerProfile {
 }
 
 fn state_with_snapshot(snapshot: ModelClientSnapshot) -> ApiState {
+    state_and_registry_with_snapshot(snapshot).0
+}
+
+fn state_and_registry_with_snapshot(snapshot: ModelClientSnapshot) -> (ApiState, Registry) {
     let mut registry = Registry::new();
     let hello = hello();
     registry.apply(&ConnectionEvent::Connected {
@@ -429,7 +440,22 @@ fn state_with_snapshot(snapshot: ModelClientSnapshot) -> ApiState {
         snapshot: Box::new(snapshot),
     });
     let (events, _receiver) = mpsc::channel();
-    ApiState::new(registry.snapshot(), Arc::new(FakeLifecycle), events)
+    let state = ApiState::new(registry.snapshot(), Arc::new(FakeLifecycle), events);
+    (state, registry)
+}
+
+fn commit_change(state: &ApiState, registry: &mut Registry, event: ConnectionEvent) {
+    match registry.commit(event) {
+        CommitOutcome::Applied(change) => {
+            state.publish(registry.snapshot());
+            state.publish_committed(change);
+        }
+        CommitOutcome::ObservationRejected { pid, identity, .. } => {
+            state.publish(registry.snapshot());
+            state.reject_observation(pid, identity);
+        }
+        CommitOutcome::Ignored => panic!("test event was not committed"),
+    }
 }
 
 fn empty_state() -> ApiState {
@@ -469,12 +495,16 @@ impl LifecycleControl for FakeLifecycle {
 }
 
 fn response(path: &str) -> axum::response::Response {
+    response_with_state(state(), path)
+}
+
+fn response_with_state(state: ApiState, path: &str) -> axum::response::Response {
     tokio::runtime::Builder::new_current_thread()
         .enable_time()
         .build()
         .unwrap()
         .block_on(async {
-            router(state())
+            router(state)
                 .oneshot(Request::get(path).body(Body::empty()).unwrap())
                 .await
                 .unwrap()

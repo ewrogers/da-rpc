@@ -698,7 +698,15 @@ pub(super) fn action_client(
         .identity
         .filter(|_| client.status == ClientSnapshotStatus::Connected)
         .ok_or_else(|| unavailable(client.pid))?;
-    let snapshot = client.game_snapshot.clone().ok_or_else(|| {
+    if let Some(reason) = client.snapshot_reason.as_deref() {
+        return Err(ApiError::new(
+            StatusCode::CONFLICT,
+            "client_state_unavailable",
+            reason,
+            Some(client.pid),
+        ));
+    }
+    let snapshot = client.game_snapshot.as_ref().ok_or_else(|| {
         ApiError::new(
             StatusCode::CONFLICT,
             "client_state_unavailable",
@@ -714,7 +722,7 @@ pub(super) fn action_client(
             Some(client.pid),
         ));
     }
-    Ok((client.pid, identity, snapshot))
+    Ok((client.pid, identity, snapshot.as_ref().clone()))
 }
 
 pub(crate) fn connected_client(

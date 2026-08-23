@@ -134,15 +134,45 @@ impl TickRateMonitor {
     }
 }
 
+#[derive(Default)]
+struct WorkerControl {
+    stop: AtomicBool,
+    refresh_observation: AtomicBool,
+}
+
+impl WorkerControl {
+    fn stop(&self) {
+        self.stop.store(true, Ordering::Release);
+    }
+
+    fn is_stopped(&self) -> bool {
+        self.stop.load(Ordering::Acquire)
+    }
+
+    fn request_fresh_snapshot(&self) {
+        self.refresh_observation.store(true, Ordering::Release);
+    }
+
+    fn take_refresh_observation(&self) -> bool {
+        self.refresh_observation.swap(false, Ordering::AcqRel)
+    }
+}
+
 pub(crate) struct Worker {
-    stop: Arc<AtomicBool>,
+    control: Arc<WorkerControl>,
     commands: SyncSender<CommandCall>,
     _handle: JoinHandle<()>,
 }
 
 impl Worker {
     pub(crate) fn stop(&self) {
-        self.stop.store(true, Ordering::Release);
+        self.control.stop();
+    }
+
+    pub(crate) fn request_fresh_snapshot(&self) {
+        // The worker consumes this flag between bounded pipe operations and
+        // clears its event boundary before issuing the snapshot request.
+        self.control.request_fresh_snapshot();
     }
 
     pub(crate) fn route_command(&self, call: CommandCall) {
@@ -159,26 +189,33 @@ impl Worker {
 }
 
 pub(crate) fn spawn(pid: u32, events: Sender<DaemonEvent>) -> io::Result<Worker> {
-    let stop = Arc::new(AtomicBool::new(false));
+    let control = Arc::new(WorkerControl::default());
     let (commands, command_receiver) = mpsc::sync_channel(WORKER_CAPACITY);
-    let worker_stop = Arc::clone(&stop);
+    let worker_control = Arc::clone(&control);
     let handle = thread::Builder::new()
         .name(format!("darpcd-client-{pid}"))
-        .spawn(move || run(pid, events, &command_receiver, &worker_stop))?;
+        .spawn(move || {
+            run(pid, events, &command_receiver, &worker_control);
+        })?;
     Ok(Worker {
-        stop,
+        control,
         commands,
         _handle: handle,
     })
 }
 
-fn run(pid: u32, events: Sender<DaemonEvent>, commands: &Receiver<CommandCall>, stop: &AtomicBool) {
+fn run(
+    pid: u32,
+    events: Sender<DaemonEvent>,
+    commands: &Receiver<CommandCall>,
+    control: &WorkerControl,
+) {
     if !emit(&events, ConnectionEvent::Connecting { pid }) {
         return;
     }
     let discovered_at = Instant::now();
 
-    while !stop.load(Ordering::Acquire) {
+    while !control.is_stopped() {
         reject_pending_commands(commands);
         match ControllerSession::connect(pid) {
             Ok(mut session) => {
@@ -195,7 +232,7 @@ fn run(pid: u32, events: Sender<DaemonEvent>, commands: &Receiver<CommandCall>, 
                     ) {
                         return;
                     }
-                    if wait_for_stop(stop, RETRY_INTERVAL) {
+                    if wait_for_stop(control, RETRY_INTERVAL) {
                         return;
                     }
                     continue;
@@ -215,12 +252,12 @@ fn run(pid: u32, events: Sender<DaemonEvent>, commands: &Receiver<CommandCall>, 
                 if let Err(error) = monitor(
                     &mut session,
                     commands,
-                    stop,
+                    control,
                     &events,
                     pid,
                     identity,
                     diagnostics_supported,
-                ) && !stop.load(Ordering::Acquire)
+                ) && !control.is_stopped()
                     && !emit(
                         &events,
                         ConnectionEvent::Disconnected {
@@ -243,7 +280,7 @@ fn run(pid: u32, events: Sender<DaemonEvent>, commands: &Receiver<CommandCall>, 
             }
         }
 
-        if wait_for_stop(stop, RETRY_INTERVAL) {
+        if wait_for_stop(control, RETRY_INTERVAL) {
             reject_pending_commands(commands);
             return;
         }
@@ -287,7 +324,7 @@ fn supports_diagnostics(version: darpc_protocol::ComponentVersion) -> bool {
 fn monitor(
     session: &mut ControllerSession,
     commands: &Receiver<CommandCall>,
-    stop: &AtomicBool,
+    control: &WorkerControl,
     events: &Sender<DaemonEvent>,
     pid: u32,
     identity: ClientIdentity,
@@ -298,7 +335,10 @@ fn monitor(
     let mut last_health = Instant::now();
     let mut tick_rate = TickRateMonitor::default();
     let mut hook_timing = HookTimingMonitor::default();
-    while !stop.load(Ordering::Acquire) {
+    while !control.is_stopped() {
+        if control.take_refresh_observation() {
+            boundary = None;
+        }
         if let Some(call) = next_command(commands) {
             if call.identity != identity {
                 let _ = call.reply.send(CommandReply::Unavailable);
@@ -366,7 +406,7 @@ fn monitor(
                             reason: format!("snapshot unavailable: {reason:?}"),
                         },
                     )?;
-                    if wait_for_stop(stop, SNAPSHOT_RETRY_INTERVAL) {
+                    if wait_for_stop(control, SNAPSHOT_RETRY_INTERVAL) {
                         return Ok(());
                     }
                 }
@@ -612,15 +652,15 @@ enum SnapshotOutcome {
     Unavailable(SnapshotUnavailableReason),
 }
 
-fn wait_for_stop(stop: &AtomicBool, duration: Duration) -> bool {
+fn wait_for_stop(control: &WorkerControl, duration: Duration) -> bool {
     let deadline = Instant::now() + duration;
     while Instant::now() < deadline {
-        if stop.load(Ordering::Acquire) {
+        if control.is_stopped() {
             return true;
         }
         thread::sleep(STOP_POLL_INTERVAL.min(deadline.saturating_duration_since(Instant::now())));
     }
-    stop.load(Ordering::Acquire)
+    control.is_stopped()
 }
 
 fn connect_failure(pid: u32, error: ControllerError) -> ConnectionEvent {

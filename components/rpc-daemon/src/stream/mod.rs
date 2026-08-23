@@ -55,8 +55,8 @@ pub(crate) enum PublishedEvent {
     Snapshot {
         pid: u32,
         identity: ClientIdentity,
-        previous: Box<darpc_model::ClientSnapshot>,
-        current: Box<darpc_model::ClientSnapshot>,
+        previous: Arc<darpc_model::ClientSnapshot>,
+        current: Arc<darpc_model::ClientSnapshot>,
     },
     #[cfg_attr(not(windows), allow(dead_code))]
     State {
@@ -75,6 +75,8 @@ pub(crate) enum PublishedEvent {
         identity: ClientIdentity,
         reason: String,
     },
+    #[cfg_attr(not(windows), allow(dead_code))]
+    ResyncRequired { pid: u32, identity: ClientIdentity },
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
@@ -674,6 +676,19 @@ pub(crate) fn response(
                         reason,
                     });
                     yield Ok(closed.into_sse());
+                    break;
+                }
+                Ok(PublishedEvent::ResyncRequired {
+                    pid: event_pid,
+                    identity: event_identity,
+                }) if event_pid == pid && event_identity == identity => {
+                    let resync = ClientEvent::StreamResyncRequired(StreamResyncRequired {
+                        pid,
+                        instance_id: hex(&identity.dll_instance_id),
+                        last_event_sequence: last_sequence,
+                        dropped_events: 0,
+                    });
+                    yield Ok(resync.into_sse());
                     break;
                 }
                 Ok(_) => {}

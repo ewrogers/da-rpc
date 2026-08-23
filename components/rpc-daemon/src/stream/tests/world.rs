@@ -1,6 +1,55 @@
 use super::*;
 
 #[test]
+fn map_download_updates_keep_the_requested_public_event_names_and_dimensions() {
+    let updates = [
+        (
+            MapDownloadUpdate::Requested(MapDownload {
+                map_id: 3001,
+                width: 100,
+                height: 80,
+            }),
+            "map.requested",
+        ),
+        (
+            MapDownloadUpdate::Downloaded(MapDownload {
+                map_id: 3001,
+                width: 100,
+                height: 80,
+            }),
+            "map.downloaded",
+        ),
+    ];
+
+    for (index, (update, expected_name)) in updates.into_iter().enumerate() {
+        let mut events = expand(
+            42,
+            ClientIdentity {
+                pid: 42,
+                process_creation_time: 100,
+                dll_instance_id: [1; 16],
+            },
+            StateEvent {
+                sequence: u32::try_from(index + 1).unwrap(),
+                revision: u32::try_from(index + 1).unwrap(),
+                tick_ms: 500,
+                update: StateUpdate::MapDownload(update),
+            },
+            None,
+            None,
+            observed_at(),
+        );
+        assert_eq!(events.len(), 1);
+        let event = events.remove(0);
+        assert_eq!(event.name(), expected_name);
+        let json = serde_json::to_value(event).unwrap();
+        assert_eq!(json["data"]["map_id"], 3001);
+        assert_eq!(json["data"]["width"], 100);
+        assert_eq!(json["data"]["height"], 80);
+    }
+}
+
+#[test]
 fn collection_updates_keep_the_requested_public_event_names() {
     let updates = [
         StateUpdate::Inventory(SlotUpdate {

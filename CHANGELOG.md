@@ -6,6 +6,9 @@
 
 ### Added
 
+- Add ordered `map.requested` and `map.downloaded` events for native game-client
+  cache-miss transfers, including the map ID and dimensions. The completion
+  event follows the accepted final `0x3C` row after every map row was observed.
 - Add the correlated `client.resync_completed` event for the complete refresh
   transaction while retaining protocol version 1.7.
 - Include the resync ID, coalesced status, scheduler phase, active resync ID,
@@ -28,6 +31,8 @@
   asynchronous work to the client path.
 - Gate planned-route expansion on its generation and remaining-step count so
   unchanged client ticks avoid event-buffer claims and native route walks.
+- Extend protocol 1.7 with map-download lifecycle updates. Update the DLL and
+  its controller or daemon together when adopting this change.
 - Inventory the mandatory and optional client launch patches in the README with
   player-facing descriptions of each patch and its purpose.
 

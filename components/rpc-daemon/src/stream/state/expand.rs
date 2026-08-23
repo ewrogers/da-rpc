@@ -93,6 +93,24 @@ pub(crate) fn expand(
             }));
             events
         }
+        StateUpdate::MapDownload(update) => {
+            let (download, requested) = match update {
+                darpc_model::MapDownloadUpdate::Requested(download) => (download, true),
+                darpc_model::MapDownloadUpdate::Downloaded(download) => (download, false),
+            };
+            let payload = MapDownloadChanged {
+                observation,
+                map_id: download.map_id,
+                width: download.width,
+                height: download.height,
+            };
+            events.push(if requested {
+                ClientEvent::MapRequested(payload)
+            } else {
+                ClientEvent::MapDownloaded(payload)
+            });
+            events
+        }
         StateUpdate::Movement(update) => {
             events.push(match update {
                 MovementUpdate::Started {

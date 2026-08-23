@@ -19,9 +19,10 @@ mod who;
 pub use event::{
     AbilityUpdate, ActionUpdate, ApplyEventError, AudioUpdate, ClientCommand, CollectionBatch,
     CollectionChange, CollectionKind, CoreStatus, CurrentVitals, EffectUpdate, InventoryUpdate,
-    LifecycleUpdate, LocationUpdate, MapChange, MovementStopReason, MovementUpdate, PlannedRoute,
-    ProgressionStatus, SkillbookUpdate, SlotUpdate, SpellCancellationSource, SpellCastArguments,
-    SpellbookUpdate, StateEvent, StateUpdate, StatusUpdate, TilePosition, WalkMode,
+    LifecycleUpdate, LocationUpdate, MapChange, MapDownload, MapDownloadUpdate, MovementStopReason,
+    MovementUpdate, PlannedRoute, ProgressionStatus, SkillbookUpdate, SlotUpdate,
+    SpellCancellationSource, SpellCastArguments, SpellbookUpdate, StateEvent, StateUpdate,
+    StatusUpdate, TilePosition, WalkMode,
 };
 
 pub use group::{

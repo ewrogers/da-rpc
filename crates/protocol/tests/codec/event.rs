@@ -81,3 +81,27 @@ fn collection_events_require_valid_batches_and_content() {
         Err(DecodeError::InvalidCollectionBatch { index: 0, count: 0 })
     );
 }
+
+#[test]
+fn map_download_events_reject_unknown_kinds_and_truncated_dimensions() {
+    let mut payload = Vec::new();
+    payload.extend_from_slice(&1_u32.to_le_bytes());
+    payload.push(0);
+    payload.extend_from_slice(&1_u16.to_le_bytes());
+    payload.extend_from_slice(&1_u32.to_le_bytes());
+    payload.extend_from_slice(&1_u32.to_le_bytes());
+    payload.extend_from_slice(&1_u32.to_le_bytes());
+    payload.extend_from_slice(&[26, 3]);
+    payload.extend_from_slice(&3001_u32.to_le_bytes());
+    payload.extend_from_slice(&[100, 80]);
+    let malformed = frame_for(MessageType::EventPollResponse, &payload);
+    assert_eq!(
+        decode_frame(&malformed),
+        Err(DecodeError::InvalidStateUpdateType { actual: 3 })
+    );
+
+    payload.truncate(payload.len() - 1);
+    payload[20] = 1;
+    let truncated = frame_for(MessageType::EventPollResponse, &payload);
+    assert!(decode_frame(&truncated).is_err());
+}

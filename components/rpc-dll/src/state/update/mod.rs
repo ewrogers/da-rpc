@@ -29,6 +29,7 @@ impl QueuedStateEvent {
             #[cfg(not(test))]
             QueuedStateUpdate::Movement(update) => StateUpdate::Movement(update),
             QueuedStateUpdate::Location(update) => StateUpdate::Location(update.into_model()),
+            QueuedStateUpdate::MapDownload(update) => StateUpdate::MapDownload(update),
             QueuedStateUpdate::Effect(update) => StateUpdate::Effect(update),
             QueuedStateUpdate::Object(update) => StateUpdate::Object(update.into_model()),
             QueuedStateUpdate::Message(update) => StateUpdate::Message(update.into_model()),
@@ -108,6 +109,7 @@ pub(super) enum QueuedStateUpdate {
     #[cfg(not(test))]
     Movement(MovementUpdate),
     Location(QueuedLocationUpdate),
+    MapDownload(MapDownloadUpdate),
     Effect(EffectUpdate),
     Object(QueuedObjectUpdate),
     Message(QueuedMessage),

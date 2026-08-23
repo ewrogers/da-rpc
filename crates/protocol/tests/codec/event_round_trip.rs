@@ -121,6 +121,26 @@ fn event_messages_round_trip() {
                     }),
                 },
                 StateEvent {
+                    sequence: 421,
+                    revision: 111,
+                    tick_ms: 124,
+                    update: StateUpdate::MapDownload(MapDownloadUpdate::Requested(MapDownload {
+                        map_id: 3001,
+                        width: 100,
+                        height: 80,
+                    })),
+                },
+                StateEvent {
+                    sequence: 422,
+                    revision: 112,
+                    tick_ms: 125,
+                    update: StateUpdate::MapDownload(MapDownloadUpdate::Downloaded(MapDownload {
+                        map_id: 3001,
+                        width: 100,
+                        height: 80,
+                    })),
+                },
+                StateEvent {
                     sequence: 43,
                     revision: 12,
                     tick_ms: 125,

@@ -100,6 +100,8 @@ pub(crate) enum ClientEvent {
     WeightChanged(WeightChanged),
     ModifiersChanged(ModifiersChanged),
     LocationChanged(LocationChanged),
+    MapRequested(MapDownloadChanged),
+    MapDownloaded(MapDownloadChanged),
     BlindChanged(BlindChanged),
     WalkingStarted(WalkingStarted),
     WalkingStopped(WalkingStopped),
@@ -218,6 +220,8 @@ impl ClientEvent {
             Self::WeightChanged(_) => "weight.changed",
             Self::ModifiersChanged(_) => "modifiers.changed",
             Self::LocationChanged(_) => "location.changed",
+            Self::MapRequested(_) => "map.requested",
+            Self::MapDownloaded(_) => "map.downloaded",
             Self::BlindChanged(_) => "blind.changed",
             Self::WalkingStarted(_) => "walking.started",
             Self::WalkingStopped(_) => "walking.stopped",
@@ -337,6 +341,9 @@ impl ClientEvent {
             Self::WeightChanged(value) => value.observation.event_sequence,
             Self::ModifiersChanged(value) => value.observation.event_sequence,
             Self::LocationChanged(value) => value.observation.event_sequence,
+            Self::MapRequested(value) | Self::MapDownloaded(value) => {
+                value.observation.event_sequence
+            }
             Self::BlindChanged(value) => value.observation.event_sequence,
             Self::WalkingStarted(value) => value.observation.event_sequence,
             Self::WalkingStopped(value) => value.observation.event_sequence,

@@ -19,9 +19,9 @@ use darpc_model::{
     AbilityUpdate, ActionUpdate, AudioUpdate, CharacterModifiers, CharacterStats, ClientCommand,
     ClientLifecycle, ClientMessage, CollectionBatch, CollectionKind, CoreStatus, CurrentVitals,
     Effect, EffectDuration, EffectUpdate, Element, EntityUpdate, LifecycleUpdate, LocationUpdate,
-    MapChange, MessageKind, MovementStopReason, MovementUpdate, ProgressionStatus,
-    SpellCancellationSource, SpellCastArguments, StateEvent, StateUpdate, StatusUpdate,
-    TilePosition,
+    MapChange, MapDownloadUpdate, MessageKind, MovementStopReason, MovementUpdate,
+    ProgressionStatus, SpellCancellationSource, SpellCastArguments, StateEvent, StateUpdate,
+    StatusUpdate, TilePosition,
 };
 use darpc_protocol::EventPollResult;
 #[cfg(windows)]
@@ -37,6 +37,7 @@ use std::{
 mod ability;
 mod action;
 mod cache;
+mod map_download;
 pub(crate) mod refresh;
 mod update;
 
@@ -51,6 +52,7 @@ pub(crate) use update::QueuedStateEvent;
 use update::*;
 
 pub(crate) fn observe_outgoing(body: &[u8], tick_ms: u32) {
+    map_download::observe_request(body, tick_ms);
     if let Some((kind, source, destination)) = collection_swap(body) {
         mark_collection_dirty(kind, source, tick_ms);
         mark_collection_dirty(kind, destination, tick_ms);
@@ -87,6 +89,14 @@ pub(crate) fn observe_audio(update: AudioUpdate, tick_ms: u32) {
 
 pub(crate) fn observe_resync_completed(tick_ms: u32) {
     refresh::observe_completed(tick_ms);
+}
+
+pub(crate) fn observe_map_part(row_index: u16, body_length: usize, tick_ms: u32) {
+    map_download::observe_part(row_index, body_length, tick_ms);
+}
+
+pub(crate) fn finish_map_download_stage() {
+    map_download::finish_stage();
 }
 
 #[cfg_attr(
@@ -361,6 +371,7 @@ pub(crate) fn stage_map_transition(
     name: &[u8],
     tick_ms: u32,
 ) {
+    map_download::stage(map_id, width, height);
     // SAFETY: the map-size hook runs on the client main thread, which is the
     // sole cache producer.
     let update = unsafe { CACHE.stage_map_transition(map_id, width, height, name) };

@@ -145,6 +145,12 @@ The map-size hook stages the new map ID, name, width, and height. The decoded
 event hook commits that staged map only when the following position arrives.
 Snapshots and ordinary movement publication pause across this short boundary.
 
+The same staged dimensions correlate a native cache miss without adding file
+I/O. A matching outbound `0x05` request publishes `map.requested`. The decoded
+event seam records bounded `0x3C` row indices after the native handler returns;
+the final row publishes `map.downloaded` only when every prepared row was
+observed with the expected body length. No packet body is retained.
+
 Consumers therefore see one `location.changed` event containing a consistent
 map and position. The event is published before ordinary per-object
 disappearance events retire the previous map's visible-object view. No

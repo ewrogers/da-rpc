@@ -292,7 +292,8 @@ extern "C" fn observe_packet(body: *const u8, length: i16) {
         }
         if !matches!(
             prefix[0],
-            0x07 | 0x08
+            0x05 | 0x07
+                | 0x08
                 | 0x0F
                 | 0x11
                 | 0x1C
@@ -353,7 +354,7 @@ fn expected_body_length(prefix: [u8; 2], variable_length: usize) -> Option<usize
         0x30 => 4,
         0x43 => 6,
         0x07 => 6,
-        0x08 | 0x29 => 10,
+        0x05 | 0x08 | 0x29 => 10,
         0x24 | 0x2A | 0x3F => 9,
         0x4A => match prefix[1] {
             0x01 => 7,

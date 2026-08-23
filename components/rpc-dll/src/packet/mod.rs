@@ -1,5 +1,6 @@
 mod action_delay;
 pub(crate) mod audio;
+mod map;
 pub(crate) mod message;
 pub(crate) mod object;
 mod state;
@@ -8,6 +9,7 @@ pub(crate) mod visual;
 use self::{
     action_delay::ActionDelay,
     audio::AudioUpdate,
+    map::MapPart,
     message::ParsedMessage,
     object::WorldUpdate,
     state::{
@@ -169,6 +171,7 @@ pub(crate) enum ServerUpdate<'a> {
     Collection(CollectionDirty),
     SpellCancelled,
     Visual(VisualUpdate),
+    MapPart(MapPart),
     FieldMap(&'a [u8]),
     Dialog(&'a [u8]),
     Group(&'a [u8]),
@@ -185,6 +188,9 @@ pub(crate) fn update<'a>(
     }
     if let Some(update) = action_delay::update(body)? {
         return Ok(Some(ServerUpdate::ActionDelay(update)));
+    }
+    if let Some(update) = map::update(body)? {
+        return Ok(Some(ServerUpdate::MapPart(update)));
     }
     if body.first() == Some(&0x2E) {
         return Ok(Some(ServerUpdate::FieldMap(body)));

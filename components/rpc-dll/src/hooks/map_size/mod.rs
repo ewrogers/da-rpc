@@ -103,18 +103,24 @@ unsafe extern "thiscall" fn map_size_handler_detour(
 ) -> u8 {
     core::arch::naked_asm!(
         "lock inc dword ptr [{activity}]",
+        "push esi",
         "push ecx",
-        "push dword ptr [esp + 8]",
+        "push dword ptr [esp + 12]",
         "push ecx",
         "call {observe}",
         "add esp, 8",
         "pop ecx",
-        "push dword ptr [esp + 4]",
+        "push dword ptr [esp + 8]",
         "call dword ptr [{trampoline}]",
+        "mov esi, eax",
+        "call {finish}",
+        "mov eax, esi",
+        "pop esi",
         "lock dec dword ptr [{activity}]",
         "ret 4",
         activity = sym MAP_SIZE_HOOK_ACTIVITY,
         observe = sym observe_map_size,
+        finish = sym finish_map_size,
         trampoline = sym MAP_SIZE_TRAMPOLINE,
     );
 }
@@ -147,4 +153,8 @@ extern "C" fn observe_map_size(world: *const core::ffi::c_void, packet: *const u
         map_name::publish(world as usize as u32, map_id, name);
         state::stage_map_transition(map_id, width, height, name, sender_tick_ms());
     });
+}
+
+extern "C" fn finish_map_size() {
+    let _ = panic::catch_unwind(state::finish_map_download_stage);
 }

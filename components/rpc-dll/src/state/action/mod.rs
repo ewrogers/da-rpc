@@ -1,20 +1,14 @@
-#[cfg(all(windows, not(test)))]
-use super::cancel_object_reconciliation;
-use super::{QueuedStateUpdate, begin_object_reconciliation, push_event};
+use super::{
+    QueuedStateUpdate, begin_object_reconciliation, finish_object_reconciliation, push_event,
+};
 use darpc_model::{ActionUpdate, Direction, EquipmentSlot, TilePosition};
-use std::cell::UnsafeCell;
-
-const PENDING_RESYNC_CAPACITY: usize = crate::commands::COMMAND_CAPACITY;
-
-static PENDING_RESYNCS: MainThreadPendingResyncs = MainThreadPendingResyncs::new();
 
 pub(super) fn observe_outgoing(body: &[u8], tick_ms: u32) {
     let update = if is_resync_request(body) {
         let resync_id = crate::commands::outgoing_resync_id();
-        // SAFETY: outgoing packet observation runs on the client main thread,
-        // which is the sole owner of pending resync correlation state.
-        unsafe { PENDING_RESYNCS.push(resync_id) };
-        crate::resync::observe_outgoing(resync_id, tick_ms);
+        if !crate::resync::observe_outgoing(resync_id, tick_ms) {
+            return;
+        }
         begin_object_reconciliation();
         ActionUpdate::Resync { resync_id }
     } else {
@@ -27,39 +21,15 @@ pub(super) fn observe_outgoing(body: &[u8], tick_ms: u32) {
 }
 
 pub(super) fn observe_resync_completed(tick_ms: u32) {
-    // SAFETY: decoded server events run on the client main thread, which is
-    // the sole owner of pending resync correlation state.
-    let Some(resync_id) = (unsafe { PENDING_RESYNCS.pop() }) else {
-        crate::resync::observe_unmatched_completion(tick_ms);
+    let Some(resync_id) = crate::resync::observe_completed() else {
         return;
     };
-    crate::resync::observe_completed(resync_id);
-    push_event(
-        QueuedStateUpdate::Action(ActionUpdate::ResyncCompleted { resync_id }),
-        tick_ms,
-    );
+    finish_object_reconciliation(resync_id, tick_ms);
 }
 
 #[cfg(all(windows, not(test)))]
-pub(super) fn observe_resync_timed_out(resync_id: u32, tick_ms: u32) {
-    // SAFETY: resync timeout observation runs on the client main thread, which
-    // is the sole owner of pending resync correlation state.
-    let pending = unsafe { PENDING_RESYNCS.pop() };
-    debug_assert_eq!(pending, Some(resync_id));
-    if pending != Some(resync_id) {
-        // SAFETY: the caller guarantees exclusive main-thread access.
-        unsafe { PENDING_RESYNCS.reset() };
-    }
-    cancel_object_reconciliation();
-    push_event(
-        QueuedStateUpdate::Action(ActionUpdate::ResyncTimedOut { resync_id }),
-        tick_ms,
-    );
-}
-
-pub(super) fn reset() {
-    // SAFETY: state reset runs while the producer hook is absent.
-    unsafe { PENDING_RESYNCS.reset() };
+pub(super) fn observe_resync_fallback(resync_id: u32, tick_ms: u32) {
+    finish_object_reconciliation(resync_id, tick_ms);
 }
 
 fn is_resync_request(body: &[u8]) -> bool {
@@ -102,74 +72,6 @@ fn parse(body: &[u8]) -> Option<ActionUpdate> {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-struct PendingResyncs {
-    ids: [u32; PENDING_RESYNC_CAPACITY],
-    head: usize,
-    len: usize,
-}
-
-impl PendingResyncs {
-    const fn new() -> Self {
-        Self {
-            ids: [0; PENDING_RESYNC_CAPACITY],
-            head: 0,
-            len: 0,
-        }
-    }
-
-    fn push(&mut self, resync_id: u32) {
-        if self.len == self.ids.len() {
-            return;
-        }
-        let tail = (self.head + self.len) % self.ids.len();
-        self.ids[tail] = resync_id;
-        self.len += 1;
-    }
-
-    fn pop(&mut self) -> Option<u32> {
-        if self.len == 0 {
-            return None;
-        }
-        let resync_id = self.ids[self.head];
-        self.ids[self.head] = 0;
-        self.head = (self.head + 1) % self.ids.len();
-        self.len -= 1;
-        Some(resync_id)
-    }
-
-    fn reset(&mut self) {
-        *self = Self::new();
-    }
-}
-
-struct MainThreadPendingResyncs(UnsafeCell<PendingResyncs>);
-
-// SAFETY: access is restricted to the client main thread except during reset,
-// which runs only while the producer hook is absent.
-unsafe impl Sync for MainThreadPendingResyncs {}
-
-impl MainThreadPendingResyncs {
-    const fn new() -> Self {
-        Self(UnsafeCell::new(PendingResyncs::new()))
-    }
-
-    unsafe fn push(&self, resync_id: u32) {
-        // SAFETY: the caller guarantees exclusive main-thread access.
-        unsafe { (&mut *self.0.get()).push(resync_id) };
-    }
-
-    unsafe fn pop(&self) -> Option<u32> {
-        // SAFETY: the caller guarantees exclusive main-thread access.
-        unsafe { (&mut *self.0.get()).pop() }
-    }
-
-    unsafe fn reset(&self) {
-        // SAFETY: the caller guarantees exclusive lifecycle access.
-        unsafe { (&mut *self.0.get()).reset() };
-    }
-}
-
 fn position(body: &[u8], x: usize, y: usize) -> Option<TilePosition> {
     Some(TilePosition {
         x: i32::from(u16::from_be_bytes(body[x..x + 2].try_into().ok()?)),
@@ -204,16 +106,5 @@ mod tests {
     fn parses_client_resync() {
         assert!(is_resync_request(&[0x38]));
         assert!(!is_resync_request(&[0x38, 0]));
-    }
-
-    #[test]
-    fn correlates_refresh_responses_in_request_order() {
-        let mut pending = PendingResyncs::new();
-        pending.push(7);
-        pending.push(9);
-
-        assert_eq!(pending.pop(), Some(7));
-        assert_eq!(pending.pop(), Some(9));
-        assert_eq!(pending.pop(), None);
     }
 }

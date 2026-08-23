@@ -86,10 +86,6 @@ impl ObjectCache {
         }
     }
 
-    pub(crate) fn cancel_reconciliation(&mut self) {
-        self.reconciliation.reset();
-    }
-
     pub(crate) fn observe_reconciliation_activity(&mut self, tick_ms: u32) {
         if !matches!(self.reconciliation.phase, ReconciliationPhase::Idle) {
             self.reconciliation.phase = ReconciliationPhase::QuietUntil(
@@ -108,12 +104,24 @@ impl ObjectCache {
     pub(crate) fn finish_reconciliation(
         &mut self,
         tick_ms: u32,
-        mut emit: impl FnMut(QueuedObjectUpdate),
+        emit: impl FnMut(QueuedObjectUpdate),
     ) {
         let ReconciliationPhase::QuietUntil(deadline) = self.reconciliation.phase else {
             return;
         };
         if !crate::wrapping_time::deadline_reached(tick_ms, deadline) {
+            return;
+        }
+
+        self.complete_reconciliation(emit);
+    }
+
+    pub(crate) fn complete_reconciliation(&mut self, mut emit: impl FnMut(QueuedObjectUpdate)) {
+        if !matches!(
+            self.reconciliation.phase,
+            ReconciliationPhase::QuietUntil(_)
+        ) {
+            self.reconciliation.reset();
             return;
         }
 
@@ -749,6 +757,35 @@ mod tests {
     }
 
     #[test]
+    fn refresh_completion_finishes_reconciliation_without_waiting_for_quiet_deadline() {
+        let mut cache = ObjectCache::empty();
+        let stale = creature(2, 12, 10, 1);
+        cache.upsert(stale);
+        cache.begin_reconciliation();
+        cache.observe_reconciliation_activity(100);
+
+        let mut updates = Vec::new();
+        cache.complete_reconciliation(|update| updates.push(update));
+
+        assert_eq!(updates, [QueuedObjectUpdate::Disappeared(stale)]);
+        assert_eq!(cache.get(2), None);
+    }
+
+    #[test]
+    fn refresh_completion_without_response_activity_preserves_objects() {
+        let mut cache = ObjectCache::empty();
+        let retained = creature(2, 12, 10, 1);
+        cache.upsert(retained);
+        cache.begin_reconciliation();
+
+        let mut updates = Vec::new();
+        cache.complete_reconciliation(|update| updates.push(update));
+
+        assert!(updates.is_empty());
+        assert_eq!(cache.get(2), Some(retained));
+    }
+
+    #[test]
     fn refresh_without_a_response_retains_last_known_objects() {
         let mut cache = ObjectCache::empty();
         let retained = player(1, 10, 10, 0);
@@ -757,22 +794,6 @@ mod tests {
 
         let mut updates = Vec::new();
         cache.finish_reconciliation(u32::MAX, |update| updates.push(update));
-        assert!(updates.is_empty());
-        assert_eq!(cache.get(1), Some(retained));
-    }
-
-    #[test]
-    fn cancelled_refresh_reconciliation_retains_last_known_objects() {
-        let mut cache = ObjectCache::empty();
-        let retained = player(1, 10, 10, 0);
-        cache.upsert(retained);
-        cache.begin_reconciliation();
-
-        cache.cancel_reconciliation();
-        cache.observe_reconciliation_activity(100);
-        let mut updates = Vec::new();
-        cache.finish_reconciliation(1_100, |update| updates.push(update));
-
         assert!(updates.is_empty());
         assert_eq!(cache.get(1), Some(retained));
     }

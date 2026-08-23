@@ -657,9 +657,9 @@ pub(super) async fn submit_action(
         && status.failure == Some(CommandFailure::Rejected)
     {
         let mut error = ApiError::new(
-            StatusCode::TOO_MANY_REQUESTS,
-            "resync_queue_full",
-            "the bounded resync queue is full",
+            StatusCode::CONFLICT,
+            "resync_busy",
+            "a client refresh is already in progress",
             Some(pid),
         );
         if let Some(resync) = status.resync {
@@ -801,7 +801,10 @@ fn command_status(
 ) -> CommandStatus {
     let is_resync = matches!(status.kind, ProtocolKind::Resync);
     let resync_id = status.command_id;
-    let accepted = status.state == ProtocolState::Executed;
+    let accepted = matches!(
+        status.state,
+        ProtocolState::Accepted | ProtocolState::Executed
+    );
     let mut result = CommandStatus::new(pid, identity, status);
     if is_resync {
         result.resync = Some(if accepted {

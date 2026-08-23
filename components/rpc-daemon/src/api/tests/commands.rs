@@ -125,18 +125,15 @@ fn assert_routes_action_sequence(
     };
     assert_eq!(response.status(), StatusCode::OK, "route failed: {path}");
     let response = response_json(response);
-    assert_eq!(response["command_id"], final_command_id);
-    assert_eq!(
-        response
-            .get("resync_id")
-            .and_then(serde_json::Value::as_u64),
-        final_resync_id.map(u64::from)
-    );
-    assert_eq!(response["state"], "executed");
     if let Some(resync_id) = final_resync_id {
+        assert_eq!(response["resync_id"], resync_id);
+        assert_eq!(response["coalesced"], false);
         assert_eq!(response["resync"]["phase"], "waiting_to_send");
         assert_eq!(response["resync"]["active_resync_id"], resync_id);
         assert_eq!(response["resync"]["pending_count"], 0);
+    } else {
+        assert_eq!(response["command_id"], final_command_id);
+        assert_eq!(response["state"], "executed");
     }
     worker.join().unwrap();
 }
@@ -735,7 +732,7 @@ fn routes_typed_actions() {
 }
 
 #[test]
-fn reports_resync_scheduler_saturation_separately() {
+fn coalesces_an_http_resync_into_the_active_refresh() {
     let mut registry = Registry::new();
     let hello = hello();
     let identity = RegistryClientIdentity::from_hello(hello);
@@ -753,19 +750,110 @@ fn reports_resync_scheduler_saturation_separately() {
     let (commands, command_receiver) = mpsc::sync_channel(ROUTER_CAPACITY);
     let state = ApiState::new(registry.snapshot(), Arc::new(FakeLifecycle), events)
         .with_command_sender(commands);
-    for resync_id in 1..=65 {
-        state.accept_resync(identity, resync_id);
-    }
+    state.accept_resync(identity, 1);
+
+    let response = post_empty(state, "/clients/42/resync");
+    assert!(command_receiver.try_recv().is_err());
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+    let body = response_json(response);
+    assert_eq!(body["resync_id"], 1);
+    assert_eq!(body["coalesced"], true);
+    assert_eq!(body["resync"]["phase"], "waiting_to_send");
+    assert_eq!(body["resync"]["active_resync_id"], 1);
+    assert_eq!(body["resync"]["pending_count"], 0);
+}
+
+#[test]
+fn concurrent_http_resyncs_submit_one_client_command() {
+    let mut registry = Registry::new();
+    let hello = hello();
+    let identity = RegistryClientIdentity::from_hello(hello);
+    registry.apply(&ConnectionEvent::Connected {
+        pid: 42,
+        hello,
+        selected_version: SUPPORTED_VERSIONS.max,
+    });
+    registry.apply(&ConnectionEvent::Snapshot {
+        pid: 42,
+        identity,
+        snapshot: Box::new(game_snapshot()),
+    });
+    let (events, _event_receiver) = mpsc::channel();
+    let (commands, command_receiver) = mpsc::sync_channel(ROUTER_CAPACITY);
+    let state = ApiState::new(registry.snapshot(), Arc::new(FakeLifecycle), events)
+        .with_command_sender(commands);
     let worker = std::thread::spawn(move || {
         let call = command_receiver.recv().unwrap();
-        assert!(matches!(
-            call.operation,
-            crate::commands::ClientOperation::Command(CommandOperation::Submit {
+        call.reply
+            .send(CommandReply::Result(CommandResult::Status(CommandStatus {
+                command_id: 66,
                 kind: CommandKind::Resync,
-                timeout_ms: 1_000,
-                wait_ms: 1_000,
-            })
-        ));
+                state: CommandState::Accepted,
+                enqueued_tick_ms: 100,
+                deadline_tick_ms: 1_100,
+                started_tick_ms: None,
+                completed_tick_ms: None,
+                execution_us: None,
+                main_thread_id: None,
+                failure: None,
+            })))
+            .unwrap();
+        assert!(
+            command_receiver
+                .recv_timeout(std::time::Duration::from_millis(100))
+                .is_err()
+        );
+    });
+
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let app = router(state);
+    let (first, second) = runtime.block_on(async {
+        tokio::join!(
+            app.clone().oneshot(
+                Request::post("/clients/42/resync")
+                    .body(Body::empty())
+                    .unwrap()
+            ),
+            app.oneshot(
+                Request::post("/clients/42/resync")
+                    .body(Body::empty())
+                    .unwrap()
+            )
+        )
+    });
+    worker.join().unwrap();
+
+    let first = response_json(first.unwrap());
+    let second = response_json(second.unwrap());
+    assert_eq!(first["resync_id"], 66);
+    assert_eq!(second["resync_id"], 66);
+    assert_ne!(first["coalesced"], second["coalesced"]);
+}
+
+#[test]
+fn reports_a_client_side_refresh_race_as_resync_busy() {
+    let mut registry = Registry::new();
+    let hello = hello();
+    let identity = RegistryClientIdentity::from_hello(hello);
+    registry.apply(&ConnectionEvent::Connected {
+        pid: 42,
+        hello,
+        selected_version: SUPPORTED_VERSIONS.max,
+    });
+    registry.apply(&ConnectionEvent::Snapshot {
+        pid: 42,
+        identity,
+        snapshot: Box::new(game_snapshot()),
+    });
+    let (events, _event_receiver) = mpsc::channel();
+    let (commands, command_receiver) = mpsc::sync_channel(ROUTER_CAPACITY);
+    let state = ApiState::new(registry.snapshot(), Arc::new(FakeLifecycle), events)
+        .with_command_sender(commands);
+    let worker = std::thread::spawn(move || {
+        let call = command_receiver.recv().unwrap();
         call.reply
             .send(CommandReply::Result(CommandResult::Status(CommandStatus {
                 command_id: 66,
@@ -784,12 +872,8 @@ fn reports_resync_scheduler_saturation_separately() {
 
     let response = post_empty(state, "/clients/42/resync");
     worker.join().unwrap();
-    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
-    let body = response_json(response);
-    assert_eq!(body["error"]["code"], "resync_queue_full");
-    assert_eq!(body["error"]["resync"]["phase"], "waiting_to_send");
-    assert_eq!(body["error"]["resync"]["active_resync_id"], 1);
-    assert_eq!(body["error"]["resync"]["pending_count"], 64);
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    assert_eq!(response_json(response)["error"]["code"], "resync_busy");
 }
 
 #[test]

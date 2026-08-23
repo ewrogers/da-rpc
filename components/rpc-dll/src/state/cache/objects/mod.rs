@@ -21,12 +21,6 @@ impl MainThreadObjects {
         unsafe { (&mut *self.0.get()).begin_reconciliation() };
     }
 
-    #[cfg(all(windows, not(test)))]
-    pub(in crate::state) unsafe fn cancel_reconciliation(&self) {
-        // SAFETY: the caller guarantees exclusive main-thread access.
-        unsafe { (&mut *self.0.get()).cancel_reconciliation() };
-    }
-
     pub(in crate::state) unsafe fn observe_reconciliation_activity(&self, tick_ms: u32) {
         // SAFETY: the caller guarantees exclusive main-thread access.
         unsafe { (&mut *self.0.get()).observe_reconciliation_activity(tick_ms) };
@@ -39,6 +33,14 @@ impl MainThreadObjects {
     ) {
         // SAFETY: the caller guarantees exclusive main-thread access.
         unsafe { (&mut *self.0.get()).finish_reconciliation(tick_ms, emit) };
+    }
+
+    pub(in crate::state) unsafe fn complete_reconciliation(
+        &self,
+        emit: impl FnMut(QueuedObjectUpdate),
+    ) {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&mut *self.0.get()).complete_reconciliation(emit) };
     }
 
     pub(in crate::state) unsafe fn merge_snapshot_sprites(&self, objects: &mut RawObjects) {

@@ -211,14 +211,12 @@ An F5 or `POST /clients/{client}/resync` refresh also uses normal lifecycle
 events. daRPC retains the current set while redraw packets arrive, suppresses
 unchanged stable IDs, publishes appearances for new IDs, and publishes
 disappearances for retained IDs that do not return. Reconciliation completes
-after one second without another authoritative position or redraw packet. The
-quiet period starts only after the first such response, so no response leaves
-the last-known view intact. `client.resync` reports only that the request was
-sent. The matching `client.resync_completed` reports the server's payload-free
-`RefreshUserOK` response, but it does not mark object reconciliation complete.
-A `client.resync_timed_out` event means that response was not observed within
-one second. It cancels the incomplete reconciliation and retains the last-known
-object view without publishing false disappearance events.
+when `RefreshUserOK` follows redraw activity or when the one-second refresh
+window closes. No authoritative position or redraw response leaves the
+last-known view intact. `client.resync` reports only that the request was sent.
+The matching `client.resync_completed` is ordered after the lifecycle changes
+and closes the refresh window whether or not `RefreshUserOK` arrived. See
+[Refresh and resynchronization](resync.md) for the complete behavior.
 A concurrent `GET /objects` returns the retained, progressively reconciled view
 rather than an intentionally empty intermediate collection.
 

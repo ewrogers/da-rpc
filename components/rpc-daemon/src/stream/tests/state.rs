@@ -200,7 +200,7 @@ fn completed_client_resync_has_a_stable_public_event_shape() {
 }
 
 #[test]
-fn timed_out_client_resync_has_a_stable_public_event_shape() {
+fn legacy_timed_out_client_resync_maps_to_completed() {
     let events = expand(
         42,
         ClientIdentity {
@@ -220,9 +220,9 @@ fn timed_out_client_resync_has_a_stable_public_event_shape() {
     );
 
     assert_eq!(events.len(), 1);
-    assert_eq!(events[0].name(), "client.resync_timed_out");
+    assert_eq!(events[0].name(), "client.resync_completed");
     let event = serde_json::to_value(&events[0]).unwrap();
-    assert_eq!(event["type"], "client_resync_timed_out");
+    assert_eq!(event["type"], "client_resync_completed");
     assert_eq!(event["data"]["resync_id"], 17);
     assert_eq!(event["data"]["observation"]["event_sequence"], 12);
 }

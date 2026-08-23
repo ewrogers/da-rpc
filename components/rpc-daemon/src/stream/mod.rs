@@ -86,7 +86,6 @@ pub(crate) enum ClientEvent {
     ClientCommand(ClientCommand),
     ClientResync(ClientResync),
     ClientResyncCompleted(ClientResyncCompleted),
-    ClientResyncTimedOut(ClientResyncTimedOut),
     ClientLoggedIn(ClientLifecycleChanged),
     ClientDisconnected(ClientLifecycleChanged),
     SoundPlayed(SoundPlayed),
@@ -205,7 +204,6 @@ impl ClientEvent {
             Self::ClientCommand(_) => "client.command",
             Self::ClientResync(_) => "client.resync",
             Self::ClientResyncCompleted(_) => "client.resync_completed",
-            Self::ClientResyncTimedOut(_) => "client.resync_timed_out",
             Self::ClientLoggedIn(_) => "client.logged_in",
             Self::ClientDisconnected(_) => "client.disconnected",
             Self::SoundPlayed(_) => "sound.played",
@@ -324,7 +322,6 @@ impl ClientEvent {
             Self::ClientCommand(value) => value.observation.event_sequence,
             Self::ClientResync(value) => value.observation.event_sequence,
             Self::ClientResyncCompleted(value) => value.observation.event_sequence,
-            Self::ClientResyncTimedOut(value) => value.observation.event_sequence,
             Self::ClientLoggedIn(value) | Self::ClientDisconnected(value) => {
                 value.observation.event_sequence
             }

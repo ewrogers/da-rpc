@@ -153,11 +153,8 @@ remaining text is split on commas; surrounding whitespace and empty entries are
 removed. For example, `/walk x, , y` publishes `command: "walk"` and
 `args: ["x", "y"]`. Commands are transient and have no REST recovery route.
 
-Physical F5 and `POST /clients/{client}/resync` use the same movement-safe
-refresh coordinator. It cancels queued route movement and, if a visual step is
-active, waits for the staged tile to become the committed tile before sending
-the opcode-only refresh packet. The observed outgoing packet then publishes
-`client.resync` with the JSON discriminator `client_resync`:
+The outgoing refresh packet publishes `client.resync` with the JSON
+discriminator `client_resync`:
 
 ```text
 ClientResync {
@@ -166,15 +163,8 @@ ClientResync {
 }
 ```
 
-This event confirms that the deferred packet was sent. It does not mean the
-server has responded. For `POST /clients/{client}/resync`, `resync_id` equals
-the `resync_id` and `command_id` in the HTTP response. A physical F5 request
-receives a DLL-local nonzero identifier from the same sequence. Repeated
-physical F5 presses coalesce while a refresh is already pending.
-
-The payload-free server `0x22` `RefreshUserOK` response publishes
-`client.resync_completed` with the JSON discriminator
-`client_resync_completed`:
+Closing the refresh window publishes `client.resync_completed` with the JSON
+discriminator `client_resync_completed`:
 
 ```text
 ClientResyncCompleted {
@@ -183,39 +173,12 @@ ClientResyncCompleted {
 }
 ```
 
-If `RefreshUserOK` is not observed within one second of `client.resync`, daRPC
-publishes `client.resync_timed_out` with the JSON discriminator
-`client_resync_timed_out`:
-
-```text
-ClientResyncTimedOut {
-    observation: EventObservation,
-    resync_id: u32,
-}
-```
-
-The identifier correlates either terminal result with the outgoing request.
-Consumers that pause movement for a refresh release it only for the matching
-completion event, not the HTTP command status, `client.resync`, or a timeout.
-A timeout means no authoritative response was observed. daRPC recovers the
-scheduler automatically and waits for one quiet second before sending another
-refresh. A late response restarts that quiet period instead of completing the
-next request.
-
-All three events are transient, so the event stream must be established before
-the HTTP request. If the stream is lost, retain the safe paused state and issue
-a new refresh after reconnecting.
-
-The coordinator serializes user-initiated refreshes because `RefreshUserOK`
-does not carry an identifier. A server-driven movement-correction refresh is
-not deferred; it remains on the client's immediate recovery path.
-
-Refresh completion is separate from visible-object reconciliation. daRPC
-retains the visible-object set while the server redraws it. Newly observed IDs
-publish their normal appeared event, and retained IDs that do not return
-publish their normal disappeared event after the redraw becomes quiet.
-Consumers do not clear or rebuild object state for a refresh, and there is no
-object-reconciliation completion event.
+Both events are transient. The identifier correlates the completion with the
+packet submission and HTTP request. `client.resync_completed` is published
+after `RefreshUserOK` or the one-second fallback closes reconciliation. Object
+lifecycle updates caused by the refresh appear before it. See
+[Refresh and resynchronization](resync.md) for coalescing, movement safety,
+fallback behavior, and the consumer sequence.
 
 Begin speech with `//` to escape interception. The DLL removes one slash before
 submission, so `//walk x,y` is spoken as `/walk x,y` and does not publish a
@@ -737,8 +700,7 @@ Reduce the stream into retained object state as follows:
 - For `player.replaced`, remove every `previous` ID and upsert `current`.
 - For `player.inspected`, upsert `player` when retaining profile data.
 - Do nothing to the object collection for `client.resync` or
-  `client.resync_completed`. A `client.resync_timed_out` event also leaves the
-  last-known collection intact.
+  `client.resync_completed`.
 - On a map change, apply `location.changed` first and then the following
   disappearance events in delivery order. Do not clear objects when the
   location event arrives.
@@ -1019,7 +981,7 @@ trying to infer state from only the changed field.
 | --- | --- | --- |
 | Stream | `stream.ready`, `stream.resync_required`, `stream.closed` | Reread every resource the consumer uses. |
 | Client lifecycle | `client.logged_in`, `client.disconnected` | `/status` |
-| Client requests | `client.command`, `client.resync`, `client.resync_completed`, `client.resync_timed_out` | None; transient events are not replayed. |
+| Client requests | `client.command`, `client.resync`, `client.resync_completed` | None; transient events are not replayed. |
 | Status | `stats.changed`, `vitals.changed`, `progression.changed`, `gold.changed`, `weight.changed`, `modifiers.changed`, `location.changed`, `blind.changed`, `action_restriction.changed`, `character.appearance_changed`, `character.hidden_changed`, `character.profile_changed` | `/status` |
 | Walking | `walking.started`, `walking.stopped`, `walking.obstructed`, `walking.route_changed`, `character.turned`, `character.emoted` | `/status` |
 | Inventory | `item.added`, `item.removed`, `item.changed`, `item.used`, `item.dropped`, `item.given`, `item.picked_up`, `gold.dropped`, `gold.given` | `/items`, then `/status` for gold |

@@ -133,6 +133,11 @@ fn assert_routes_action_sequence(
         final_resync_id.map(u64::from)
     );
     assert_eq!(response["state"], "executed");
+    if let Some(resync_id) = final_resync_id {
+        assert_eq!(response["resync"]["phase"], "waiting_to_send");
+        assert_eq!(response["resync"]["active_resync_id"], resync_id);
+        assert_eq!(response["resync"]["pending_count"], 0);
+    }
     worker.join().unwrap();
 }
 
@@ -727,6 +732,64 @@ fn routes_typed_actions() {
         }),
         snapshot,
     );
+}
+
+#[test]
+fn reports_resync_scheduler_saturation_separately() {
+    let mut registry = Registry::new();
+    let hello = hello();
+    let identity = RegistryClientIdentity::from_hello(hello);
+    registry.apply(&ConnectionEvent::Connected {
+        pid: 42,
+        hello,
+        selected_version: SUPPORTED_VERSIONS.max,
+    });
+    registry.apply(&ConnectionEvent::Snapshot {
+        pid: 42,
+        identity,
+        snapshot: Box::new(game_snapshot()),
+    });
+    let (events, _event_receiver) = mpsc::channel();
+    let (commands, command_receiver) = mpsc::sync_channel(ROUTER_CAPACITY);
+    let state = ApiState::new(registry.snapshot(), Arc::new(FakeLifecycle), events)
+        .with_command_sender(commands);
+    for resync_id in 1..=65 {
+        state.accept_resync(identity, resync_id);
+    }
+    let worker = std::thread::spawn(move || {
+        let call = command_receiver.recv().unwrap();
+        assert!(matches!(
+            call.operation,
+            crate::commands::ClientOperation::Command(CommandOperation::Submit {
+                kind: CommandKind::Resync,
+                timeout_ms: 1_000,
+                wait_ms: 1_000,
+            })
+        ));
+        call.reply
+            .send(CommandReply::Result(CommandResult::Status(CommandStatus {
+                command_id: 66,
+                kind: CommandKind::Resync,
+                state: CommandState::Failed,
+                enqueued_tick_ms: 100,
+                deadline_tick_ms: 1_100,
+                started_tick_ms: Some(101),
+                completed_tick_ms: Some(101),
+                execution_us: Some(2),
+                main_thread_id: Some(77),
+                failure: Some(darpc_protocol::CommandFailure::Rejected),
+            })))
+            .unwrap();
+    });
+
+    let response = post_empty(state, "/clients/42/resync");
+    worker.join().unwrap();
+    assert_eq!(response.status(), StatusCode::TOO_MANY_REQUESTS);
+    let body = response_json(response);
+    assert_eq!(body["error"]["code"], "resync_queue_full");
+    assert_eq!(body["error"]["resync"]["phase"], "waiting_to_send");
+    assert_eq!(body["error"]["resync"]["active_resync_id"], 1);
+    assert_eq!(body["error"]["resync"]["pending_count"], 64);
 }
 
 #[test]

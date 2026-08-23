@@ -1,6 +1,7 @@
 use crate::{
     api::{ApiError, ApiState, resolve_client},
     registry::{ClientIdentity, ClientSnapshotStatus, hex},
+    resync_status::ResyncSchedulerStatus,
 };
 use axum::{
     Json,
@@ -281,6 +282,8 @@ pub(crate) struct CommandStatus {
     /// Resync correlation ID, equal to command_id and present only for resync commands.
     #[serde(skip_serializing_if = "Option::is_none")]
     resync_id: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    resync: Option<ResyncSchedulerStatus>,
     kind: CommandKind,
     state: CommandState,
     enqueued_tick_ms: u32,
@@ -537,7 +540,7 @@ async fn route(
         .map_err(|_| unavailable(pid))?;
     match reply {
         CommandReply::Result(ProtocolResult::Status(status)) => {
-            Ok(CommandStatus::new(pid, identity, status))
+            Ok(command_status(state, pid, identity, status))
         }
         CommandReply::Result(ProtocolResult::ExactRouteInvalidState {
             status,
@@ -649,6 +652,21 @@ pub(super) async fn submit_action(
         },
     )
     .await?;
+    if matches!(kind, ProtocolKind::Resync)
+        && status.state == CommandState::Failed
+        && status.failure == Some(CommandFailure::Rejected)
+    {
+        let mut error = ApiError::new(
+            StatusCode::TOO_MANY_REQUESTS,
+            "resync_queue_full",
+            "the bounded resync queue is full",
+            Some(pid),
+        );
+        if let Some(resync) = status.resync {
+            error = error.with_resync(resync);
+        }
+        return Err(error);
+    }
     let response_status = if status.state == CommandState::Accepted {
         StatusCode::ACCEPTED
     } else {
@@ -745,6 +763,7 @@ impl CommandStatus {
             instance_id: hex(&identity.dll_instance_id),
             command_id: status.command_id,
             resync_id,
+            resync: None,
             kind: status.kind.into(),
             state: status.state.into(),
             enqueued_tick_ms: status.enqueued_tick_ms,
@@ -772,6 +791,26 @@ impl CommandStatus {
             ..Self::new(pid, identity, status)
         }
     }
+}
+
+fn command_status(
+    state: &ApiState,
+    pid: u32,
+    identity: ClientIdentity,
+    status: ProtocolStatus,
+) -> CommandStatus {
+    let is_resync = matches!(status.kind, ProtocolKind::Resync);
+    let resync_id = status.command_id;
+    let accepted = status.state == ProtocolState::Executed;
+    let mut result = CommandStatus::new(pid, identity, status);
+    if is_resync {
+        result.resync = Some(if accepted {
+            state.accept_resync(identity, resync_id)
+        } else {
+            state.resync_status(identity)
+        });
+    }
+    result
 }
 
 impl From<ProtocolExactRouteInvalidState> for ExactRouteInvalidStateDiagnostics {

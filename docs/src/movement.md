@@ -148,6 +148,14 @@ measure the animation duration, poll native state, or clear and rebuild world
 objects. Server-driven correction refreshes remain immediate and do not enter
 this deferred user-request path.
 
+Keep one logical resync in flight per client. daRPC serializes accepted requests
+and reports its daemon-observed phase and pending count in the HTTP response,
+but those diagnostics are not a replacement for consumer-side request
+deduplication. A full resync scheduler returns `429 resync_queue_full`; an
+already active request is normal and does not return `resync_busy`. See
+[Resynchronizing a client](web-api.md#resynchronizing-a-client) for the response
+fields and error boundary.
+
 ## Cancelling movement
 
 `DELETE /clients/{client}/walk` resets the stock route, clears route

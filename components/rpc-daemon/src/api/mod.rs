@@ -36,6 +36,7 @@ use crate::{
         ClientIdentity as RegistryClientIdentity, ClientSnapshot as RegistryClientSnapshot,
         ClientSnapshotStatus, ConnectionEvent, RegistrySnapshot, architecture, hex,
     },
+    resync_status::{ResyncSchedulerStatus, ResyncTrackers},
     state::{
         CharacterClass as SnapshotCharacterClass, CharacterGender, CharacterModifiers,
         CharacterProgression, CharacterStats, CharacterStatus, CharacterVitals,
@@ -60,7 +61,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use darpc_game_client::CLIENT_VERSION;
-use darpc_model::SequenceNumber;
+use darpc_model::{ActionUpdate, SequenceNumber, StateUpdate};
 use darpc_protocol::{Hello, protocol_version_major, protocol_version_minor};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -106,6 +107,7 @@ pub(crate) struct ApiState {
     published_events: broadcast::Sender<PublishedEvent>,
     messages: Arc<RwLock<MessageStore>>,
     spell_feedback: Arc<Mutex<SpellFeedbackTrackers>>,
+    resyncs: Arc<Mutex<ResyncTrackers>>,
     maps_directory: Arc<RwLock<Option<PathBuf>>>,
     internal_message_sequence: Arc<AtomicU32>,
     stat_spends: Arc<Mutex<HashMap<u32, Instant>>>,
@@ -129,6 +131,7 @@ impl ApiState {
             published_events,
             messages: Arc::new(RwLock::new(MessageStore::default())),
             spell_feedback: Arc::new(Mutex::new(SpellFeedbackTrackers::default())),
+            resyncs: Arc::new(Mutex::new(ResyncTrackers::default())),
             maps_directory: Arc::new(RwLock::new(None)),
             internal_message_sequence: Arc::new(AtomicU32::new(0)),
             stat_spends: Arc::new(Mutex::new(HashMap::new())),
@@ -248,6 +251,19 @@ impl ApiState {
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
                 for state_event in events {
+                    match &state_event.update {
+                        StateUpdate::Action(ActionUpdate::Resync { resync_id }) => self
+                            .resyncs
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .outgoing(*identity, *resync_id),
+                        StateUpdate::Action(ActionUpdate::ResyncCompleted { resync_id }) => self
+                            .resyncs
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .completed(*identity, *resync_id),
+                        _ => {}
+                    }
                     let replaced_players = previous_game_snapshot
                         .as_ref()
                         .map_or_else(Vec::new, |snapshot| {
@@ -294,6 +310,10 @@ impl ApiState {
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .remove(*identity);
+                self.resyncs
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .remove(*identity);
                 let _ = self.published_events.send(PublishedEvent::Closed {
                     pid: *pid,
                     identity: *identity,
@@ -313,6 +333,24 @@ impl ApiState {
             .read()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .get(identity, filter)
+    }
+
+    pub(crate) fn accept_resync(
+        &self,
+        identity: RegistryClientIdentity,
+        resync_id: u32,
+    ) -> ResyncSchedulerStatus {
+        self.resyncs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .accepted(identity, resync_id)
+    }
+
+    pub(crate) fn resync_status(&self, identity: RegistryClientIdentity) -> ResyncSchedulerStatus {
+        self.resyncs
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .status(identity)
     }
 
     fn publish_internal_message(

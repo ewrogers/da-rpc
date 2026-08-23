@@ -357,9 +357,18 @@ impl ApiError {
                     code: code.into(),
                     message: message.into(),
                     pid,
+                    resync: None,
                 },
             },
         }
+    }
+
+    pub(crate) fn with_resync(
+        mut self,
+        resync: crate::resync_status::ResyncSchedulerStatus,
+    ) -> Self {
+        self.body.error.resync = Some(resync);
+        self
     }
 }
 
@@ -398,4 +407,6 @@ pub(crate) struct ErrorDetail {
     pub(super) code: String,
     pub(super) message: String,
     pub(super) pid: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) resync: Option<crate::resync_status::ResyncSchedulerStatus>,
 }

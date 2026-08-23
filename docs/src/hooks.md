@@ -69,6 +69,13 @@ updates drive:
 - Field-map panels, destination lists, and submitted selections
 - Player exchange state, offers, acceptance, completion, and cancellation
 
+After the bounded copy, one synchronous server-event processor owns
+interception, parsing, reusable object scratch, and semantic dispatch. The hook
+itself owns only the client ABI, pointer and length validation, the copy,
+reentrancy protection, timing, and health counters. No queue or worker is
+inserted between native dispatch and the state update, so packet order and
+immediate visibility are preserved.
+
 Unknown, malformed, oversized, or unreadable events are ignored. The client's
 original result is preserved. The intentional exceptions are Who and
 other-player information responses matched to daRPC requests. Those responses

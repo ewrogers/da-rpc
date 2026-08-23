@@ -2,24 +2,39 @@
 
 ## Unreleased
 
-## 1.7.0 - 2026-08-22
+## 1.7.0 - 2026-08-23
 
 ### Added
 
-- Add the correlated `client.resync_completed` event for the payload-free
-  server `RefreshUserOK` response while retaining protocol version 1.7.
+- Add the correlated `client.resync_completed` event for the complete refresh
+  transaction while retaining protocol version 1.7.
+- Include the resync ID, coalesced status, scheduler phase, active resync ID,
+  and pending count in successful `POST /resync` responses.
 
 ### Changed
 
-- Reconcile F5 refreshes and map changes into ordinary world-object appearance
-  and disappearance events so consumers never need to clear and rebuild
-  retained object state.
+- Reconcile each F5 refresh as one ordered transaction. Concurrent physical F5
+  and HTTP requests coalesce under one resync ID, ordinary object appearance
+  and disappearance events precede `client.resync_completed`, and a missing
+  `RefreshUserOK` closes the refresh after a one-second fallback.
 - Route physical F5 and `POST /resync` through one movement-safe coordinator.
   Queued movement is cancelled and refresh packet `0x38` is deferred until an
   active step commits, while server-driven correction refreshes remain
   immediate.
 - Inventory the mandatory and optional client launch patches in the README with
   player-facing descriptions of each patch and its purpose.
+
+### Fixed
+
+- Commit every accepted daemon snapshot or state-event batch once, then publish
+  REST state and SSE events from that same validated observation. A reduction
+  failure now makes public state unavailable, closes affected streams with
+  `stream.resync_required`, preserves the last valid internal snapshot, and
+  requests a fresh snapshot from the client.
+- Own client membership, registry records, and connection workers as one daemon
+  roster lifecycle. Worker startup failures remain retryable and removable,
+  stale events and commands cannot reach removed clients, and every remaining
+  worker is signaled during daemon shutdown.
 
 ### Removed
 

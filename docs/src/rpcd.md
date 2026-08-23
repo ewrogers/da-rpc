@@ -116,6 +116,14 @@ same independent connection workers:
 darpcd.exe --pid 3780 --pid 6648
 ```
 
+The daemon's client roster owns the membership of explicit, discovered, and
+recently launched targets together with their registry records and connection
+workers. Membership is tracked independently from worker availability. A
+worker startup failure therefore remains retryable while the target is desired,
+and the target can still be removed cleanly after it disappears. Removal stops
+the worker before deleting the public registry record, and daemon shutdown
+signals every remaining worker.
+
 Each worker retries a missing or busy pipe, performs the shared controller
 handshake, requests a fresh snapshot, long-polls bounded state-event batches,
 and sends a periodic `Ping` to detect a broken connection.

@@ -48,6 +48,11 @@ silently sending the request through the daemon.
 one. It never reads game memory itself. It uses the typed state and events sent
 by each DLL, then presents player-friendly API models.
 
+One client roster module owns target membership, connection-worker lifetime,
+registry lifetime, stale-event filtering, command routing, and snapshot
+recovery. The daemon loop supplies discovery results and publishes accepted
+changes, but it does not coordinate those lifecycle rules itself.
+
 This boundary keeps Windows injection and client details out of dashboards,
 scripts, and other consumers. It also keeps a slow web request or event
 subscriber from blocking unrelated game clients.

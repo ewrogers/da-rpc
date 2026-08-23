@@ -32,6 +32,8 @@ mod registry;
 #[cfg(any(windows, test))]
 mod resync_status;
 #[cfg(any(windows, test))]
+mod roster;
+#[cfg(any(windows, test))]
 mod state;
 #[cfg(any(windows, test))]
 mod stream;
@@ -82,21 +84,17 @@ fn print_openapi() -> Result<(), String> {
 fn run(options: Options) -> Result<(), String> {
     use api::ApiState;
     use auto_load::{Action as AutoLoadAction, Policy as AutoLoadPolicy};
-    use commands::{CommandReply, ROUTER_CAPACITY};
-    use connection::Worker;
+    use commands::ROUTER_CAPACITY;
     use event::DaemonEvent;
     use lifecycle::{LifecycleControl, LoaderControl};
-    use registry::Registry;
+    use roster::ClientRoster;
     use std::{
-        collections::BTreeMap,
         io::Write as _,
         sync::{Arc, mpsc},
         time::{Duration, Instant},
     };
 
     const DISCOVERY_INTERVAL: Duration = Duration::from_secs(1);
-    const LAUNCH_DISCOVERY_GRACE: Duration = Duration::from_secs(5);
-
     let component_directory = env::current_exe()
         .map_err(|error| format!("failed to resolve darpcd.exe: {error}"))?
         .parent()
@@ -128,21 +126,15 @@ fn run(options: Options) -> Result<(), String> {
     let explicit_pids = options.pids.into_iter().collect::<BTreeSet<_>>();
     let discovered_pids = discovery::client_pids()
         .map_err(|error| format!("failed to enumerate game windows: {error}"))?;
-    let mut desired_pids = explicit_pids.clone();
-    desired_pids.extend(discovered_pids);
-
     let (sender, receiver) = mpsc::channel();
     let (command_sender, command_receiver) = mpsc::sync_channel(ROUTER_CAPACITY);
-    let mut registry = Registry::new();
-    let mut workers = BTreeMap::<u32, Worker>::new();
-    for pid in desired_pids {
-        track_client(pid, &sender, &mut workers, &mut registry);
-    }
+    let mut roster = ClientRoster::new(explicit_pids, sender.clone());
+    roster.reconcile(&discovered_pids, Instant::now());
 
-    let api_state = ApiState::new(registry.snapshot(), Arc::clone(&lifecycle), sender.clone())
+    let api_state = ApiState::new(roster.snapshot(), Arc::clone(&lifecycle), sender.clone())
         .with_command_sender(command_sender)
         .with_maps_directory(maps_directory.clone());
-    for &pid in workers.keys() {
+    for pid in roster.pids() {
         discover_maps_directory(&api_state, pid);
     }
     let _api_worker = api::start(options.listen, api_state.clone())
@@ -171,31 +163,29 @@ fn run(options: Options) -> Result<(), String> {
             "disabled"
         }
     );
-    for client in registry.snapshot().clients {
+    for client in roster.snapshot().clients {
         println!("client pid={} status=connecting", client.pid);
     }
     let _ = std::io::stdout().flush();
 
     let mut next_discovery = Instant::now() + DISCOVERY_INTERVAL;
-    let mut launch_grace = BTreeMap::<u32, Instant>::new();
     let mut auto_load = AutoLoadPolicy::new(options.auto_load);
 
     loop {
         let timeout = next_discovery.saturating_duration_since(Instant::now());
         match receiver.recv_timeout(timeout) {
             Ok(DaemonEvent::Connection(event)) => {
-                if workers.contains_key(&event.pid()) {
+                if roster.contains(event.pid()) {
                     match auto_load.observe(&event) {
                         AutoLoadAction::Publish => {
-                            publish_event(&mut registry, &api_state, &workers, event);
+                            publish_event(&mut roster, &api_state, event);
                         }
                         AutoLoadAction::Suppress => {}
                         AutoLoadAction::Start(attempt) => {
                             let pid = event.pid();
                             publish_event(
-                                &mut registry,
+                                &mut roster,
                                 &api_state,
-                                &workers,
                                 registry::ConnectionEvent::Initializing { pid },
                             );
                             if let Err(error) = auto_load::spawn(
@@ -209,9 +199,8 @@ fn run(options: Options) -> Result<(), String> {
                                     "darpcd: client pid={pid} auto-load failed to start: {error}"
                                 );
                                 publish_event(
-                                    &mut registry,
+                                    &mut roster,
                                     &api_state,
-                                    &workers,
                                     registry::ConnectionEvent::NotLoaded { pid },
                                 );
                             }
@@ -224,11 +213,11 @@ fn run(options: Options) -> Result<(), String> {
                 let _ = std::io::Write::flush(&mut std::io::stdout());
             }
             Ok(DaemonEvent::Status(event)) => {
-                if workers.contains_key(&event.pid()) {
+                if roster.contains(event.pid()) {
                     if matches!(&event, registry::ConnectionEvent::Initializing { .. }) {
                         auto_load.suppress(event.pid());
                     }
-                    publish_event(&mut registry, &api_state, &workers, event);
+                    publish_event(&mut roster, &api_state, event);
                 }
             }
             Ok(DaemonEvent::AutoLoadFinished {
@@ -236,7 +225,7 @@ fn run(options: Options) -> Result<(), String> {
                 attempt,
                 result,
             }) => {
-                if !auto_load.finish(pid, attempt) || !workers.contains_key(&pid) {
+                if !auto_load.finish(pid, attempt) || !roster.contains(pid) {
                     continue;
                 }
                 match result {
@@ -250,9 +239,8 @@ fn run(options: Options) -> Result<(), String> {
                             }
                         );
                         publish_event(
-                            &mut registry,
+                            &mut roster,
                             &api_state,
-                            &workers,
                             registry::ConnectionEvent::Connecting { pid },
                         );
                     }
@@ -265,9 +253,8 @@ fn run(options: Options) -> Result<(), String> {
                             pid, outcome.pid, outcome.darpc_loaded
                         );
                         publish_event(
-                            &mut registry,
+                            &mut roster,
                             &api_state,
-                            &workers,
                             registry::ConnectionEvent::NotLoaded { pid },
                         );
                     }
@@ -277,9 +264,8 @@ fn run(options: Options) -> Result<(), String> {
                             error.code, error.message
                         );
                         publish_event(
-                            &mut registry,
+                            &mut roster,
                             &api_state,
-                            &workers,
                             registry::ConnectionEvent::NotLoaded { pid },
                         );
                     }
@@ -287,18 +273,15 @@ fn run(options: Options) -> Result<(), String> {
             }
             Ok(DaemonEvent::Track(pid)) => {
                 auto_load.suppress(pid);
-                launch_grace.insert(pid, Instant::now() + LAUNCH_DISCOVERY_GRACE);
-                track_client(pid, &sender, &mut workers, &mut registry);
+                let changed = roster.track_launched(pid, Instant::now());
                 discover_maps_directory(&api_state, pid);
-                api_state.publish(registry.snapshot());
+                if changed {
+                    api_state.publish(roster.snapshot());
+                }
             }
             Ok(DaemonEvent::CommandsReady) => {
                 if let Ok(call) = command_receiver.try_recv() {
-                    if let Some(worker) = workers.get(&call.pid) {
-                        worker.route_command(call);
-                    } else {
-                        let _ = call.reply.send(CommandReply::Unavailable);
-                    }
+                    roster.route_command(call);
                 }
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
@@ -318,33 +301,15 @@ fn run(options: Options) -> Result<(), String> {
                 continue;
             }
         };
-        launch_grace
-            .retain(|pid, deadline| !discovered.contains(pid) && *deadline > Instant::now());
-
-        let mut desired = explicit_pids.clone();
-        desired.extend(discovered);
-        desired.extend(launch_grace.keys().copied());
-        let mut changed = false;
-        for &pid in &desired {
-            changed |= track_client(pid, &sender, &mut workers, &mut registry);
+        let outcome = roster.reconcile(&discovered, Instant::now());
+        for pid in roster.pids() {
             discover_maps_directory(&api_state, pid);
         }
-
-        let removed = workers
-            .keys()
-            .copied()
-            .filter(|pid| !desired.contains(pid))
-            .collect::<Vec<_>>();
-        for pid in removed {
-            if let Some(worker) = workers.remove(&pid) {
-                worker.stop();
-            }
-            changed |= registry.remove(pid);
+        for pid in outcome.removed {
             auto_load.forget(pid);
-            println!("client pid={pid} status=removed");
         }
-        if changed {
-            api_state.publish(registry.snapshot());
+        if outcome.changed {
+            api_state.publish(roster.snapshot());
             let _ = std::io::stdout().flush();
         }
     }
@@ -367,50 +332,16 @@ fn discover_maps_directory(state: &api::ApiState, pid: u32) {
 }
 
 #[cfg(windows)]
-fn track_client(
-    pid: u32,
-    sender: &std::sync::mpsc::Sender<event::DaemonEvent>,
-    workers: &mut std::collections::BTreeMap<u32, connection::Worker>,
-    registry: &mut registry::Registry,
-) -> bool {
-    if workers.contains_key(&pid) {
-        return false;
-    }
-    let event = registry::ConnectionEvent::Connecting { pid };
-    let registry::CommitOutcome::Applied(_) = registry.commit(event) else {
-        unreachable!("a newly tracked target must change registry state");
-    };
-    match connection::spawn(pid, sender.clone()) {
-        Ok(worker) => {
-            workers.insert(pid, worker);
-        }
-        Err(error) => {
-            let event = registry::ConnectionEvent::Disconnected {
-                pid,
-                identity: None,
-                reason: format!("failed to start connection worker: {error}"),
-            };
-            let registry::CommitOutcome::Applied(_) = registry.commit(event.clone()) else {
-                unreachable!("a worker startup failure must change registry state");
-            };
-            eprintln!("darpcd: {}", registry::render_event(&event));
-        }
-    }
-    true
-}
-
-#[cfg(windows)]
 fn publish_event(
-    registry: &mut registry::Registry,
+    roster: &mut roster::ClientRoster,
     api_state: &api::ApiState,
-    workers: &std::collections::BTreeMap<u32, connection::Worker>,
     event: registry::ConnectionEvent,
 ) {
     let rendered = registry::render_event(&event);
-    match registry.commit(event) {
+    match roster.commit(event) {
         registry::CommitOutcome::Ignored => return,
         registry::CommitOutcome::Applied(change) => {
-            api_state.publish(registry.snapshot());
+            api_state.publish(roster.snapshot());
             api_state.publish_committed(change);
             println!("{rendered}");
         }
@@ -419,11 +350,8 @@ fn publish_event(
             identity,
             reason,
         } => {
-            api_state.publish(registry.snapshot());
+            api_state.publish(roster.snapshot());
             api_state.reject_observation(pid, identity);
-            if let Some(worker) = workers.get(&pid) {
-                worker.request_fresh_snapshot();
-            }
             eprintln!("darpcd: client pid={pid} observation rejected: {reason}");
         }
     }

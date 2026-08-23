@@ -214,6 +214,38 @@ that daRPC observed the actual outgoing request. It does not confirm that the
 server responded. The command response includes a `resync_id` equal to its
 `command_id`, and `client.resync` carries the same value.
 
+The command response also includes the daemon's current resync scheduler view:
+
+```text
+resync {
+    phase: idle | waiting_to_send | awaiting_response,
+    active_resync_id: u32?,
+    pending_count: u32,
+}
+```
+
+`waiting_to_send` means the active request has been accepted but its outgoing
+packet has not been observed. This covers both movement quiescing and packet
+submission. `awaiting_response` begins when `client.resync` is observed and
+continues until the matching `client.resync_completed`. `pending_count` is the
+number of HTTP requests accepted by the resync scheduler behind the active
+request and does not include `active_resync_id`.
+
+This scheduler view is derived by `darpcd` from HTTP command results and the
+ordered resync events. A physical F5 press first becomes visible to the daemon
+when its outgoing packet produces `client.resync`. Use these fields for logs,
+status pages, and failure diagnostics. A controller should still keep one
+logical resync in flight and use the correlated completion event as its
+movement gate.
+
+The resync scheduler and the general command queue are separate bounded queues.
+If the resync scheduler is full, this endpoint returns HTTP `429` with error
+code `resync_queue_full` and includes the current scheduler view in
+`error.resync`. If the request never reaches that scheduler because the general
+command queue is full, the error remains `command_queue_full`. An active
+request by itself is normal serialized work, so daRPC does not return a
+`resync_busy` error.
+
 The server's payload-free `0x22` `RefreshUserOK` response publishes the
 transient `client.resync_completed` event with the matching `resync_id`.
 Consumers that pause movement for refresh must establish the event stream

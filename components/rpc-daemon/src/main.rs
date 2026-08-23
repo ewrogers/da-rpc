@@ -30,6 +30,8 @@ mod options;
 #[cfg(any(windows, test))]
 mod registry;
 #[cfg(any(windows, test))]
+mod resync_status;
+#[cfg(any(windows, test))]
 mod state;
 #[cfg(any(windows, test))]
 mod stream;

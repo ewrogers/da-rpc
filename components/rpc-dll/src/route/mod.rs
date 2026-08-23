@@ -64,6 +64,13 @@ impl RawRoute {
                 y: i32::from(tile.y),
             })
     }
+
+    fn header(&self) -> Option<RouteHeader> {
+        self.available().then(|| RouteHeader {
+            generation: self.generation,
+            step_count: self.length.saturating_sub(1),
+        })
+    }
 }
 
 struct CurrentRoute(UnsafeCell<RawRoute>);
@@ -91,6 +98,12 @@ impl EventSlot {
 
 static CURRENT: CurrentRoute = CurrentRoute(UnsafeCell::new(RawRoute::empty()));
 static EVENTS: [EventSlot; EVENT_CAPACITY] = [const { EventSlot::new() }; EVENT_CAPACITY];
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct RouteHeader {
+    generation: u32,
+    step_count: u32,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) struct QueuedRoute(u8);
@@ -142,7 +155,17 @@ pub(crate) fn observe_current(tick_ms: u32) {
     let Some(world) = world_pane() else {
         return;
     };
-    let _ = observe(world, tick_ms);
+    // SAFETY: `world_pane` resolved the live WorldPane on the client main
+    // thread, where native route mutation and observation are serialized.
+    let Some(header) = (unsafe { read_header(world.cast::<u8>()) }) else {
+        return;
+    };
+    // SAFETY: the client main thread is the sole current-route reader and
+    // writer. The pipe worker only reads published event slots.
+    if !tick_capture_required(unsafe { &*CURRENT.0.get() }, header) {
+        return;
+    }
+    let _ = observe_with_header(world, tick_ms, header);
 }
 
 #[cfg(windows)]
@@ -150,6 +173,20 @@ pub(crate) fn observe(world: *const core::ffi::c_void, tick_ms: u32) -> Option<T
     if world.is_null() {
         return None;
     }
+    // Path construction and exact-route installation deliberately bypass the
+    // tick gate so a replacement with the same header still compares tiles.
+    // SAFETY: callers provide the live receiver of a hooked native method or
+    // a WorldPane resolved on the client main thread.
+    let header = unsafe { read_header(world.cast::<u8>()) }?;
+    observe_with_header(world, tick_ms, header)
+}
+
+#[cfg(windows)]
+fn observe_with_header(
+    world: *const core::ffi::c_void,
+    tick_ms: u32,
+    header: RouteHeader,
+) -> Option<TilePosition> {
     let Some((index, slot)) = claim_event() else {
         crate::state::mark_resync_required();
         return None;
@@ -157,7 +194,7 @@ pub(crate) fn observe(world: *const core::ffi::c_void, tick_ms: u32) -> Option<T
     // SAFETY: WRITING gives the main-thread producer exclusive access to this
     // event buffer, and `world` is the live receiver of the hooked native
     // method or was resolved from the validated world-pane global.
-    let captured = unsafe { capture(world.cast::<u8>(), &mut *slot.route.get()) };
+    let captured = unsafe { capture(world.cast::<u8>(), header, &mut *slot.route.get()) };
     if !captured {
         slot.state.store(EMPTY, Ordering::Release);
         return None;
@@ -187,6 +224,10 @@ pub(crate) fn observe(world: *const core::ffi::c_void, tick_ms: u32) -> Option<T
         release(queued);
     }
     destination
+}
+
+fn tick_capture_required(current: &RawRoute, header: RouteHeader) -> bool {
+    current.header() != Some(header)
 }
 
 fn claim_event() -> Option<(usize, &'static EventSlot)> {
@@ -250,7 +291,7 @@ fn copy_route(output: &mut RawRoute, input: &RawRoute) {
 }
 
 #[cfg(windows)]
-unsafe fn capture(world: *const u8, output: &mut RawRoute) -> bool {
+unsafe fn read_header(world: *const u8) -> Option<RouteHeader> {
     // SAFETY: caller established a live complete WorldPane pointer. These
     // fields are fixed by the supported-client fingerprint and are copied
     // synchronously on the client main thread.
@@ -261,25 +302,35 @@ unsafe fn capture(world: *const u8, output: &mut RawRoute) -> bool {
             .read_unaligned()
     };
     // SAFETY: same invariant as above.
-    let count = unsafe {
+    let step_count = unsafe {
         world
             .add(ROUTE_STEP_COUNT_OFFSET)
             .cast::<u32>()
             .read_unaligned()
     };
-    let Ok(count) = usize::try_from(count) else {
-        return false;
+    let Ok(max_step_count) = u32::try_from(MAX_PLANNED_ROUTE_TILES) else {
+        return None;
     };
-    if count >= MAX_PLANNED_ROUTE_TILES {
-        return false;
+    if step_count >= max_step_count {
+        return None;
     }
-    output.generation = generation;
+    Some(RouteHeader {
+        generation,
+        step_count,
+    })
+}
+
+#[cfg(windows)]
+unsafe fn capture(world: *const u8, header: RouteHeader, output: &mut RawRoute) -> bool {
+    let count = usize::try_from(header.step_count).expect("route step count fits usize");
+    output.generation = header.generation;
     if count == 0 {
         output.length = 0;
         return true;
     }
 
-    // SAFETY: same WorldPane layout invariant as above.
+    // SAFETY: the caller established a live complete WorldPane pointer. The
+    // supported-client fingerprint fixes these vector fields.
     let start = unsafe { world.add(ROUTE_START_OFFSET).cast::<u32>().read_unaligned() } as usize;
     // SAFETY: same WorldPane layout invariant as above.
     let end = unsafe { world.add(ROUTE_END_OFFSET).cast::<u32>().read_unaligned() } as usize;
@@ -453,5 +504,66 @@ mod tests {
                 tiles: Vec::new(),
             })
         );
+    }
+
+    #[test]
+    fn tick_capture_is_skipped_when_the_route_header_is_unchanged() {
+        let mut route = RawRoute::empty();
+        route.generation = 7;
+        route.length = 4;
+
+        assert!(!tick_capture_required(
+            &route,
+            RouteHeader {
+                generation: 7,
+                step_count: 3,
+            }
+        ));
+    }
+
+    #[test]
+    fn tick_capture_is_required_for_unavailable_changed_or_cleared_routes() {
+        let unavailable = RawRoute::empty();
+        let mut active = RawRoute::empty();
+        active.generation = 7;
+        active.length = 4;
+
+        assert!(tick_capture_required(
+            &unavailable,
+            RouteHeader {
+                generation: 7,
+                step_count: 3,
+            }
+        ));
+        assert!(tick_capture_required(
+            &active,
+            RouteHeader {
+                generation: 8,
+                step_count: 3,
+            }
+        ));
+        assert!(tick_capture_required(
+            &active,
+            RouteHeader {
+                generation: 7,
+                step_count: 2,
+            }
+        ));
+        assert!(tick_capture_required(
+            &active,
+            RouteHeader {
+                generation: 7,
+                step_count: 0,
+            }
+        ));
+
+        active.length = 0;
+        assert!(!tick_capture_required(
+            &active,
+            RouteHeader {
+                generation: 7,
+                step_count: 0,
+            }
+        ));
     }
 }

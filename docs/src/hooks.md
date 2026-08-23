@@ -161,13 +161,16 @@ as `walking.obstructed`. Native ground routes and pursuits are otherwise left
 untouched. A rejected externally installed exact route is reset so an external
 controller can replan from the confirmed position.
 
-The path-builder entry hook runs after the client's breadth-first search succeeds.
-It reads the retained 12-byte step records, reverses their goal-to-start queue
-order, and expands direction values into absolute start-to-goal tile positions.
-The client tick compares the same remaining-step prefix after movement so
-confirmed consumption also produces a route revision. Pathfinder generations
-distinguish rebuilds, including pursuit routes that happen to select identical
-tiles.
+The path-builder entry hook runs after the client's breadth-first search
+succeeds. It always reads the retained 12-byte step records, reverses their
+goal-to-start queue order, and expands direction values into absolute
+start-to-goal tile positions. This forced capture preserves same-length route
+replacements. Each client tick first compares only the pathfinder generation
+and remaining-step count with the retained route. Unchanged ticks skip the
+event-buffer claim and native vector walk; changed routes expand the remaining
+prefix so confirmed consumption produces a route revision. Pathfinder
+generations distinguish rebuilds, including pursuit routes that happen to
+select identical tiles.
 
 The game-thread callback writes only to preallocated route buffers. Four event
 buffers bound pending revisions; exhaustion requests the normal snapshot

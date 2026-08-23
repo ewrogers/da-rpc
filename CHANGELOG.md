@@ -26,6 +26,8 @@
 - Put response interception, packet parsing, reusable scratch state, and
   ordered semantic dispatch behind the DLL event-hook seam without adding
   asynchronous work to the client path.
+- Gate planned-route expansion on its generation and remaining-step count so
+  unchanged client ticks avoid event-buffer claims and native route walks.
 - Inventory the mandatory and optional client launch patches in the README with
   player-facing descriptions of each patch and its purpose.
 

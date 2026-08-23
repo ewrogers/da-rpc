@@ -57,7 +57,7 @@ static QUEUE: CommandQueue = CommandQueue::new();
 pub(crate) fn reset() {
     #[cfg(windows)]
     crate::who::reset();
-    crate::resync::reset();
+    crate::state::refresh::reset();
     QUEUE.reset();
     NEXT_COMMAND_ID.store(1, Ordering::Relaxed);
     SUBMITTING_RESYNC_COMMAND_ID.store(0, Ordering::Relaxed);
@@ -113,7 +113,7 @@ pub(crate) fn handle(operation: CommandOperation) -> CommandResult {
 pub(crate) fn observe_tick() {
     let tick_ms = now_tick_ms();
     #[cfg(all(windows, not(test)))]
-    crate::resync::observe_tick(tick_ms);
+    crate::state::refresh::observe_tick(tick_ms);
     complete_pending_cast_if_due(tick_ms);
     for _ in 0..COMMANDS_PER_TICK {
         let Some(slot_index) = QUEUE.pop() else {
@@ -343,7 +343,7 @@ const fn execute_player(_command_id: u32, _id: u32) -> Result<(), CommandFailure
 
 #[cfg(all(windows, not(test)))]
 fn execute_resync(command_id: u32) -> Result<(), CommandFailure> {
-    crate::resync::request_command(command_id)
+    crate::state::refresh::request_command(command_id)
 }
 
 #[cfg(test)]

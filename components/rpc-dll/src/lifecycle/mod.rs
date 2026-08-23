@@ -480,7 +480,7 @@ pub(crate) fn shutdown() -> io::Result<()> {
         match hook.uninstall() {
             Ok(true) => {
                 let final_health = outgoing::health();
-                let resync_health = crate::resync::health();
+                let resync_health = crate::state::refresh::health();
                 writeln!(
                     active.log,
                     "event=hook_removed hook={} observations={} read_failures={} physical_refreshes_deferred={} user_refreshes_submitted={} user_refreshes_completed={} user_refresh_fallbacks={} user_refresh_failures={} heartbeat_enqueued={} heartbeat_delivered={} heartbeat_fallbacks={} heartbeat_pending={}",
@@ -613,7 +613,7 @@ pub(crate) fn shutdown() -> io::Result<()> {
         }
     }
 
-    crate::resync::reset();
+    crate::state::refresh::reset();
 
     writeln!(
         active.log,

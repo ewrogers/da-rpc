@@ -37,6 +37,7 @@ use std::{
 mod ability;
 mod action;
 mod cache;
+pub(crate) mod refresh;
 mod update;
 
 #[cfg(windows)]
@@ -82,12 +83,7 @@ pub(crate) fn observe_audio(update: AudioUpdate, tick_ms: u32) {
 }
 
 pub(crate) fn observe_resync_completed(tick_ms: u32) {
-    action::observe_resync_completed(tick_ms);
-}
-
-#[cfg(all(windows, not(test)))]
-pub(crate) fn observe_resync_fallback(resync_id: u32, tick_ms: u32) {
-    action::observe_resync_fallback(resync_id, tick_ms);
+    refresh::observe_completed(tick_ms);
 }
 
 #[cfg_attr(
@@ -454,42 +450,12 @@ pub(crate) fn mark_resync_required() {
 }
 
 pub(crate) fn mark_refresh_snapshot_required() {
-    if !crate::resync::defer_snapshot() {
-        mark_resync_required();
-    }
+    refresh::snapshot_required();
 }
 
 fn mark_resync_required_after_events() {
     let missing_sequence = next_nonzero(&EVENT_SEQUENCE);
     QUEUE.mark_resync_required_after_events(missing_sequence);
-}
-
-fn finish_object_reconciliation(resync_id: u32, tick_ms: u32) {
-    complete_object_reconciliation(tick_ms);
-    push_event(
-        QueuedStateUpdate::Action(ActionUpdate::ResyncCompleted { resync_id }),
-        tick_ms,
-    );
-    if crate::resync::take_deferred_snapshot() {
-        mark_resync_required_after_events();
-    }
-}
-
-fn begin_object_reconciliation() {
-    // SAFETY: outgoing packet observation runs on the client main thread,
-    // which is the sole owner of the object cache.
-    unsafe { OBJECTS.begin_reconciliation() };
-}
-
-fn complete_object_reconciliation(tick_ms: u32) {
-    // SAFETY: refresh completion runs on the client main thread, which is the
-    // sole owner of the object cache.
-    unsafe {
-        OBJECTS.complete_reconciliation(|update| {
-            crate::player::removed(update.object_id());
-            push_event(QueuedStateUpdate::Object(update), tick_ms);
-        });
-    }
 }
 
 #[cfg(all(windows, not(test)))]
@@ -657,10 +623,7 @@ pub(crate) fn observe_stat_points(stat_points: u8, tick_ms: u32) {
 }
 
 pub(crate) fn observe_user_position(x: i32, y: i32, tick_ms: u32) {
-    crate::resync::observe_response_activity();
-    // SAFETY: decoded server events run on the client main thread, which is
-    // the sole owner of the object cache.
-    unsafe { OBJECTS.observe_reconciliation_activity(tick_ms) };
+    refresh::observe_authoritative_activity(tick_ms);
     #[cfg(all(windows, not(test)))]
     crate::actions::movement::observe_position(TilePosition { x, y });
     // SAFETY: the event hook runs on the client main thread, which is the sole
@@ -719,10 +682,7 @@ pub(crate) fn observe_effect(icon: u16, duration: Option<EffectDuration>, tick_m
 pub(crate) fn observe_world(update: WorldUpdate, objects: &RawObjects, tick_ms: u32) {
     match update {
         WorldUpdate::Draw | WorldUpdate::DrawPlayer => {
-            crate::resync::observe_response_activity();
-            // SAFETY: decoded server events run on the client main thread,
-            // which is the sole owner of the object cache.
-            unsafe { OBJECTS.observe_reconciliation_activity(tick_ms) };
+            refresh::observe_authoritative_activity(tick_ms);
             for object in objects
                 .entries
                 .iter()

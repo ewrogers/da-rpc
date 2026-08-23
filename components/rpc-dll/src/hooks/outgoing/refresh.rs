@@ -131,7 +131,7 @@ extern "C" fn defer_physical_refresh(caller_return: usize) -> i32 {
             return 0;
         }
         PHYSICAL_REFRESH_DEFERRED_COUNT.fetch_add(1, Ordering::Relaxed);
-        crate::resync::request_physical();
+        crate::state::refresh::request_physical();
         1
     })
     .unwrap_or(0)

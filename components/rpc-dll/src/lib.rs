@@ -53,8 +53,6 @@ mod player;
 #[cfg(windows)]
 mod process_memory;
 #[cfg(any(windows, test))]
-mod resync;
-#[cfg(any(windows, test))]
 mod route;
 #[cfg(any(windows, test))]
 #[cfg(windows)]

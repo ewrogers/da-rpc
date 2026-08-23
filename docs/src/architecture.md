@@ -38,6 +38,10 @@ The DLL remains useful without the daemon. `darpc.exe` can connect directly for
 one-client scripts or diagnostics. The DLL also continues tracking local state
 when the daemon disconnects and accepts a replacement connection later.
 
+One state-owned refresh transaction coordinates movement-safe F5 submission,
+object reconciliation, completion, fallback, and deferred snapshot recovery.
+Hooks supply observations, but do not sequence those state changes themselves.
+
 Only one controller owns a DLL's named pipe at a time. If the daemon is
 connected, a direct CLI request reports that the endpoint is busy rather than
 silently sending the request through the daemon.

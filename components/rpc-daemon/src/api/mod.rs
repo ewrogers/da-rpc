@@ -262,6 +262,11 @@ impl ApiState {
                             .lock()
                             .unwrap_or_else(std::sync::PoisonError::into_inner)
                             .completed(*identity, *resync_id),
+                        StateUpdate::Action(ActionUpdate::ResyncTimedOut { resync_id }) => self
+                            .resyncs
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .timed_out(*identity, *resync_id),
                         _ => {}
                     }
                     let replaced_players = previous_game_snapshot

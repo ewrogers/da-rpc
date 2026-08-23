@@ -1,3 +1,5 @@
+#[cfg(all(windows, not(test)))]
+use super::cancel_object_reconciliation;
 use super::{QueuedStateUpdate, begin_object_reconciliation, push_event};
 use darpc_model::{ActionUpdate, Direction, EquipmentSlot, TilePosition};
 use std::cell::UnsafeCell;
@@ -12,7 +14,7 @@ pub(super) fn observe_outgoing(body: &[u8], tick_ms: u32) {
         // SAFETY: outgoing packet observation runs on the client main thread,
         // which is the sole owner of pending resync correlation state.
         unsafe { PENDING_RESYNCS.push(resync_id) };
-        crate::resync::observe_outgoing(resync_id);
+        crate::resync::observe_outgoing(resync_id, tick_ms);
         begin_object_reconciliation();
         ActionUpdate::Resync { resync_id }
     } else {
@@ -28,11 +30,29 @@ pub(super) fn observe_resync_completed(tick_ms: u32) {
     // SAFETY: decoded server events run on the client main thread, which is
     // the sole owner of pending resync correlation state.
     let Some(resync_id) = (unsafe { PENDING_RESYNCS.pop() }) else {
+        crate::resync::observe_unmatched_completion(tick_ms);
         return;
     };
     crate::resync::observe_completed(resync_id);
     push_event(
         QueuedStateUpdate::Action(ActionUpdate::ResyncCompleted { resync_id }),
+        tick_ms,
+    );
+}
+
+#[cfg(all(windows, not(test)))]
+pub(super) fn observe_resync_timed_out(resync_id: u32, tick_ms: u32) {
+    // SAFETY: resync timeout observation runs on the client main thread, which
+    // is the sole owner of pending resync correlation state.
+    let pending = unsafe { PENDING_RESYNCS.pop() };
+    debug_assert_eq!(pending, Some(resync_id));
+    if pending != Some(resync_id) {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { PENDING_RESYNCS.reset() };
+    }
+    cancel_object_reconciliation();
+    push_event(
+        QueuedStateUpdate::Action(ActionUpdate::ResyncTimedOut { resync_id }),
         tick_ms,
     );
 }

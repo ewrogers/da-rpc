@@ -148,6 +148,13 @@ measure the animation duration, poll native state, or clear and rebuild world
 objects. Server-driven correction refreshes remain immediate and do not enter
 this deferred user-request path.
 
+If no `RefreshUserOK` arrives within one second of packet submission, daRPC
+publishes `client.resync_timed_out`. This is a failed synchronization, not a
+completion signal, so a movement consumer keeps movement paused. daRPC releases
+the stuck scheduler and waits for one quiet second before sending another
+refresh. Any late response restarts the quiet period instead of being matched
+to the next request.
+
 Keep one logical resync in flight per client. daRPC serializes accepted requests
 and reports its daemon-observed phase and pending count in the HTTP response,
 but those diagnostics are not a replacement for consumer-side request

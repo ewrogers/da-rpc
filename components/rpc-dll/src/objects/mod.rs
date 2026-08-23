@@ -86,6 +86,10 @@ impl ObjectCache {
         }
     }
 
+    pub(crate) fn cancel_reconciliation(&mut self) {
+        self.reconciliation.reset();
+    }
+
     pub(crate) fn observe_reconciliation_activity(&mut self, tick_ms: u32) {
         if !matches!(self.reconciliation.phase, ReconciliationPhase::Idle) {
             self.reconciliation.phase = ReconciliationPhase::QuietUntil(
@@ -753,6 +757,22 @@ mod tests {
 
         let mut updates = Vec::new();
         cache.finish_reconciliation(u32::MAX, |update| updates.push(update));
+        assert!(updates.is_empty());
+        assert_eq!(cache.get(1), Some(retained));
+    }
+
+    #[test]
+    fn cancelled_refresh_reconciliation_retains_last_known_objects() {
+        let mut cache = ObjectCache::empty();
+        let retained = player(1, 10, 10, 0);
+        cache.upsert(retained);
+        cache.begin_reconciliation();
+
+        cache.cancel_reconciliation();
+        cache.observe_reconciliation_activity(100);
+        let mut updates = Vec::new();
+        cache.finish_reconciliation(1_100, |update| updates.push(update));
+
         assert!(updates.is_empty());
         assert_eq!(cache.get(1), Some(retained));
     }

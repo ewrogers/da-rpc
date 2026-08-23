@@ -55,6 +55,12 @@ fn event_messages_round_trip() {
                     update: StateUpdate::Action(ActionUpdate::ResyncCompleted { resync_id: 17 }),
                 },
                 StateEvent {
+                    sequence: 403,
+                    revision: 93,
+                    tick_ms: 1_123,
+                    update: StateUpdate::Action(ActionUpdate::ResyncTimedOut { resync_id: 18 }),
+                },
+                StateEvent {
                     sequence: 41,
                     revision: 10,
                     tick_ms: 123,

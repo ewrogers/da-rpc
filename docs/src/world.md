@@ -216,6 +216,9 @@ quiet period starts only after the first such response, so no response leaves
 the last-known view intact. `client.resync` reports only that the request was
 sent. The matching `client.resync_completed` reports the server's payload-free
 `RefreshUserOK` response, but it does not mark object reconciliation complete.
+A `client.resync_timed_out` event means that response was not observed within
+one second. It cancels the incomplete reconciliation and retains the last-known
+object view without publishing false disappearance events.
 A concurrent `GET /objects` returns the retained, progressively reconciled view
 rather than an intentionally empty intermediate collection.
 

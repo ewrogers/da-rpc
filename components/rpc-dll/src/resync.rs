@@ -8,10 +8,13 @@ use std::{
 use darpc_protocol::CommandFailure;
 
 const PENDING_CAPACITY: usize = crate::commands::COMMAND_CAPACITY;
+const RESPONSE_TIMEOUT_MS: u32 = 1_000;
+const RESPONSE_QUIET_MS: u32 = 1_000;
 
 static PHYSICAL_REFRESH_REQUESTED: AtomicBool = AtomicBool::new(false);
 static SUBMISSION_COUNT: AtomicU32 = AtomicU32::new(0);
 static COMPLETION_COUNT: AtomicU32 = AtomicU32::new(0);
+static TIMEOUT_COUNT: AtomicU32 = AtomicU32::new(0);
 static SUBMISSION_FAILURE_COUNT: AtomicU32 = AtomicU32::new(0);
 static COORDINATOR: MainThreadCoordinator = MainThreadCoordinator::new();
 
@@ -20,6 +23,7 @@ static COORDINATOR: MainThreadCoordinator = MainThreadCoordinator::new();
 pub(crate) struct ResyncHealth {
     pub(crate) submission_count: u32,
     pub(crate) completion_count: u32,
+    pub(crate) timeout_count: u32,
     pub(crate) submission_failure_count: u32,
 }
 
@@ -42,6 +46,10 @@ enum Phase {
     AwaitingResponse {
         origin: Origin,
         resync_id: u32,
+        deadline_tick_ms: u32,
+    },
+    CoolingOff {
+        deadline_tick_ms: u32,
     },
 }
 
@@ -52,6 +60,7 @@ impl Phase {
             Self::Quiescing { origin, .. }
             | Self::Submitting { origin }
             | Self::AwaitingResponse { origin, .. } => Some(origin),
+            Self::CoolingOff { .. } => None,
         }
     }
 }
@@ -136,11 +145,52 @@ impl Coordinator {
         Some(origin)
     }
 
-    fn observe_outgoing(&mut self, resync_id: u32) -> bool {
+    fn observe_outgoing(&mut self, resync_id: u32, tick_ms: u32) -> bool {
         let Phase::Submitting { origin } = self.phase else {
             return false;
         };
-        self.phase = Phase::AwaitingResponse { origin, resync_id };
+        self.phase = Phase::AwaitingResponse {
+            origin,
+            resync_id,
+            deadline_tick_ms: tick_ms.wrapping_add(RESPONSE_TIMEOUT_MS),
+        };
+        true
+    }
+
+    fn observe_timeout(&mut self, tick_ms: u32) -> Option<u32> {
+        let Phase::AwaitingResponse {
+            resync_id,
+            deadline_tick_ms,
+            ..
+        } = self.phase
+        else {
+            return None;
+        };
+        if !crate::wrapping_time::deadline_reached(tick_ms, deadline_tick_ms) {
+            return None;
+        }
+        self.phase = Phase::CoolingOff {
+            deadline_tick_ms: tick_ms.wrapping_add(RESPONSE_QUIET_MS),
+        };
+        Some(resync_id)
+    }
+
+    fn observe_unmatched_completion(&mut self, tick_ms: u32) {
+        if matches!(self.phase, Phase::CoolingOff { .. }) {
+            self.phase = Phase::CoolingOff {
+                deadline_tick_ms: tick_ms.wrapping_add(RESPONSE_QUIET_MS),
+            };
+        }
+    }
+
+    fn finish_cooldown(&mut self, tick_ms: u32) -> bool {
+        let Phase::CoolingOff { deadline_tick_ms } = self.phase else {
+            return false;
+        };
+        if !crate::wrapping_time::deadline_reached(tick_ms, deadline_tick_ms) {
+            return false;
+        }
+        self.phase = Phase::Idle;
         true
     }
 
@@ -254,12 +304,25 @@ pub(crate) fn request_command(command_id: u32) -> Result<(), CommandFailure> {
 }
 
 #[cfg(all(windows, not(test)))]
-pub(crate) fn observe_tick() {
+pub(crate) fn observe_tick(tick_ms: u32) {
     if PHYSICAL_REFRESH_REQUESTED.swap(false, Ordering::AcqRel) {
         // SAFETY: tick observation runs on the client main thread.
         let _ = unsafe { COORDINATOR.with(|coordinator| coordinator.enqueue(Origin::Physical)) };
     }
 
+    // SAFETY: tick observation runs on the client main thread.
+    let timed_out = unsafe { COORDINATOR.with(|coordinator| coordinator.observe_timeout(tick_ms)) };
+    if let Some(resync_id) = timed_out {
+        TIMEOUT_COUNT.fetch_add(1, Ordering::Relaxed);
+        crate::state::observe_resync_timed_out(resync_id, tick_ms);
+    }
+
+    // SAFETY: tick observation runs on the client main thread.
+    unsafe {
+        COORDINATOR.with(|coordinator| {
+            coordinator.finish_cooldown(tick_ms);
+        });
+    }
     begin_pending();
 
     // SAFETY: tick observation runs on the client main thread.
@@ -322,10 +385,10 @@ fn begin_pending() {
     }
 }
 
-pub(crate) fn observe_outgoing(resync_id: u32) {
+pub(crate) fn observe_outgoing(resync_id: u32, tick_ms: u32) {
     // SAFETY: outgoing observation runs on the client main thread.
     let submitted =
-        unsafe { COORDINATOR.with(|coordinator| coordinator.observe_outgoing(resync_id)) };
+        unsafe { COORDINATOR.with(|coordinator| coordinator.observe_outgoing(resync_id, tick_ms)) };
     if submitted {
         SUBMISSION_COUNT.fetch_add(1, Ordering::Relaxed);
     }
@@ -340,11 +403,19 @@ pub(crate) fn observe_completed(resync_id: u32) {
     }
 }
 
+pub(crate) fn observe_unmatched_completion(tick_ms: u32) {
+    // SAFETY: decoded server events run on the client main thread.
+    unsafe {
+        COORDINATOR.with(|coordinator| coordinator.observe_unmatched_completion(tick_ms));
+    }
+}
+
 #[cfg(windows)]
 pub(crate) fn health() -> ResyncHealth {
     ResyncHealth {
         submission_count: SUBMISSION_COUNT.load(Ordering::Acquire),
         completion_count: COMPLETION_COUNT.load(Ordering::Acquire),
+        timeout_count: TIMEOUT_COUNT.load(Ordering::Acquire),
         submission_failure_count: SUBMISSION_FAILURE_COUNT.load(Ordering::Acquire),
     }
 }
@@ -353,6 +424,7 @@ pub(crate) fn reset() {
     PHYSICAL_REFRESH_REQUESTED.store(false, Ordering::Release);
     SUBMISSION_COUNT.store(0, Ordering::Release);
     COMPLETION_COUNT.store(0, Ordering::Release);
+    TIMEOUT_COUNT.store(0, Ordering::Release);
     SUBMISSION_FAILURE_COUNT.store(0, Ordering::Release);
     // SAFETY: lifecycle reset runs while the producer hooks are absent.
     unsafe {
@@ -439,11 +511,31 @@ mod tests {
             coordinator.observe_transition(transition(COMMITTED, COMMITTED, false)),
             Some(Origin::Command(12))
         );
-        assert!(coordinator.observe_outgoing(12));
+        assert!(coordinator.observe_outgoing(12, 100));
 
         assert!(!coordinator.observe_completed(99));
         assert!(!coordinator.is_idle());
         assert!(coordinator.observe_completed(12));
+        assert!(coordinator.is_idle());
+    }
+
+    #[test]
+    fn missing_response_times_out_and_waits_for_a_quiet_second() {
+        let mut coordinator = Coordinator::new();
+        coordinator.begin(Origin::Command(12), transition(COMMITTED, COMMITTED, false));
+        assert_eq!(
+            coordinator.observe_transition(transition(COMMITTED, COMMITTED, false)),
+            Some(Origin::Command(12))
+        );
+        assert!(coordinator.observe_outgoing(12, 100));
+
+        assert_eq!(coordinator.observe_timeout(1_099), None);
+        assert_eq!(coordinator.observe_timeout(1_100), Some(12));
+        assert!(!coordinator.finish_cooldown(2_099));
+
+        coordinator.observe_unmatched_completion(1_500);
+        assert!(!coordinator.finish_cooldown(2_499));
+        assert!(coordinator.finish_cooldown(2_500));
         assert!(coordinator.is_idle());
     }
 

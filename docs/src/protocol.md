@@ -814,6 +814,7 @@ enum ActionUpdate: u8 {
     Turned(Direction) = 9,
     Resync { resync_id: u32 } = 10,
     ResyncCompleted { resync_id: u32 } = 11,
+    ResyncTimedOut { resync_id: u32 } = 12,
 }
 
 enum SpellCastArguments: u8 {
@@ -1109,18 +1110,22 @@ observed.
 The actual outgoing packet publishes `Resync` with a nonzero DLL-local
 identifier. An HTTP-triggered refresh uses its command ID as the resync ID. A
 payload-free server `0x22` `RefreshUserOK` packet publishes `ResyncCompleted`
-with the matching identifier. User-initiated requests are serialized and
-responses are correlated in their observed order because the server response
-has no identifier. Repeated physical F5 requests coalesce while one is pending.
-The server-driven movement-correction call to the same native refresh helper is
-not deferred.
+with the matching identifier. If that response is not observed within one
+second of the outgoing packet, the DLL publishes `ResyncTimedOut` instead. It
+then waits for one quiet second before sending the next request. A late
+`RefreshUserOK` restarts that quiet period so it cannot be correlated with the
+next request. User-initiated requests are serialized because the server
+response has no identifier. Repeated physical F5 requests coalesce while one
+is pending. The server-driven movement-correction call to the same native
+refresh helper is not deferred.
 
 The DLL retains the current object set while the server redraws it. Stable IDs
 observed in the redraw remain retained, newly observed IDs publish `Appeared`,
 and IDs not observed before one second of redraw inactivity publish
 `Disappeared`. The quiet period begins only after the first authoritative
 position or redraw response, so a refresh with no redraw response preserves
-the last-known object set. `ResyncCompleted` acknowledges the server refresh;
+the last-known object set. A resync timeout cancels that reconciliation without
+removing retained objects. `ResyncCompleted` acknowledges the server refresh;
 it is not an object-reconciliation completion update. The ordered object
 updates are the complete externally visible reconciliation result.
 

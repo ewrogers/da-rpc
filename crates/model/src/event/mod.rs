@@ -124,6 +124,9 @@ pub enum ActionUpdate {
     ResyncCompleted {
         resync_id: u32,
     },
+    ResyncTimedOut {
+        resync_id: u32,
+    },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]

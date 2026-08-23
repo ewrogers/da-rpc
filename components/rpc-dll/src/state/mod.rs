@@ -85,6 +85,11 @@ pub(crate) fn observe_resync_completed(tick_ms: u32) {
     action::observe_resync_completed(tick_ms);
 }
 
+#[cfg(all(windows, not(test)))]
+pub(crate) fn observe_resync_timed_out(resync_id: u32, tick_ms: u32) {
+    action::observe_resync_timed_out(resync_id, tick_ms);
+}
+
 #[cfg_attr(
     test,
     expect(dead_code, reason = "called by the production-only actions module")
@@ -453,6 +458,13 @@ fn begin_object_reconciliation() {
     // SAFETY: outgoing packet observation runs on the client main thread,
     // which is the sole owner of the object cache.
     unsafe { OBJECTS.begin_reconciliation() };
+}
+
+#[cfg(all(windows, not(test)))]
+fn cancel_object_reconciliation() {
+    // SAFETY: resync timeout observation runs on the client main thread,
+    // which is the sole owner of the object cache.
+    unsafe { OBJECTS.cancel_reconciliation() };
 }
 
 #[cfg(all(windows, not(test)))]

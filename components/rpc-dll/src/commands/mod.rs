@@ -111,9 +111,10 @@ pub(crate) fn handle(operation: CommandOperation) -> CommandResult {
 }
 
 pub(crate) fn observe_tick() {
+    let tick_ms = now_tick_ms();
     #[cfg(all(windows, not(test)))]
-    crate::resync::observe_tick();
-    complete_pending_cast_if_due(now_tick_ms());
+    crate::resync::observe_tick(tick_ms);
+    complete_pending_cast_if_due(tick_ms);
     for _ in 0..COMMANDS_PER_TICK {
         let Some(slot_index) = QUEUE.pop() else {
             break;

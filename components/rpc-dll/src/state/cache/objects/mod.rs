@@ -21,6 +21,12 @@ impl MainThreadObjects {
         unsafe { (&mut *self.0.get()).begin_reconciliation() };
     }
 
+    #[cfg(all(windows, not(test)))]
+    pub(in crate::state) unsafe fn cancel_reconciliation(&self) {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&mut *self.0.get()).cancel_reconciliation() };
+    }
+
     pub(in crate::state) unsafe fn observe_reconciliation_activity(&self, tick_ms: u32) {
         // SAFETY: the caller guarantees exclusive main-thread access.
         unsafe { (&mut *self.0.get()).observe_reconciliation_activity(tick_ms) };

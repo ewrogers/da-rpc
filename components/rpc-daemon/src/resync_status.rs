@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, VecDeque};
 use utoipa::ToSchema;
 
 const MAX_PENDING_RESYNCS: usize = 64;
-const COMPLETED_RESYNC_RETENTION: usize = 64;
+const TERMINAL_RESYNC_RETENTION: usize = 64;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -37,12 +37,12 @@ struct ActiveResync {
 struct ResyncTracker {
     active: Option<ActiveResync>,
     pending: VecDeque<u32>,
-    completed: VecDeque<u32>,
+    terminal: VecDeque<u32>,
 }
 
 impl ResyncTracker {
     fn accepted(&mut self, resync_id: u32) {
-        if self.completed.contains(&resync_id)
+        if self.terminal.contains(&resync_id)
             || self.active.is_some_and(|active| active.id == resync_id)
             || self.pending.contains(&resync_id)
         {
@@ -83,11 +83,19 @@ impl ResyncTracker {
     }
 
     fn completed(&mut self, resync_id: u32) {
-        if !self.completed.contains(&resync_id) {
-            if self.completed.len() == COMPLETED_RESYNC_RETENTION {
-                self.completed.pop_front();
+        self.finish(resync_id);
+    }
+
+    fn timed_out(&mut self, resync_id: u32) {
+        self.finish(resync_id);
+    }
+
+    fn finish(&mut self, resync_id: u32) {
+        if !self.terminal.contains(&resync_id) {
+            if self.terminal.len() == TERMINAL_RESYNC_RETENTION {
+                self.terminal.pop_front();
             }
-            self.completed.push_back(resync_id);
+            self.terminal.push_back(resync_id);
         }
 
         if self.active.is_some_and(|active| active.id == resync_id) {
@@ -138,6 +146,13 @@ impl ResyncTrackers {
             .entry(identity)
             .or_default()
             .completed(resync_id);
+    }
+
+    pub(crate) fn timed_out(&mut self, identity: ClientIdentity, resync_id: u32) {
+        self.clients
+            .entry(identity)
+            .or_default()
+            .timed_out(resync_id);
     }
 
     pub(crate) fn status(&self, identity: ClientIdentity) -> ResyncSchedulerStatus {
@@ -209,6 +224,27 @@ mod tests {
         trackers.accepted(identity, 7);
 
         assert_eq!(trackers.status(identity).phase, ResyncPhase::Idle);
+    }
+
+    #[test]
+    fn timeout_advances_the_pending_request_and_is_terminal() {
+        let mut trackers = ResyncTrackers::default();
+        let identity = identity();
+
+        trackers.accepted(identity, 7);
+        trackers.accepted(identity, 9);
+        trackers.outgoing(identity, 7);
+        trackers.timed_out(identity, 7);
+        trackers.accepted(identity, 7);
+
+        assert_eq!(
+            trackers.status(identity),
+            ResyncSchedulerStatus {
+                phase: ResyncPhase::WaitingToSend,
+                active_resync_id: Some(9),
+                pending_count: 0,
+            }
+        );
     }
 
     #[test]

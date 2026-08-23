@@ -77,6 +77,12 @@ pub(crate) struct ClientResyncCompleted {
     resync_id: u32,
 }
 
+#[derive(Clone, Debug, Serialize, ToSchema)]
+pub(crate) struct ClientResyncTimedOut {
+    pub(super) observation: EventObservation,
+    resync_id: u32,
+}
+
 pub(super) fn expand_action(observation: EventObservation, update: ActionUpdate) -> ClientEvent {
     match update {
         ActionUpdate::ItemUsed { slot } => ClientEvent::ItemUsed(ItemUsed { observation, slot }),
@@ -135,6 +141,12 @@ pub(super) fn expand_action(observation: EventObservation, update: ActionUpdate)
         }),
         ActionUpdate::ResyncCompleted { resync_id } => {
             ClientEvent::ClientResyncCompleted(ClientResyncCompleted {
+                observation,
+                resync_id,
+            })
+        }
+        ActionUpdate::ResyncTimedOut { resync_id } => {
+            ClientEvent::ClientResyncTimedOut(ClientResyncTimedOut {
                 observation,
                 resync_id,
             })

@@ -225,9 +225,10 @@ resync {
 ```
 
 `waiting_to_send` means the active request has been accepted but its outgoing
-packet has not been observed. This covers both movement quiescing and packet
-submission. `awaiting_response` begins when `client.resync` is observed and
-continues until the matching `client.resync_completed`. `pending_count` is the
+packet has not been observed. This covers movement quiescing, packet submission,
+and the quiet recovery period after a timeout. `awaiting_response` begins when
+`client.resync` is observed and continues until the matching
+`client.resync_completed` or `client.resync_timed_out`. `pending_count` is the
 number of HTTP requests accepted by the resync scheduler behind the active
 request and does not include `active_resync_id`.
 
@@ -248,20 +249,26 @@ request by itself is normal serialized work, so daRPC does not return a
 
 The server's payload-free `0x22` `RefreshUserOK` response publishes the
 transient `client.resync_completed` event with the matching `resync_id`.
+If that response is not observed within one second of `client.resync`, daRPC
+publishes `client.resync_timed_out`, releases the stuck active request, and
+waits for one quiet second before sending the next refresh. A late response
+restarts the quiet period instead of being correlated with the next request.
 Consumers that pause movement for refresh must establish the event stream
 before making the request and wait for this matching event before releasing
 movement. The HTTP `200 OK` or `202 Accepted` covers scheduler acceptance,
 `client.resync` covers actual packet submission, and
-`client.resync_completed` covers the authoritative response. If the event
-stream disconnects before completion, keep movement paused and issue a new
-refresh after reconnecting.
+`client.resync_completed` covers the authoritative response. A timeout is a
+failed synchronization and does not authorize movement. If the event stream
+disconnects before completion, keep movement paused and issue a new refresh
+after reconnecting.
 
 daRPC reconciles the refreshed visible-object set by stable entity ID. New IDs
 publish their normal appeared events, missing retained IDs publish their normal
 disappeared events, and unchanged IDs remain retained. Consumers do not clear
 or rebuild object state in response to the refresh. Missing IDs are removed
 after one second without another authoritative position or redraw response. If
-the server never responds, daRPC preserves the last-known object set. There is
+the server never responds, daRPC times out the refresh and preserves the
+last-known object set. There is
 no object-reconciliation completion event; apply the ordered lifecycle events
 as described in [World](world.md#object-events). `client.resync_completed`
 acknowledges the server refresh and does not replace those object events.

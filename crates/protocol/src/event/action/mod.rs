@@ -54,6 +54,10 @@ pub(super) fn encode_action(output: &mut Vec<u8>, update: ActionUpdate) {
             output.push(11);
             push_u32(output, resync_id);
         }
+        ActionUpdate::ResyncTimedOut { resync_id } => {
+            output.push(12);
+            push_u32(output, resync_id);
+        }
     }
 }
 
@@ -112,6 +116,9 @@ pub(super) fn decode_action(reader: &mut PayloadReader<'_>) -> Result<ActionUpda
             resync_id: decode_resync_id(reader)?,
         }),
         11 => Ok(ActionUpdate::ResyncCompleted {
+            resync_id: decode_resync_id(reader)?,
+        }),
+        12 => Ok(ActionUpdate::ResyncTimedOut {
             resync_id: decode_resync_id(reader)?,
         }),
         actual => Err(DecodeError::InvalidStateUpdateType { actual }),

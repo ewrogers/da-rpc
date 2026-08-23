@@ -200,6 +200,34 @@ fn completed_client_resync_has_a_stable_public_event_shape() {
 }
 
 #[test]
+fn timed_out_client_resync_has_a_stable_public_event_shape() {
+    let events = expand(
+        42,
+        ClientIdentity {
+            pid: 42,
+            process_creation_time: 100,
+            dll_instance_id: [1; 16],
+        },
+        StateEvent {
+            sequence: 12,
+            revision: 13,
+            tick_ms: 1_013,
+            update: StateUpdate::Action(ActionUpdate::ResyncTimedOut { resync_id: 17 }),
+        },
+        None,
+        None,
+        observed_at(),
+    );
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].name(), "client.resync_timed_out");
+    let event = serde_json::to_value(&events[0]).unwrap();
+    assert_eq!(event["type"], "client_resync_timed_out");
+    assert_eq!(event["data"]["resync_id"], 17);
+    assert_eq!(event["data"]["observation"]["event_sequence"], 12);
+}
+
+#[test]
 fn expands_legend_diffs_with_previous_and_current_marks() {
     let previous = ModelLegendMark {
         text: "Found the grove".into(),

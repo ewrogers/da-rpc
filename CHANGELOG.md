@@ -23,6 +23,9 @@
   immediate.
 - Keep refresh coordination, object reconciliation, completion and fallback
   ordering, and deferred snapshot recovery in one DLL state transaction.
+- Put response interception, packet parsing, reusable scratch state, and
+  ordered semantic dispatch behind the DLL event-hook seam without adding
+  asynchronous work to the client path.
 - Inventory the mandatory and optional client launch patches in the README with
   player-facing descriptions of each patch and its purpose.
 

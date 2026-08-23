@@ -40,6 +40,9 @@ mod cache;
 pub(crate) mod refresh;
 mod update;
 
+#[cfg(test)]
+pub(crate) static TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[cfg(windows)]
 use ability::casting_state;
 use ability::{CastingState, QueuedAbilityUpdate};

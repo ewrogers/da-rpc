@@ -407,11 +407,10 @@ mod tests {
     use super::{Coordinator, MovementTransition, Origin, Phase};
     use darpc_model::{ActionUpdate, StateUpdate, TilePosition};
     use darpc_protocol::EventPollResult;
-    use std::{sync::Mutex, time::Duration};
+    use std::time::Duration;
 
     const COMMITTED: TilePosition = TilePosition { x: 10, y: 20 };
     const STAGED: TilePosition = TilePosition { x: 11, y: 20 };
-    static INTERFACE_TEST: Mutex<()> = Mutex::new(());
 
     const fn transition(
         committed: TilePosition,
@@ -553,7 +552,7 @@ mod tests {
 
     #[test]
     fn interface_orders_completion_before_deferred_snapshot_recovery() {
-        let _guard = INTERFACE_TEST.lock().unwrap();
+        let _guard = super::super::TEST_LOCK.lock().unwrap();
         super::super::reset();
         super::reset();
 

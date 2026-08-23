@@ -55,6 +55,8 @@ mod process_memory;
 #[cfg(any(windows, test))]
 mod route;
 #[cfg(any(windows, test))]
+mod server_event;
+#[cfg(any(windows, test))]
 #[cfg(windows)]
 mod snapshot;
 #[cfg(any(windows, test))]

@@ -111,6 +111,12 @@ Small runtime hooks provide safe moments to copy changing state and drain
 native commands. They do not perform web requests, named-pipe input/output,
 logging, or large conversions.
 
+The incoming event hook ends at a bounded byte slice. A synchronous
+server-event processor behind that seam owns response interception, packet
+parsing, reusable parser scratch, and ordered state dispatch. This keeps client
+memory and detour mechanics out of server semantics without adding a queue or
+changing when updates become visible.
+
 The [Runtime hooks](hooks.md) chapter explains every installed hook, why it
 exists, how work is moved off the main thread, and how daRPC removes the hooks
 before unloading.

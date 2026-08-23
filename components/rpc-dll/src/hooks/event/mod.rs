@@ -1,4 +1,4 @@
-use darpc_game_client::{EVENT_DISPATCH_ENTRY, EVENT_DISPATCH_RVA, RawObjects};
+use darpc_game_client::{EVENT_DISPATCH_ENTRY, EVENT_DISPATCH_RVA};
 use darpc_hook::{DetourActivity, InstallError, InstalledDetour};
 use darpc_protocol::HookTimingStage;
 use darpc_win32::pipe::sender_tick_ms;
@@ -10,7 +10,11 @@ use std::{
 };
 
 use super::support;
-use crate::{diagnostics, packet, process_memory::read_exact, state};
+use crate::{
+    diagnostics,
+    process_memory::read_exact,
+    server_event::{Observation, ServerEventProcessor},
+};
 
 pub(crate) const NAME: &str = "event_dispatch";
 
@@ -47,14 +51,14 @@ static EVENT_SCRATCH: EventScratchCell = EventScratchCell(UnsafeCell::new(EventS
 
 struct EventScratch {
     body: [u8; MAX_OBSERVED_BODY_LENGTH],
-    objects: RawObjects,
+    server_events: ServerEventProcessor,
 }
 
 impl EventScratch {
     const fn new() -> Self {
         Self {
             body: [0; MAX_OBSERVED_BODY_LENGTH],
-            objects: RawObjects::empty(),
+            server_events: ServerEventProcessor::new(),
         }
     }
 }
@@ -324,13 +328,7 @@ fn intercept_event_inner(event: *const core::ffi::c_void) -> bool {
         return false;
     }
     let body = &scratch.body[..body_length];
-    let suppressed = match opcode[0] {
-        0x34 => crate::player::intercept_response(body, sender_tick_ms()),
-        0x36 => crate::who::intercept_response(body, sender_tick_ms()),
-        0x39 => crate::player::intercept_self_response(body, sender_tick_ms()),
-        0x42 => crate::exchange::intercept_quantity(body),
-        _ => false,
-    };
+    let suppressed = ServerEventProcessor::intercept(body);
     if suppressed {
         EVENT_OBSERVATION_COUNT.fetch_add(1, Ordering::Relaxed);
         SERVER_EVENT_COUNT.fetch_add(1, Ordering::Relaxed);
@@ -394,99 +392,28 @@ fn observe_event_inner(event: *const core::ffi::c_void) {
         EVENT_READ_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed);
         return;
     }
+    let EventScratch {
+        body,
+        server_events,
+    } = scratch;
+    let body = &body[..body_length];
     let tick_ms = sender_tick_ms();
-    state::observe_message_dialog(&scratch.body[..body_length], tick_ms);
-    if scratch.body[0] == 0x34 {
-        crate::player::observe_user_response(&scratch.body[..body_length], tick_ms);
-        EVENT_COUNT.fetch_add(1, Ordering::Relaxed);
-        return;
-    }
-    let update = match packet::update(&scratch.body[..body_length], &mut scratch.objects) {
-        Ok(Some(update)) => update,
-        Ok(None) => return,
+    match server_events.observe(body, tick_ms) {
+        Ok(Observation::Observed) => {
+            EVENT_COUNT.fetch_add(1, Ordering::Relaxed);
+        }
+        Ok(Observation::Ignored) => {}
         Err(error) => {
             EVENT_PARSE_ERROR_COUNT.fetch_add(1, Ordering::Relaxed);
-            LAST_PARSE_OPCODE.store(u32::from(scratch.body[0]), Ordering::Relaxed);
+            LAST_PARSE_OPCODE.store(u32::from(body[0]), Ordering::Relaxed);
             LAST_PARSE_FIELDS.store(
-                u32::from(scratch.body.get(1).copied().unwrap_or_default()),
+                u32::from(body.get(1).copied().unwrap_or_default()),
                 Ordering::Relaxed,
             );
             LAST_PARSE_BODY_LENGTH.store(body_length as u32, Ordering::Relaxed);
             LAST_PARSE_OFFSET.store(error.offset() as u32, Ordering::Relaxed);
             LAST_PARSE_NEEDED.store(error.needed() as u32, Ordering::Relaxed);
             LAST_PARSE_REMAINING.store(error.remaining() as u32, Ordering::Relaxed);
-            return;
-        }
-    };
-    EVENT_COUNT.fetch_add(1, Ordering::Relaxed);
-    match update {
-        packet::ServerUpdate::ActionDelay(update) => {
-            state::observe_action_delay(update.kind, update.slot, update.duration_seconds, tick_ms);
-        }
-        packet::ServerUpdate::Audio(update) => {
-            state::observe_audio(update, tick_ms);
-        }
-        packet::ServerUpdate::Status(update) => {
-            state::observe_status(update, tick_ms);
-        }
-        packet::ServerUpdate::StatPoints(stat_points) => {
-            state::observe_stat_points(stat_points, tick_ms);
-        }
-        packet::ServerUpdate::UserAppearance(update) => {
-            state::observe_status(update.status, tick_ms);
-            if update.is_full {
-                state::mark_refresh_snapshot_required();
-            }
-        }
-        packet::ServerUpdate::UserPosition(position) => {
-            state::observe_user_position(position.x, position.y, tick_ms);
-            state::observe_position_correction();
-        }
-        packet::ServerUpdate::Move(update) => {
-            state::observe_move(update.position.x, update.position.y, tick_ms);
-            if update.corrected {
-                state::observe_position_correction();
-            }
-        }
-        packet::ServerUpdate::Effect(effect) => {
-            state::observe_effect(effect.icon, effect.duration, tick_ms);
-        }
-        packet::ServerUpdate::World(update) => {
-            state::observe_world(update, &scratch.objects, tick_ms);
-            if matches!(update, packet::object::WorldUpdate::DrawPlayer) {
-                state::mark_refresh_snapshot_required();
-                if let Some(player) = scratch.objects.entries[0] {
-                    crate::player::appeared(player);
-                }
-            }
-        }
-        packet::ServerUpdate::Message(message) => {
-            state::observe_message(message, tick_ms);
-        }
-        packet::ServerUpdate::Collection(collection) => {
-            state::mark_collection_dirty(collection.kind, collection.slot, tick_ms);
-        }
-        packet::ServerUpdate::SpellCancelled => {
-            state::observe_spell_cancelled(tick_ms);
-        }
-        packet::ServerUpdate::Visual(update) => {
-            state::observe_visual(update, tick_ms);
-        }
-        packet::ServerUpdate::FieldMap(body) => {
-            state::observe_field_map(body, tick_ms);
-        }
-        packet::ServerUpdate::Dialog(body) => {
-            state::observe_dialog(body, tick_ms);
-        }
-        packet::ServerUpdate::Group(body) => {
-            crate::player::observe_self_look(body, tick_ms);
-            crate::group::observe_packet(body, tick_ms);
-        }
-        packet::ServerUpdate::Exchange(body) => {
-            crate::exchange::observe_server(body, tick_ms);
-        }
-        packet::ServerUpdate::ResyncCompleted => {
-            state::observe_resync_completed(tick_ms);
         }
     }
 }

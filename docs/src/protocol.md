@@ -65,7 +65,10 @@ palette dye color to ground-item object records and removes the collection-wide
 object-clear update in favor of individual disappearance updates. Peers
 advertise only 1.7. Object-update discriminant 5 is retired and rejected. A
 peer built against the earlier 1.7 schema can still emit that value, so deploy
-the DLL and its controller or daemon together when adopting this change.
+the DLL and its controller or daemon together when adopting this change. The
+1.7.1 application release also appends spell-result command failures while
+retaining protocol version 1.7. Earlier peers reject those new failure values,
+so deploy the 1.7.1 DLL and controller or daemon together.
 
 ## Message types
 
@@ -1234,6 +1237,9 @@ enum CommandFailure: u8 {
     InvalidSpell = 6,
     InvalidArguments = 7,
     InvalidTarget = 8,
+    InsufficientMana = 9,
+    Resist = 10,
+    NotAllowed = 11,
 }
 
 struct CommandResponse {

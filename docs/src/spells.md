@@ -114,9 +114,17 @@ matching native client routine. It does not switch the visible spell panel or
 synthesize user input.
 
 After the native routine accepts a cast, the command remains pending for 500
-milliseconds so immediate server feedback can determine its result. The exact
-system message `That doesn't work here.` completes the command as rejected,
-which reports attempts to cast on no-cast maps as failures. Silence during the
+milliseconds so immediate server feedback can determine its result. These exact
+system messages complete the command with distinct failures:
+
+| System message | Failure |
+| --- | --- |
+| `Your Will is too weak.` | `insufficient_mana` |
+| `The magic has been deflected.` | `resist` |
+| `No target.` | `invalid_target` |
+| `That doesn't work here.` | `not_allowed` |
+
+`not_allowed` includes attempts to cast on no-cast maps. Silence during the
 bounded response window completes the command successfully.
 
 Spell casts have 10 percent tolerance on the normal one-second start deadline.

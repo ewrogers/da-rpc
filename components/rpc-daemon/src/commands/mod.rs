@@ -397,6 +397,9 @@ pub(crate) enum CommandFailure {
     InvalidSpell,
     InvalidArguments,
     InvalidTarget,
+    InsufficientMana,
+    Resist,
+    NotAllowed,
 }
 
 #[utoipa::path(
@@ -949,6 +952,9 @@ impl From<ProtocolFailure> for CommandFailure {
             ProtocolFailure::InvalidSpell => Self::InvalidSpell,
             ProtocolFailure::InvalidArguments => Self::InvalidArguments,
             ProtocolFailure::InvalidTarget => Self::InvalidTarget,
+            ProtocolFailure::InsufficientMana => Self::InsufficientMana,
+            ProtocolFailure::Resist => Self::Resist,
+            ProtocolFailure::NotAllowed => Self::NotAllowed,
         }
     }
 }
@@ -956,6 +962,22 @@ impl From<ProtocolFailure> for CommandFailure {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn spell_result_failures_have_stable_json_names() {
+        for (failure, name) in [
+            (ProtocolFailure::InsufficientMana, "insufficient_mana"),
+            (ProtocolFailure::Resist, "resist"),
+            (ProtocolFailure::InvalidTarget, "invalid_target"),
+            (ProtocolFailure::NotAllowed, "not_allowed"),
+        ] {
+            let failure = CommandFailure::from(failure);
+            assert_eq!(
+                serde_json::to_value(failure).unwrap(),
+                serde_json::json!(name)
+            );
+        }
+    }
 
     #[test]
     fn exact_route_invalid_state_diagnostics_are_exposed_in_command_json() {

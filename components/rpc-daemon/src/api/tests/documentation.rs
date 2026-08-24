@@ -190,6 +190,18 @@ fn serves_the_openapi_contract_and_vendored_swagger_ui() {
             .as_array()
             .is_some_and(|values| values.iter().any(|value| value == "chant"))
     );
+    let command_failures = schemas["CommandFailure"]["enum"].as_array().unwrap();
+    for failure in [
+        "insufficient_mana",
+        "resist",
+        "invalid_target",
+        "not_allowed",
+    ] {
+        assert!(
+            command_failures.iter().any(|value| value == failure),
+            "OpenAPI omitted command failure {failure}"
+        );
+    }
     let message_parameters = openapi["paths"]["/clients/{client}/messages"]["get"]["parameters"]
         .as_array()
         .unwrap();

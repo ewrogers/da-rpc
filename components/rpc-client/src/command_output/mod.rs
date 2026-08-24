@@ -355,6 +355,9 @@ fn failure_name(failure: CommandFailure) -> &'static str {
         CommandFailure::InvalidSpell => "invalid_spell",
         CommandFailure::InvalidArguments => "invalid_arguments",
         CommandFailure::InvalidTarget => "invalid_target",
+        CommandFailure::InsufficientMana => "insufficient_mana",
+        CommandFailure::Resist => "resist",
+        CommandFailure::NotAllowed => "not_allowed",
     }
 }
 
@@ -545,7 +548,7 @@ fn optional_json(value: Option<u32>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::render_json;
+    use super::{failure_name, render_json};
     use darpc_model::{
         CharacterClass, LegendIcon, LegendMark, TilePosition, UserState, WalkMode, WhoList,
         WhoPlayer,
@@ -581,6 +584,18 @@ mod tests {
         );
         assert!(output.contains("\"execution_us\":0"));
         assert!(output.contains("\"state\":\"executed\""));
+    }
+
+    #[test]
+    fn spell_result_failures_have_stable_names() {
+        for (failure, name) in [
+            (CommandFailure::InsufficientMana, "insufficient_mana"),
+            (CommandFailure::Resist, "resist"),
+            (CommandFailure::InvalidTarget, "invalid_target"),
+            (CommandFailure::NotAllowed, "not_allowed"),
+        ] {
+            assert_eq!(failure_name(failure), name);
+        }
     }
 
     #[test]

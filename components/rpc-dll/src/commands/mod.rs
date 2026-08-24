@@ -35,7 +35,10 @@ const MAX_COMMAND_TILE_BYTES: usize = MAX_WALK_ROUTE_TILES * 4;
 const TERMINAL_RETENTION_MS: u32 = 30_000;
 const RESPONSE_COALESCE_MS: u32 = 1_000;
 const CAST_RESPONSE_WINDOW_MS: u32 = 500;
-const CAST_REJECTION_MESSAGE: &[u8] = b"That doesn't work here.";
+const INSUFFICIENT_MANA_MESSAGE: &[u8] = b"Your Will is too weak.";
+const RESIST_MESSAGE: &[u8] = b"The magic has been deflected.";
+const INVALID_TARGET_MESSAGE: &[u8] = b"No target.";
+const NOT_ALLOWED_MESSAGE: &[u8] = b"That doesn't work here.";
 const WAIT_POLL_INTERVAL: Duration = Duration::from_millis(1);
 
 const EMPTY: u8 = 0;
@@ -399,12 +402,19 @@ fn complete_pending_cast_if_due(now: u32) {
 }
 
 pub(crate) fn observe_message(kind: MessageKind, text: &[u8]) {
-    if kind != MessageKind::System || text != CAST_REJECTION_MESSAGE {
+    if kind != MessageKind::System {
         return;
     }
+    let failure = match text {
+        INSUFFICIENT_MANA_MESSAGE => CommandFailure::InsufficientMana,
+        RESIST_MESSAGE => CommandFailure::Resist,
+        INVALID_TARGET_MESSAGE => CommandFailure::InvalidTarget,
+        NOT_ALLOWED_MESSAGE => CommandFailure::NotAllowed,
+        _ => return,
+    };
     let command_id = PENDING_CAST_COMMAND_ID.swap(0, Ordering::AcqRel);
     if command_id != 0 {
-        complete_pending_cast_with(command_id, Err(CommandFailure::Rejected));
+        complete_pending_cast_with(command_id, Err(failure));
     }
 }
 
@@ -642,6 +652,9 @@ const fn failure_from_value(value: u8) -> Option<CommandFailure> {
         7 => Some(CommandFailure::InvalidSpell),
         8 => Some(CommandFailure::InvalidArguments),
         9 => Some(CommandFailure::InvalidTarget),
+        10 => Some(CommandFailure::InsufficientMana),
+        11 => Some(CommandFailure::Resist),
+        12 => Some(CommandFailure::NotAllowed),
         _ => Some(CommandFailure::Internal),
     }
 }
@@ -657,6 +670,9 @@ const fn failure_value(failure: CommandFailure) -> u8 {
         CommandFailure::InvalidSpell => 7,
         CommandFailure::InvalidArguments => 8,
         CommandFailure::InvalidTarget => 9,
+        CommandFailure::InsufficientMana => 10,
+        CommandFailure::Resist => 11,
+        CommandFailure::NotAllowed => 12,
     }
 }
 
@@ -733,7 +749,39 @@ mod tests {
     }
 
     #[test]
-    fn no_cast_map_message_rejects_the_pending_cast() {
+    fn spell_result_messages_fail_the_pending_cast() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        for (message, expected) in [
+            (INSUFFICIENT_MANA_MESSAGE, CommandFailure::InsufficientMana),
+            (RESIST_MESSAGE, CommandFailure::Resist),
+            (INVALID_TARGET_MESSAGE, CommandFailure::InvalidTarget),
+            (NOT_ALLOWED_MESSAGE, CommandFailure::NotAllowed),
+        ] {
+            reset();
+            TEST_TICK_MS.store(10, Ordering::Relaxed);
+            let id = submitted_id(handle(CommandOperation::Submit {
+                kind: CommandKind::CastSpell(SpellCast {
+                    slot: SpellSlot::new(1).unwrap(),
+                    arguments: SpellArguments::None,
+                }),
+                timeout_ms: 1_100,
+                wait_ms: 0,
+            }));
+
+            observe_tick();
+            assert_eq!(status(id).state, CommandState::Accepted);
+            observe_message(MessageKind::System, message);
+
+            let result = status(id);
+            assert_eq!(result.state, CommandState::Failed);
+            assert_eq!(result.failure, Some(expected));
+        }
+    }
+
+    #[test]
+    fn inexact_spell_result_message_does_not_complete_the_pending_cast() {
         let _guard = TEST_LOCK
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -749,14 +797,9 @@ mod tests {
         }));
 
         observe_tick();
-        assert_eq!(status(id).state, CommandState::Accepted);
-        observe_message(MessageKind::System, b"That doesn't work here");
-        assert_eq!(status(id).state, CommandState::Accepted);
-        observe_message(MessageKind::System, CAST_REJECTION_MESSAGE);
+        observe_message(MessageKind::System, b"No target");
 
-        let result = status(id);
-        assert_eq!(result.state, CommandState::Failed);
-        assert_eq!(result.failure, Some(CommandFailure::Rejected));
+        assert_eq!(status(id).state, CommandState::Accepted);
     }
 
     #[test]

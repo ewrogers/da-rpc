@@ -79,6 +79,9 @@ pub enum CommandFailure {
     InvalidSpell,
     InvalidArguments,
     InvalidTarget,
+    InsufficientMana,
+    Resist,
+    NotAllowed,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -145,6 +148,9 @@ impl CommandFailure {
             Self::InvalidSpell => 6,
             Self::InvalidArguments => 7,
             Self::InvalidTarget => 8,
+            Self::InsufficientMana => 9,
+            Self::Resist => 10,
+            Self::NotAllowed => 11,
         }
     }
 
@@ -159,6 +165,9 @@ impl CommandFailure {
             6 => Ok(Self::InvalidSpell),
             7 => Ok(Self::InvalidArguments),
             8 => Ok(Self::InvalidTarget),
+            9 => Ok(Self::InsufficientMana),
+            10 => Ok(Self::Resist),
+            11 => Ok(Self::NotAllowed),
             actual => Err(DecodeError::InvalidCommandFailure { actual }),
         }
     }
@@ -643,4 +652,30 @@ fn validate_wait_decode(wait_ms: u16) -> Result<(), DecodeError> {
         });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CommandFailure;
+
+    #[test]
+    fn command_failures_have_stable_wire_values() {
+        for (failure, wire_value) in [
+            (CommandFailure::Internal, 0),
+            (CommandFailure::InvalidState, 1),
+            (CommandFailure::InvalidDestination, 2),
+            (CommandFailure::Rejected, 3),
+            (CommandFailure::NoPath, 4),
+            (CommandFailure::InvalidSkill, 5),
+            (CommandFailure::InvalidSpell, 6),
+            (CommandFailure::InvalidArguments, 7),
+            (CommandFailure::InvalidTarget, 8),
+            (CommandFailure::InsufficientMana, 9),
+            (CommandFailure::Resist, 10),
+            (CommandFailure::NotAllowed, 11),
+        ] {
+            assert_eq!(failure.wire_value(), wire_value);
+            assert_eq!(CommandFailure::from_wire(wire_value), Ok(failure));
+        }
+    }
 }

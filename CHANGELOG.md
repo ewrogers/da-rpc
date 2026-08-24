@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 1.7.1 - 2026-08-24
+
+### Added
+
+- Return `insufficient_mana`, `resist`, `invalid_target`, and `not_allowed` for
+  spell commands that receive the corresponding system feedback during the
+  bounded result window. Protocol version negotiation remains at 1.7; update
+  the DLL and its controller or daemon together when adopting this change.
+
 ## 1.7.0 - 2026-08-23
 
 ### Added

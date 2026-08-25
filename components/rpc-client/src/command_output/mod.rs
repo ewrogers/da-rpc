@@ -327,6 +327,7 @@ fn kind(kind: CommandKind) -> &'static str {
         CommandKind::AddStat(_) => "add_stat",
         CommandKind::SelectFieldMapDestination(_) => "select_field_map_destination",
         CommandKind::DismissMessageDialog(_) => "dismiss_message_dialog",
+        CommandKind::Look(_) => "look",
     }
 }
 

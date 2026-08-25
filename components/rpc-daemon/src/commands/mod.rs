@@ -37,6 +37,7 @@ pub(crate) mod field_map;
 pub(crate) mod group;
 pub(crate) mod interaction;
 pub(crate) mod legend;
+pub(crate) mod look;
 pub(crate) mod message;
 pub(crate) mod message_dialog;
 pub(crate) mod movement;
@@ -70,6 +71,7 @@ pub(crate) use interaction::{
     give_item, pickup_item, swap_items, unequip, use_item,
 };
 pub(crate) use legend::{LegendIcon, LegendMark, LegendSnapshot, legend};
+pub(crate) use look::FarLookOptions;
 pub(crate) use message::{SendMessageChannel, SendMessageOptions};
 use movement::validate_destination;
 pub(crate) use movement::{
@@ -85,6 +87,7 @@ pub(crate) const WORKER_CAPACITY: usize = 16;
 
 const ROUTE_TIMEOUT: Duration = Duration::from_secs(2);
 const SPELL_CAST_TIMEOUT_MS: u16 = DEFAULT_COMMAND_TIMEOUT_MS + DEFAULT_COMMAND_TIMEOUT_MS / 10;
+const LOOK_TIMEOUT_MS: u16 = MAX_COMMAND_TIMEOUT_MS;
 const MAX_SKILL_NAME_BYTES: usize = 128;
 const MAX_SPELL_NAME_BYTES: usize = 128;
 const SPELL_TARGET_DISTANCE: u32 = 14;
@@ -373,6 +376,7 @@ pub(crate) enum CommandKind {
     AddStat,
     SelectFieldMapDestination,
     DismissMessageDialog,
+    Look,
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
@@ -642,6 +646,7 @@ pub(super) async fn submit_action(
         // spell advances through its native cast sequence. Give casts 10%
         // tolerance instead of dropping them before they reach the main thread.
         ProtocolKind::CastSpell(_) => SPELL_CAST_TIMEOUT_MS,
+        ProtocolKind::Look(_) => LOOK_TIMEOUT_MS,
         _ => DEFAULT_COMMAND_TIMEOUT_MS,
     };
     let status = route(
@@ -924,6 +929,7 @@ impl From<ProtocolKind> for CommandKind {
             ProtocolKind::AddStat(_) => Self::AddStat,
             ProtocolKind::SelectFieldMapDestination(_) => Self::SelectFieldMapDestination,
             ProtocolKind::DismissMessageDialog(_) => Self::DismissMessageDialog,
+            ProtocolKind::Look(_) => Self::Look,
         }
     }
 }

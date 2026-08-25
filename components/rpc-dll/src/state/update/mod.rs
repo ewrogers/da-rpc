@@ -56,6 +56,7 @@ impl QueuedStateEvent {
             QueuedStateUpdate::PlannedRoute(update) => {
                 StateUpdate::PlannedRoute(crate::route::take(update)?)
             }
+            QueuedStateUpdate::Look(update) => StateUpdate::Look(update.into_model()),
         };
         Some(StateEvent {
             sequence: self.sequence,
@@ -126,6 +127,32 @@ pub(super) enum QueuedStateUpdate {
     Player(crate::player::QueuedPlayer),
     CharacterProfile(crate::player::QueuedCharacterProfile),
     PlannedRoute(crate::route::QueuedRoute),
+    Look(QueuedLookResult),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) struct QueuedLookResult {
+    command_id: u32,
+    target: LookTarget,
+    text: QueuedClientText<MAX_LOOK_RESULT_TEXT_LEN>,
+}
+
+impl QueuedLookResult {
+    pub(super) fn new(command_id: u32, target: LookTarget, text: &[u8]) -> Option<Self> {
+        Some(Self {
+            command_id: (command_id != 0).then_some(command_id)?,
+            target,
+            text: QueuedClientText::try_nonempty(text)?,
+        })
+    }
+
+    fn into_model(self) -> LookResult {
+        LookResult {
+            command_id: self.command_id,
+            target: self.target,
+            text: decode_client_text(self.text.as_bytes()).unwrap_or_default(),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -19,6 +19,7 @@
   - [Spells](spells.md)
   - [Effects](effects.md)
   - [World](world.md)
+  - [Looking at tiles](looks.md)
   - [Movement](movement.md)
   - [Emotes](emotes.md)
   - [Messages](messages.md)

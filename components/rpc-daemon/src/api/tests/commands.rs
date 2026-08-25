@@ -86,10 +86,10 @@ fn assert_routes_action_sequence(
             }
             assert_eq!(call.pid, 42);
             assert_eq!(call.identity, identity);
-            let expected_timeout_ms = if matches!(expected_kind, CommandKind::CastSpell(_)) {
-                1_100
-            } else {
-                1_000
+            let expected_timeout_ms = match expected_kind {
+                CommandKind::CastSpell(_) => 1_100,
+                CommandKind::Look(_) => 5_000,
+                _ => 1_000,
             };
             assert!(matches!(
                 call.operation,
@@ -136,6 +136,20 @@ fn assert_routes_action_sequence(
         assert_eq!(response["state"], "executed");
     }
     worker.join().unwrap();
+}
+
+#[test]
+fn routes_typed_look_actions_with_a_response_window() {
+    assert_routes_action(
+        "/clients/42/look",
+        "",
+        CommandKind::Look(darpc_protocol::LookTarget::Ahead),
+    );
+    assert_routes_action(
+        "/clients/42/far-look",
+        r#"{"position":{"x":40,"y":19}}"#,
+        CommandKind::Look(darpc_protocol::LookTarget::Tile { x: 40, y: 19 }),
+    );
 }
 
 #[test]

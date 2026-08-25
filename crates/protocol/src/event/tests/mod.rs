@@ -1,4 +1,5 @@
 use super::*;
+use crate::message::{Message, MessageType};
 
 #[test]
 fn empty_status_update_is_detected() {
@@ -81,4 +82,31 @@ fn map_download_update_codes_are_stable() {
         assert_eq!(output[13], code);
         assert_eq!(&output[14..], &[0xB9, 0x0B, 0, 0, 100, 80]);
     }
+}
+
+#[test]
+fn look_results_round_trip_with_request_correlation() {
+    let event = StateEvent {
+        sequence: 1,
+        revision: 2,
+        tick_ms: 3,
+        update: StateUpdate::Look(LookResult {
+            command_id: 7,
+            target: LookTarget::Tile { x: 40, y: 19 },
+            text: "Light Belt\rLight Belt\rfior sal".into(),
+        }),
+    };
+    let mut encoded = Vec::new();
+    encode_event(&mut encoded, &event).unwrap();
+    assert_eq!(encoded[12], 27);
+
+    let message = Message::EventPollResponse(EventPollResponse {
+        request_id: 9,
+        result: EventPollResult::Events(vec![event]),
+    });
+    let payload = message.encode_payload().unwrap();
+    assert_eq!(
+        Message::decode_payload(MessageType::EventPollResponse, &payload),
+        Ok(message)
+    );
 }

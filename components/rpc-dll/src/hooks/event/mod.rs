@@ -211,6 +211,8 @@ unsafe extern "thiscall" fn event_dispatch_detour(
         "cmp byte ptr [{exchange_intercept_pending}], 0",
         "jne 4f",
         "cmp byte ptr [{player_intercept_pending}], 0",
+        "jne 4f",
+        "cmp dword ptr [{look_intercept_command_id}], 0",
         "je 3f",
         "4:",
         "push eax",
@@ -223,6 +225,8 @@ unsafe extern "thiscall" fn event_dispatch_detour(
         "mov edx, dword ptr [eax + {event_body_offset}]",
         "test edx, edx",
         "jz 1f",
+        "cmp byte ptr [edx], {message_opcode}",
+        "je 5f",
         "cmp byte ptr [edx], {who_response_opcode}",
         "je 5f",
         "cmp byte ptr [edx], {exchange_opcode}",
@@ -269,9 +273,11 @@ unsafe extern "thiscall" fn event_dispatch_detour(
         intercept_command_id = sym crate::who::INTERCEPT_COMMAND_ID,
         exchange_intercept_pending = sym crate::exchange::INTERCEPT_PENDING,
         player_intercept_pending = sym crate::player::INTERCEPT_PENDING,
+        look_intercept_command_id = sym crate::look::INTERCEPT_COMMAND_ID,
         event_type_offset = const EVENT_TYPE_OFFSET,
         server_event_type = const SERVER_EVENT_TYPE,
         event_body_offset = const EVENT_BODY_OFFSET,
+        message_opcode = const 0x0a_u8,
         who_response_opcode = const 0x36_u8,
         exchange_opcode = const 0x42_u8,
         player_response_opcode = const 0x34_u8,
@@ -280,7 +286,14 @@ unsafe extern "thiscall" fn event_dispatch_detour(
 }
 
 extern "C" fn intercept_event(event: *const core::ffi::c_void) -> bool {
-    panic::catch_unwind(|| intercept_event_inner(event)).unwrap_or(false)
+    panic::catch_unwind(|| {
+        if diagnostics::hook_timing_enabled() {
+            diagnostics::measure(HookTimingStage::Event, || intercept_event_inner(event))
+        } else {
+            intercept_event_inner(event)
+        }
+    })
+    .unwrap_or(false)
 }
 
 fn intercept_event_inner(event: *const core::ffi::c_void) -> bool {
@@ -310,7 +323,7 @@ fn intercept_event_inner(event: *const core::ffi::c_void) -> bool {
     }
     let mut opcode = [0];
     if !read_exact(body_address as usize, &mut opcode)
-        || !matches!(opcode[0], 0x34 | 0x36 | 0x39 | 0x42)
+        || !matches!(opcode[0], 0x0a | 0x34 | 0x36 | 0x39 | 0x42)
     {
         return false;
     }

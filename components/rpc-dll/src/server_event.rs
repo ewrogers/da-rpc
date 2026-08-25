@@ -29,6 +29,9 @@ impl ServerEventProcessor {
     #[cfg(windows)]
     pub(crate) fn intercept(body: &[u8]) -> bool {
         match body.first() {
+            Some(0x0a) => {
+                crate::look::intercept_response(body, darpc_win32::pipe::sender_tick_ms())
+            }
             Some(0x34) => {
                 crate::player::intercept_response(body, darpc_win32::pipe::sender_tick_ms())
             }

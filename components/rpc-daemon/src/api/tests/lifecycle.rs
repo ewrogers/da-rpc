@@ -135,6 +135,16 @@ fn rejects_request_bodies() {
 }
 
 #[test]
+fn accepts_far_look_request_bodies() {
+    let response = post_json(
+        state(),
+        "/clients/missing/far-look",
+        r#"{"position":{"x":40,"y":19}}"#,
+    );
+    assert_ne!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+#[test]
 fn refuses_an_occupied_port() {
     let held = TcpListener::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)).unwrap();
     let port = held.local_addr().unwrap().port();

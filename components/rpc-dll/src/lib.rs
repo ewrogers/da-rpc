@@ -36,6 +36,8 @@ mod ipc;
 mod legend;
 #[cfg(windows)]
 mod lifecycle;
+#[cfg(any(windows, test))]
+mod look;
 #[cfg(windows)]
 mod map_name;
 #[cfg(any(windows, test))]

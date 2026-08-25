@@ -36,12 +36,14 @@ mod entity;
 use entity::*;
 mod ability;
 mod feedback;
+mod look;
 mod pickup_feedback;
 mod state;
 
 use ability::*;
 use feedback::*;
 pub(crate) use feedback::{SpellFeedback, SpellFeedbackTrackers};
+use look::*;
 use pickup_feedback::*;
 pub(crate) use pickup_feedback::{PickupFeedback, PickupFeedbackTrackers};
 pub(crate) use state::*;
@@ -146,6 +148,7 @@ pub(crate) enum ClientEvent {
     GoldGiven(GoldGiven),
     ItemPickedUp(ItemPickedUp),
     ItemPickupFailed(ItemPickupFailed),
+    LookResult(LookResult),
     EquipmentUnequipped(EquipmentUnequipped),
     Emoted(Emoted),
     Turned(Turned),
@@ -267,6 +270,7 @@ impl ClientEvent {
             Self::GoldGiven(_) => "gold.given",
             Self::ItemPickedUp(_) => "item.picked_up",
             Self::ItemPickupFailed(_) => "item.pickup_failed",
+            Self::LookResult(_) => "look.result",
             Self::EquipmentUnequipped(_) => "equipment.unequipped",
             Self::Emoted(_) => "character.emoted",
             Self::Turned(_) => "character.turned",
@@ -387,6 +391,7 @@ impl ClientEvent {
             Self::GoldGiven(value) => value.observation.event_sequence,
             Self::ItemPickedUp(value) => value.observation.event_sequence,
             Self::ItemPickupFailed(value) => value.observation.event_sequence,
+            Self::LookResult(value) => value.observation.event_sequence,
             Self::EquipmentUnequipped(value) => value.observation.event_sequence,
             Self::Emoted(value) => value.observation.event_sequence,
             Self::Turned(value) => value.observation.event_sequence,

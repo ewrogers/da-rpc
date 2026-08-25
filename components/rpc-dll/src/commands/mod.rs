@@ -1,7 +1,7 @@
 mod queue;
 mod storage;
 
-use darpc_model::{Direction, EquipmentSlot, MessageKind};
+use darpc_model::{Direction, EquipmentSlot, LookTarget, MessageKind};
 use darpc_protocol::{
     ChantText, CharacterStat, CommandFailure, CommandKind, CommandOperation, CommandResult,
     CommandState, CommandStatus, DialogAction, DialogCommand, DialogText, ExactRouteInvalidState,
@@ -61,6 +61,7 @@ pub(crate) fn reset() {
     #[cfg(windows)]
     crate::who::reset();
     crate::state::refresh::reset();
+    crate::look::reset();
     QUEUE.reset();
     NEXT_COMMAND_ID.store(1, Ordering::Relaxed);
     SUBMITTING_RESYNC_COMMAND_ID.store(0, Ordering::Relaxed);
@@ -118,6 +119,7 @@ pub(crate) fn observe_tick() {
     #[cfg(all(windows, not(test)))]
     crate::state::refresh::observe_tick(tick_ms);
     complete_pending_cast_if_due(tick_ms);
+    expire_pending_look_if_due(tick_ms);
     for _ in 0..COMMANDS_PER_TICK {
         let Some(slot_index) = QUEUE.pop() else {
             break;
@@ -135,6 +137,9 @@ pub(crate) fn cancel_pending() {
         let cancelled = cancel_state(slot, ACCEPTED) || cancel_state(slot, EXECUTING);
         if cancelled && matches!(slot.kind(), CommandKind::Who) {
             cancel_who(slot.command_id.load(Ordering::Relaxed));
+        }
+        if cancelled && matches!(slot.kind(), CommandKind::Look(_)) {
+            crate::look::cancel(slot.command_id.load(Ordering::Relaxed));
         }
     }
 }
@@ -260,6 +265,9 @@ fn cancel(command_id: u32) -> CommandResult {
     if cancelled && matches!(slot.kind(), CommandKind::Who) {
         cancel_who(command_id);
     }
+    if cancelled && matches!(slot.kind(), CommandKind::Look(_)) {
+        crate::look::cancel(command_id);
+    }
     slot.status(command_id)
         .map_or(CommandResult::NotFound, CommandResult::Status)
 }
@@ -292,7 +300,10 @@ fn execute(slot_index: usize) {
     let command_id = slot.command_id.load(Ordering::Relaxed);
     let waits_for_response = matches!(
         kind,
-        CommandKind::Who | CommandKind::Legend | CommandKind::InspectPlayer(_)
+        CommandKind::Who
+            | CommandKind::Legend
+            | CommandKind::InspectPlayer(_)
+            | CommandKind::Look(_)
     );
     if is_exact_route {
         crate::diagnostics::clear_invalid_exact_route_state();
@@ -302,6 +313,8 @@ fn execute(slot_index: usize) {
             execute_who(command_id)
         } else if let CommandKind::InspectPlayer(id) = kind {
             execute_player(command_id, id.get())
+        } else if let CommandKind::Look(target) = kind {
+            execute_look(command_id, target)
         } else if matches!(kind, CommandKind::Resync) {
             execute_resync(command_id)
         } else {
@@ -322,6 +335,9 @@ fn execute(slot_index: usize) {
         begin_pending_cast(slot, now_tick_ms());
     } else if waits_for_response && result.is_ok() {
         // The matching server response completes this command.
+        if slot.state.load(Ordering::Acquire) != EXECUTING && matches!(kind, CommandKind::Look(_)) {
+            crate::look::cancel(command_id);
+        }
     } else {
         if is_who {
             cancel_who(slot.command_id.load(Ordering::Relaxed));
@@ -337,6 +353,16 @@ fn execute(slot_index: usize) {
 #[cfg(all(windows, not(test)))]
 fn execute_player(command_id: u32, id: u32) -> Result<(), CommandFailure> {
     crate::player::request(command_id, id)
+}
+
+#[cfg(all(windows, not(test)))]
+fn execute_look(command_id: u32, target: LookTarget) -> Result<(), CommandFailure> {
+    crate::look::request(command_id, target)
+}
+
+#[cfg(test)]
+fn execute_look(command_id: u32, target: LookTarget) -> Result<(), CommandFailure> {
+    crate::look::begin(command_id, target)
 }
 
 #[cfg(test)]
@@ -475,6 +501,21 @@ fn expire_if_due(slot: &CommandSlot, now: u32) {
     if expired && matches!(slot.kind(), CommandKind::Who) {
         cancel_who(slot.command_id.load(Ordering::Relaxed));
     }
+    if expired && matches!(slot.kind(), CommandKind::Look(_)) {
+        crate::look::cancel(slot.command_id.load(Ordering::Relaxed));
+    }
+}
+
+fn expire_pending_look_if_due(now: u32) {
+    let command_id = crate::look::INTERCEPT_COMMAND_ID.load(Ordering::Acquire);
+    if command_id == 0 {
+        return;
+    }
+    let Some(slot) = find_slot(command_id) else {
+        crate::look::cancel(command_id);
+        return;
+    };
+    expire_if_due(slot, now);
 }
 
 #[cfg(windows)]
@@ -509,6 +550,23 @@ pub(crate) fn complete_player(command_id: u32) {
 #[cfg(windows)]
 pub(crate) fn fail_player(command_id: u32) {
     complete_player_with(command_id, Err(CommandFailure::Internal));
+}
+
+#[cfg(any(windows, test))]
+#[cfg_attr(test, allow(dead_code))]
+pub(crate) fn complete_look(command_id: u32, result: Result<(), CommandFailure>) {
+    let Some(slot) = find_slot(command_id) else {
+        return;
+    };
+    if slot.state.load(Ordering::Acquire) != EXECUTING
+        || !matches!(slot.kind(), CommandKind::Look(_))
+    {
+        return;
+    }
+    slot.completed_tick_ms
+        .store(now_tick_ms(), Ordering::Relaxed);
+    slot.has_completed_tick_ms.store(true, Ordering::Relaxed);
+    complete_execution(slot, result);
 }
 
 #[cfg(not(windows))]
@@ -986,6 +1044,31 @@ mod tests {
         assert_eq!(status(first).state, CommandState::TimedOut);
         #[cfg(windows)]
         assert_eq!(crate::who::INTERCEPT_COMMAND_ID.load(Ordering::Acquire), 0);
+    }
+
+    #[test]
+    fn look_requests_expire_on_tick_without_a_follow_up_query() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset();
+        TEST_TICK_MS.store(10, Ordering::Relaxed);
+        let id = submitted_id(handle(CommandOperation::Submit {
+            kind: CommandKind::Look(LookTarget::Tile { x: 40, y: 19 }),
+            timeout_ms: 10,
+            wait_ms: 0,
+        }));
+        observe_tick();
+        assert_eq!(
+            crate::look::INTERCEPT_COMMAND_ID.load(Ordering::Acquire),
+            id
+        );
+
+        TEST_TICK_MS.store(21, Ordering::Relaxed);
+        observe_tick();
+        let status = find_slot(id).unwrap().status(id).unwrap();
+        assert_eq!(status.state, CommandState::TimedOut);
+        assert_eq!(crate::look::INTERCEPT_COMMAND_ID.load(Ordering::Acquire), 0);
     }
 
     #[test]

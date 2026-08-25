@@ -636,6 +636,18 @@ enum StateUpdate: u8 {
     FieldMap(FieldMapUpdate) = 24,
     MessageDialogs(MessageDialogsState) = 25,
     MapDownload(MapDownloadUpdate) = 26,
+    Look(LookResult) = 27,
+}
+
+struct LookResult {
+    command_id: u32;       // nonzero typed command ID
+    target: LookTarget;
+    text: string16;        // 1 through 4096 UTF-8 bytes
+}
+
+enum LookTarget: u8 {
+    Ahead = 0,
+    Tile { x: u16, y: u16 } = 1,
 }
 
 enum MapDownloadUpdate: u8 {
@@ -1066,6 +1078,7 @@ enum CommandKind: u8 {
         revision: u32;
         id: u32;
     } = 31,
+    Look(LookTarget) = 32,
 }
 
 enum MessageCommand: u8 {
@@ -1075,6 +1088,12 @@ enum MessageCommand: u8 {
     Guild { content: string8 } = 3,
     Group { content: string8 } = 4,
 }
+
+`Look(Ahead)` submits the native client packet `0x09`. `Look(Tile)` submits
+`0x0A x:u16be y:u16be`; these coordinates use the game packet's network byte
+order even though the surrounding daRPC protocol remains little-endian. The
+response carries no request ID, so the DLL permits only one typed look request
+at a time and correlates the next bounded popup response with its command ID.
 
 enum ExchangeCommand: u8 {
     AddItem { slot: u8, quantity: u8 } = 1,

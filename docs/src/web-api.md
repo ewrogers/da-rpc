@@ -124,6 +124,8 @@ request cannot select another file in or outside the configured directory.
 | Route | Purpose |
 | --- | --- |
 | `POST /clients/{client}/turn` | Face a cardinal direction. |
+| `POST /clients/{client}/look` | Look at the tile directly ahead and emit the result asynchronously. |
+| `POST /clients/{client}/far-look` | Look at one tile on the current map and emit the result asynchronously. |
 | `POST /clients/{client}/walk` | Take one step, pathfind to a tile, or install an exact route. |
 | `DELETE /clients/{client}/walk` | Cancel the active route. |
 | `POST /clients/{client}/resync` | [Request the same server refresh as the F5 key.](#resynchronizing-a-client) |
@@ -178,6 +180,8 @@ request cannot select another file in or outside the configured directory.
 Movement request bodies, route injection, cancellation, and stop reasons are
 documented in [Movement](movement.md). Emote names and codes are documented in
 [Emotes](emotes.md).
+Look request bodies, response correlation, popup suppression, and result events
+are documented in [Looking at tiles](looks.md).
 Item, gold, pickup, chant, and NPC item-action bodies are documented in
 [Inventory](inventory.md).
 Outbound chat and internal inter-client message fields are documented in

@@ -19,11 +19,11 @@ use darpc_model::{
     AbilityUpdate, ActionUpdate, AudioUpdate, CharacterModifiers, CharacterStats, ClientCommand,
     ClientLifecycle, ClientMessage, CollectionBatch, CollectionKind, CoreStatus, CurrentVitals,
     Effect, EffectDuration, EffectUpdate, Element, EntityUpdate, LifecycleUpdate, LocationUpdate,
-    MapChange, MapDownloadUpdate, MessageKind, MovementStopReason, MovementUpdate,
-    ProgressionStatus, SpellCancellationSource, SpellCastArguments, StateEvent, StateUpdate,
-    StatusUpdate, TilePosition,
+    LookResult, LookTarget, MapChange, MapDownloadUpdate, MessageKind, MovementStopReason,
+    MovementUpdate, ProgressionStatus, SpellCancellationSource, SpellCastArguments, StateEvent,
+    StateUpdate, StatusUpdate, TilePosition,
 };
-use darpc_protocol::EventPollResult;
+use darpc_protocol::{EventPollResult, MAX_LOOK_RESULT_TEXT_LEN};
 #[cfg(windows)]
 use darpc_win32::pipe::sender_tick_ms;
 use std::{
@@ -761,6 +761,13 @@ pub(crate) fn observe_message(message: ParsedMessage<'_>, tick_ms: u32) {
         return;
     };
     push_event(QueuedStateUpdate::Message(message), tick_ms);
+}
+
+pub(crate) fn observe_look(command_id: u32, target: LookTarget, text: &[u8], tick_ms: u32) -> bool {
+    let Some(result) = QueuedLookResult::new(command_id, target, text) else {
+        return false;
+    };
+    push_event(QueuedStateUpdate::Look(result), tick_ms)
 }
 
 pub(crate) fn observe_command(command: &[u8], tick_ms: u32) -> bool {

@@ -40,7 +40,9 @@ pub(crate) fn execute(command: CommandKind) -> Result<(), CommandFailure> {
         CommandKind::Interact(id) => movement::interact(id),
         CommandKind::Dialog(command) => dialog::submit(command),
         CommandKind::Group(command) => group::submit(command),
-        CommandKind::Who | CommandKind::InspectPlayer(_) => Err(CommandFailure::Internal),
+        CommandKind::Who | CommandKind::InspectPlayer(_) | CommandKind::Look(_) => {
+            Err(CommandFailure::Internal)
+        }
         CommandKind::Exchange(command) => exchange::submit(command),
         CommandKind::Chant(text) => chant::submit(text),
         CommandKind::Legend => network::submit(&[0x2D]),

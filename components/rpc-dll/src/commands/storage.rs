@@ -246,6 +246,8 @@ pub(super) fn stored_kind(kind: CommandKind) -> (u8, u32, u32, u32, Option<Store
             None,
         ),
         CommandKind::DismissMessageDialog(command) => (53, command.revision, command.id, 0, None),
+        CommandKind::Look(LookTarget::Ahead) => (54, 0, 0, 0, None),
+        CommandKind::Look(LookTarget::Tile { x, y }) => (55, u32::from(x), u32::from(y), 0, None),
     }
 }
 
@@ -488,6 +490,11 @@ pub(super) fn kind_from_value(
         53 => CommandKind::DismissMessageDialog(MessageDialogCommand {
             revision: argument_x,
             id: argument_y,
+        }),
+        54 => CommandKind::Look(LookTarget::Ahead),
+        55 => CommandKind::Look(LookTarget::Tile {
+            x: argument_x as u16,
+            y: argument_y as u16,
         }),
         _ => CommandKind::Diagnostic,
     }

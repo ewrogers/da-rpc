@@ -876,6 +876,27 @@ revision checks, and dismissal.
 | --- | --- | --- |
 | `message_dialogs.changed` | `message_dialogs_changed` | The complete set of native message dialogs opened, changed, or closed. |
 
+## Look-result events
+
+Typed Look and FarLook requests produce one transient result event. See
+[Looking at tiles](looks.md) for request bodies, correlation, and popup
+suppression.
+
+```text
+look.result
+LookResult {
+    observation: EventObservation,
+    command_id: u32,
+    target: { kind: "ahead" | "tile", x: u16, y: u16 },
+    text: string,
+}
+```
+
+The JSON discriminator is `type: "look_result"`. The result is not retained in
+the client snapshot, so subscribe before submitting the command. Ahead targets
+contain the resolved tile computed from the DLL's confirmed position and facing
+when it submits the native Look packet.
+
 ## Field-map events
 
 Read current state from `GET /clients/{client}/field-map`. The

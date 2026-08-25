@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## 1.7.3 - 2026-08-25
+
+### Added
+
+- Add typed Look and FarLook actions for the tile ahead or a coordinate on the
+  current map. Results arrive as correlated `look.result` Server-Sent Events
+  containing the resolved tile and server-provided names of NPCs and ground
+  items.
+
+### Changed
+
+- Suppress only the bounded native message popup correlated with a typed Look
+  or FarLook request, before the original client dispatcher runs. Unrelated
+  message dialogs retain their normal client behavior.
+- Extend protocol 1.7 with the Look command and result update. Update the DLL
+  and its controller or daemon together when adopting this change.
+
 ## 1.7.2 - 2026-08-25
 
 ### Added

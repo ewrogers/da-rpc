@@ -78,6 +78,13 @@ pub(crate) fn expand(
             )));
             events
         }
+        StateUpdate::Look(result) => {
+            events.push(ClientEvent::LookResult(LookResult::from_model(
+                observation,
+                result,
+            )));
+            events
+        }
         StateUpdate::Status(update) => status::expand(observation, update),
         StateUpdate::Location(update) => {
             events.push(ClientEvent::LocationChanged(LocationChanged {

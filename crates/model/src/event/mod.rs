@@ -41,6 +41,26 @@ pub enum StateUpdate {
     Group(GroupUpdate),
     Exchange(ExchangeUpdate),
     Legend(LegendUpdate),
+    Look(LookResult),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LookTarget {
+    Ahead,
+    Tile { x: u16, y: u16 },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LookResultTarget {
+    Ahead { x: u16, y: u16 },
+    Tile { x: u16, y: u16 },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LookResult {
+    pub command_id: u32,
+    pub target: LookResultTarget,
+    pub text: String,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -402,6 +422,7 @@ impl ClientSnapshot {
                 self.lifecycle = update.current;
             }
             StateUpdate::Audio(_) => {}
+            StateUpdate::Look(_) => {}
             StateUpdate::Status(update) => {
                 let character = self
                     .character

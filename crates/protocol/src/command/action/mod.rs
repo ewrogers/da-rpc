@@ -2,6 +2,7 @@ use crate::{
     DecodeError,
     message::{PayloadReader, push_i32, push_u16, push_u32},
 };
+pub use darpc_model::LookTarget;
 use darpc_model::{Direction, EquipmentSlot};
 use std::num::NonZeroU32;
 
@@ -134,6 +135,7 @@ pub enum CommandKind {
     AddStat(CharacterStat),
     SelectFieldMapDestination(FieldMapSelectionCommand),
     DismissMessageDialog(MessageDialogCommand),
+    Look(LookTarget),
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -844,6 +846,17 @@ pub(super) fn encode_kind(output: &mut Vec<u8>, kind: CommandKind) {
             push_u32(output, command.revision);
             push_u32(output, command.id);
         }
+        CommandKind::Look(target) => {
+            output.push(32);
+            match target {
+                LookTarget::Ahead => output.push(0),
+                LookTarget::Tile { x, y } => {
+                    output.push(1);
+                    push_u16(output, x);
+                    push_u16(output, y);
+                }
+            }
+        }
     }
 }
 
@@ -1096,6 +1109,14 @@ pub(super) fn decode_kind(reader: &mut PayloadReader<'_>) -> Result<CommandKind,
             revision: reader.read_u32()?,
             id: reader.read_u32()?,
         })),
+        32 => Ok(CommandKind::Look(match reader.read_u8()? {
+            0 => LookTarget::Ahead,
+            1 => LookTarget::Tile {
+                x: reader.read_u16()?,
+                y: reader.read_u16()?,
+            },
+            actual => return Err(DecodeError::InvalidCommandKind { actual }),
+        })),
         actual => Err(DecodeError::InvalidCommandKind { actual }),
     }
 }
@@ -1196,7 +1217,7 @@ fn decode_direction(reader: &mut PayloadReader<'_>) -> Result<Direction, DecodeE
 #[cfg(test)]
 mod tests {
     use super::{
-        ChantText, CharacterStat, CommandKind, ItemSlot, MAX_MESSAGE_CONTENT_LEN,
+        ChantText, CharacterStat, CommandKind, ItemSlot, LookTarget, MAX_MESSAGE_CONTENT_LEN,
         MAX_RAW_PACKET_PAYLOAD_LEN, MessageCommand, MessageContent, MessageRecipient, RawPacket,
         RawPacketDirection, SkillSlot, SlotSwap, SpellSlot, encode_kind,
     };
@@ -1223,6 +1244,18 @@ mod tests {
         let mut encoded = Vec::new();
         encode_kind(&mut encoded, command);
         assert_eq!(encoded, b"\x13\x15MiXeD, punctuation!  ");
+    }
+
+    #[test]
+    fn look_command_targets_round_trip_with_stable_wire_values() {
+        for (target, expected) in [
+            (LookTarget::Ahead, vec![32, 0]),
+            (LookTarget::Tile { x: 40, y: 19 }, vec![32, 1, 40, 0, 19, 0]),
+        ] {
+            let mut encoded = Vec::new();
+            encode_kind(&mut encoded, CommandKind::Look(target));
+            assert_eq!(encoded, expected);
+        }
     }
 
     #[test]

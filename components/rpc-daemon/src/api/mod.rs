@@ -756,6 +756,11 @@ fn router(state: ApiState) -> Router {
             "/clients/{client}/assail",
             post(crate::commands::assail::assail),
         )
+        .route("/clients/{client}/look", post(crate::commands::look::look))
+        .route(
+            "/clients/{client}/far-look",
+            post(crate::commands::look::far_look),
+        )
         .route(
             "/clients/{client}/stats/{stat}",
             post(crate::commands::stat::add),
@@ -860,6 +865,7 @@ async fn reject_request_body(request: Request<Body>, next: Next) -> Response {
             || request.uri().path().ends_with("/exchange/gold")
             || request.uri().path().ends_with("/emote")
             || request.uri().path().ends_with("/raw/send")
+            || request.uri().path().ends_with("/far-look")
             || request.uri().path().ends_with("/interact")
             || request.uri().path().ends_with("/dialog/select")
             || request.uri().path().ends_with("/dialog/input")
@@ -943,6 +949,8 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         crate::commands::interaction::emote,
         crate::commands::raw::send,
         crate::commands::assail::assail,
+        crate::commands::look::look,
+        crate::commands::look::far_look,
         crate::commands::stat::add,
         crate::commands::resync::resync,
         crate::commands::message::send,
@@ -1134,6 +1142,7 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         crate::commands::PickupItemOptions,
         crate::commands::UnequipOptions,
         crate::commands::EmoteOptions,
+        crate::commands::FarLookOptions,
         crate::commands::ChantOptions,
         crate::commands::ItemChantOptions,
         crate::commands::SendMessageChannel,

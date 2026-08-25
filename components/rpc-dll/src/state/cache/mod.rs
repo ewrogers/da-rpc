@@ -206,6 +206,12 @@ impl StateCache {
         Some((map.id, TilePosition { x, y }))
     }
 
+    pub(super) fn confirmed_pose(&self) -> Option<(TilePosition, Direction)> {
+        let (_, position) = self.confirmed_location()?;
+        let direction = Direction::from_raw(self.self_direction?)?;
+        Some((position, direction))
+    }
+
     #[cfg(not(test))]
     pub(super) const fn position(&self) -> Option<(i32, i32)> {
         self.position
@@ -468,6 +474,12 @@ impl MainThreadCache {
     pub(super) unsafe fn confirmed_location(&self) -> Option<(u32, TilePosition)> {
         // SAFETY: the caller guarantees exclusive main-thread access.
         unsafe { (&*self.0.get()).confirmed_location() }
+    }
+
+    #[cfg(all(windows, not(test)))]
+    pub(super) unsafe fn confirmed_pose(&self) -> Option<(TilePosition, Direction)> {
+        // SAFETY: the caller guarantees exclusive main-thread access.
+        unsafe { (&*self.0.get()).confirmed_pose() }
     }
 
     pub(super) unsafe fn gold(&self) -> Option<u32> {

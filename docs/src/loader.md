@@ -294,7 +294,7 @@ at quoted argument boundaries. Every argument is quoted independently, so
 spaces, empty values, quotes, trailing backslashes, and Unicode are preserved.
 
 The exact 7.41 contracts follow the documented
-[translucent-walk-commit](https://github.com/ewrogers/darkages-741-re/blob/main/docs/appendix/runtime-patches/translucent-walk-commit.md),
+[translucent-walk-refresh](https://github.com/ewrogers/darkages-741-re/blob/main/docs/appendix/runtime-patches/translucent-walk-refresh.md),
 [multiple-client](https://github.com/ewrogers/darkages-741-re/blob/main/docs/appendix/runtime-patches/multiple-clients.md),
 [command-line-endpoint](https://github.com/ewrogers/darkages-741-re/blob/main/docs/appendix/runtime-patches/command-line-endpoint.md),
 [disable-endpoint-fallback](https://github.com/ewrogers/darkages-741-re/blob/main/docs/appendix/runtime-patches/disable-endpoint-fallback.md),

@@ -7,11 +7,11 @@ use darpc_model::{
     AbilityUpdate, ActionUpdate, AudioUpdate, CharacterModifiers, CharacterProfileUpdate,
     CharacterStats, ClientCommand, ClientMessage, CollectionChange, CoreStatus, CurrentVitals,
     Direction, Effect, EffectDuration, EffectUpdate, Element, EntityUpdate, EquipmentSlot,
-    InventoryItem, LifecycleUpdate, LocationUpdate, MapChange, MapDownload, MapDownloadUpdate,
-    MessageKind, MovementStopReason, MovementUpdate, ObjectUpdate, PlayerInspectionChanges,
-    PlayerInspectionTrigger, PlayerUpdate, ProgressionStatus, Skill, SlotUpdate, Spell,
-    SpellCancellationSource, SpellCastArguments, StateEvent, StateUpdate, StatusUpdate,
-    TilePosition, WalkMode,
+    InventoryItem, LifecycleUpdate, LocationUpdate, LookResult, LookResultTarget, MapChange,
+    MapDownload, MapDownloadUpdate, MessageKind, MovementStopReason, MovementUpdate, ObjectUpdate,
+    PlayerInspectionChanges, PlayerInspectionTrigger, PlayerUpdate, ProgressionStatus, Skill,
+    SlotUpdate, Spell, SpellCancellationSource, SpellCastArguments, StateEvent, StateUpdate,
+    StatusUpdate, TilePosition, WalkMode,
 };
 
 mod action;
@@ -34,6 +34,7 @@ pub const MAX_EVENT_POLL_WAIT_MS: u16 = 1_000;
 pub const MAX_MESSAGE_NAME_LEN: usize = 15;
 pub const MAX_MESSAGE_TEXT_LEN: usize = 4 * 1024;
 pub const MAX_CLIENT_COMMAND_PART_LEN: usize = u8::MAX as usize;
+pub const MAX_LOOK_RESULT_TEXT_LEN: usize = 4 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct EventPollRequest {
@@ -226,6 +227,23 @@ fn encode_event(output: &mut Vec<u8>, event: &StateEvent) -> Result<(), EncodeEr
             output.push(download.width);
             output.push(download.height);
         }
+        StateUpdate::Look(result) => {
+            output.push(27);
+            push_u32(output, result.command_id);
+            match result.target {
+                LookResultTarget::Ahead { x, y } => {
+                    output.push(0);
+                    push_u16(output, x);
+                    push_u16(output, y);
+                }
+                LookResultTarget::Tile { x, y } => {
+                    output.push(1);
+                    push_u16(output, x);
+                    push_u16(output, y);
+                }
+            }
+            encode_event_string(output, &result.text, MAX_LOOK_RESULT_TEXT_LEN)?;
+        }
         StateUpdate::Status(update) => {
             output.push(1);
             encode_status(output, *update);
@@ -377,6 +395,28 @@ fn decode_event(reader: &mut PayloadReader<'_>) -> Result<StateEvent, DecodeErro
                 1 => MapDownloadUpdate::Requested(download),
                 2 => MapDownloadUpdate::Downloaded(download),
                 actual => return Err(DecodeError::InvalidStateUpdateType { actual }),
+            })
+        }
+        27 => {
+            let command_id = reader.read_u32()?;
+            if command_id == 0 {
+                return Err(DecodeError::InvalidCommandId);
+            }
+            let target = match reader.read_u8()? {
+                0 => LookResultTarget::Ahead {
+                    x: reader.read_u16()?,
+                    y: reader.read_u16()?,
+                },
+                1 => LookResultTarget::Tile {
+                    x: reader.read_u16()?,
+                    y: reader.read_u16()?,
+                },
+                actual => return Err(DecodeError::InvalidStateUpdateType { actual }),
+            };
+            StateUpdate::Look(LookResult {
+                command_id,
+                target,
+                text: decode_event_string(reader, MAX_LOOK_RESULT_TEXT_LEN)?,
             })
         }
         1 => StateUpdate::Status(decode_status(reader)?),

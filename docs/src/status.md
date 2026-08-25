@@ -91,7 +91,7 @@ PlannedRoute {
 
 `planned_route.tiles` contains the complete native plan from the current tile
 through the goal. It is replaced atomically after pathfinder rebuilds and as
-confirmed steps are consumed. See [Movement](movement.md#walking-events)
+confirmed steps are consumed. See [Movement](movement.md#route-and-obstruction-events)
 for generation and empty-route behavior.
 
 ## Hidden characters

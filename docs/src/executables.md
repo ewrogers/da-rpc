@@ -7,7 +7,7 @@ one that fits the task:
 |---|---:|---|
 | [`loader.exe`](loader.md) | 32-bit x86 | Inspect, attach to, detach from, or launch a supported game client. |
 | [`darpc.exe`](cli.md) | 64-bit x86-64 | Run one command against one attached client without starting the web service. |
-| [`darpcd.exe`](rpcd.md) | 64-bit x86-64 | Discover and aggregate clients, then expose the REST API, server-sent events, OpenAPI document, and Swagger UI. |
+| [`darpcd.exe`](rpcd.md) | 64-bit x86-64 | Discover and aggregate clients, then expose the REST API, Server-Sent Events, OpenAPI document, and Swagger UI. |
 
 `darpc.exe` and `darpcd.exe` are alternative controllers for the same client.
 Only one controller can own a client's named-pipe connection at a time. Use

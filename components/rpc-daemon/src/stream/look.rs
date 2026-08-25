@@ -27,15 +27,15 @@ impl LookResult {
 #[derive(Clone, Copy, Debug, Serialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub(crate) enum LookTarget {
-    Ahead,
+    Ahead { x: u16, y: u16 },
     Tile { x: u16, y: u16 },
 }
 
-impl From<darpc_model::LookTarget> for LookTarget {
-    fn from(value: darpc_model::LookTarget) -> Self {
+impl From<darpc_model::LookResultTarget> for LookTarget {
+    fn from(value: darpc_model::LookResultTarget) -> Self {
         match value {
-            darpc_model::LookTarget::Ahead => Self::Ahead,
-            darpc_model::LookTarget::Tile { x, y } => Self::Tile { x, y },
+            darpc_model::LookResultTarget::Ahead { x, y } => Self::Ahead { x, y },
+            darpc_model::LookResultTarget::Tile { x, y } => Self::Tile { x, y },
         }
     }
 }

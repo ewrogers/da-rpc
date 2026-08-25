@@ -65,10 +65,14 @@ palette dye color to ground-item object records and removes the collection-wide
 object-clear update in favor of individual disappearance updates. Peers
 advertise only 1.7. Object-update discriminant 5 is retired and rejected. A
 peer built against the earlier 1.7 schema can still emit that value, so deploy
-the DLL and its controller or daemon together when adopting this change. The
-1.7.1 application release also appends spell-result command failures while
-retaining protocol version 1.7. Earlier peers reject those new failure values,
-so deploy the 1.7.1 DLL and controller or daemon together.
+the DLL and its controller or daemon together when adopting this change.
+
+Application releases can append wire values while retaining protocol version
+1.7. Release 1.7.1 adds spell-result command failures, and release 1.7.3 adds
+the Look command and result update. Release 1.7.2 changes only daemon-side event
+correlation and does not alter the wire schema. Earlier peers reject values they
+do not recognize, so deploy a release-matched DLL and controller or daemon
+together.
 
 ## Message types
 
@@ -641,8 +645,13 @@ enum StateUpdate: u8 {
 
 struct LookResult {
     command_id: u32;       // nonzero typed command ID
-    target: LookTarget;
+    target: LookResultTarget;
     text: string16;        // 1 through 4096 UTF-8 bytes
+}
+
+enum LookResultTarget: u8 {
+    Ahead { x: u16, y: u16 } = 0,
+    Tile { x: u16, y: u16 } = 1,
 }
 
 enum LookTarget: u8 {

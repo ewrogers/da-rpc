@@ -18,10 +18,10 @@ use darpc_game_client::{
 use darpc_model::{
     AbilityUpdate, ActionUpdate, AudioUpdate, CharacterModifiers, CharacterStats, ClientCommand,
     ClientLifecycle, ClientMessage, CollectionBatch, CollectionKind, CoreStatus, CurrentVitals,
-    Effect, EffectDuration, EffectUpdate, Element, EntityUpdate, LifecycleUpdate, LocationUpdate,
-    LookResult, LookTarget, MapChange, MapDownloadUpdate, MessageKind, MovementStopReason,
-    MovementUpdate, ProgressionStatus, SpellCancellationSource, SpellCastArguments, StateEvent,
-    StateUpdate, StatusUpdate, TilePosition,
+    Direction, Effect, EffectDuration, EffectUpdate, Element, EntityUpdate, LifecycleUpdate,
+    LocationUpdate, LookResult, LookResultTarget, MapChange, MapDownloadUpdate, MessageKind,
+    MovementStopReason, MovementUpdate, ProgressionStatus, SpellCancellationSource,
+    SpellCastArguments, StateEvent, StateUpdate, StatusUpdate, TilePosition,
 };
 use darpc_protocol::{EventPollResult, MAX_LOOK_RESULT_TEXT_LEN};
 #[cfg(windows)]
@@ -434,6 +434,13 @@ pub(crate) fn confirmed_location() -> Option<(u32, TilePosition)> {
     unsafe { CACHE.confirmed_location() }
 }
 
+#[cfg(all(windows, not(test)))]
+pub(crate) fn confirmed_pose() -> Option<(TilePosition, Direction)> {
+    // SAFETY: commands execute on the client main thread, which is the sole
+    // cache producer.
+    unsafe { CACHE.confirmed_pose() }
+}
+
 pub(crate) fn mark_collection_dirty(kind: CollectionKind, slot: u8, tick_ms: u32) {
     // SAFETY: the event hook runs on the client main thread, which is the sole
     // collection producer.
@@ -763,7 +770,12 @@ pub(crate) fn observe_message(message: ParsedMessage<'_>, tick_ms: u32) {
     push_event(QueuedStateUpdate::Message(message), tick_ms);
 }
 
-pub(crate) fn observe_look(command_id: u32, target: LookTarget, text: &[u8], tick_ms: u32) -> bool {
+pub(crate) fn observe_look(
+    command_id: u32,
+    target: LookResultTarget,
+    text: &[u8],
+    tick_ms: u32,
+) -> bool {
     let Some(result) = QueuedLookResult::new(command_id, target, text) else {
         return false;
     };
@@ -1195,6 +1207,7 @@ mod tests {
                 height: 25,
             }),
             position: Some((15, 6)),
+            self_direction: Some(Direction::East.raw()),
             ..StateCache::default()
         };
 
@@ -1202,6 +1215,10 @@ mod tests {
         assert_eq!(
             cache.confirmed_location(),
             Some((600, TilePosition { x: 15, y: 6 }))
+        );
+        assert_eq!(
+            cache.confirmed_pose(),
+            Some((TilePosition { x: 15, y: 6 }, Direction::East))
         );
         assert!(cache.position_desynchronized(600, TilePosition { x: 14, y: 6 }));
         assert!(cache.position_desynchronized(601, TilePosition { x: 15, y: 6 }));

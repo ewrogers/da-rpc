@@ -7,8 +7,8 @@ use darpc_model::{
     AbilityUpdate, ActionUpdate, AudioUpdate, CharacterModifiers, CharacterProfileUpdate,
     CharacterStats, ClientCommand, ClientMessage, CollectionChange, CoreStatus, CurrentVitals,
     Direction, Effect, EffectDuration, EffectUpdate, Element, EntityUpdate, EquipmentSlot,
-    InventoryItem, LifecycleUpdate, LocationUpdate, LookResult, LookTarget, MapChange, MapDownload,
-    MapDownloadUpdate, MessageKind, MovementStopReason, MovementUpdate, ObjectUpdate,
+    InventoryItem, LifecycleUpdate, LocationUpdate, LookResult, LookResultTarget, MapChange,
+    MapDownload, MapDownloadUpdate, MessageKind, MovementStopReason, MovementUpdate, ObjectUpdate,
     PlayerInspectionChanges, PlayerInspectionTrigger, PlayerUpdate, ProgressionStatus, Skill,
     SlotUpdate, Spell, SpellCancellationSource, SpellCastArguments, StateEvent, StateUpdate,
     StatusUpdate, TilePosition, WalkMode,
@@ -231,8 +231,12 @@ fn encode_event(output: &mut Vec<u8>, event: &StateEvent) -> Result<(), EncodeEr
             output.push(27);
             push_u32(output, result.command_id);
             match result.target {
-                LookTarget::Ahead => output.push(0),
-                LookTarget::Tile { x, y } => {
+                LookResultTarget::Ahead { x, y } => {
+                    output.push(0);
+                    push_u16(output, x);
+                    push_u16(output, y);
+                }
+                LookResultTarget::Tile { x, y } => {
                     output.push(1);
                     push_u16(output, x);
                     push_u16(output, y);
@@ -399,8 +403,11 @@ fn decode_event(reader: &mut PayloadReader<'_>) -> Result<StateEvent, DecodeErro
                 return Err(DecodeError::InvalidCommandId);
             }
             let target = match reader.read_u8()? {
-                0 => LookTarget::Ahead,
-                1 => LookTarget::Tile {
+                0 => LookResultTarget::Ahead {
+                    x: reader.read_u16()?,
+                    y: reader.read_u16()?,
+                },
+                1 => LookResultTarget::Tile {
                     x: reader.read_u16()?,
                     y: reader.read_u16()?,
                 },

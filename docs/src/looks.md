@@ -28,8 +28,15 @@ the command with a later `look.result` Server-Sent Events (SSE) frame:
 
 ```text
 event: look.result
-data: {"type":"look_result","data":{"observation":{...},"command_id":7,"target":{"kind":"tile","x":40,"y":19},"text":"Light Belt\tLight Belt\tfior sal"}}
+id: 100
+data: {"type":"look_result","data":{"observation":{"pid":6864,"instance_id":"...","revision":224,"event_sequence":100,"tick_ms":559274097},"command_id":7,"target":{"kind":"tile","x":40,"y":19},"text":"Light Belt\tLight Belt\tfior sal"}}
 ```
+
+`observation` supplies the usual source, revision, and event-ordering metadata.
+`target` includes `x` and `y` for both routes. Its `kind` is `ahead` for Look and
+`tile` for FarLook. The DLL resolves an ahead target from its confirmed position
+and facing when it submits the native packet. `text` preserves the
+server-provided dialog text, including its separators.
 
 The DLL intercepts only a bounded popup response while a typed look command is
 pending. It publishes the exact text through the normal ordered event path and

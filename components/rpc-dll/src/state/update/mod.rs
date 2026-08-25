@@ -133,12 +133,12 @@ pub(super) enum QueuedStateUpdate {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) struct QueuedLookResult {
     command_id: u32,
-    target: LookTarget,
+    target: LookResultTarget,
     text: QueuedClientText<MAX_LOOK_RESULT_TEXT_LEN>,
 }
 
 impl QueuedLookResult {
-    pub(super) fn new(command_id: u32, target: LookTarget, text: &[u8]) -> Option<Self> {
+    pub(super) fn new(command_id: u32, target: LookResultTarget, text: &[u8]) -> Option<Self> {
         Some(Self {
             command_id: (command_id != 0).then_some(command_id)?,
             target,

@@ -50,10 +50,16 @@ pub enum LookTarget {
     Tile { x: u16, y: u16 },
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LookResultTarget {
+    Ahead { x: u16, y: u16 },
+    Tile { x: u16, y: u16 },
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LookResult {
     pub command_id: u32,
-    pub target: LookTarget,
+    pub target: LookResultTarget,
     pub text: String,
 }
 

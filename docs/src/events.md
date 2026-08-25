@@ -887,13 +887,15 @@ look.result
 LookResult {
     observation: EventObservation,
     command_id: u32,
-    target: { kind: "ahead" } | { kind: "tile", x: u16, y: u16 },
+    target: { kind: "ahead" | "tile", x: u16, y: u16 },
     text: string,
 }
 ```
 
 The JSON discriminator is `type: "look_result"`. The result is not retained in
-the client snapshot, so subscribe before submitting the command.
+the client snapshot, so subscribe before submitting the command. Ahead targets
+contain the resolved tile computed from the DLL's confirmed position and facing
+when it submits the native Look packet.
 
 ## Field-map events
 

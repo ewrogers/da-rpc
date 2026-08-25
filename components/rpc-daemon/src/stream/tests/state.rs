@@ -158,7 +158,7 @@ fn look_results_have_a_stable_correlated_public_event_shape() {
             tick_ms: 10,
             update: StateUpdate::Look(ModelLookResult {
                 command_id: 7,
-                target: ModelLookTarget::Tile { x: 40, y: 19 },
+                target: ModelLookResultTarget::Tile { x: 40, y: 19 },
                 text: "Light Belt\rLight Belt\rfior sal".into(),
             }),
         },
@@ -176,6 +176,36 @@ fn look_results_have_a_stable_correlated_public_event_shape() {
     assert_eq!(event["data"]["target"]["x"], 40);
     assert_eq!(event["data"]["target"]["y"], 19);
     assert_eq!(event["data"]["text"], "Light Belt\rLight Belt\rfior sal");
+}
+
+#[test]
+fn look_ahead_results_include_the_resolved_tile() {
+    let events = expand(
+        42,
+        ClientIdentity {
+            pid: 42,
+            process_creation_time: 100,
+            dll_instance_id: [1; 16],
+        },
+        StateEvent {
+            sequence: 8,
+            revision: 9,
+            tick_ms: 10,
+            update: StateUpdate::Look(ModelLookResult {
+                command_id: 7,
+                target: ModelLookResultTarget::Ahead { x: 40, y: 18 },
+                text: "fior sal".into(),
+            }),
+        },
+        None,
+        None,
+        observed_at(),
+    );
+
+    let event = serde_json::to_value(&events[0]).unwrap();
+    assert_eq!(event["data"]["target"]["kind"], "ahead");
+    assert_eq!(event["data"]["target"]["x"], 40);
+    assert_eq!(event["data"]["target"]["y"], 18);
 }
 
 #[test]

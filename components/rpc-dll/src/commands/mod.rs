@@ -1,6 +1,8 @@
 mod queue;
 mod storage;
 
+#[cfg(test)]
+use darpc_model::LookResultTarget;
 use darpc_model::{Direction, EquipmentSlot, LookTarget, MessageKind};
 use darpc_protocol::{
     ChantText, CharacterStat, CommandFailure, CommandKind, CommandOperation, CommandResult,
@@ -362,6 +364,10 @@ fn execute_look(command_id: u32, target: LookTarget) -> Result<(), CommandFailur
 
 #[cfg(test)]
 fn execute_look(command_id: u32, target: LookTarget) -> Result<(), CommandFailure> {
+    let target = match target {
+        LookTarget::Ahead => LookResultTarget::Ahead { x: 0, y: 0 },
+        LookTarget::Tile { x, y } => LookResultTarget::Tile { x, y },
+    };
     crate::look::begin(command_id, target)
 }
 

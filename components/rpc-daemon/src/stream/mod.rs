@@ -36,11 +36,14 @@ mod entity;
 use entity::*;
 mod ability;
 mod feedback;
+mod pickup_feedback;
 mod state;
 
 use ability::*;
 use feedback::*;
 pub(crate) use feedback::{SpellFeedback, SpellFeedbackTrackers};
+use pickup_feedback::*;
+pub(crate) use pickup_feedback::{PickupFeedback, PickupFeedbackTrackers};
 pub(crate) use state::*;
 
 pub(crate) const EVENT_CHANNEL_CAPACITY: usize = 4_096;
@@ -67,6 +70,7 @@ pub(crate) enum PublishedEvent {
         ability_name: Option<String>,
         target_name: Option<String>,
         feedback: Option<Box<SpellFeedback>>,
+        pickup_feedback: Option<Box<PickupFeedback>>,
         observed_at_utc: DateTime<Utc>,
     },
     #[cfg_attr(not(windows), allow(dead_code))]
@@ -141,6 +145,7 @@ pub(crate) enum ClientEvent {
     GoldDropped(GoldDropped),
     GoldGiven(GoldGiven),
     ItemPickedUp(ItemPickedUp),
+    ItemPickupFailed(ItemPickupFailed),
     EquipmentUnequipped(EquipmentUnequipped),
     Emoted(Emoted),
     Turned(Turned),
@@ -261,6 +266,7 @@ impl ClientEvent {
             Self::GoldDropped(_) => "gold.dropped",
             Self::GoldGiven(_) => "gold.given",
             Self::ItemPickedUp(_) => "item.picked_up",
+            Self::ItemPickupFailed(_) => "item.pickup_failed",
             Self::EquipmentUnequipped(_) => "equipment.unequipped",
             Self::Emoted(_) => "character.emoted",
             Self::Turned(_) => "character.turned",
@@ -380,6 +386,7 @@ impl ClientEvent {
             Self::GoldDropped(value) => value.observation.event_sequence,
             Self::GoldGiven(value) => value.observation.event_sequence,
             Self::ItemPickedUp(value) => value.observation.event_sequence,
+            Self::ItemPickupFailed(value) => value.observation.event_sequence,
             Self::EquipmentUnequipped(value) => value.observation.event_sequence,
             Self::Emoted(value) => value.observation.event_sequence,
             Self::Turned(value) => value.observation.event_sequence,
@@ -636,6 +643,7 @@ pub(crate) fn response(
                     ability_name,
                     target_name,
                     feedback,
+                    pickup_feedback,
                     observed_at_utc,
                 }) if event_pid == pid && event_identity == identity => {
                     if !SequenceNumber::new(event.sequence)
@@ -665,6 +673,9 @@ pub(crate) fn response(
                     );
                     api_events = replace_player_appearance(api_events, &replaced_players);
                     if let Some(feedback) = feedback {
+                        api_events.push((*feedback).into_event(feedback_observation.clone()));
+                    }
+                    if let Some(feedback) = pickup_feedback {
                         api_events.push((*feedback).into_event(feedback_observation));
                     }
                     for api_event in api_events {

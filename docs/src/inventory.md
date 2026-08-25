@@ -187,6 +187,7 @@ The complete payload structures and batch rules are in
 | `item.dropped` | The client submitted an item drop with slot, quantity, and destination. |
 | `item.given` | The client submitted an item exchange request with slot, quantity, and target ID. |
 | `item.picked_up` | The client submitted a tile pickup with its chosen destination slot. |
+| `item.pickup_failed` | A submitted tile pickup received correlated carry-limit feedback. |
 | `gold.dropped` | The client submitted a gold drop with amount and destination. |
 | `gold.given` | The client submitted a gold transfer with amount and target ID. |
 
@@ -198,6 +199,13 @@ Action events describe an outgoing request observed at the client's normal
 packet boundary. Giving an item opens the game's ordinary exchange flow; it
 does not mean the other player accepted it. Later inventory and gold state
 events confirm results accepted by the server.
+
+When the system message `<item>, You can't have more than <limit>.` follows one
+unambiguous pending pickup, the daemon also emits `item.pickup_failed`. Its
+payload includes the attempted position and destination slot, `item_name`,
+`limit`, `reason: "carry_limit"`, the original `feedback`, and submission
+timing. The ordinary `message.system` event remains in the stream. Ambiguous or
+expired pickup attempts do not produce the semantic failure event.
 
 Continue an open offer, set gold, accept, or cancel through the
 [player exchange API](exchanges.md).

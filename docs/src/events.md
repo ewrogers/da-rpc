@@ -500,6 +500,7 @@ Read inventory from `GET /clients/{client}/items` and equipment from
 | `item.dropped` | `item_dropped` | The client submitted an item to a ground tile, including `/items/drop`. |
 | `item.given` | `item_given` | The client submitted an item to an entity, including `/items/give`. |
 | `item.picked_up` | `item_picked_up` | The client submitted a ground-item pickup. |
+| `item.pickup_failed` | `item_pickup_failed` | A ground-item pickup received correlated carry-limit feedback. |
 | `gold.dropped` | `gold_dropped` | The client submitted gold to a ground tile, including `/gold/drop`. |
 | `gold.given` | `gold_given` | The client submitted gold to an entity, including `/gold/give`. |
 | `equipment.unequipped` | `equipment_unequipped` | The client submitted an unequip request. |
@@ -512,6 +513,7 @@ ItemUsed { observation, slot }
 ItemDropped { observation, slot, quantity, destination }
 ItemGiven { observation, slot, quantity, target_id }
 ItemPickedUp { observation, destination_slot, position }
+ItemPickupFailed { observation, destination_slot, position, item_name, limit, reason, feedback, submitted_tick_ms, elapsed_ms }
 GoldDropped { observation, amount, destination }
 GoldGiven { observation, amount, target_id }
 EquipmentUnequipped { observation, slot }
@@ -842,9 +844,9 @@ Message {
 The SSE ID carries message stream ordering; it is not repeated in the JSON
 message. The daemon stores a normalized message before broadcasting it, except
 for `message.chant`, which is intentionally transient. Some system messages
-also produce `spell.succeeded`, `spell.failed`, or `spell.received`.
-Both frames are intentional: one preserves the text shown by the game and the
-other supplies semantic spell data.
+also produce `spell.succeeded`, `spell.failed`, `spell.received`, or
+`item.pickup_failed`. Both frames are intentional: one preserves the text shown
+by the game and the other supplies semantic feedback data.
 
 Internal messages contain `payload` and omit `tick_ms` and `text`. They are
 published by `POST /messages/send` only to the selected recipient stream, or to
@@ -1010,7 +1012,7 @@ trying to infer state from only the changed field.
 | Status | `stats.changed`, `vitals.changed`, `progression.changed`, `gold.changed`, `weight.changed`, `modifiers.changed`, `location.changed`, `blind.changed`, `action_restriction.changed`, `character.appearance_changed`, `character.hidden_changed`, `character.profile_changed` | `/status` |
 | Map downloads | `map.requested`, `map.downloaded` | None; transient events are not replayed. |
 | Walking | `walking.started`, `walking.stopped`, `walking.obstructed`, `walking.route_changed`, `character.turned`, `character.emoted` | `/status` |
-| Inventory | `item.added`, `item.removed`, `item.changed`, `item.used`, `item.dropped`, `item.given`, `item.picked_up`, `gold.dropped`, `gold.given` | `/items`, then `/status` for gold |
+| Inventory | `item.added`, `item.removed`, `item.changed`, `item.used`, `item.dropped`, `item.given`, `item.picked_up`, `item.pickup_failed`, `gold.dropped`, `gold.given` | `/items`, then `/status` for gold |
 | Equipment | `equipment.unequipped` | `/equipment` |
 | Skills | `skill.added`, `skill.removed`, `skill.changed`, `skill.cooldown`, `skill.ready`, `skill.used` | `/skills` |
 | Spells | `spell.added`, `spell.removed`, `spell.changed`, `spell.cooldown`, `spell.ready`, `spell.begin`, `spell.chant`, `spell.cast`, `spell.cancelled`, `spell.succeeded`, `spell.failed`, `spell.received` | `/spells`, then `/status` for casting state |

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 1.7.2 - 2026-08-25
+
+### Added
+
+- Add correlated `item.pickup_failed` Server-Sent Events when a ground-item
+  pickup receives carry-limit feedback, including the item name, limit, tile,
+  destination slot, raw feedback, and submission timing. Ambiguous rapid
+  pickup attempts remain available as ordinary `message.system` events rather
+  than being attributed to the wrong attempt.
+
 ## 1.7.1 - 2026-08-24
 
 ### Added

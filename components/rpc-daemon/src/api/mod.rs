@@ -46,7 +46,7 @@ use crate::{
         Inventory, InventoryItem, MapLocation, ObservationMetadata, Skill, Skillbook, Spell,
         SpellTargetType, Spellbook, WorldObject, WorldObjectKind, WorldObjects,
     },
-    stream::{self, ClientEvent, PublishedEvent, SpellFeedbackTrackers},
+    stream::{self, ClientEvent, PickupFeedbackTrackers, PublishedEvent, SpellFeedbackTrackers},
 };
 use axum::{
     Json, Router,
@@ -108,6 +108,7 @@ pub(crate) struct ApiState {
     published_events: broadcast::Sender<PublishedEvent>,
     messages: Arc<RwLock<MessageStore>>,
     spell_feedback: Arc<Mutex<SpellFeedbackTrackers>>,
+    pickup_feedback: Arc<Mutex<PickupFeedbackTrackers>>,
     resyncs: Arc<Mutex<ResyncTrackers>>,
     resync_request_locks: Arc<Mutex<BTreeMap<RegistryClientIdentity, Weak<AsyncMutex<()>>>>>,
     maps_directory: Arc<RwLock<Option<PathBuf>>>,
@@ -133,6 +134,7 @@ impl ApiState {
             published_events,
             messages: Arc::new(RwLock::new(MessageStore::default())),
             spell_feedback: Arc::new(Mutex::new(SpellFeedbackTrackers::default())),
+            pickup_feedback: Arc::new(Mutex::new(PickupFeedbackTrackers::default())),
             resyncs: Arc::new(Mutex::new(ResyncTrackers::default())),
             resync_request_locks: Arc::new(Mutex::new(BTreeMap::new())),
             maps_directory: Arc::new(RwLock::new(None)),
@@ -225,6 +227,10 @@ impl ApiState {
                     .spell_feedback
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
+                let mut pickup_feedback = self
+                    .pickup_feedback
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                 for committed in events {
                     let state_event = committed.event;
                     match &state_event.update {
@@ -257,6 +263,7 @@ impl ApiState {
                         ability_name.as_deref(),
                         target_name.as_deref(),
                     );
+                    let pickup_feedback = pickup_feedback.observe(identity, &state_event);
                     let _ = self.published_events.send(PublishedEvent::State {
                         pid,
                         identity,
@@ -265,6 +272,7 @@ impl ApiState {
                         ability_name,
                         target_name,
                         feedback: feedback.map(Box::new),
+                        pickup_feedback: pickup_feedback.map(Box::new),
                         observed_at_utc,
                     });
                 }
@@ -286,6 +294,10 @@ impl ApiState {
                         reason,
                     } => {
                         self.spell_feedback
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .remove(identity);
+                        self.pickup_feedback
                             .lock()
                             .unwrap_or_else(std::sync::PoisonError::into_inner)
                             .remove(identity);

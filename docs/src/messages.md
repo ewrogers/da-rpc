@@ -151,10 +151,11 @@ Message events do not contain the common state `observation` object. The SSE
 The daemon adds normal chat and system messages to REST history before
 broadcasting them. It broadcasts chants without retaining them.
 
-Some system messages also confirm spell results. In those cases the stream
-contains both `message.system` and a semantic `spell.succeeded`, `spell.failed`,
-or `spell.received` event. The original message remains available for display
-and debugging. See [Spells](spells.md#cast-results) for correlation behavior.
+Some system messages also confirm spell results or reject a ground-item pickup.
+In those cases the stream contains both `message.system` and a semantic spell
+event or `item.pickup_failed`. The original message remains available for
+display and debugging. See [Spells](spells.md#cast-results) for spell
+correlation behavior.
 
 ## Retention
 

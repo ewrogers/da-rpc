@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 1.8.0 - 2026-08-26
+
+### Added
+
+- Expose action source on character turns, walking lifecycle events, route
+  changes, planned routes, and active movement status. Sources distinguish
+  native client activity from daRPC commands and correlate commands by ID.
+
+### Changed
+
+- Upgrade the wire protocol to 1.8. Protocol 1.8 carries action source through
+  snapshots and real-time updates, and is intentionally incompatible with
+  protocol 1.7 peers.
+- Include action source in daemon REST and Server-Sent Events JSON and in
+  direct-client snapshot output.
+
 ## 1.7.3 - 2026-08-25
 
 ### Added

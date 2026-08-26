@@ -105,7 +105,7 @@ fn serves_health_and_client_resources() {
     );
     assert_eq!(
         clients["clients"][0]["connection"]["protocol_version"],
-        "1.7"
+        "1.8"
     );
     assert_eq!(
         clients["clients"][0]["connection"]["client_version"],
@@ -132,6 +132,7 @@ fn serves_health_and_client_resources() {
     assert_eq!(status["character"]["is_action_restricted"], false);
     assert_eq!(status["character"]["is_blinded"], true);
     assert_eq!(status["character"]["is_walking"], false);
+    assert!(status["character"]["movement_source"].is_null());
     assert_eq!(status["character"]["is_in_exchange"], false);
     assert!(status["character"].get("gender_id").is_none());
     assert!(status["character"].get("class_id").is_none());
@@ -143,6 +144,7 @@ fn serves_health_and_client_resources() {
     assert_eq!(status["character"]["stats"]["stat_points"], 3);
     assert_eq!(status["map"]["x"], 11);
     assert_eq!(status["planned_route"]["generation"], 17);
+    assert_eq!(status["planned_route"]["source"]["kind"], "client");
     assert_eq!(status["planned_route"]["tiles"][1]["x"], 12);
 
     let inventory = json("/clients/silo/items");

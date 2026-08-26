@@ -1,6 +1,6 @@
 use super::*;
 
-pub(super) fn encode_action(output: &mut Vec<u8>, update: ActionUpdate) {
+pub(super) fn encode_action(output: &mut Vec<u8>, update: ActionUpdate) -> Result<(), EncodeError> {
     match update {
         ActionUpdate::ItemUsed { slot } => output.extend_from_slice(&[1, slot]),
         ActionUpdate::ItemDropped {
@@ -45,7 +45,11 @@ pub(super) fn encode_action(output: &mut Vec<u8>, update: ActionUpdate) {
             output.extend_from_slice(&[7, slot.raw()]);
         }
         ActionUpdate::Emoted { code } => output.extend_from_slice(&[8, code]),
-        ActionUpdate::Turned { direction } => output.extend_from_slice(&[9, direction.raw()]),
+        ActionUpdate::Turned { source, direction } => {
+            output.push(9);
+            crate::action_source::encode(output, source)?;
+            output.push(direction.raw());
+        }
         ActionUpdate::Resync { resync_id } => {
             output.push(10);
             push_u32(output, resync_id);
@@ -59,6 +63,7 @@ pub(super) fn encode_action(output: &mut Vec<u8>, update: ActionUpdate) {
             push_u32(output, resync_id);
         }
     }
+    Ok(())
 }
 
 pub(super) fn decode_action(reader: &mut PayloadReader<'_>) -> Result<ActionUpdate, DecodeError> {
@@ -107,9 +112,10 @@ pub(super) fn decode_action(reader: &mut PayloadReader<'_>) -> Result<ActionUpda
             code: reader.read_u8()?,
         }),
         9 => {
+            let source = crate::action_source::decode(reader)?;
             let actual = reader.read_u8()?;
             Direction::from_raw(actual)
-                .map(|direction| ActionUpdate::Turned { direction })
+                .map(|direction| ActionUpdate::Turned { source, direction })
                 .ok_or(DecodeError::InvalidDirection { actual })
         }
         10 => Ok(ActionUpdate::Resync {

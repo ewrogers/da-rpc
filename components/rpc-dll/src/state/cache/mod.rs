@@ -295,6 +295,7 @@ impl StateCache {
     pub(super) fn movement(
         &mut self,
         is_walking: bool,
+        source: ActionSource,
         destination: Option<TilePosition>,
         stop_reason: Option<MovementStopReason>,
     ) -> Option<MovementUpdate> {
@@ -306,11 +307,13 @@ impl StateCache {
         let current = TilePosition { x, y };
         Some(if is_walking {
             MovementUpdate::Started {
+                source,
                 current,
                 destination,
             }
         } else {
             MovementUpdate::Stopped {
+                source,
                 current,
                 destination,
                 reached_destination: destination.map(|destination| destination == current),
@@ -586,11 +589,12 @@ impl MainThreadCache {
     pub(super) unsafe fn movement(
         &self,
         is_walking: bool,
+        source: ActionSource,
         destination: Option<TilePosition>,
         stop_reason: Option<MovementStopReason>,
     ) -> Option<MovementUpdate> {
         // SAFETY: the caller guarantees exclusive main-thread access.
-        unsafe { (&mut *self.0.get()).movement(is_walking, destination, stop_reason) }
+        unsafe { (&mut *self.0.get()).movement(is_walking, source, destination, stop_reason) }
     }
 
     pub(super) unsafe fn map_transition_pending(&self) -> bool {

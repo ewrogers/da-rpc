@@ -1,6 +1,6 @@
 #![cfg_attr(not(windows), allow(dead_code))]
 
-use darpc_model::{PlannedRoute, TilePosition};
+use darpc_model::{ActionSource, PlannedRoute, TilePosition};
 use darpc_protocol::MAX_PLANNED_ROUTE_TILES;
 use std::{
     cell::UnsafeCell,
@@ -33,6 +33,7 @@ impl RawTile {
 }
 
 pub(crate) struct RawRoute {
+    source: ActionSource,
     generation: u32,
     length: u32,
     tiles: [RawTile; MAX_PLANNED_ROUTE_TILES],
@@ -41,6 +42,7 @@ pub(crate) struct RawRoute {
 impl RawRoute {
     pub(crate) const fn empty() -> Self {
         Self {
+            source: ActionSource::Unknown,
             generation: 0,
             length: UNAVAILABLE_LENGTH,
             tiles: [RawTile::ZERO; MAX_PLANNED_ROUTE_TILES],
@@ -112,6 +114,7 @@ pub(crate) fn reset() {
     // SAFETY: reset runs outside active hook and snapshot publication access.
     unsafe {
         let current = &mut *CURRENT.0.get();
+        current.source = ActionSource::Unknown;
         current.generation = 0;
         current.length = UNAVAILABLE_LENGTH;
     }
@@ -165,11 +168,17 @@ pub(crate) fn observe_current(tick_ms: u32) {
     if !tick_capture_required(unsafe { &*CURRENT.0.get() }, header) {
         return;
     }
-    let _ = observe_with_header(world, tick_ms, header);
+    // SAFETY: the client main thread is the sole current-route reader.
+    let source = unsafe { (&*CURRENT.0.get()).source };
+    let _ = observe_with_header(world, tick_ms, header, source);
 }
 
 #[cfg(windows)]
-pub(crate) fn observe(world: *const core::ffi::c_void, tick_ms: u32) -> Option<TilePosition> {
+pub(crate) fn observe(
+    world: *const core::ffi::c_void,
+    tick_ms: u32,
+    source: ActionSource,
+) -> Option<TilePosition> {
     if world.is_null() {
         return None;
     }
@@ -178,7 +187,7 @@ pub(crate) fn observe(world: *const core::ffi::c_void, tick_ms: u32) -> Option<T
     // SAFETY: callers provide the live receiver of a hooked native method or
     // a WorldPane resolved on the client main thread.
     let header = unsafe { read_header(world.cast::<u8>()) }?;
-    observe_with_header(world, tick_ms, header)
+    observe_with_header(world, tick_ms, header, source)
 }
 
 #[cfg(windows)]
@@ -186,6 +195,7 @@ fn observe_with_header(
     world: *const core::ffi::c_void,
     tick_ms: u32,
     header: RouteHeader,
+    source: ActionSource,
 ) -> Option<TilePosition> {
     let Some((index, slot)) = claim_event() else {
         crate::state::mark_resync_required();
@@ -199,6 +209,8 @@ fn observe_with_header(
         slot.state.store(EMPTY, Ordering::Release);
         return None;
     }
+    // SAFETY: WRITING still gives this producer exclusive access to the slot.
+    unsafe { (&mut *slot.route.get()).source = source };
     // SAFETY: WRITING still gives this producer exclusive access to the
     // captured route until the slot is published below.
     let destination = unsafe { (&*slot.route.get()).destination() };
@@ -264,6 +276,7 @@ pub(crate) fn copy_current(output: &mut RawRoute) {
 
 pub(crate) fn model(raw: &RawRoute) -> Option<PlannedRoute> {
     raw.available().then(|| PlannedRoute {
+        source: raw.source,
         generation: raw.generation,
         tiles: raw.tiles[..raw.length()]
             .iter()
@@ -276,12 +289,14 @@ pub(crate) fn model(raw: &RawRoute) -> Option<PlannedRoute> {
 }
 
 fn routes_equal(left: &RawRoute, right: &RawRoute) -> bool {
-    left.length == right.length
+    left.source == right.source
+        && left.length == right.length
         && left.generation == right.generation
         && (!left.available() || left.tiles[..left.length()] == right.tiles[..right.length()])
 }
 
 fn copy_route(output: &mut RawRoute, input: &RawRoute) {
+    output.source = input.source;
     output.generation = input.generation;
     output.length = input.length;
     if input.available() {
@@ -446,15 +461,30 @@ mod tests {
     fn empty_and_available_routes_are_distinct() {
         let mut route = RawRoute::empty();
         assert_eq!(model(&route), None);
+        route.source = ActionSource::Command { command_id: 41 };
         route.generation = 7;
         route.length = 0;
         assert_eq!(
             model(&route),
             Some(PlannedRoute {
+                source: ActionSource::Command { command_id: 41 },
                 generation: 7,
                 tiles: Vec::new(),
             })
         );
+    }
+
+    #[test]
+    fn otherwise_identical_routes_are_distinguished_by_source() {
+        let mut client = RawRoute::empty();
+        client.source = ActionSource::Client;
+        client.generation = 7;
+        client.length = 0;
+        let mut command = RawRoute::empty();
+        copy_route(&mut command, &client);
+        command.source = ActionSource::Command { command_id: 41 };
+
+        assert!(!routes_equal(&client, &command));
     }
 
     #[test]
@@ -500,6 +530,7 @@ mod tests {
         assert_eq!(
             model(&route),
             Some(PlannedRoute {
+                source: ActionSource::Unknown,
                 generation: 7,
                 tiles: Vec::new(),
             })

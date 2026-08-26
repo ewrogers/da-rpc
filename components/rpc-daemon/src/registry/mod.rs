@@ -636,6 +636,7 @@ mod tests {
                 is_action_restricted: false,
                 is_blinded: false,
                 is_walking: false,
+                movement_source: None,
                 is_casting: false,
                 gold: 100,
                 weight: 25,
@@ -926,6 +927,7 @@ mod tests {
                         revision: 5,
                         tick_ms: 23,
                         update: StateUpdate::Movement(MovementUpdate::Started {
+                            source: darpc_model::ActionSource::Client,
                             current: TilePosition { x: 43, y: 40 },
                             destination: Some(TilePosition { x: 50, y: 45 }),
                         }),

@@ -1,5 +1,6 @@
 //! Shared domain model for daRPC.
 
+mod action_source;
 mod dialog;
 mod emote;
 mod entity;
@@ -16,6 +17,7 @@ mod sequence;
 mod snapshot;
 mod who;
 
+pub use action_source::ActionSource;
 pub use event::{
     AbilityUpdate, ActionUpdate, ApplyEventError, AudioUpdate, ClientCommand, CollectionBatch,
     CollectionChange, CollectionKind, CoreStatus, CurrentVitals, EffectUpdate, InventoryUpdate,

@@ -1,8 +1,8 @@
 use crate::{
-    CharacterModifiers, CharacterProfileUpdate, CharacterStats, ClientLifecycle, ClientMessage,
-    ClientSnapshot, DialogUpdate, Direction, Effect, EntityUpdate, EquipmentSlot, ExchangeUpdate,
-    FieldMapUpdate, GroupUpdate, InventoryItem, LegendUpdate, MapLocation, MessageDialogsState,
-    ObjectUpdate, PlayerUpdate, SequenceNumber, Skill, Spell,
+    ActionSource, CharacterModifiers, CharacterProfileUpdate, CharacterStats, ClientLifecycle,
+    ClientMessage, ClientSnapshot, DialogUpdate, Direction, Effect, EntityUpdate, EquipmentSlot,
+    ExchangeUpdate, FieldMapUpdate, GroupUpdate, InventoryItem, LegendUpdate, MapLocation,
+    MessageDialogsState, ObjectUpdate, PlayerUpdate, SequenceNumber, Skill, Spell,
 };
 use std::{error::Error, fmt};
 
@@ -137,6 +137,7 @@ pub enum ActionUpdate {
         code: u8,
     },
     Turned {
+        source: ActionSource,
         direction: Direction,
     },
     Resync {
@@ -294,16 +295,19 @@ pub struct TilePosition {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum MovementUpdate {
     Started {
+        source: ActionSource,
         current: TilePosition,
         destination: Option<TilePosition>,
     },
     Stopped {
+        source: ActionSource,
         current: TilePosition,
         destination: Option<TilePosition>,
         reached_destination: Option<bool>,
         reason: MovementStopReason,
     },
     Obstructed {
+        source: ActionSource,
         map_id: u32,
         current: TilePosition,
         attempted: TilePosition,
@@ -332,6 +336,7 @@ pub enum WalkMode {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PlannedRoute {
+    pub source: ActionSource,
     pub generation: u32,
     pub tiles: Vec<TilePosition>,
 }
@@ -473,12 +478,17 @@ impl ClientSnapshot {
                     .character
                     .as_mut()
                     .ok_or(ApplyEventError::CharacterUnavailable)?;
-                let (current, is_walking) = match update {
-                    MovementUpdate::Started { current, .. } => (current, true),
-                    MovementUpdate::Stopped { current, .. } => (current, false),
+                let (source, current, is_walking) = match update {
+                    MovementUpdate::Started {
+                        source, current, ..
+                    } => (source, current, true),
+                    MovementUpdate::Stopped {
+                        source, current, ..
+                    } => (source, current, false),
                     MovementUpdate::Obstructed { .. } => unreachable!(),
                 };
                 character.is_walking = is_walking;
+                character.movement_source = is_walking.then_some(source);
                 let location = character
                     .location
                     .as_mut()
@@ -494,6 +504,7 @@ impl ClientSnapshot {
                     .ok_or(ApplyEventError::CharacterUnavailable)?;
                 if let Some(map) = update.map {
                     character.is_walking = false;
+                    character.movement_source = None;
                     if let Some(route) = &mut self.planned_route {
                         route.tiles.clear();
                     }
@@ -1243,6 +1254,7 @@ mod tests {
             is_blinded: false,
             is_casting: false,
             is_walking: true,
+            movement_source: Some(ActionSource::Client),
             gold: 0,
             weight: 0,
             max_weight: 0,
@@ -1284,6 +1296,7 @@ mod tests {
             effects: None,
         });
         snapshot.planned_route = Some(PlannedRoute {
+            source: ActionSource::Client,
             generation: 9,
             tiles: vec![TilePosition { x: 11, y: 20 }],
         });
@@ -1308,10 +1321,12 @@ mod tests {
 
         let character = snapshot.character.as_ref().unwrap();
         assert!(!character.is_walking);
+        assert_eq!(character.movement_source, None);
         assert_eq!(character.location.as_ref().unwrap().id, 2);
         assert_eq!(
             snapshot.planned_route,
             Some(PlannedRoute {
+                source: ActionSource::Client,
                 generation: 9,
                 tiles: Vec::new(),
             })

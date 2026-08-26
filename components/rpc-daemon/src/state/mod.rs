@@ -76,6 +76,7 @@ impl GameStatus {
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
 pub(crate) struct PlannedRoute {
+    source: crate::action_source::ActionSource,
     generation: u32,
     tiles: Vec<RouteTile>,
 }
@@ -83,6 +84,7 @@ pub(crate) struct PlannedRoute {
 impl From<&darpc_model::PlannedRoute> for PlannedRoute {
     fn from(value: &darpc_model::PlannedRoute) -> Self {
         Self {
+            source: value.source.into(),
             generation: value.generation,
             tiles: value
                 .tiles
@@ -219,6 +221,7 @@ pub(crate) struct CharacterStatus {
     is_blinded: bool,
     is_casting: bool,
     is_walking: bool,
+    movement_source: Option<crate::action_source::ActionSource>,
     is_group_open: Option<bool>,
     is_in_exchange: bool,
     group_members: Vec<crate::group::GroupMember>,
@@ -253,6 +256,7 @@ impl CharacterStatus {
             is_blinded: value.is_blinded,
             is_casting: value.is_casting,
             is_walking: value.is_walking,
+            movement_source: value.movement_source.map(Into::into),
             is_group_open: group.and_then(|group| group.is_group_open),
             is_in_exchange,
             group_members: group

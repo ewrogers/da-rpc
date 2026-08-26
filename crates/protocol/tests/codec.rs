@@ -1,5 +1,5 @@
 use darpc_model::{
-    AbilityUpdate, ActionUpdate, AudioUpdate, CharacterAppearance, CharacterClass,
+    AbilityUpdate, ActionSource, ActionUpdate, AudioUpdate, CharacterAppearance, CharacterClass,
     CharacterModifiers, CharacterProfileUpdate, CharacterProgression, CharacterSnapshot,
     CharacterStats, CharacterVitals, ClientCommand, ClientLifecycle, ClientMessage, ClientSnapshot,
     CollectionChange, CooldownStatus, CoreStatus, CreatureKind, CurrentVitals, DialogChoice,
@@ -108,6 +108,7 @@ fn snapshot() -> ClientSnapshot {
             is_action_restricted: false,
             is_blinded: true,
             is_walking: false,
+            movement_source: None,
             is_casting: false,
             gold: 123_456,
             weight: 88,
@@ -249,6 +250,7 @@ fn snapshot() -> ClientSnapshot {
             icon: LegendIcon::Wizard,
         }]),
         planned_route: Some(PlannedRoute {
+            source: ActionSource::Command { command_id: 41 },
             generation: 42,
             tiles: vec![
                 TilePosition { x: 11, y: 22 },

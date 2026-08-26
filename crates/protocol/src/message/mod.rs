@@ -17,9 +17,10 @@ pub const PROTOCOL_VERSION_1_4: u16 = protocol_version(1, 4);
 pub const PROTOCOL_VERSION_1_5: u16 = protocol_version(1, 5);
 pub const PROTOCOL_VERSION_1_6: u16 = protocol_version(1, 6);
 pub const PROTOCOL_VERSION_1_7: u16 = protocol_version(1, 7);
+pub const PROTOCOL_VERSION_1_8: u16 = protocol_version(1, 8);
 pub const SUPPORTED_VERSIONS: VersionRange = VersionRange {
-    min: PROTOCOL_VERSION_1_7,
-    max: PROTOCOL_VERSION_1_7,
+    min: PROTOCOL_VERSION_1_8,
+    max: PROTOCOL_VERSION_1_8,
 };
 
 #[must_use]

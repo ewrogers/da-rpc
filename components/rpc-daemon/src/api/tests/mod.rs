@@ -109,6 +109,7 @@ fn game_snapshot() -> ModelClientSnapshot {
             is_action_restricted: false,
             is_blinded: true,
             is_walking: false,
+            movement_source: None,
             is_casting: false,
             gold: 99,
             weight: 25,
@@ -335,6 +336,7 @@ fn game_snapshot() -> ModelClientSnapshot {
         exchange: None,
         legend: None,
         planned_route: Some(ModelPlannedRoute {
+            source: darpc_model::ActionSource::Client,
             generation: 17,
             tiles: vec![
                 ModelTilePosition { x: 11, y: 22 },

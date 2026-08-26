@@ -3,7 +3,7 @@ use crate::{
     message::{PayloadReader, push_bool, push_i32, push_u16, push_u32},
 };
 use darpc_model::{
-    CharacterAppearance, CharacterClass, CharacterModifiers, CharacterProgression,
+    ActionSource, CharacterAppearance, CharacterClass, CharacterModifiers, CharacterProgression,
     CharacterSnapshot, CharacterStats, CharacterVitals, ClientLifecycle, ClientSnapshot, Element,
     Gender, MapLocation, PlannedRoute, TilePosition,
 };
@@ -179,6 +179,7 @@ pub(crate) fn encode_planned_route(
         });
     }
     push_u32(output, route.generation);
+    crate::action_source::encode(output, route.source)?;
     push_u32(
         output,
         u32::try_from(route.tiles.len()).map_err(|_| EncodeError::LengthOverflow)?,
@@ -200,6 +201,7 @@ pub(crate) fn decode_planned_route(
     reader: &mut PayloadReader<'_>,
 ) -> Result<PlannedRoute, DecodeError> {
     let generation = reader.read_u32()?;
+    let source = crate::action_source::decode(reader)?;
     let length = usize::try_from(reader.read_u32()?).map_err(|_| DecodeError::LengthOverflow)?;
     if length > MAX_PLANNED_ROUTE_TILES {
         return Err(DecodeError::SnapshotCollectionTooLong {
@@ -214,7 +216,11 @@ pub(crate) fn decode_planned_route(
             y: i32::from(reader.read_u16()?),
         });
     }
-    Ok(PlannedRoute { generation, tiles })
+    Ok(PlannedRoute {
+        source,
+        generation,
+        tiles,
+    })
 }
 
 fn encode_optional_planned_route(
@@ -260,6 +266,12 @@ fn encode_character(
     push_bool(output, character.is_blinded);
     push_bool(output, character.is_casting);
     push_bool(output, character.is_walking);
+    if character.is_walking {
+        crate::action_source::encode(
+            output,
+            character.movement_source.unwrap_or(ActionSource::Unknown),
+        )?;
+    }
     push_u32(output, character.gold);
     push_u32(output, character.weight);
     push_u32(output, character.max_weight);
@@ -339,6 +351,11 @@ fn decode_character(reader: &mut PayloadReader<'_>) -> Result<CharacterSnapshot,
     let is_blinded = reader.read_bool()?;
     let is_casting = reader.read_bool()?;
     let is_walking = reader.read_bool()?;
+    let movement_source = if is_walking {
+        Some(crate::action_source::decode(reader)?)
+    } else {
+        None
+    };
     let gold = reader.read_u32()?;
     let weight = reader.read_u32()?;
     let max_weight = reader.read_u32()?;
@@ -411,6 +428,7 @@ fn decode_character(reader: &mut PayloadReader<'_>) -> Result<CharacterSnapshot,
         is_blinded,
         is_casting,
         is_walking,
+        movement_source,
         gold,
         weight,
         max_weight,

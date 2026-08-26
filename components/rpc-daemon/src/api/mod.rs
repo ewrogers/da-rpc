@@ -990,6 +990,7 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         ClientIdentity,
         ConnectionMetadata,
         ObservationMetadata,
+        crate::action_source::ActionSource,
         GameStatus,
         SnapshotClientLifecycle,
         CharacterStatus,

@@ -290,7 +290,7 @@ fn encode_event(output: &mut Vec<u8>, event: &StateEvent) -> Result<(), EncodeEr
         }
         StateUpdate::Action(update) => {
             output.push(11);
-            encode_action(output, *update);
+            encode_action(output, *update)?;
         }
         StateUpdate::Entity(update) => {
             output.push(12);

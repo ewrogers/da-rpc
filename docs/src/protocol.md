@@ -53,6 +53,7 @@ const VERSION_1_4: u16 = 0x0104;
 const VERSION_1_5: u16 = 0x0105;
 const VERSION_1_6: u16 = 0x0106;
 const VERSION_1_7: u16 = 0x0107;
+const VERSION_1_8: u16 = 0x0108;
 ```
 
 The protocol number is a wire-schema revision, not a Semantic Versioning
@@ -60,19 +61,14 @@ compatibility promise. Each peer advertises an inclusive, continuous range of
 versions it can decode, and the controller selects the highest version in the
 overlap. No overlap rejects the connection.
 
-The only currently supported version is 1.7 (`0x0107`). Version 1.7 adds the
-palette dye color to ground-item object records and removes the collection-wide
-object-clear update in favor of individual disappearance updates. Peers
-advertise only 1.7. Object-update discriminant 5 is retired and rejected. A
-peer built against the earlier 1.7 schema can still emit that value, so deploy
-the DLL and its controller or daemon together when adopting this change.
+The only currently supported version is 1.8 (`0x0108`). Version 1.8 adds action
+source to character turns, walking lifecycle updates, planned routes, and
+active movement snapshots. Peers advertise only 1.8, so deploy the DLL and its
+controller or daemon together when adopting this change.
 
-Application releases can append wire values while retaining protocol version
-1.7. Release 1.7.1 adds spell-result command failures, and release 1.7.3 adds
-the Look command and result update. Release 1.7.2 changes only daemon-side event
-correlation and does not alter the wire schema. Earlier peers reject values they
-do not recognize, so deploy a release-matched DLL and controller or daemon
-together.
+Protocol 1.7 added palette dye color, retired collection-wide object clearing,
+and later gained spell-result failures and Look updates. Those schemas are
+retained in repository history but are not accepted by protocol 1.8 peers.
 
 ## Message types
 
@@ -287,6 +283,7 @@ struct FieldMapSelection {
 }
 
 struct PlannedRoute {
+    source: ActionSource;
     generation: u32;
     tiles: Vec<TilePosition>;              // u32 count, maximum 160,001
 }
@@ -347,6 +344,7 @@ struct CharacterSnapshot {
     is_action_restricted: bool;
     is_blinded: bool;
     is_walking: bool;
+    movement_source: Option<ActionSource>;
     is_casting: bool;
     gold: u32;
     weight: u32;
@@ -539,6 +537,10 @@ enum EffectDuration: u8 {
     White  = 6,
 }
 ```
+
+`movement_source` is encoded only when `is_walking` is true. An active walk
+always carries a source; `Unknown` represents an origin unavailable at snapshot
+time. An idle character has no movement source on the wire.
 
 The dialog, group, exchange, legend, local identity, and visible-player profile
 fields were appended during protocol 1.0 development. A 1.0 decoder accepts an
@@ -847,7 +849,7 @@ enum ActionUpdate: u8 {
     ItemPickedUp { destination_slot: u8, position: TilePosition } = 6,
     EquipmentUnequipped { slot: u8 } = 7,
     Emoted { code: u8 } = 8,
-    Turned(Direction) = 9,
+    Turned { source: ActionSource, direction: Direction } = 9,
     Resync { resync_id: u32 } = 10,
     ResyncCompleted { resync_id: u32 } = 11,
     ResyncTimedOut { resync_id: u32 } = 12,
@@ -874,16 +876,19 @@ struct TilePosition {
 
 enum MovementUpdate: u8 {
     Started {
+        source: ActionSource;
         current: TilePosition;
         destination: Option<TilePosition>;
     } = 1,
     Stopped {
+        source: ActionSource;
         current: TilePosition;
         destination: Option<TilePosition>;
         reached_destination: Option<bool>;
         reason: MovementStopReason;
     } = 2,
     Obstructed {
+        source: ActionSource;
         map_id: u32;
         current: TilePosition;
         attempted: TilePosition;
@@ -891,6 +896,12 @@ enum MovementUpdate: u8 {
         destination: Option<TilePosition>;
         mode: WalkMode;
     } = 3,
+}
+
+enum ActionSource: u8 {
+    Unknown = 0,
+    Client = 1,
+    Command { command_id: nonzero u32 } = 2,
 }
 
 enum WalkMode: u8 {
@@ -932,11 +943,11 @@ struct MapChange {
 }
 ```
 
-`PlannedRoute` encodes its generation and tile count as little-endian `u32`
-values. Each tile uses two little-endian `u16` coordinates on the wire and is
-expanded to the public signed coordinate type after validation. The maximum
-160,001 tiles matches the supported client's 400 by 400 pathfinder grid plus
-the starting tile.
+`PlannedRoute` encodes its source before its generation and tile count. The
+generation and count are little-endian `u32` values. Each tile uses two
+little-endian `u16` coordinates on the wire and is expanded to the public
+signed coordinate type after validation. The maximum 160,001 tiles matches the
+supported client's 400 by 400 pathfinder grid plus the starting tile.
 
 Within an ability update, fields specific to its discriminant are encoded
 before the final one-byte slot. Ability slots are strict one-based values from

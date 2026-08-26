@@ -79,6 +79,7 @@ fn serves_the_openapi_contract_and_vendored_swagger_ui() {
         "ConnectionMetadata",
         "ObservationMetadata",
         "GameStatus",
+        "ActionSource",
         "PlannedRoute",
         "RouteTile",
         "ClientLifecycle",

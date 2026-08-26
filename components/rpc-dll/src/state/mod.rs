@@ -16,11 +16,11 @@ use darpc_game_client::{
     RawWorldObject,
 };
 use darpc_model::{
-    AbilityUpdate, ActionUpdate, AudioUpdate, CharacterModifiers, CharacterStats, ClientCommand,
-    ClientLifecycle, ClientMessage, CollectionBatch, CollectionKind, CoreStatus, CurrentVitals,
-    Direction, Effect, EffectDuration, EffectUpdate, Element, EntityUpdate, LifecycleUpdate,
-    LocationUpdate, LookResult, LookResultTarget, MapChange, MapDownloadUpdate, MessageKind,
-    MovementStopReason, MovementUpdate, ProgressionStatus, SpellCancellationSource,
+    AbilityUpdate, ActionSource, ActionUpdate, AudioUpdate, CharacterModifiers, CharacterStats,
+    ClientCommand, ClientLifecycle, ClientMessage, CollectionBatch, CollectionKind, CoreStatus,
+    CurrentVitals, Direction, Effect, EffectDuration, EffectUpdate, Element, EntityUpdate,
+    LifecycleUpdate, LocationUpdate, LookResult, LookResultTarget, MapChange, MapDownloadUpdate,
+    MessageKind, MovementStopReason, MovementUpdate, ProgressionStatus, SpellCancellationSource,
     SpellCastArguments, StateEvent, StateUpdate, StatusUpdate, TilePosition,
 };
 use darpc_protocol::{EventPollResult, MAX_LOOK_RESULT_TEXT_LEN};
@@ -560,8 +560,14 @@ pub(crate) fn observe_tick() {
     }
     #[cfg(all(windows, not(test)))]
     if let Some(is_walking) = crate::actions::movement::is_walking() {
+        let source = if is_walking {
+            crate::actions::movement::observe_client_movement()
+        } else {
+            crate::actions::movement::movement_source()
+                .unwrap_or(darpc_model::ActionSource::Unknown)
+        };
         let destination = crate::actions::movement::route_destination();
-        if let Some(update) = unsafe { CACHE.movement(is_walking, destination, None) } {
+        if let Some(update) = unsafe { CACHE.movement(is_walking, source, destination, None) } {
             if matches!(update, MovementUpdate::Stopped { .. }) {
                 crate::actions::movement::clear_route_destination();
             }
@@ -579,10 +585,12 @@ pub(crate) fn observe_tick() {
 
 #[cfg(all(windows, not(test)))]
 pub(crate) fn stop_movement(reason: MovementStopReason, tick_ms: u32) {
+    let source =
+        crate::actions::movement::movement_source().unwrap_or(darpc_model::ActionSource::Unknown);
     let destination = crate::actions::movement::route_destination();
     // SAFETY: movement actions and queued-step observation run on the client
     // main thread, which is the sole state-cache producer.
-    if let Some(update) = unsafe { CACHE.movement(false, destination, Some(reason)) } {
+    if let Some(update) = unsafe { CACHE.movement(false, source, destination, Some(reason)) } {
         push_event(QueuedStateUpdate::Movement(update), tick_ms);
     }
 }
@@ -924,8 +932,14 @@ mod tests {
             ..StateCache::default()
         };
         assert_eq!(
-            cache.movement(true, Some(destination), None),
+            cache.movement(
+                true,
+                ActionSource::Command { command_id: 7 },
+                Some(destination),
+                None,
+            ),
             Some(MovementUpdate::Started {
+                source: ActionSource::Command { command_id: 7 },
                 current: TilePosition { x: 2, y: 8 },
                 destination: Some(destination),
             })
@@ -933,8 +947,14 @@ mod tests {
 
         cache.position = Some((5, 5));
         assert_eq!(
-            cache.movement(false, Some(destination), None),
+            cache.movement(
+                false,
+                ActionSource::Command { command_id: 7 },
+                Some(destination),
+                None,
+            ),
             Some(MovementUpdate::Stopped {
+                source: ActionSource::Command { command_id: 7 },
                 current: TilePosition { x: 5, y: 5 },
                 destination: Some(destination),
                 reached_destination: Some(false),

@@ -1,6 +1,53 @@
 use super::*;
 
 #[test]
+fn snapshot_movement_source_follows_walking_state() {
+    let mut active = snapshot();
+    let character = active.character.as_mut().unwrap();
+    character.is_walking = true;
+    character.movement_source = None;
+    let active = Frame::new(
+        0,
+        0,
+        Message::SnapshotResponse(SnapshotResponse {
+            request_id: 1,
+            result: SnapshotResult::Ready(Box::new(active)),
+        }),
+    );
+    let active = decode_frame(&encode_frame(&active).unwrap()).unwrap();
+    let Message::SnapshotResponse(active) = active.message else {
+        panic!("expected snapshot response");
+    };
+    let SnapshotResult::Ready(active) = active.result else {
+        panic!("expected ready snapshot");
+    };
+    assert_eq!(
+        active.character.unwrap().movement_source,
+        Some(ActionSource::Unknown)
+    );
+
+    let mut idle = snapshot();
+    idle.character.as_mut().unwrap().movement_source =
+        Some(ActionSource::Command { command_id: 41 });
+    let idle = Frame::new(
+        0,
+        0,
+        Message::SnapshotResponse(SnapshotResponse {
+            request_id: 1,
+            result: SnapshotResult::Ready(Box::new(idle)),
+        }),
+    );
+    let idle = decode_frame(&encode_frame(&idle).unwrap()).unwrap();
+    let Message::SnapshotResponse(idle) = idle.message else {
+        panic!("expected snapshot response");
+    };
+    let SnapshotResult::Ready(idle) = idle.result else {
+        panic!("expected ready snapshot");
+    };
+    assert_eq!(idle.character.unwrap().movement_source, None);
+}
+
+#[test]
 fn snapshot_decoder_accepts_the_pre_dialog_protocol_1_0_tail() {
     let mut snapshot = snapshot();
     snapshot.dialog = None;

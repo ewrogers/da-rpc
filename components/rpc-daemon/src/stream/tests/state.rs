@@ -68,6 +68,7 @@ fn character_snapshot(
             is_blinded: false,
             is_casting: false,
             is_walking: false,
+            movement_source: None,
             gold: 0,
             weight: 0,
             max_weight: 0,
@@ -435,6 +436,7 @@ fn movement_updates_expose_route_lifecycle_context() {
             revision: 13,
             tick_ms: 501,
             update: StateUpdate::Movement(MovementUpdate::Started {
+                source: darpc_model::ActionSource::Command { command_id: 41 },
                 current: ModelTilePosition { x: 2, y: 8 },
                 destination: Some(destination),
             }),
@@ -446,6 +448,8 @@ fn movement_updates_expose_route_lifecycle_context() {
     assert_eq!(started.len(), 1);
     assert_eq!(started[0].name(), "walking.started");
     let started = serde_json::to_value(&started[0]).unwrap();
+    assert_eq!(started["data"]["source"]["kind"], "command");
+    assert_eq!(started["data"]["source"]["command_id"], 41);
     assert_eq!(started["data"]["current"]["x"], 2);
     assert_eq!(started["data"]["destination"]["y"], 5);
 
@@ -457,6 +461,7 @@ fn movement_updates_expose_route_lifecycle_context() {
             revision: 14,
             tick_ms: 502,
             update: StateUpdate::Movement(MovementUpdate::Stopped {
+                source: darpc_model::ActionSource::Command { command_id: 41 },
                 current: destination,
                 destination: Some(destination),
                 reached_destination: Some(true),
@@ -470,6 +475,8 @@ fn movement_updates_expose_route_lifecycle_context() {
     assert_eq!(stopped.len(), 1);
     assert_eq!(stopped[0].name(), "walking.stopped");
     let stopped = serde_json::to_value(&stopped[0]).unwrap();
+    assert_eq!(stopped["data"]["source"]["kind"], "command");
+    assert_eq!(stopped["data"]["source"]["command_id"], 41);
     assert_eq!(stopped["data"]["reached_destination"], true);
     assert_eq!(stopped["data"]["reason"], "completed");
 }
@@ -488,6 +495,7 @@ fn obstruction_updates_include_the_attempted_edge_and_route_mode() {
             revision: 15,
             tick_ms: 503,
             update: StateUpdate::Movement(MovementUpdate::Obstructed {
+                source: darpc_model::ActionSource::Client,
                 map_id: 3001,
                 current: ModelTilePosition { x: 11, y: 22 },
                 attempted: ModelTilePosition { x: 12, y: 22 },
@@ -503,6 +511,7 @@ fn obstruction_updates_include_the_attempted_edge_and_route_mode() {
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].name(), "walking.obstructed");
     let event = serde_json::to_value(&events[0]).unwrap();
+    assert_eq!(event["data"]["source"]["kind"], "client");
     assert_eq!(event["data"]["map_id"], 3001);
     assert_eq!(event["data"]["attempted"]["x"], 12);
     assert_eq!(event["data"]["direction"], "east");
@@ -523,6 +532,7 @@ fn planned_route_updates_expose_generation_and_absolute_tiles() {
             revision: 15,
             tick_ms: 503,
             update: StateUpdate::PlannedRoute(PlannedRoute {
+                source: darpc_model::ActionSource::Client,
                 generation: 9,
                 tiles: vec![
                     ModelTilePosition { x: 2, y: 8 },
@@ -538,9 +548,41 @@ fn planned_route_updates_expose_generation_and_absolute_tiles() {
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].name(), "walking.route_changed");
     let event = serde_json::to_value(&events[0]).unwrap();
+    assert_eq!(event["data"]["source"]["kind"], "client");
     assert_eq!(event["data"]["generation"], 9);
     assert_eq!(event["data"]["tiles"][0]["x"], 2);
     assert_eq!(event["data"]["tiles"][2]["y"], 9);
+}
+
+#[test]
+fn turn_updates_expose_command_source() {
+    let events = expand(
+        42,
+        ClientIdentity {
+            pid: 42,
+            process_creation_time: 100,
+            dll_instance_id: [1; 16],
+        },
+        StateEvent {
+            sequence: 13,
+            revision: 16,
+            tick_ms: 504,
+            update: StateUpdate::Action(ActionUpdate::Turned {
+                source: darpc_model::ActionSource::Command { command_id: 42 },
+                direction: darpc_model::Direction::West,
+            }),
+        },
+        None,
+        None,
+        observed_at(),
+    );
+
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].name(), "character.turned");
+    let event = serde_json::to_value(&events[0]).unwrap();
+    assert_eq!(event["data"]["source"]["kind"], "command");
+    assert_eq!(event["data"]["source"]["command_id"], 42);
+    assert_eq!(event["data"]["direction"], "west");
 }
 
 #[test]

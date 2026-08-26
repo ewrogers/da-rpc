@@ -61,6 +61,15 @@ fn event_messages_round_trip() {
                     update: StateUpdate::Action(ActionUpdate::ResyncTimedOut { resync_id: 18 }),
                 },
                 StateEvent {
+                    sequence: 404,
+                    revision: 94,
+                    tick_ms: 1_124,
+                    update: StateUpdate::Action(ActionUpdate::Turned {
+                        source: ActionSource::Command { command_id: 41 },
+                        direction: Direction::West,
+                    }),
+                },
+                StateEvent {
                     sequence: 41,
                     revision: 10,
                     tick_ms: 123,
@@ -301,6 +310,7 @@ fn event_messages_round_trip() {
                     revision: 21,
                     tick_ms: 133,
                     update: StateUpdate::Movement(MovementUpdate::Started {
+                        source: ActionSource::Command { command_id: 41 },
                         current: TilePosition { x: 10, y: 20 },
                         destination: Some(TilePosition { x: 30, y: 40 }),
                     }),
@@ -310,6 +320,7 @@ fn event_messages_round_trip() {
                     revision: 22,
                     tick_ms: 134,
                     update: StateUpdate::Movement(MovementUpdate::Stopped {
+                        source: ActionSource::Command { command_id: 41 },
                         current: TilePosition { x: 30, y: 40 },
                         destination: Some(TilePosition { x: 30, y: 40 }),
                         reached_destination: Some(true),
@@ -321,6 +332,7 @@ fn event_messages_round_trip() {
                     revision: 220,
                     tick_ms: 1_340,
                     update: StateUpdate::Movement(MovementUpdate::Obstructed {
+                        source: ActionSource::Command { command_id: 41 },
                         map_id: 3000,
                         current: TilePosition { x: 11, y: 20 },
                         attempted: TilePosition { x: 12, y: 20 },
@@ -514,6 +526,7 @@ fn event_messages_round_trip() {
                     revision: 33,
                     tick_ms: 148,
                     update: StateUpdate::PlannedRoute(PlannedRoute {
+                        source: ActionSource::Client,
                         generation: 12,
                         tiles: vec![
                             TilePosition { x: 10, y: 20 },

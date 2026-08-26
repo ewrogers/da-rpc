@@ -121,26 +121,31 @@ pub(crate) fn expand(
         StateUpdate::Movement(update) => {
             events.push(match update {
                 MovementUpdate::Started {
+                    source,
                     current,
                     destination,
                 } => ClientEvent::WalkingStarted(WalkingStarted {
                     observation,
+                    source: source.into(),
                     current: current.into(),
                     destination: destination.map(Into::into),
                 }),
                 MovementUpdate::Stopped {
+                    source,
                     current,
                     destination,
                     reached_destination,
                     reason,
                 } => ClientEvent::WalkingStopped(WalkingStopped {
                     observation,
+                    source: source.into(),
                     current: current.into(),
                     destination: destination.map(Into::into),
                     reached_destination,
                     reason: reason.into(),
                 }),
                 MovementUpdate::Obstructed {
+                    source,
                     map_id,
                     current,
                     attempted,
@@ -149,6 +154,7 @@ pub(crate) fn expand(
                     mode,
                 } => ClientEvent::WalkingObstructed(WalkingObstructed {
                     observation,
+                    source: source.into(),
                     map_id,
                     current: current.into(),
                     attempted: attempted.into(),
@@ -167,6 +173,7 @@ pub(crate) fn expand(
         StateUpdate::PlannedRoute(route) => {
             events.push(ClientEvent::WalkingRouteChanged(WalkingRouteChanged {
                 observation,
+                source: route.source.into(),
                 generation: route.generation,
                 tiles: route.tiles.into_iter().map(Into::into).collect(),
             }));

@@ -105,3 +105,30 @@ fn map_download_events_reject_unknown_kinds_and_truncated_dimensions() {
     let truncated = frame_for(MessageType::EventPollResponse, &payload);
     assert!(decode_frame(&truncated).is_err());
 }
+
+#[test]
+fn action_sources_reject_unknown_kinds_and_zero_command_ids() {
+    let mut payload = Vec::new();
+    payload.extend_from_slice(&1_u32.to_le_bytes());
+    payload.push(0);
+    payload.extend_from_slice(&1_u16.to_le_bytes());
+    payload.extend_from_slice(&1_u32.to_le_bytes());
+    payload.extend_from_slice(&1_u32.to_le_bytes());
+    payload.extend_from_slice(&1_u32.to_le_bytes());
+    payload.extend_from_slice(&[11, 9, 3, 4]);
+    let malformed = frame_for(MessageType::EventPollResponse, &payload);
+    assert_eq!(
+        decode_frame(&malformed),
+        Err(DecodeError::InvalidActionSource { actual: 3 })
+    );
+
+    payload.truncate(21);
+    payload.push(2);
+    payload.extend_from_slice(&0_u32.to_le_bytes());
+    payload.push(4);
+    let zero_command_id = frame_for(MessageType::EventPollResponse, &payload);
+    assert_eq!(
+        decode_frame(&zero_command_id),
+        Err(DecodeError::InvalidCommandId)
+    );
+}

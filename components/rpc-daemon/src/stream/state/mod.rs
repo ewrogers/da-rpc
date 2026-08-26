@@ -295,6 +295,7 @@ impl From<ModelTilePosition> for TilePosition {
 #[derive(Clone, Debug, Serialize, ToSchema)]
 pub(crate) struct WalkingStarted {
     pub(super) observation: EventObservation,
+    pub(super) source: crate::action_source::ActionSource,
     pub(super) current: TilePosition,
     pub(super) destination: Option<TilePosition>,
 }
@@ -302,6 +303,7 @@ pub(crate) struct WalkingStarted {
 #[derive(Clone, Debug, Serialize, ToSchema)]
 pub(crate) struct WalkingStopped {
     pub(super) observation: EventObservation,
+    pub(super) source: crate::action_source::ActionSource,
     pub(super) current: TilePosition,
     pub(super) destination: Option<TilePosition>,
     pub(super) reached_destination: Option<bool>,
@@ -333,6 +335,7 @@ impl From<darpc_model::MovementStopReason> for WalkingStopReason {
 #[derive(Clone, Debug, Serialize, ToSchema)]
 pub(crate) struct WalkingObstructed {
     pub(super) observation: EventObservation,
+    pub(super) source: crate::action_source::ActionSource,
     pub(super) map_id: u32,
     pub(super) current: TilePosition,
     pub(super) attempted: TilePosition,
@@ -353,6 +356,7 @@ pub(crate) enum WalkingMode {
 #[derive(Clone, Debug, Serialize, ToSchema)]
 pub(crate) struct WalkingRouteChanged {
     pub(super) observation: EventObservation,
+    pub(super) source: crate::action_source::ActionSource,
     pub(super) generation: u32,
     pub(super) tiles: Vec<TilePosition>,
 }

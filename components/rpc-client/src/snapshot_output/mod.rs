@@ -61,7 +61,7 @@ pub(crate) fn render_human(
         output,
         concat!(
             "\ncharacter: id={} name={} gender={} class={} is_hidden={} is_action_restricted={} ",
-            "is_blinded={} is_walking={} is_casting={} gold={} weight={} max_weight={} hair_style={} hair_color={} body_sprite={}"
+            "is_blinded={} is_walking={} movement_source={} is_casting={} gold={} weight={} max_weight={} hair_style={} hair_color={} body_sprite={}"
         ),
         id,
         json_string(name),
@@ -71,6 +71,7 @@ pub(crate) fn render_human(
         character.is_action_restricted,
         character.is_blinded,
         character.is_walking,
+        optional_action_source(character.movement_source),
         character.is_casting,
         character.gold,
         character.weight,
@@ -194,6 +195,7 @@ fn snapshot_value(snapshot: &ClientSnapshot) -> serde_json::Value {
         "group": snapshot.group.as_ref().map(group_value),
         "exchange": snapshot.exchange.as_ref().map(exchange_value),
         "planned_route": snapshot.planned_route.as_ref().map(|route| json!({
+            "source": action_source_value(route.source),
             "generation": route.generation,
             "tiles": route.tiles.iter().map(|tile| json!({
                 "x": tile.x,
@@ -285,7 +287,8 @@ fn render_planned_route(output: &mut String, route: Option<&darpc_model::Planned
     };
     let _ = write!(
         output,
-        "\nplanned_route: generation={} tiles={}",
+        "\nplanned_route: source={} generation={} tiles={}",
+        action_source(route.source),
         route.generation,
         route.tiles.len()
     );
@@ -370,6 +373,7 @@ fn character_value(character: &CharacterSnapshot) -> serde_json::Value {
         "is_action_restricted": character.is_action_restricted,
         "is_blinded": character.is_blinded,
         "is_walking": character.is_walking,
+        "movement_source": character.movement_source.map(action_source_value),
         "is_casting": character.is_casting,
         "gold": character.gold,
         "weight": character.weight,
@@ -437,6 +441,28 @@ fn lifecycle(value: ClientLifecycle) -> &'static str {
         ClientLifecycle::Transition => "transition",
         ClientLifecycle::InGame => "in_game",
         ClientLifecycle::Disconnected => "disconnected",
+    }
+}
+
+fn action_source(value: darpc_model::ActionSource) -> String {
+    match value {
+        darpc_model::ActionSource::Unknown => "unknown".into(),
+        darpc_model::ActionSource::Client => "client".into(),
+        darpc_model::ActionSource::Command { command_id } => format!("command:{command_id}"),
+    }
+}
+
+fn optional_action_source(value: Option<darpc_model::ActionSource>) -> String {
+    value.map_or_else(|| "unavailable".into(), action_source)
+}
+
+fn action_source_value(value: darpc_model::ActionSource) -> serde_json::Value {
+    match value {
+        darpc_model::ActionSource::Unknown => json!({ "kind": "unknown" }),
+        darpc_model::ActionSource::Client => json!({ "kind": "client" }),
+        darpc_model::ActionSource::Command { command_id } => {
+            json!({ "kind": "command", "command_id": command_id })
+        }
     }
 }
 

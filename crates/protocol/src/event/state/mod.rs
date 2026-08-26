@@ -134,14 +134,17 @@ pub(super) fn encode_movement(
 ) -> Result<(), EncodeError> {
     match update {
         MovementUpdate::Started {
+            source,
             current,
             destination,
         } => {
             output.push(1);
+            crate::action_source::encode(output, source)?;
             encode_tile_position(output, current);
             encode_destination(output, destination);
         }
         MovementUpdate::Stopped {
+            source,
             current,
             destination,
             reached_destination,
@@ -151,6 +154,7 @@ pub(super) fn encode_movement(
                 return Err(EncodeError::InvalidMovementOutcome);
             }
             output.push(2);
+            crate::action_source::encode(output, source)?;
             encode_tile_position(output, current);
             encode_destination(output, destination);
             output.push(match reached_destination {
@@ -167,6 +171,7 @@ pub(super) fn encode_movement(
             });
         }
         MovementUpdate::Obstructed {
+            source,
             map_id,
             current,
             attempted,
@@ -175,6 +180,7 @@ pub(super) fn encode_movement(
             mode,
         } => {
             output.push(3);
+            crate::action_source::encode(output, source)?;
             push_u32(output, map_id);
             encode_tile_position(output, current);
             encode_tile_position(output, attempted);
@@ -197,10 +203,12 @@ pub(super) fn decode_movement(
     let kind = reader.read_u8()?;
     match kind {
         1 => Ok(MovementUpdate::Started {
+            source: crate::action_source::decode(reader)?,
             current: decode_tile_position(reader)?,
             destination: decode_destination(reader)?,
         }),
         2 => {
+            let source = crate::action_source::decode(reader)?;
             let current = decode_tile_position(reader)?;
             let destination = decode_destination(reader)?;
             let actual = reader.read_u8()?;
@@ -224,6 +232,7 @@ pub(super) fn decode_movement(
                 actual => return Err(DecodeError::InvalidMovementStopReason { actual }),
             };
             Ok(MovementUpdate::Stopped {
+                source,
                 current,
                 destination,
                 reached_destination,
@@ -231,6 +240,7 @@ pub(super) fn decode_movement(
             })
         }
         3 => {
+            let source = crate::action_source::decode(reader)?;
             let map_id = reader.read_u32()?;
             let current = decode_tile_position(reader)?;
             let attempted = decode_tile_position(reader)?;
@@ -248,6 +258,7 @@ pub(super) fn decode_movement(
                 actual => return Err(DecodeError::InvalidMovementMode { actual }),
             };
             Ok(MovementUpdate::Obstructed {
+                source,
                 map_id,
                 current,
                 attempted,

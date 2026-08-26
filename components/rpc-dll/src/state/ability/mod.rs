@@ -164,7 +164,7 @@ fn parse_spell_values(body: &[u8]) -> QueuedSpellArguments {
         return QueuedSpellArguments::Unknown;
     }
     let mut values = [0; 4];
-    for (destination, source) in values.iter_mut().zip(bytes.chunks_exact(2)) {
+    for (destination, source) in values.iter_mut().zip(bytes.as_chunks::<2>().0) {
         *destination = u16::from_be_bytes([source[0], source[1]]);
     }
     QueuedSpellArguments::Values {

@@ -33,7 +33,7 @@ fn rva_range_to_file_offset(
         .checked_add(size)
         .ok_or_else(|| "RVA range overflow".to_owned())?;
 
-    for section in section_table.chunks_exact(SECTION_HEADER_SIZE) {
+    for section in section_table.as_chunks::<SECTION_HEADER_SIZE>().0 {
         let virtual_size = u32_at(section, SECTION_VIRTUAL_SIZE_OFFSET, "section virtual size")?;
         let virtual_address = u32_at(
             section,

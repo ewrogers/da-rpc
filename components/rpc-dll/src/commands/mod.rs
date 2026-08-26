@@ -3,7 +3,7 @@ mod storage;
 
 #[cfg(test)]
 use darpc_model::LookResultTarget;
-use darpc_model::{Direction, EquipmentSlot, LookTarget, MessageKind};
+use darpc_model::{ActionSource, Direction, EquipmentSlot, LookTarget, MessageKind};
 use darpc_protocol::{
     ChantText, CharacterStat, CommandFailure, CommandKind, CommandOperation, CommandResult,
     CommandState, CommandStatus, DialogAction, DialogCommand, DialogText, ExactRouteInvalidState,
@@ -15,6 +15,7 @@ use darpc_protocol::{
     TilePosition, TransferTarget, WalkRoute, WalkTarget,
 };
 use std::{
+    cell::Cell,
     num::NonZeroU32,
     panic,
     sync::atomic::{AtomicBool, AtomicU8, AtomicU16, AtomicU32, AtomicUsize, Ordering},
@@ -59,7 +60,33 @@ static PENDING_CAST_DEADLINE_TICK_MS: AtomicU32 = AtomicU32::new(0);
 static SLOTS: [CommandSlot; COMMAND_CAPACITY] = [const { CommandSlot::new() }; COMMAND_CAPACITY];
 static QUEUE: CommandQueue = CommandQueue::new();
 
+thread_local! {
+    static ACTIVE_COMMAND_ID: Cell<u32> = const { Cell::new(0) };
+}
+
+struct ActiveCommandGuard(u32);
+
+impl Drop for ActiveCommandGuard {
+    fn drop(&mut self) {
+        ACTIVE_COMMAND_ID.with(|active| active.set(self.0));
+    }
+}
+
+pub(crate) fn action_source() -> ActionSource {
+    ACTIVE_COMMAND_ID.with(|active| match active.get() {
+        0 => ActionSource::Client,
+        command_id => ActionSource::Command { command_id },
+    })
+}
+
+fn with_action_source<T>(command_id: u32, operation: impl FnOnce() -> T) -> T {
+    let previous = ACTIVE_COMMAND_ID.with(|active| active.replace(command_id));
+    let _guard = ActiveCommandGuard(previous);
+    operation()
+}
+
 pub(crate) fn reset() {
+    ACTIVE_COMMAND_ID.with(|active| active.set(0));
     #[cfg(windows)]
     crate::who::reset();
     crate::state::refresh::reset();
@@ -311,17 +338,19 @@ fn execute(slot_index: usize) {
         crate::diagnostics::clear_invalid_exact_route_state();
     }
     let result = panic::catch_unwind(|| {
-        if is_who {
-            execute_who(command_id)
-        } else if let CommandKind::InspectPlayer(id) = kind {
-            execute_player(command_id, id.get())
-        } else if let CommandKind::Look(target) = kind {
-            execute_look(command_id, target)
-        } else if matches!(kind, CommandKind::Resync) {
-            execute_resync(command_id)
-        } else {
-            execute_command(kind)
-        }
+        with_action_source(command_id, || {
+            if is_who {
+                execute_who(command_id)
+            } else if let CommandKind::InspectPlayer(id) = kind {
+                execute_player(command_id, id.get())
+            } else if let CommandKind::Look(target) = kind {
+                execute_look(command_id, target)
+            } else if matches!(kind, CommandKind::Resync) {
+                execute_resync(command_id)
+            } else {
+                execute_command(kind)
+            }
+        })
     })
     .unwrap_or(Err(CommandFailure::Internal));
     if is_exact_route
@@ -1219,4 +1248,25 @@ mod tests {
             result => panic!("expected status, received {result:?}"),
         }
     }
+}
+#[test]
+fn action_source_is_scoped_to_command_execution() {
+    reset();
+    assert_eq!(action_source(), ActionSource::Client);
+
+    let observed = with_action_source(41, action_source);
+
+    assert_eq!(observed, ActionSource::Command { command_id: 41 });
+    assert_eq!(action_source(), ActionSource::Client);
+}
+
+#[test]
+fn action_source_is_restored_after_a_panic() {
+    reset();
+    let result = panic::catch_unwind(|| {
+        with_action_source(41, || panic!("test panic"));
+    });
+
+    assert!(result.is_err());
+    assert_eq!(action_source(), ActionSource::Client);
 }

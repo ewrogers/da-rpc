@@ -5,7 +5,7 @@ use darpc_game_client::{
     RawModifiers, RawObjects, RawPaneProgression, RawSkillbook, RawSpellbook, RawWorldObject,
 };
 use darpc_model::{
-    CharacterAppearance, CharacterClass, CharacterModifiers, CharacterProgression,
+    ActionSource, CharacterAppearance, CharacterClass, CharacterModifiers, CharacterProgression,
     CharacterSnapshot, CharacterStats, CharacterVitals, ClientLifecycle, ClientSnapshot,
     CreatureKind, Direction, Effect, EffectDuration, Element, EquipmentItem, EquipmentSlot, Gender,
     InventoryItem, MapLocation, Skill, Spell, WorldObject,
@@ -147,6 +147,7 @@ fn character_snapshot(raw: &RawCharacter, world_token: u32, tick_ms: u32) -> Cha
         is_blinded: raw.is_blinded,
         is_casting: raw.is_casting,
         is_walking: raw.is_walking,
+        movement_source: movement_source(raw.is_walking),
         gold: raw.gold,
         weight: raw.weight,
         max_weight: raw.max_weight,
@@ -178,6 +179,20 @@ fn character_snapshot(raw: &RawCharacter, world_token: u32, tick_ms: u32) -> Cha
             .skillbook_available
             .then(|| skillbook(&raw.skillbook, tick_ms)),
         effects: raw.effects.map(effects),
+    }
+}
+
+fn movement_source(is_walking: bool) -> Option<ActionSource> {
+    if !is_walking {
+        return None;
+    }
+    #[cfg(all(windows, not(test)))]
+    {
+        crate::actions::movement::movement_source().or(Some(ActionSource::Unknown))
+    }
+    #[cfg(any(not(windows), test))]
+    {
+        Some(ActionSource::Unknown)
     }
 }
 

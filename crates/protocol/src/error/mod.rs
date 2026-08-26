@@ -382,6 +382,9 @@ pub enum DecodeError {
     InvalidClientLifecycle {
         actual: u8,
     },
+    InvalidActionSource {
+        actual: u8,
+    },
     InvalidCommandId,
     InvalidCommandOperation {
         actual: u8,
@@ -713,6 +716,9 @@ impl fmt::Display for DecodeError {
             }
             Self::InvalidClientLifecycle { actual } => {
                 write!(formatter, "invalid client lifecycle {actual}")
+            }
+            Self::InvalidActionSource { actual } => {
+                write!(formatter, "invalid action source {actual}")
             }
             Self::InvalidCommandId => formatter.write_str("command ID must be nonzero"),
             Self::InvalidCommandOperation { actual } => {

@@ -12,7 +12,9 @@ use darpc_game_client::{
     WORLD_PANE_ROUTE_ACTIVE_OFFSET, WORLD_PANE_ROUTE_STEP_COUNT_OFFSET,
     WORLD_PANE_ROUTE_VECTOR_OFFSET,
 };
-use darpc_model::{Direction, MovementStopReason, MovementUpdate, TilePosition, WalkMode};
+use darpc_model::{
+    ActionSource, Direction, MovementStopReason, MovementUpdate, TilePosition, WalkMode,
+};
 use darpc_protocol::{
     CommandFailure, ExactRouteInvalidState, ExactRouteInvalidStateReason, RouteTile, WalkRoute,
 };
@@ -56,6 +58,8 @@ static HAS_ROUTE_DESTINATION: AtomicBool = AtomicBool::new(false);
 static ROUTE_MODE: AtomicU8 = AtomicU8::new(0);
 static ROUTE_DESTINATION_X: AtomicI32 = AtomicI32::new(0);
 static ROUTE_DESTINATION_Y: AtomicI32 = AtomicI32::new(0);
+static MOVEMENT_SOURCE_KIND: AtomicU8 = AtomicU8::new(0);
+static MOVEMENT_SOURCE_COMMAND_ID: AtomicU32 = AtomicU32::new(0);
 static WALK_STEP_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 static WALK_STEP_STARTED_TICK: AtomicU32 = AtomicU32::new(0);
 static WALK_POSITION_VALID: AtomicBool = AtomicBool::new(false);
@@ -73,11 +77,12 @@ pub(super) fn walk(direction: Direction) -> Result<(), CommandFailure> {
 }
 
 pub(super) fn walk_to(x: i32, y: i32) -> Result<(), CommandFailure> {
+    let source = crate::commands::action_source();
     stop_current_movement(MovementStopReason::Replaced);
     clear_route_destination();
     let result = Movement::resolve()?.walk_to(x, y);
     if result.is_ok() {
-        set_route_destination(x, y, WalkMode::NativeRoute);
+        set_route_destination(x, y, WalkMode::NativeRoute, source);
     } else {
         clear_route_destination();
     }
@@ -210,7 +215,11 @@ pub(crate) fn route_destination() -> Option<TilePosition> {
         })
 }
 
-pub(crate) fn observe_native_route(world: *const c_void, destination: TilePosition) {
+pub(crate) fn observe_native_route(
+    world: *const c_void,
+    destination: TilePosition,
+    source: ActionSource,
+) {
     if world.is_null() {
         return;
     }
@@ -225,12 +234,32 @@ pub(crate) fn observe_native_route(world: *const c_void, destination: TilePositi
     if route_destination().is_some_and(|current| current != destination) {
         stop_current_movement(MovementStopReason::Replaced);
     }
-    set_route_destination(destination.x, destination.y, WalkMode::NativeRoute);
+    set_route_destination(destination.x, destination.y, WalkMode::NativeRoute, source);
 }
 
 pub(crate) fn clear_route_destination() {
     HAS_ROUTE_DESTINATION.store(false, Ordering::Release);
     ROUTE_MODE.store(0, Ordering::Release);
+    MOVEMENT_SOURCE_KIND.store(0, Ordering::Release);
+}
+
+pub(crate) fn movement_source() -> Option<ActionSource> {
+    match MOVEMENT_SOURCE_KIND.load(Ordering::Acquire) {
+        0 => None,
+        1 => Some(ActionSource::Unknown),
+        2 => Some(ActionSource::Client),
+        3 => Some(ActionSource::Command {
+            command_id: MOVEMENT_SOURCE_COMMAND_ID.load(Ordering::Relaxed),
+        }),
+        _ => None,
+    }
+}
+
+pub(crate) fn observe_client_movement() -> ActionSource {
+    movement_source().unwrap_or_else(|| {
+        set_movement_source(ActionSource::Client);
+        ActionSource::Client
+    })
 }
 
 pub(crate) fn reset_tracking() {
@@ -335,7 +364,12 @@ impl Movement {
         let accepted = unsafe { self.walk_fn()(self.world.as_ptr(), direction.raw()) } != 0;
         observe_step_result(accepted);
         if accepted {
-            set_route_destination(destination.x, destination.y, WalkMode::Direct);
+            set_route_destination(
+                destination.x,
+                destination.y,
+                WalkMode::Direct,
+                crate::commands::action_source(),
+            );
             Ok(())
         } else {
             publish_obstruction(self.world.as_ptr(), Some(direction), WalkMode::Direct);
@@ -496,13 +530,22 @@ impl Movement {
             || stop_current_movement(MovementStopReason::Replaced),
             || {
                 if let Some(destination) = installed.destination {
-                    set_route_destination(destination.x, destination.y, WalkMode::ExactRoute);
+                    set_route_destination(
+                        destination.x,
+                        destination.y,
+                        WalkMode::ExactRoute,
+                        crate::commands::action_source(),
+                    );
                 } else {
                     clear_route_destination();
                 }
             },
             || {
-                let _ = crate::route::observe(self.world.as_ptr(), tick_ms);
+                let _ = crate::route::observe(
+                    self.world.as_ptr(),
+                    tick_ms,
+                    crate::commands::action_source(),
+                );
             },
         );
         if installed.activation == RouteActivation::AwaitStepCompletion {
@@ -703,7 +746,7 @@ fn invalid_unresolved_exact_route_state(
     failure
 }
 
-fn set_route_destination(x: i32, y: i32, mode: WalkMode) {
+fn set_route_destination(x: i32, y: i32, mode: WalkMode, source: ActionSource) {
     ROUTE_DESTINATION_X.store(x, Ordering::Relaxed);
     ROUTE_DESTINATION_Y.store(y, Ordering::Relaxed);
     ROUTE_MODE.store(
@@ -714,7 +757,25 @@ fn set_route_destination(x: i32, y: i32, mode: WalkMode) {
         },
         Ordering::Relaxed,
     );
+    set_movement_source(source);
     HAS_ROUTE_DESTINATION.store(true, Ordering::Release);
+}
+
+fn set_movement_source(source: ActionSource) {
+    match source {
+        ActionSource::Unknown => {
+            MOVEMENT_SOURCE_COMMAND_ID.store(0, Ordering::Relaxed);
+            MOVEMENT_SOURCE_KIND.store(1, Ordering::Release);
+        }
+        ActionSource::Client => {
+            MOVEMENT_SOURCE_COMMAND_ID.store(0, Ordering::Relaxed);
+            MOVEMENT_SOURCE_KIND.store(2, Ordering::Release);
+        }
+        ActionSource::Command { command_id } => {
+            MOVEMENT_SOURCE_COMMAND_ID.store(command_id, Ordering::Relaxed);
+            MOVEMENT_SOURCE_KIND.store(3, Ordering::Release);
+        }
+    }
 }
 
 fn stop_current_movement(reason: MovementStopReason) {
@@ -738,6 +799,7 @@ fn publish_obstruction(world: *mut c_void, direction: Option<Direction>, mode: W
     };
     crate::state::observe_movement(
         MovementUpdate::Obstructed {
+            source: movement_source().unwrap_or_else(crate::commands::action_source),
             map_id,
             current,
             attempted,

@@ -67,6 +67,7 @@ fn snapshot() -> ClientSnapshot {
         }),
         legend: None,
         planned_route: Some(PlannedRoute {
+            source: darpc_model::ActionSource::Client,
             generation: 8,
             tiles: vec![TilePosition { x: 2, y: 3 }, TilePosition { x: 3, y: 3 }],
         }),
@@ -83,7 +84,7 @@ fn snapshot_output_keeps_dialog_without_character_state() {
     assert!(human.contains("message_dialogs: revision=8 dialogs=1"));
     assert!(human.contains("message_dialog: id=3 text=\"You sense danger nearby.\""));
     assert!(human.contains("exchange: id=9 partner=ZiLo"));
-    assert!(human.contains("planned_route: generation=8 tiles=2"));
+    assert!(human.contains("planned_route: source=client generation=8 tiles=2"));
     assert!(human.contains("planned_route_tile: index=1 x=3 y=3"));
     assert!(human.contains("exchange_item: party=local index=0 name=Red Potion quantity=2"));
     assert!(human.contains("0\t\"Ask\""));
@@ -99,6 +100,10 @@ fn snapshot_output_keeps_dialog_without_character_state() {
     );
     assert_eq!(json["snapshot"]["exchange"]["partner"], "ZiLo");
     assert_eq!(json["snapshot"]["planned_route"]["generation"], 8);
+    assert_eq!(
+        json["snapshot"]["planned_route"]["source"]["kind"],
+        "client"
+    );
     assert_eq!(json["snapshot"]["planned_route"]["tiles"][1]["x"], 3);
     assert_eq!(
         json["snapshot"]["exchange"]["local"]["items"][0]["quantity"],

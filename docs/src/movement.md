@@ -197,6 +197,29 @@ route.
 A useful starting segment length is 4 through 16 edges. The best value depends
 on map density and how quickly the controller receives object updates.
 
+## Action source
+
+Movement, turns, and planned routes expose a tagged source:
+
+```text
+{ "kind": "unknown" }
+{ "kind": "client" }
+{ "kind": "command", "command_id": 41 }
+```
+
+`command` means the action occurred while the DLL executed that exact daRPC
+command. `client` means it originated inside the game client outside command
+execution. This includes physical keyboard or mouse input, synthetic Windows
+input, native client behavior, and other injected tools, so it must not be
+treated as proof of a human action. `unknown` is used when observation began
+after an action was already active or the origin could not be retained.
+
+Status exposes `character.movement_source`. It is null while idle and carries
+the retained source for an active movement episode. A `walking.stopped` source
+describes the movement episode that ended, not necessarily the action that
+caused it to stop. For example, turning can cancel command-originated movement,
+but the stop event still identifies that movement command.
+
 ## Stop reasons
 
 `walking.stopped` contains:
@@ -204,6 +227,7 @@ on map density and how quickly the controller receives object updates.
 ```text
 walking.stopped {
     observation: EventObservation,
+    source: ActionSource,
     current: TilePosition,
     destination: TilePosition?,
     reached_destination: bool?,
@@ -228,6 +252,7 @@ inside the game when no reliable destination was observed.
 
 ```text
 planned_route {
+    source: ActionSource,
     generation: u32,
     tiles: Vec<TilePosition>,
 }
@@ -243,6 +268,7 @@ the generation. An empty tile list is the authoritative cleared route.
 ```text
 walking.obstructed {
     observation: EventObservation,
+    source: ActionSource,
     map_id: u32,
     current: TilePosition,
     attempted: TilePosition,

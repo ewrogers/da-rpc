@@ -158,6 +158,7 @@ pub struct CharacterSnapshot {
     pub is_blinded: bool,
     pub is_casting: bool,
     pub is_walking: bool,
+    pub movement_source: Option<crate::ActionSource>,
     pub gold: u32,
     pub weight: u32,
     pub max_weight: u32,

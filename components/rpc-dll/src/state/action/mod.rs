@@ -29,7 +29,10 @@ fn parse(body: &[u8]) -> Option<ActionUpdate> {
             position: position(body, 2, 4)?,
         }),
         0x11 if body.len() == 2 => {
-            Direction::from_raw(body[1]).map(|direction| ActionUpdate::Turned { direction })
+            Direction::from_raw(body[1]).map(|direction| ActionUpdate::Turned {
+                source: crate::commands::action_source(),
+                direction,
+            })
         }
         0x1C if body.len() == 2 => Some(ActionUpdate::ItemUsed { slot: body[1] }),
         0x1D if body.len() == 2 => Some(ActionUpdate::Emoted { code: body[1] }),

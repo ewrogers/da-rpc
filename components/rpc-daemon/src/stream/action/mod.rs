@@ -62,6 +62,7 @@ pub(crate) struct Emoted {
 #[derive(Clone, Debug, Serialize, ToSchema)]
 pub(crate) struct Turned {
     pub(super) observation: EventObservation,
+    source: crate::action_source::ActionSource,
     direction: Direction,
 }
 
@@ -125,8 +126,9 @@ pub(super) fn expand_action(observation: EventObservation, update: ActionUpdate)
             })
         }
         ActionUpdate::Emoted { code } => ClientEvent::Emoted(Emoted { observation, code }),
-        ActionUpdate::Turned { direction } => ClientEvent::Turned(Turned {
+        ActionUpdate::Turned { source, direction } => ClientEvent::Turned(Turned {
             observation,
+            source: source.into(),
             direction: direction.into(),
         }),
         ActionUpdate::Resync { resync_id } => ClientEvent::ClientResync(ClientResync {

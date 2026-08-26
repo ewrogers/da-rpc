@@ -1,6 +1,8 @@
 //! daRPC daemon.
 
 #[cfg(any(windows, test))]
+mod action_source;
+#[cfg(any(windows, test))]
 mod api;
 #[cfg(any(windows, test))]
 mod auto_load;

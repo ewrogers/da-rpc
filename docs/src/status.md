@@ -42,6 +42,8 @@ The character data includes:
   element
 - `is_hidden`, `is_blinded`, `is_casting`, `is_walking`, and
   `is_action_restricted`
+- `movement_source`, which identifies the active movement origin and is null
+  while idle
 - The last server-confirmed `is_group_open` setting and current `group_members`
 
 The map data includes its ID, available name, zero-based x/y position, width,
@@ -62,6 +64,7 @@ Character {
     is_blinded: bool,
     is_casting: bool,
     is_walking: bool,
+    movement_source: ActionSource?,
     is_group_open: bool?,
     is_in_exchange: bool,
     group_members: Vec<GroupMember>,
@@ -84,15 +87,18 @@ MapLocation {
 }
 
 PlannedRoute {
+    source: ActionSource,
     generation: u32,
     tiles: Vec<{ x: i32, y: i32 }>,
 }
 ```
 
 `planned_route.tiles` contains the complete native plan from the current tile
-through the goal. It is replaced atomically after pathfinder rebuilds and as
-confirmed steps are consumed. See [Movement](movement.md#route-and-obstruction-events)
-for generation and empty-route behavior.
+through the goal. Its `source` identifies who built or replaced that plan. It
+is replaced atomically after pathfinder rebuilds and as confirmed steps are
+consumed. See [Movement](movement.md#action-source) for source semantics and
+[Movement](movement.md#route-and-obstruction-events) for generation and
+empty-route behavior.
 
 ## Hidden characters
 

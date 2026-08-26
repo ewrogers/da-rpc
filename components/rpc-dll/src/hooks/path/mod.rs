@@ -311,9 +311,10 @@ extern "C" fn observe_path(world: *const c_void, result: usize) {
     let _ = panic::catch_unwind(|| {
         if result != 0 {
             let tick_ms = darpc_win32::pipe::sender_tick_ms();
-            if let Some(destination) = crate::route::observe(world, tick_ms) {
+            let source = crate::commands::action_source();
+            if let Some(destination) = crate::route::observe(world, tick_ms, source) {
                 #[cfg(not(test))]
-                crate::actions::movement::observe_native_route(world, destination);
+                crate::actions::movement::observe_native_route(world, destination, source);
                 #[cfg(test)]
                 let _ = destination;
             }

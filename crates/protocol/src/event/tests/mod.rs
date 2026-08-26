@@ -1,5 +1,6 @@
 use super::*;
 use crate::message::{Message, MessageType};
+use darpc_model::ActionSource;
 
 #[test]
 fn empty_status_update_is_detected() {
@@ -13,6 +14,7 @@ fn movement_outcome_requires_a_known_destination() {
         encode_movement(
             &mut output,
             MovementUpdate::Stopped {
+                source: ActionSource::Client,
                 current: TilePosition { x: 2, y: 8 },
                 destination: None,
                 reached_destination: Some(false),
@@ -36,6 +38,7 @@ fn movement_stop_reason_codes_are_stable() {
         encode_movement(
             &mut output,
             MovementUpdate::Stopped {
+                source: ActionSource::Client,
                 current: TilePosition { x: 2, y: 8 },
                 destination: Some(TilePosition { x: 2, y: 8 }),
                 reached_destination: Some(true),

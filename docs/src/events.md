@@ -435,12 +435,14 @@ Read the current flags and position from `GET /clients/{client}/status`. See
 ```text
 walking.started {
     observation: EventObservation,
+    source: ActionSource,
     current: TilePosition,
     destination: TilePosition?,
 }
 
 walking.stopped {
     observation: EventObservation,
+    source: ActionSource,
     current: TilePosition,
     destination: TilePosition?,
     reached_destination: bool?,
@@ -449,6 +451,7 @@ walking.stopped {
 
 walking.obstructed {
     observation: EventObservation,
+    source: ActionSource,
     map_id: u32,
     current: TilePosition,
     attempted: TilePosition,
@@ -459,12 +462,14 @@ walking.obstructed {
 
 walking.route_changed {
     observation: EventObservation,
+    source: ActionSource,
     generation: u32,
     tiles: Vec<TilePosition>,
 }
 
 character.turned {
     observation: EventObservation,
+    source: ActionSource,
     direction: Direction,
 }
 
@@ -484,6 +489,10 @@ replacement rejected during preflight leaves the existing route intact and
 emits no replacement, route-change, or obstruction event.
 Action events mean the request reached the client's normal action boundary.
 They do not promise that the server accepted the result.
+The source is a tagged object with kind `unknown`, `client`, or `command`.
+Command sources also contain `command_id`. See
+[Movement action source](movement.md#action-source) for its guarantees and
+limitations.
 
 ## Inventory and equipment events
 

@@ -506,7 +506,7 @@ fn stored_tiles(count: u32, input: &[u8]) -> Option<([RouteTile; MAX_WALK_ROUTE_
         return None;
     }
     let mut tiles = [RouteTile { x: 0, y: 0 }; MAX_WALK_ROUTE_TILES];
-    for (tile, bytes) in tiles.iter_mut().zip(input.chunks_exact(4)) {
+    for (tile, bytes) in tiles.iter_mut().zip(input.as_chunks::<4>().0) {
         *tile = RouteTile {
             x: u16::from_le_bytes(bytes[..2].try_into().ok()?),
             y: u16::from_le_bytes(bytes[2..].try_into().ok()?),

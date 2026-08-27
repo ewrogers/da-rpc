@@ -13,6 +13,7 @@ use crate::{
     message_dialog::MessageDialogsChanged,
     messages::Message,
     registry::{ClientIdentity, hex},
+    shutdown::Shutdown,
     state::{EffectDuration, Element, InventoryItem, Skill, Spell, WorldObject},
 };
 use async_stream::stream;
@@ -600,8 +601,10 @@ pub(crate) fn response(
     revision: u32,
     event_sequence: u32,
     mut receiver: broadcast::Receiver<PublishedEvent>,
+    shutdown: Shutdown,
 ) -> impl IntoResponse {
     let events = stream! {
+        let mut shutdown_receiver = shutdown.subscribe();
         let ready = ClientEvent::StreamReady(StreamReady::new(
             pid,
             identity,
@@ -612,7 +615,19 @@ pub(crate) fn response(
 
         let mut last_sequence = event_sequence;
         loop {
-            match receiver.recv().await {
+            if shutdown.is_cancelled() {
+                break;
+            }
+            let published = tokio::select! {
+                published = receiver.recv() => published,
+                changed = shutdown_receiver.changed() => {
+                    if changed.is_err() || shutdown.is_cancelled() {
+                        break;
+                    }
+                    continue;
+                }
+            };
+            match published {
                 Ok(PublishedEvent::Internal {
                     recipients,
                     message,

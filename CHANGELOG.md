@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 1.8.1 - 2026-08-27
+
+### Added
+
+- Add `darpcd --managed` for supervisors and embedded hosts. In managed mode,
+  standard-input EOF requests graceful shutdown, including client-worker
+  teardown and bounded HTTP-server shutdown, while standard-input read failures
+  return a nonzero exit status.
+
 ## 1.8.0 - 2026-08-26
 
 ### Added

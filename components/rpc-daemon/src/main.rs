@@ -25,6 +25,8 @@ mod group;
 #[cfg(any(windows, test))]
 mod lifecycle;
 #[cfg(any(windows, test))]
+mod managed;
+#[cfg(any(windows, test))]
 mod message_dialog;
 #[cfg(any(windows, test))]
 mod messages;
@@ -35,6 +37,8 @@ mod registry;
 mod resync_status;
 #[cfg(any(windows, test))]
 mod roster;
+#[cfg(any(windows, test))]
+mod shutdown;
 #[cfg(any(windows, test))]
 mod state;
 #[cfg(any(windows, test))]
@@ -89,6 +93,7 @@ fn run(options: Options) -> Result<(), String> {
     use commands::ROUTER_CAPACITY;
     use event::DaemonEvent;
     use lifecycle::{LifecycleControl, LoaderControl};
+    use managed::ManagedLifetime;
     use roster::ClientRoster;
     use std::{
         io::Write as _,
@@ -129,6 +134,13 @@ fn run(options: Options) -> Result<(), String> {
     let discovered_pids = discovery::client_pids()
         .map_err(|error| format!("failed to enumerate game windows: {error}"))?;
     let (sender, receiver) = mpsc::channel();
+    let _managed_lifetime = options
+        .managed
+        .then(|| {
+            ManagedLifetime::start(sender.clone())
+                .map_err(|error| format!("failed to start managed lifetime worker: {error}"))
+        })
+        .transpose()?;
     let (command_sender, command_receiver) = mpsc::sync_channel(ROUTER_CAPACITY);
     let mut roster = ClientRoster::new(explicit_pids, sender.clone());
     roster.reconcile(&discovered_pids, Instant::now());
@@ -139,7 +151,7 @@ fn run(options: Options) -> Result<(), String> {
     for pid in roster.pids() {
         discover_maps_directory(&api_state, pid);
     }
-    let _api_worker = api::start(options.listen, api_state.clone())
+    let api_worker = api::start(options.listen, api_state.clone())
         .map_err(|error| format!("failed to listen on {}: {error}", options.listen))?;
     if !options.listen.ip().is_loopback() {
         eprintln!(
@@ -147,7 +159,7 @@ fn run(options: Options) -> Result<(), String> {
              restrict non-loopback access with a trusted network and Windows Firewall"
         );
     }
-    println!("HTTP API listening on http://{}", options.listen);
+    println!("HTTP API listening on http://{}", api_worker.address());
     println!("loader path: {}", loader_path.display());
     println!("DLL path: {}", dll_path.display());
     println!(
@@ -285,6 +297,13 @@ fn run(options: Options) -> Result<(), String> {
                 if let Ok(call) = command_receiver.try_recv() {
                     roster.route_command(call);
                 }
+            }
+            Ok(DaemonEvent::ManagedShutdown(result)) => {
+                api_worker
+                    .shutdown()
+                    .map_err(|error| format!("failed to stop HTTP worker: {error}"))?;
+                result.map_err(|error| format!("managed lifetime pipe failed: {error}"))?;
+                return Ok(());
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
             Err(mpsc::RecvTimeoutError::Disconnected) => {

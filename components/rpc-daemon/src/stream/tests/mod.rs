@@ -42,7 +42,7 @@ fn rejected_observations_close_streams_with_resync_required() {
         .build()
         .unwrap()
         .block_on(async {
-            let response = response(42, identity, 3, 2, receiver).into_response();
+            let response = response(42, identity, 3, 2, receiver, Shutdown::new()).into_response();
             sender
                 .send(PublishedEvent::ResyncRequired { pid: 42, identity })
                 .unwrap();

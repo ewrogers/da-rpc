@@ -34,7 +34,7 @@ client memory or local state.
 
 ```text
 darpcd.exe [--pid <pid> ...] [--port <port> | --listen <ipv4[:port]>]
-           [--auto-load]
+           [--auto-load] [--managed]
            [--loader-path <path>] [--dll-path <path>] [--maps-path <path>]
 darpcd.exe --print-openapi
 ```
@@ -45,6 +45,7 @@ darpcd.exe --print-openapi
 | `--port <port>` | Listen on this TCP port instead of `2626`. The listener remains bound to `127.0.0.1`. |
 | `--listen <ipv4[:port]>` | Bind to an explicit IPv4 interface and optional port. An omitted port defaults to `2626`. This flag cannot be combined with `--port`. |
 | `--auto-load` | Use the configured loader and DLL once for each discovered, supported client that is not already loaded. |
+| `--managed` | Treat standard input as a parent-owned lifetime pipe and shut down normally when it reaches end-of-file. |
 | `--loader-path <path>` | Use this `loader.exe` for managed load, unload, launch, and automatic loading. The default is `loader.exe` beside the daemon. |
 | `--dll-path <path>` | Use this `darpc.dll` for managed load, launch, and automatic loading. The default is `darpc.dll` beside the daemon. |
 | `--maps-path <path>` | Override the automatically discovered local client `Maps` directory used by `GET /maps/{map_id}/download`. The path must name an existing directory. |
@@ -77,6 +78,26 @@ files:
 ```text
 darpcd.exe --auto-load --loader-path "C:\daRPC\loader.exe" --dll-path "C:\daRPC\darpc.dll"
 ```
+
+Run the daemon as a child owned by another program:
+
+```text
+darpcd.exe --managed --auto-load
+```
+
+The parent must start the child with piped standard input and retain the sole
+write end. The daemon ignores bytes written to the pipe; they are not commands.
+Closing the write end, including when the parent exits unexpectedly, produces
+end-of-file and requests a normal daemon shutdown. The daemon stops discovery
+and new HTTP connections, closes active Server-Sent Events streams, gives
+other in-flight HTTP requests a bounded drain period, and exits successfully.
+It does not stop `Darkages.exe`, unload `darpc.dll`, or detach clients.
+
+Without `--managed`, the daemon never reads standard input. `--managed` cannot
+be combined with `--print-openapi`, and there is no HTTP shutdown route. A
+parent that launches additional child processes must ensure they do not inherit
+another copy of the lifetime pipe's write end, because any remaining writer
+delays end-of-file.
 
 Override the local client's automatically discovered map directory:
 

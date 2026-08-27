@@ -16,4 +16,5 @@ pub(crate) enum DaemonEvent {
     Status(ConnectionEvent),
     Track(u32),
     CommandsReady,
+    ManagedShutdown(std::io::Result<()>),
 }

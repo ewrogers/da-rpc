@@ -38,6 +38,7 @@ use crate::{
         hex,
     },
     resync_status::{ResyncSchedulerStatus, ResyncTrackers},
+    shutdown::Shutdown,
     state::{
         CharacterClass as SnapshotCharacterClass, CharacterGender, CharacterModifiers,
         CharacterProgression, CharacterStats, CharacterStatus, CharacterVitals,
@@ -49,7 +50,7 @@ use crate::{
     stream::{self, ClientEvent, PickupFeedbackTrackers, PublishedEvent, SpellFeedbackTrackers},
 };
 use axum::{
-    Json, Router,
+    Extension, Json, Router,
     body::Body,
     extract::{
         DefaultBodyLimit, Path, Query, State,
@@ -67,8 +68,9 @@ use darpc_protocol::{Hello, protocol_version_major, protocol_version_minor};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap},
+    future::IntoFuture as _,
     io,
-    net::{SocketAddrV4, TcpListener},
+    net::{SocketAddr, SocketAddrV4, TcpListener},
     path::PathBuf,
     sync::{
         Arc, Mutex, RwLock, Weak,
@@ -561,33 +563,97 @@ fn ability_context(
     (ability_name, target_name)
 }
 
-pub(crate) fn start(address: SocketAddrV4, state: ApiState) -> io::Result<JoinHandle<()>> {
+const SHUTDOWN_GRACE_PERIOD: Duration = Duration::from_secs(2);
+
+pub(crate) struct ApiWorker {
+    address: SocketAddrV4,
+    shutdown: Shutdown,
+    worker: Option<JoinHandle<io::Result<()>>>,
+}
+
+impl ApiWorker {
+    pub(crate) fn address(&self) -> SocketAddrV4 {
+        self.address
+    }
+
+    pub(crate) fn shutdown(mut self) -> io::Result<()> {
+        self.shutdown.cancel();
+        let worker = self
+            .worker
+            .take()
+            .ok_or_else(|| io::Error::other("HTTP worker is not running"))?;
+        worker
+            .join()
+            .map_err(|_| io::Error::other("HTTP worker panicked"))?
+    }
+}
+
+impl Drop for ApiWorker {
+    fn drop(&mut self) {
+        self.shutdown.cancel();
+    }
+}
+
+pub(crate) fn start(address: SocketAddrV4, state: ApiState) -> io::Result<ApiWorker> {
     let listener = TcpListener::bind(address)?;
     listener.set_nonblocking(true)?;
+    let address = match listener.local_addr()? {
+        SocketAddr::V4(address) => address,
+        SocketAddr::V6(_) => return Err(io::Error::other("HTTP listener is not IPv4")),
+    };
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_io()
         .enable_time()
         .build()?;
+    let shutdown = Shutdown::new();
+    let worker_shutdown = shutdown.clone();
 
-    thread::Builder::new()
+    let worker = thread::Builder::new()
         .name("darpcd-http".into())
         .spawn(move || {
             runtime.block_on(async move {
-                let listener = match tokio::net::TcpListener::from_std(listener) {
-                    Ok(listener) => listener,
-                    Err(error) => {
-                        eprintln!("darpcd: HTTP listener failed: {error}");
-                        return;
+                let listener = tokio::net::TcpListener::from_std(listener)?;
+                let graceful_shutdown = worker_shutdown.clone();
+                let shutdown_deadline = worker_shutdown.clone();
+                let event_stream_shutdown = worker_shutdown.clone();
+                let mut server = Box::pin(
+                    axum::serve(listener, router_with_shutdown(state, event_stream_shutdown))
+                        .with_graceful_shutdown(graceful_shutdown.cancelled())
+                        .into_future(),
+                );
+                let result = tokio::select! {
+                    result = &mut server => result,
+                    () = shutdown_deadline.cancelled() => {
+                        tokio::time::timeout(SHUTDOWN_GRACE_PERIOD, &mut server)
+                            .await
+                            .map_err(|_| {
+                                io::Error::new(
+                                    io::ErrorKind::TimedOut,
+                                    "HTTP server did not stop within the shutdown grace period",
+                                )
+                            })?
                     }
                 };
-                if let Err(error) = axum::serve(listener, router(state)).await {
+                if let Err(error) = &result {
                     eprintln!("darpcd: HTTP server failed: {error}");
                 }
-            });
-        })
+                result
+            })
+        })?;
+
+    Ok(ApiWorker {
+        address,
+        shutdown,
+        worker: Some(worker),
+    })
 }
 
+#[cfg(test)]
 fn router(state: ApiState) -> Router {
+    router_with_shutdown(state, Shutdown::new())
+}
+
+fn router_with_shutdown(state: ApiState, shutdown: Shutdown) -> Router {
     Router::<ApiState>::new()
         .route("/health", get(health))
         .route("/maps/{map_id}/download", get(maps::download))
@@ -813,6 +879,7 @@ fn router(state: ApiState) -> Router {
         .merge(SwaggerUi::new("/docs/assets").url("/openapi.json", openapi()))
         .layer(from_fn(reject_request_body))
         .layer(DefaultBodyLimit::max(MAX_REQUEST_BODY))
+        .layer(Extension(shutdown))
         .with_state(state)
 }
 

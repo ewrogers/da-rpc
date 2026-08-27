@@ -8,7 +8,7 @@ use std::{
 const DEFAULT_PORT: u16 = 2626;
 pub(crate) const USAGE: &str = concat!(
     "usage: darpcd [--pid <pid> ...] [--port <port> | --listen <ipv4[:port]>] ",
-    "[--auto-load] ",
+    "[--auto-load] [--managed] ",
     "[--loader-path <path>] [--dll-path <path>] [--maps-path <path>]\n       ",
     "darpcd --print-openapi"
 );
@@ -18,6 +18,7 @@ pub(crate) struct Options {
     pub(crate) pids: Vec<u32>,
     pub(crate) listen: SocketAddrV4,
     pub(crate) auto_load: bool,
+    pub(crate) managed: bool,
     pub(crate) loader_path: Option<PathBuf>,
     pub(crate) dll_path: Option<PathBuf>,
     pub(crate) maps_path: Option<PathBuf>,
@@ -33,6 +34,7 @@ pub(crate) fn parse_options(
     let mut port = None;
     let mut listen = None;
     let mut auto_load = false;
+    let mut managed = false;
     let mut loader_path = None;
     let mut dll_path = None;
     let mut maps_path = None;
@@ -89,6 +91,11 @@ pub(crate) fn parse_options(
                 return Err("--auto-load may be provided only once".into());
             }
             auto_load = true;
+        } else if option == "--managed" {
+            if managed {
+                return Err("--managed may be provided only once".into());
+            }
+            managed = true;
         } else if option == "--loader-path" {
             parse_path_option(&mut arguments, &mut loader_path, "--loader-path")?;
         } else if option == "--dll-path" {
@@ -110,6 +117,7 @@ pub(crate) fn parse_options(
             || port.is_some()
             || listen.is_some()
             || auto_load
+            || managed
             || loader_path.is_some()
             || dll_path.is_some()
             || maps_path.is_some())
@@ -126,6 +134,7 @@ pub(crate) fn parse_options(
             SocketAddrV4::new(Ipv4Addr::LOCALHOST, port.unwrap_or(DEFAULT_PORT))
         }),
         auto_load,
+        managed,
         loader_path,
         dll_path,
         maps_path,
@@ -188,6 +197,7 @@ mod tests {
                 pids: vec![42, 7],
                 listen: default_listen(),
                 auto_load: false,
+                managed: false,
                 loader_path: None,
                 dll_path: None,
                 maps_path: None,
@@ -200,6 +210,7 @@ mod tests {
                 pids: vec![42],
                 listen: SocketAddrV4::new(Ipv4Addr::LOCALHOST, 3000),
                 auto_load: false,
+                managed: false,
                 loader_path: None,
                 dll_path: None,
                 maps_path: None,
@@ -224,6 +235,7 @@ mod tests {
                 pids: Vec::new(),
                 listen: default_listen(),
                 auto_load: false,
+                managed: false,
                 loader_path: Some("tools/loader.exe".into()),
                 dll_path: Some("tools/darpc.dll".into()),
                 maps_path: Some("C:\\Dark Ages\\Maps".into()),
@@ -241,6 +253,18 @@ mod tests {
                 .unwrap()
                 .print_openapi
         );
+    }
+
+    #[test]
+    fn managed_mode_is_disabled_by_default_and_can_be_enabled() {
+        assert!(!parse_options(Vec::<OsString>::new()).unwrap().managed);
+        assert!(parse_options(arguments(&["--managed"])).unwrap().managed);
+    }
+
+    #[test]
+    fn managed_mode_rejects_duplicates_and_openapi_export() {
+        assert!(parse_options(arguments(&["--managed", "--managed"])).is_err());
+        assert!(parse_options(arguments(&["--managed", "--print-openapi"])).is_err());
     }
 
     #[test]

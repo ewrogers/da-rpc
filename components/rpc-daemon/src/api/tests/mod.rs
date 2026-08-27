@@ -58,13 +58,15 @@ use darpc_protocol::{
 use serde_json::Value;
 use std::{
     fs,
-    net::{Ipv4Addr, SocketAddrV4, TcpListener},
+    io::{self, Read as _, Write as _},
+    net::{Ipv4Addr, SocketAddrV4, TcpListener, TcpStream},
     path::PathBuf,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
         mpsc,
     },
+    time::{Duration, Instant},
 };
 use tower::ServiceExt as _;
 
@@ -556,6 +558,83 @@ fn map_directory() -> PathBuf {
         std::process::id(),
         NEXT_MAP_DIRECTORY.fetch_add(1, Ordering::Relaxed)
     ))
+}
+
+#[test]
+fn http_worker_shutdown_releases_listener() {
+    let worker = start(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0), state())
+        .expect("HTTP worker should start");
+    let address = worker.address();
+
+    worker.shutdown().expect("HTTP worker should stop");
+
+    TcpListener::bind(address).expect("HTTP listener should be released after shutdown");
+}
+
+#[test]
+fn dropping_http_worker_releases_listener() {
+    let worker = start(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0), state())
+        .expect("HTTP worker should start");
+    let address = worker.address();
+
+    drop(worker);
+
+    let deadline = Instant::now() + Duration::from_secs(3);
+    loop {
+        match TcpListener::bind(address) {
+            Ok(_) => break,
+            Err(_) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
+            Err(error) => panic!("dropped HTTP worker retained its listener: {error}"),
+        }
+    }
+}
+
+#[test]
+fn http_worker_shutdown_closes_active_event_stream() {
+    let worker = start(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0), state())
+        .expect("HTTP worker should start");
+    let mut connection = TcpStream::connect(worker.address()).expect("HTTP server should accept");
+    connection
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .unwrap();
+    connection
+        .write_all(
+            b"GET /clients/42/events HTTP/1.1\r\nHost: localhost\r\nConnection: keep-alive\r\n\r\n",
+        )
+        .unwrap();
+
+    let mut response = Vec::new();
+    while !String::from_utf8_lossy(&response).contains("event: stream.ready") {
+        let mut buffer = [0_u8; 1024];
+        let length = connection.read(&mut buffer).unwrap();
+        assert_ne!(length, 0, "event stream closed before becoming ready");
+        response.extend_from_slice(&buffer[..length]);
+    }
+
+    let started = Instant::now();
+    worker
+        .shutdown()
+        .expect("active event stream should not prevent shutdown");
+    assert!(started.elapsed() < Duration::from_secs(3));
+
+    let mut buffer = [0_u8; 64];
+    loop {
+        match connection.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(_) => {}
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    io::ErrorKind::ConnectionAborted
+                        | io::ErrorKind::ConnectionReset
+                        | io::ErrorKind::UnexpectedEof
+                ) =>
+            {
+                break;
+            }
+            Err(error) => panic!("event stream remained open after shutdown: {error}"),
+        }
+    }
 }
 
 #[test]

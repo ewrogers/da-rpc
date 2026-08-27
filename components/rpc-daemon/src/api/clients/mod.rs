@@ -430,6 +430,7 @@ pub(super) async fn client_messages(
 pub(super) async fn client_events(
     Path(identifier): Path<String>,
     State(state): State<ApiState>,
+    Extension(shutdown): Extension<Shutdown>,
 ) -> Result<Response, ApiError> {
     let receiver = state.subscribe();
     let registry = state.snapshot();
@@ -472,6 +473,7 @@ pub(super) async fn client_events(
         snapshot.revision,
         snapshot.event_sequence,
         receiver,
+        shutdown,
     )
     .into_response())
 }

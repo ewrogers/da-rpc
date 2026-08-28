@@ -2,13 +2,13 @@
 
 ## Unreleased
 
+## 1.8.2 - 2026-08-28
+
 ### Fixed
 
 - Coalesce main-thread tick work to one run per distinct Windows millisecond
   tick so the client event-dispatcher loop cannot repeat state observation tens
   of thousands of times per second.
-
-## 1.8.2 - 2026-08-28
 
 ### Added
 

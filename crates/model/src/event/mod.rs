@@ -904,6 +904,19 @@ impl Slotted for Spell {
     fn slot(&self) -> u8 {
         self.slot
     }
+
+    fn matches_baseline(&self, current: &Self) -> bool {
+        self.slot == current.slot
+            && self.icon == current.icon
+            && self.name == current.name
+            && self.level == current.level
+            && self.max_level == current.max_level
+            && self.lines == current.lines
+            && self.target_type == current.target_type
+            && self.prompt == current.prompt
+            && self.cooldown.active == current.cooldown.active
+            && self.cooldown.cooldown_ms == current.cooldown.cooldown_ms
+    }
 }
 
 impl Slotted for Skill {
@@ -1463,5 +1476,59 @@ mod tests {
         .unwrap();
 
         assert_eq!(skills, vec![ready]);
+    }
+
+    #[test]
+    fn spell_update_accepts_elapsed_remaining_time_in_its_baseline() {
+        let retained = Spell {
+            slot: 32,
+            icon: 75,
+            name: Some("mor strioch pian gar".into()),
+            level: 100,
+            max_level: 100,
+            lines: 0,
+            target_type: crate::SpellTargetType::None,
+            prompt: None,
+            cooldown: CooldownStatus {
+                active: true,
+                cooldown_ms: Some(1_000),
+                remaining_ms: Some(750),
+            },
+        };
+        let ready = Spell {
+            cooldown: CooldownStatus {
+                active: false,
+                cooldown_ms: None,
+                remaining_ms: None,
+            },
+            ..retained.clone()
+        };
+        let mut changed_metadata = retained.clone();
+        changed_metadata.lines = 1;
+        assert!(!changed_metadata.matches_baseline(&retained));
+        let mut spells = vec![retained.clone()];
+
+        apply_slot_update(
+            &mut spells,
+            SlotUpdate {
+                batch_index: 0,
+                batch_count: 1,
+                change: CollectionChange::Changed,
+                slot: retained.slot,
+                before: Some(Spell {
+                    cooldown: CooldownStatus {
+                        active: true,
+                        cooldown_ms: Some(1_000),
+                        remaining_ms: Some(1),
+                    },
+                    ..retained
+                }),
+                after: Some(ready.clone()),
+            },
+            CollectionKind::Spellbook,
+        )
+        .unwrap();
+
+        assert_eq!(spells, vec![ready]);
     }
 }

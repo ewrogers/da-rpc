@@ -23,6 +23,38 @@ static TICK_TRAMPOLINE: AtomicUsize = AtomicUsize::new(0);
 static TICK_COUNT: AtomicU32 = AtomicU32::new(0);
 static TICK_HOOK_INSTALLED: AtomicBool = AtomicBool::new(false);
 static TICK_RELOCATED_BYTES: AtomicU32 = AtomicU32::new(0);
+static WORK_CADENCE: WorkCadence = WorkCadence::new();
+
+// The detour calls this only on the client main thread. Atomics make the static
+// state safe to share with installation, which resets it before the hook runs.
+struct WorkCadence {
+    initialized: AtomicBool,
+    last_tick_ms: AtomicU32,
+}
+
+impl WorkCadence {
+    const fn new() -> Self {
+        Self {
+            initialized: AtomicBool::new(false),
+            last_tick_ms: AtomicU32::new(0),
+        }
+    }
+
+    fn reset(&self) {
+        self.initialized.store(false, Ordering::Relaxed);
+    }
+
+    fn begin(&self, tick_ms: u32) -> bool {
+        if self.initialized.load(Ordering::Relaxed)
+            && self.last_tick_ms.load(Ordering::Relaxed) == tick_ms
+        {
+            return false;
+        }
+        self.last_tick_ms.store(tick_ms, Ordering::Relaxed);
+        self.initialized.store(true, Ordering::Relaxed);
+        true
+    }
+}
 
 pub(crate) struct TickHook {
     detour: InstalledDetour,
@@ -63,6 +95,7 @@ impl TickHook {
 
         commands::reset();
         snapshot::reset();
+        WORK_CADENCE.reset();
         TICK_COUNT.store(0, Ordering::Release);
         TICK_RELOCATED_BYTES.store(u32::from(relocated_bytes), Ordering::Release);
         TICK_TRAMPOLINE.store(
@@ -139,35 +172,41 @@ unsafe extern "thiscall" fn event_dispatcher_tick_detour(_dispatcher: *mut core:
 extern "C" fn observe_tick() {
     let _ = panic::catch_unwind(|| {
         TICK_COUNT.fetch_add(1, Ordering::Relaxed);
+        let tick_ms = darpc_win32::pipe::sender_tick_ms();
+        if !WORK_CADENCE.begin(tick_ms) {
+            return;
+        }
         if diagnostics::hook_timing_enabled() {
-            diagnostics::measure(HookTimingStage::Tick, observe_tick_timed);
+            diagnostics::measure(HookTimingStage::Tick, || observe_tick_timed(tick_ms));
         } else {
-            observe_tick_untimed();
+            observe_tick_untimed(tick_ms);
         }
     });
 }
 
 #[inline]
-fn observe_tick_untimed() {
+fn observe_tick_untimed(tick_ms: u32) {
     commands::observe_tick();
-    crate::player::observe_tick(darpc_win32::pipe::sender_tick_ms());
-    crate::state::observe_tick();
+    crate::player::observe_tick(tick_ms);
+    crate::state::observe_tick(tick_ms);
     snapshot::observe_tick();
 }
 
 #[inline]
-fn observe_tick_timed() {
+fn observe_tick_timed(tick_ms: u32) {
     diagnostics::measure(HookTimingStage::Commands, commands::observe_tick);
     diagnostics::measure(HookTimingStage::Player, || {
-        crate::player::observe_tick(darpc_win32::pipe::sender_tick_ms());
+        crate::player::observe_tick(tick_ms);
     });
-    diagnostics::measure(HookTimingStage::State, crate::state::observe_tick);
+    diagnostics::measure(HookTimingStage::State, || {
+        crate::state::observe_tick(tick_ms);
+    });
     diagnostics::measure(HookTimingStage::Snapshot, snapshot::observe_tick);
 }
 
 #[cfg(test)]
 mod tests {
-    use super::support;
+    use super::{WorkCadence, support};
     use darpc_game_client::EVENT_DISPATCHER_TICK_ENTRY;
     use std::ptr::NonNull;
 
@@ -185,5 +224,27 @@ mod tests {
                 .unwrap_err();
         assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
         assert!(error.to_string().contains("bytes do not match"));
+    }
+
+    #[test]
+    fn coalesces_work_within_one_windows_tick() {
+        let cadence = WorkCadence::new();
+
+        assert!(cadence.begin(42));
+        assert!(!cadence.begin(42));
+        assert!(cadence.begin(43));
+        assert!(!cadence.begin(43));
+    }
+
+    #[test]
+    fn accepts_wrapping_and_reset_windows_ticks() {
+        let cadence = WorkCadence::new();
+
+        assert!(cadence.begin(u32::MAX));
+        assert!(cadence.begin(0));
+        assert!(!cadence.begin(0));
+
+        cadence.reset();
+        assert!(cadence.begin(0));
     }
 }

@@ -28,6 +28,11 @@ all the information daRPC needs.
 
 The client tick is daRPC's safe meeting point with the game main thread.
 
+The client can call this dispatcher boundary much faster than it renders.
+daRPC counts every callback for liveness, but runs main-thread tick work at most
+once per distinct Windows millisecond tick. This preserves responsive commands
+and state observation without repeating the same reads in a tight polling loop.
+
 When requested, it copies a complete state baseline into preallocated DLL
 memory. The pipe worker converts and sends that copy later. Regular REST reads
 do not request another baseline.

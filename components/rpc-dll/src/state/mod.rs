@@ -24,8 +24,6 @@ use darpc_model::{
     SpellCastArguments, StateEvent, StateUpdate, StatusUpdate, TilePosition,
 };
 use darpc_protocol::{EventPollResult, MAX_LOOK_RESULT_TEXT_LEN};
-#[cfg(windows)]
-use darpc_win32::pipe::sender_tick_ms;
 use std::{
     cell::UnsafeCell,
     mem::size_of,
@@ -518,11 +516,7 @@ pub(crate) fn valid_tile(x: i32, y: i32) -> bool {
     unsafe { CACHE.valid_tile(x, y) }
 }
 
-pub(crate) fn observe_tick() {
-    #[cfg(windows)]
-    let tick_ms = sender_tick_ms();
-    #[cfg(not(windows))]
-    let tick_ms = 0;
+pub(crate) fn observe_tick(tick_ms: u32) {
     // SAFETY: the tick hook runs on the client main thread, which is the sole
     // owner of the object cache.
     unsafe {

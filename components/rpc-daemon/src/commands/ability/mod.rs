@@ -494,7 +494,7 @@ fn target_not_found(pid: u32) -> ApiError {
     ApiError::new(
         StatusCode::NOT_FOUND,
         "spell_target_not_found",
-        "the selected player or NPC is not currently visible within 14 tiles",
+        "the selected player or NPC is not currently available within 14 tiles",
         Some(pid),
     )
 }

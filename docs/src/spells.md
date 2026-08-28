@@ -69,7 +69,7 @@ curl --request POST \
   "http://127.0.0.1:2626/clients/ZiLo/spells/cast"
 ```
 
-Targeted spells accept a character or Mundane name, a visible object ID, or a
+Targeted spells accept a character or Mundane name, a current object ID, or a
 map tile:
 
 ```console
@@ -91,9 +91,11 @@ curl --request POST --header "Content-Type: application/json" \
 ```
 
 A targeted spell with no target defaults to the casting character. A name
-search is case-insensitive and checks visible players within 14 tiles before
-visible Mundanes. Object IDs must identify a current visible target within the
-same range. Tile coordinates are zero-based and must fit the current map.
+search is case-insensitive and checks players within 14 tiles before visible
+Mundanes. Players remain valid targets while invisible when their latest
+observation, including object ID and position, is still retained. Object IDs
+must identify a current retained target within the same range. Tile coordinates
+are zero-based and must fit the current map.
 For example, a named Mundane target could use `"target": "Beggar"`.
 
 Text-input spells use `input`:

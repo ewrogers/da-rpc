@@ -911,7 +911,6 @@ impl Slotted for Spell {
             && self.name == current.name
             && self.level == current.level
             && self.max_level == current.max_level
-            && self.lines == current.lines
             && self.target_type == current.target_type
             && self.prompt == current.prompt
             && self.cooldown.active == current.cooldown.active
@@ -1479,7 +1478,7 @@ mod tests {
     }
 
     #[test]
-    fn spell_update_accepts_elapsed_remaining_time_in_its_baseline() {
+    fn spell_update_accepts_dynamic_fields_in_its_baseline() {
         let retained = Spell {
             slot: 32,
             icon: 75,
@@ -1496,6 +1495,7 @@ mod tests {
             },
         };
         let ready = Spell {
+            lines: 1,
             cooldown: CooldownStatus {
                 active: false,
                 cooldown_ms: None,
@@ -1504,7 +1504,7 @@ mod tests {
             ..retained.clone()
         };
         let mut changed_metadata = retained.clone();
-        changed_metadata.lines = 1;
+        changed_metadata.icon = 76;
         assert!(!changed_metadata.matches_baseline(&retained));
         let mut spells = vec![retained.clone()];
 
@@ -1516,6 +1516,7 @@ mod tests {
                 change: CollectionChange::Changed,
                 slot: retained.slot,
                 before: Some(Spell {
+                    lines: 1,
                     cooldown: CooldownStatus {
                         active: true,
                         cooldown_ms: Some(1_000),

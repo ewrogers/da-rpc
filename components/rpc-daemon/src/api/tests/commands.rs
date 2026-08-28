@@ -746,6 +746,36 @@ fn routes_typed_actions() {
 }
 
 #[test]
+fn routes_casts_to_invisible_players_by_name_and_id() {
+    let mut snapshot = game_snapshot();
+    let ModelWorldObject::Player { is_hidden, .. } =
+        &mut snapshot.objects.as_mut().unwrap().first_mut().unwrap()
+    else {
+        panic!("expected player fixture");
+    };
+    *is_hidden = true;
+    let target = SpellTarget::Object(std::num::NonZeroU32::new(1).unwrap());
+    let cast = SpellCast {
+        slot: SpellSlot::new(2).unwrap(),
+        arguments: SpellArguments::Target(target),
+    };
+
+    assert_routes_action_sequence(
+        axum::http::Method::POST,
+        "/clients/42/spells/cast",
+        r#"{"name":"AO PUINSEIN","target":"eidolon"}"#,
+        vec![CommandKind::CastSpell(cast)],
+        snapshot.clone(),
+    );
+    assert_routes_action_with_snapshot(
+        "/clients/42/spells/cast",
+        r#"{"name":"AO PUINSEIN","target":1}"#,
+        CommandKind::CastSpell(cast),
+        snapshot,
+    );
+}
+
+#[test]
 fn coalesces_an_http_resync_into_the_active_refresh() {
     let mut registry = Registry::new();
     let hello = hello();

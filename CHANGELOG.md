@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 1.8.2 - 2026-08-28
+
+### Added
+
+- Allow targeted spells to select invisible players by case-insensitive name or
+  retained object ID while their last-known position remains within 14 tiles.
+
 ## 1.8.1 - 2026-08-27
 
 ### Added

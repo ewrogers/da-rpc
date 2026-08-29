@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## 1.8.3 - 2026-08-29
+
+### Fixed
+
+- Support crowded maps by raising the bounded nearby-object snapshot capacity
+  to 1,024 and separating it from the 4,096-node object-tree traversal limit.
+  Capacity failures now identify the specific limit that was exceeded.
+
 ## 1.8.2 - 2026-08-28
 
 ### Fixed

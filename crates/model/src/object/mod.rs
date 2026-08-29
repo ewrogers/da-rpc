@@ -1,3 +1,6 @@
+/// Maximum number of nearby world objects retained in one client snapshot.
+pub const MAX_WORLD_OBJECTS: usize = 1_024;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Direction {
     North,

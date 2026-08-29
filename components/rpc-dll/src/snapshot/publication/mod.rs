@@ -333,6 +333,9 @@ pub(crate) enum CaptureFailure {
     WrongThread,
     PointersChanged,
     InvalidObjectTree,
+    ObjectTreeDepthExceeded { depth: usize, limit: usize },
+    ObjectTreeNodeLimitExceeded { visited: usize, limit: usize },
+    WorldObjectCapacityExceeded { required: usize, capacity: usize },
     InvalidCollection,
     InvalidPaneList,
     InvalidGroupState,
@@ -346,6 +349,15 @@ impl From<StateReadError> for CaptureFailure {
             StateReadError::WrongThread { .. } => Self::WrongThread,
             StateReadError::PointersChanged => Self::PointersChanged,
             StateReadError::InvalidObjectTree => Self::InvalidObjectTree,
+            StateReadError::ObjectTreeDepthExceeded { depth, limit } => {
+                Self::ObjectTreeDepthExceeded { depth, limit }
+            }
+            StateReadError::ObjectTreeNodeLimitExceeded { visited, limit } => {
+                Self::ObjectTreeNodeLimitExceeded { visited, limit }
+            }
+            StateReadError::WorldObjectCapacityExceeded { required, capacity } => {
+                Self::WorldObjectCapacityExceeded { required, capacity }
+            }
             StateReadError::InvalidCollection => Self::InvalidCollection,
             StateReadError::InvalidPaneList => Self::InvalidPaneList,
             StateReadError::InvalidGroupState => Self::InvalidGroupState,
@@ -363,6 +375,18 @@ impl fmt::Display for CaptureFailure {
                 formatter.write_str("client state pointers changed during capture")
             }
             Self::InvalidObjectTree => formatter.write_str("client object tree validation failed"),
+            Self::ObjectTreeDepthExceeded { depth, limit } => write!(
+                formatter,
+                "client object tree depth {depth} exceeds limit {limit}"
+            ),
+            Self::ObjectTreeNodeLimitExceeded { visited, limit } => write!(
+                formatter,
+                "client object tree visited {visited} nodes, exceeding limit {limit}"
+            ),
+            Self::WorldObjectCapacityExceeded { required, capacity } => write!(
+                formatter,
+                "client snapshot requires at least {required} world objects, exceeding capacity {capacity}"
+            ),
             Self::InvalidCollection => formatter.write_str("client collection validation failed"),
             Self::InvalidPaneList => formatter.write_str("client event pane validation failed"),
             Self::InvalidGroupState => formatter.write_str("client group state validation failed"),

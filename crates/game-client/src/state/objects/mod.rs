@@ -1,4 +1,4 @@
-pub const MAX_WORLD_OBJECTS: usize = 512;
+pub use darpc_model::MAX_WORLD_OBJECTS;
 pub const MAX_OBJECT_NAME_BYTES: usize = 64;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

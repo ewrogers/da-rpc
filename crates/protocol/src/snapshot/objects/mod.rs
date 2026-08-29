@@ -3,9 +3,10 @@ use crate::{
     DecodeError, EncodeError,
     message::{PayloadReader, push_bool, push_i32, push_u16, push_u32},
 };
-use darpc_model::{CreatureKind, Direction, HumanVisual, PlayerVisual, WorldObject};
+use darpc_model::{
+    CreatureKind, Direction, HumanVisual, MAX_WORLD_OBJECTS, PlayerVisual, WorldObject,
+};
 
-const MAX_WORLD_OBJECTS: usize = 512;
 const MAX_OBJECT_NAME_LEN: usize = 63;
 
 pub(super) fn encode(

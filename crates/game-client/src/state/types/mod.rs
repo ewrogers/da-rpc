@@ -184,6 +184,9 @@ pub enum StateReadError {
     WrongThread { expected: u32, actual: u32 },
     PointersChanged,
     InvalidObjectTree,
+    ObjectTreeDepthExceeded { depth: usize, limit: usize },
+    ObjectTreeNodeLimitExceeded { visited: usize, limit: usize },
+    WorldObjectCapacityExceeded { required: usize, capacity: usize },
     InvalidCollection,
     InvalidPaneList,
     InvalidGroupState,
@@ -205,6 +208,18 @@ impl fmt::Display for StateReadError {
                 formatter.write_str("client state pointers changed during snapshot")
             }
             Self::InvalidObjectTree => formatter.write_str("client object tree is invalid"),
+            Self::ObjectTreeDepthExceeded { depth, limit } => write!(
+                formatter,
+                "client object tree depth {depth} exceeds limit {limit}"
+            ),
+            Self::ObjectTreeNodeLimitExceeded { visited, limit } => write!(
+                formatter,
+                "client object tree visited {visited} nodes, exceeding limit {limit}"
+            ),
+            Self::WorldObjectCapacityExceeded { required, capacity } => write!(
+                formatter,
+                "client snapshot requires at least {required} world objects, exceeding capacity {capacity}"
+            ),
             Self::InvalidCollection => formatter.write_str("client collection state is invalid"),
             Self::InvalidPaneList => formatter.write_str("client event pane list is invalid"),
             Self::InvalidGroupState => formatter.write_str("client group state is invalid"),

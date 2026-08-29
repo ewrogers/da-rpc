@@ -93,6 +93,72 @@ fn snapshot_decoder_accepts_the_pre_dialog_protocol_1_0_tail() {
 }
 
 #[test]
+fn snapshot_round_trip_supports_1024_world_objects() {
+    let mut snapshot = snapshot();
+    snapshot.objects = Some(
+        (1..=1_024)
+            .map(|id| WorldObject::Item {
+                id,
+                sprite: 7,
+                dye_color: 0,
+                x: 40,
+                y: 30,
+                z_index: 0,
+            })
+            .collect(),
+    );
+    let frame = Frame::new(
+        0,
+        0,
+        Message::SnapshotResponse(SnapshotResponse {
+            request_id: 1,
+            result: SnapshotResult::Ready(Box::new(snapshot)),
+        }),
+    );
+
+    let decoded = decode_frame(&encode_frame(&frame).unwrap()).unwrap();
+    let Message::SnapshotResponse(response) = decoded.message else {
+        panic!("expected snapshot response");
+    };
+    let SnapshotResult::Ready(snapshot) = response.result else {
+        panic!("expected ready snapshot");
+    };
+    assert_eq!(snapshot.objects.unwrap().len(), 1_024);
+}
+
+#[test]
+fn snapshot_rejects_more_than_1024_world_objects() {
+    let mut snapshot = snapshot();
+    snapshot.objects = Some(
+        (1..=1_025)
+            .map(|id| WorldObject::Item {
+                id,
+                sprite: 7,
+                dye_color: 0,
+                x: 40,
+                y: 30,
+                z_index: 0,
+            })
+            .collect(),
+    );
+
+    assert_eq!(
+        encode_frame(&Frame::new(
+            0,
+            0,
+            Message::SnapshotResponse(SnapshotResponse {
+                request_id: 1,
+                result: SnapshotResult::Ready(Box::new(snapshot)),
+            }),
+        )),
+        Err(EncodeError::SnapshotCollectionTooLong {
+            length: 1_025,
+            max: 1_024,
+        })
+    );
+}
+
+#[test]
 fn snapshot_collections_are_strictly_validated() {
     let mut invalid_slot = snapshot();
     invalid_slot

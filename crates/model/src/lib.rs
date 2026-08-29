@@ -46,7 +46,10 @@ pub use field_map::{FieldMapDestination, FieldMapSelection, FieldMapState, Field
 pub use message::{ClientMessage, MessageKind};
 pub use message_dialog::{MessageDialog, MessageDialogsState};
 
-pub use object::{CreatureKind, Direction, HumanVisual, ObjectUpdate, PlayerVisual, WorldObject};
+pub use object::{
+    CreatureKind, Direction, HumanVisual, MAX_WORLD_OBJECTS, ObjectUpdate, PlayerVisual,
+    WorldObject,
+};
 pub use player::{
     CharacterProfileUpdate, Nation, PlayerEquipmentItem, PlayerIdentity, PlayerInspectionChanges,
     PlayerInspectionTrigger, PlayerProfile, PlayerUpdate,

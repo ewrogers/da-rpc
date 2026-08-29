@@ -45,6 +45,10 @@ const PLAYER_HIDDEN_STATE_OFFSET: u32 = 0xD2;
 const PLAYER_TRANSLUCENT_STATE_OFFSET: u32 = 0xD5;
 const MAX_MAP_DIMENSION: i32 = 255;
 const MAX_TREE_DEPTH: usize = 64;
+// The client tree contains map-wide entries, while snapshots retain only
+// nearby supported objects. Keep the traversal guard independent from the
+// smaller output capacity so distant ground items cannot invalidate a capture.
+const MAX_OBJECT_TREE_NODES: usize = 4_096;
 
 pub struct StateWalker<'a, M> {
     memory: &'a M,
@@ -272,7 +276,10 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
         while (node != 0 && node != head) || depth != 0 {
             while node != 0 && node != head {
                 let Some(slot) = stack.get_mut(depth) else {
-                    return Err(StateReadError::InvalidObjectTree);
+                    return Err(StateReadError::ObjectTreeDepthExceeded {
+                        depth: depth + 1,
+                        limit: MAX_TREE_DEPTH,
+                    });
                 };
                 *slot = node;
                 depth += 1;
@@ -282,14 +289,20 @@ impl<'a, M: MemoryReader> StateWalker<'a, M> {
             depth -= 1;
             node = stack[depth];
             visited += 1;
-            if visited > MAX_WORLD_OBJECTS * 2 {
-                return Err(StateReadError::InvalidObjectTree);
+            if visited > MAX_OBJECT_TREE_NODES {
+                return Err(StateReadError::ObjectTreeNodeLimitExceeded {
+                    visited,
+                    limit: MAX_OBJECT_TREE_NODES,
+                });
             }
 
             if let Some(object) = self.capture_world_object(node, center)?
                 && !objects.push(object)
             {
-                return Err(StateReadError::InvalidObjectTree);
+                return Err(StateReadError::WorldObjectCapacityExceeded {
+                    required: usize::from(objects.count) + 1,
+                    capacity: MAX_WORLD_OBJECTS,
+                });
             }
             node = self.read_u32(add(node, 0x08)?)?;
         }

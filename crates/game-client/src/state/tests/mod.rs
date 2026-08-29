@@ -1,9 +1,10 @@
 use super::panes::{EVENT_DISPATCHER_RVA, RECONNECT_DIALOG_VTABLE_RVA};
 use super::{
     CHARACTER_NAME_RVA, EQUIPMENT_PANE_RVA, GUI_BACK_PANE_ADJUSTMENT, GUI_BACK_PANE_RVA,
-    MAIN_MENU_PANE_RVA, MAIN_THREAD_ID_RVA, MAP_LOADING_PANE_RVA, MemoryReader,
-    PLAYER_TRANSLUCENT_STATE_OFFSET, RawHumanVisual, RawLifecycle, RawObjects, RawPlayerVisual,
-    RawStateSnapshot, RawWorldObject, StateReadError, StateWalker,
+    MAIN_MENU_PANE_RVA, MAIN_THREAD_ID_RVA, MAP_LOADING_PANE_RVA, MAX_OBJECT_TREE_NODES,
+    MAX_TREE_DEPTH, MAX_WORLD_OBJECTS, MemoryReader, PLAYER_TRANSLUCENT_STATE_OFFSET,
+    RawHumanVisual, RawLifecycle, RawObjects, RawPlayerVisual, RawStateSnapshot, RawWorldObject,
+    StateReadError, StateWalker,
 };
 use crate::{WORLD_PANE_ADJUSTMENT, WORLD_PANE_POINTER_RVA};
 
@@ -42,6 +43,10 @@ const EVENT_ENTRIES: u32 = 0x009E_1000;
 const RECONNECT_DIALOG: u32 = 0x009E_2000;
 const EFFECT_PANE: u32 = 0x009E_3000;
 const BOTTOM_BUTTONS: u32 = 0x009E_4000;
+const TREE_NODES: u32 = 0x00A0_0000;
+const TREE_OBJECTS: u32 = 0x00A4_0000;
+const TREE_NODE_STRIDE: u32 = 0x20;
+const TREE_OBJECT_STRIDE: u32 = 0x200;
 
 struct FakeMemory {
     bytes: Vec<u8>,
@@ -207,6 +212,39 @@ impl FakeMemory {
         memory.u16(EFFECT_PANE + 0x190 + 3 * 2, 301);
         memory.u8(EFFECT_PANE + 0x1A4 + 3, 2);
         memory
+    }
+
+    fn right_linked_world_tree(&mut self, node_count: usize) {
+        assert!(node_count > 0);
+        self.u32(HEAD + 0x04, TREE_NODES);
+        for index in 0..node_count {
+            let node = TREE_NODES
+                + u32::try_from(index).expect("test node index fits u32") * TREE_NODE_STRIDE;
+            let right = if index + 1 == node_count {
+                HEAD
+            } else {
+                node + TREE_NODE_STRIDE
+            };
+            self.u32(node + 0x08, right);
+        }
+    }
+
+    fn right_linked_item_tree(&mut self, node_count: usize) {
+        self.right_linked_world_tree(node_count);
+        for index in 0..node_count {
+            let index = u32::try_from(index).expect("test item index fits u32");
+            let node = TREE_NODES + index * TREE_NODE_STRIDE;
+            let object = TREE_OBJECTS + index * TREE_OBJECT_STRIDE;
+            let id = index + 1;
+            self.u32(node + 0x0C, id);
+            self.u32(node + 0x10, object);
+            self.u32(object + 0x24, id);
+            self.u32(object + 0x2C, 8);
+            self.i32(object + 0x40, 22);
+            self.i32(object + 0x44, 11);
+            self.u8(object + 0x48, 1);
+            self.u16(object + 0x7C, 0x8123);
+        }
     }
 
     fn offset(address: u32) -> usize {
@@ -416,7 +454,53 @@ fn rejects_a_cyclic_world_object_tree() {
 
     assert_eq!(
         StateWalker::new(&memory, BASE).capture_objects(THREAD_ID, Some((11, 22)), &mut objects,),
-        Err(StateReadError::InvalidObjectTree)
+        Err(StateReadError::ObjectTreeDepthExceeded {
+            depth: MAX_TREE_DEPTH + 1,
+            limit: MAX_TREE_DEPTH,
+        })
+    );
+}
+
+#[test]
+fn captures_world_tree_larger_than_the_legacy_traversal_limit() {
+    let mut memory = FakeMemory::gameplay();
+    memory.right_linked_world_tree(1_025);
+    let mut objects = RawObjects::empty();
+
+    StateWalker::new(&memory, BASE)
+        .capture_objects(THREAD_ID, Some((11, 22)), &mut objects)
+        .unwrap();
+
+    assert_eq!(objects.count, 0);
+}
+
+#[test]
+fn reports_world_tree_node_limit() {
+    let mut memory = FakeMemory::gameplay();
+    memory.right_linked_world_tree(MAX_OBJECT_TREE_NODES + 1);
+    let mut objects = RawObjects::empty();
+
+    assert_eq!(
+        StateWalker::new(&memory, BASE).capture_objects(THREAD_ID, Some((11, 22)), &mut objects),
+        Err(StateReadError::ObjectTreeNodeLimitExceeded {
+            visited: MAX_OBJECT_TREE_NODES + 1,
+            limit: MAX_OBJECT_TREE_NODES,
+        })
+    );
+}
+
+#[test]
+fn reports_world_object_capacity_limit() {
+    let mut memory = FakeMemory::gameplay();
+    memory.right_linked_item_tree(MAX_WORLD_OBJECTS + 1);
+    let mut objects = RawObjects::empty();
+
+    assert_eq!(
+        StateWalker::new(&memory, BASE).capture_objects(THREAD_ID, Some((11, 22)), &mut objects),
+        Err(StateReadError::WorldObjectCapacityExceeded {
+            required: MAX_WORLD_OBJECTS + 1,
+            capacity: MAX_WORLD_OBJECTS,
+        })
     );
 }
 

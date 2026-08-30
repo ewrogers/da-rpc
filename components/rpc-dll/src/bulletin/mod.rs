@@ -351,7 +351,6 @@ pub(crate) struct QueuedBulletin(u8);
 enum EventKind {
     Opened,
     Changed,
-    ActionSubmitted,
     OperationResult,
     Closed,
 }
@@ -360,7 +359,6 @@ enum EventKind {
 struct RawBulletinEventMetadata {
     kind: EventKind,
     state_available: bool,
-    operation: u8,
 }
 
 struct BulletinEventSlot {
@@ -380,7 +378,6 @@ impl BulletinEventSlot {
             metadata: UnsafeCell::new(RawBulletinEventMetadata {
                 kind: EventKind::Changed,
                 state_available: false,
-                operation: 0,
             }),
             bulletin: UnsafeCell::new(RawBulletin::empty()),
         }
@@ -517,7 +514,6 @@ pub(crate) fn observe_server(body: &[u8]) -> Option<QueuedBulletin> {
         RawBulletinEventMetadata {
             kind,
             state_available: true,
-            operation: current.result_operation,
         },
         current,
     )
@@ -526,25 +522,25 @@ pub(crate) fn observe_server(body: &[u8]) -> Option<QueuedBulletin> {
 pub(crate) fn observe_outgoing(body: &[u8]) -> Option<QueuedBulletin> {
     let operation = outgoing_operation(body)?;
     let current = current_mut();
-    if current.active() {
-        current.has_pending = true;
-        current.pending = operation_raw(operation);
-        if operation == BulletinOperation::LoadOlder {
-            current.pagination = pagination_raw(BulletinPagination::Loading);
-        }
-        current.revision = next_nonzero(&REVISION);
+    if !current.active() {
+        return None;
     }
+    current.has_pending = true;
+    current.pending = operation_raw(operation);
+    if operation == BulletinOperation::LoadOlder {
+        current.pagination = pagination_raw(BulletinPagination::Loading);
+    }
+    current.revision = next_nonzero(&REVISION);
     EVENTS.push(
         RawBulletinEventMetadata {
-            kind: EventKind::ActionSubmitted,
-            state_available: current.active(),
-            operation: operation_raw(operation),
+            kind: EventKind::Changed,
+            state_available: true,
         },
         current,
     )
 }
 
-pub(crate) fn observe_local_submission(operation: BulletinOperation) -> Option<QueuedBulletin> {
+pub(crate) fn observe_local_submission(_operation: BulletinOperation) -> Option<QueuedBulletin> {
     let current = current_mut();
     if !current.active() {
         return None;
@@ -552,9 +548,8 @@ pub(crate) fn observe_local_submission(operation: BulletinOperation) -> Option<Q
     current.revision = next_nonzero(&REVISION);
     EVENTS.push(
         RawBulletinEventMetadata {
-            kind: EventKind::ActionSubmitted,
+            kind: EventKind::Changed,
             state_available: true,
-            operation: operation_raw(operation),
         },
         current,
     )
@@ -625,10 +620,6 @@ pub(crate) fn take(queued: QueuedBulletin) -> Option<BulletinUpdate> {
             Some(match event.kind {
                 EventKind::Opened => BulletinUpdate::Opened(state?),
                 EventKind::Changed => BulletinUpdate::Changed(state?),
-                EventKind::ActionSubmitted => BulletinUpdate::ActionSubmitted {
-                    state,
-                    operation: operation_from_raw(event.operation),
-                },
                 EventKind::OperationResult => {
                     let state = state?;
                     let result = state.last_operation_result.clone()?;
@@ -651,7 +642,6 @@ fn changed() -> Option<QueuedBulletin> {
         RawBulletinEventMetadata {
             kind: EventKind::Changed,
             state_available: true,
-            operation: 0,
         },
         current,
     )
@@ -666,7 +656,6 @@ fn close() -> Option<QueuedBulletin> {
         RawBulletinEventMetadata {
             kind: EventKind::Closed,
             state_available: true,
-            operation: 0,
         },
         current,
     );
@@ -1113,6 +1102,7 @@ mod tests {
     fn decodes_sections_lists_details_and_raw_results() {
         let _guard = LOCK.lock().unwrap();
         reset();
+        assert!(observe_outgoing(&[0x3B, 1]).is_none());
         let sections = [
             0x31, 1, 0, 2, 0, 0, 4, b'M', b'a', b'i', b'l', 0, 7, 5, b'B', b'o', b'a', b'r', b'd',
         ];
@@ -1156,7 +1146,11 @@ mod tests {
         assert_eq!(entry.flags, Some(0));
         assert_eq!(entry.unknown_before_id, 9);
 
-        release(observe_outgoing(&[0x3B, 5, 0, 7, 0, 10]).unwrap());
+        let submitted = observe_outgoing(&[0x3B, 5, 0, 7, 0, 10]).unwrap();
+        let BulletinUpdate::Changed(state) = take(submitted).unwrap() else {
+            panic!("expected pending state change");
+        };
+        assert_eq!(state.pending, Some(BulletinOperation::DeleteEntry));
         let result = observe_server(&[0x31, 7, 4, 2, b'N', b'o']).unwrap();
         let BulletinUpdate::OperationResult { result, .. } = take(result).unwrap() else {
             panic!("expected result");

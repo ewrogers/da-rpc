@@ -1,10 +1,9 @@
 use crate::{
     bulletin::{
-        BulletinActionSubmitted, BulletinChanged, BulletinClosed, BulletinEntry,
-        BulletinEntrySummary, BulletinOpened, BulletinOperation, BulletinOperationCompleted,
-        BulletinOperationResult, BulletinPagination, BulletinSection, BulletinSectionKind,
-        BulletinSnapshot, BulletinSource, BulletinSourceKind, BulletinState, BulletinView,
-        BulletinViewport,
+        BulletinChanged, BulletinClosed, BulletinEntry, BulletinEntrySummary, BulletinMutation,
+        BulletinOpened, BulletinOperation, BulletinOperationResult, BulletinPagination,
+        BulletinSection, BulletinSectionKind, BulletinSnapshot, BulletinSource, BulletinSourceKind,
+        BulletinState, BulletinView, BulletinViewport,
     },
     commands::{ClientOperation, CommandCall, ROUTER_CAPACITY},
     dialog::{
@@ -1152,8 +1151,7 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         BulletinOperationResult,
         BulletinOpened,
         BulletinChanged,
-        BulletinActionSubmitted,
-        BulletinOperationCompleted,
+        BulletinMutation,
         BulletinClosed,
         MessageDialogsSnapshot,
         MessageDialogsState,

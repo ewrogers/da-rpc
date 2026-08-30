@@ -35,3 +35,8 @@ The native new-article or player-mail editing view. Its current unsent field
 values are the draft; board drafts have subject and body, while mail drafts also
 have a recipient.
 _Avoid_: draft as a separate persisted object
+
+**Bulletin mutation outcome**:
+A server-confirmed submission or deletion, or a rejected bulletin mutation. A
+failure names the attempted bulletin action and retains the server's raw result.
+_Avoid_: operation result, action submitted

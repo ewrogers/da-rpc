@@ -188,17 +188,20 @@ pub(crate) struct BulletinChanged {
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
-pub(crate) struct BulletinActionSubmitted {
-    pub(crate) observation: EventObservation,
-    bulletin: Option<BulletinState>,
-    operation: BulletinOperation,
-}
-
-#[derive(Clone, Debug, Serialize, ToSchema)]
-pub(crate) struct BulletinOperationCompleted {
+pub(crate) struct BulletinMutation {
     pub(crate) observation: EventObservation,
     bulletin: BulletinState,
-    result: BulletinOperationResult,
+    action: BulletinOperation,
+    /// Uninterpreted status byte from the client protocol.
+    raw_status: u8,
+    message: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum BulletinMutationOutcome {
+    Submitted,
+    Deleted,
+    Failed,
 }
 
 #[derive(Clone, Debug, Serialize, ToSchema)]
@@ -225,21 +228,7 @@ impl BulletinChanged {
     }
 }
 
-impl BulletinActionSubmitted {
-    pub(crate) fn new(
-        observation: EventObservation,
-        state: Option<model::BulletinState>,
-        operation: model::BulletinOperation,
-    ) -> Self {
-        Self {
-            observation,
-            bulletin: state.as_ref().map(BulletinState::from),
-            operation: operation.into(),
-        }
-    }
-}
-
-impl BulletinOperationCompleted {
+impl BulletinMutation {
     pub(crate) fn new(
         observation: EventObservation,
         state: model::BulletinState,
@@ -248,8 +237,36 @@ impl BulletinOperationCompleted {
         Self {
             observation,
             bulletin: BulletinState::from(&state),
-            result: result.into(),
+            action: result.operation.into(),
+            raw_status: result.raw_status,
+            message: result.message,
         }
+    }
+}
+
+pub(crate) fn mutation_outcome(result: &model::BulletinOperationResult) -> BulletinMutationOutcome {
+    match result.operation {
+        model::BulletinOperation::DeleteEntry if result.raw_status == 1 => {
+            BulletinMutationOutcome::Deleted
+        }
+        model::BulletinOperation::PostArticle
+            if result.raw_status == 1
+                && result
+                    .message
+                    .as_deref()
+                    .is_none_or(|message| message == "Your letter was sent.") =>
+        {
+            BulletinMutationOutcome::Submitted
+        }
+        model::BulletinOperation::SendMail
+            if result.message.as_deref() == Some("Your letter was sent.") =>
+        {
+            BulletinMutationOutcome::Submitted
+        }
+        model::BulletinOperation::HighlightArticle if result.raw_status == 1 => {
+            BulletinMutationOutcome::Submitted
+        }
+        _ => BulletinMutationOutcome::Failed,
     }
 }
 

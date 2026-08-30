@@ -929,19 +929,20 @@ and only the observed outgoing packet is authoritative for submission.
 Read current board, entry, mailbox, and composer state from
 `GET /clients/{client}/bulletin`. The
 [Bulletin boards and player mail](bulletins.md) chapter documents view shapes,
-paging, scrolling, composition, revision checks, and operation results.
+paging, scrolling, composition, revision checks, and mutation outcomes.
 
 | SSE event | JSON type | Meaning |
 | --- | --- | --- |
 | `bulletin.opened` | `bulletin_opened` | A supported native bulletin session became active. |
 | `bulletin.changed` | `bulletin_changed` | The active view, retained page, selection, viewport, draft, or navigation state changed. |
-| `bulletin.action_submitted` | `bulletin_action_submitted` | An outgoing bulletin request was observed. |
-| `bulletin.operation_result` | `bulletin_operation_result` | The server returned a raw mutation status and optional message. |
+| `bulletin.submitted` | `bulletin_submitted` | The server confirmed an article post, mail send, or highlight. |
+| `bulletin.deleted` | `bulletin_deleted` | The server confirmed entry deletion. |
+| `bulletin.failed` | `bulletin_failed` | The server rejected the named bulletin action. |
 | `bulletin.closed` | `bulletin_closed` | The native bulletin session closed. |
 
-Opened, changed, and operation-result events contain the complete `bulletin`
-state. Action-submitted contains its operation and a nullable state because an
-open request may be sent before a bulletin dialog exists. Closed contains the
+Opened and changed events contain the complete `bulletin` state. Mutation
+events contain `bulletin`, `action`, `raw_status`, and `message`; the action on
+`bulletin.failed` identifies the rejected operation. Closed contains the
 complete prior state as `previous`.
 
 ## Group events
@@ -1074,7 +1075,7 @@ trying to infer state from only the changed field.
 | NPC dialogs | `dialog.opened`, `dialog.changed`, `dialog.submitted`, `dialog.closed` | `/dialog` |
 | Message dialogs | `message_dialogs.changed` | `/message-dialogs` |
 | Field maps | `field_map.opened`, `field_map.changed`, `field_map.selection_submitted`, `field_map.closed` | `/field-map` |
-| Bulletins | `bulletin.opened`, `bulletin.changed`, `bulletin.action_submitted`, `bulletin.operation_result`, `bulletin.closed` | `/bulletin` |
+| Bulletins | `bulletin.opened`, `bulletin.changed`, `bulletin.submitted`, `bulletin.deleted`, `bulletin.failed`, `bulletin.closed` | `/bulletin` |
 | Groups | `group.settings_changed`, `group.invitation_sent`, `group.invitation_received`, `group.invitation_closed`, `group.joined`, `group.member_joined`, `group.member_left`, `group.disbanded` | `/group`, then `/status` for convenience fields |
 | Exchange | `exchange.opened`, `exchange.item_added`, `exchange.gold_changed`, `exchange.accepted`, `exchange.completed`, `exchange.cancelled` | `/exchange`, then `/status` for `is_in_exchange` |
 | Legend | `legend.mark_added`, `legend.mark_changed`, `legend.mark_removed` | `/legend` |

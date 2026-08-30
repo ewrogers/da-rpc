@@ -101,11 +101,6 @@ fn field_map_updates_use_stable_public_event_names_and_full_state() {
 
 #[test]
 fn bulletin_updates_use_stable_public_event_names_and_full_state() {
-    let result = ModelBulletinOperationResult {
-        operation: ModelBulletinOperation::DeleteEntry,
-        raw_status: 2,
-        message: Some("Not permitted".into()),
-    };
     let updates = [
         (BulletinUpdate::Opened(bulletin_state()), "bulletin.opened"),
         (
@@ -117,14 +112,7 @@ fn bulletin_updates_use_stable_public_event_names_and_full_state() {
                 state: Some(bulletin_state()),
                 operation: ModelBulletinOperation::OpenEntry,
             },
-            "bulletin.action_submitted",
-        ),
-        (
-            BulletinUpdate::OperationResult {
-                state: bulletin_state(),
-                result,
-            },
-            "bulletin.operation_result",
+            "bulletin.changed",
         ),
         (
             BulletinUpdate::Closed {
@@ -161,8 +149,85 @@ fn bulletin_updates_use_stable_public_event_names_and_full_state() {
         };
         assert_eq!(state["revision"], 8);
         assert_eq!(state["view"]["sections"][0]["name"], "Mileth News");
-        if expected_name == "bulletin.operation_result" {
-            assert_eq!(event["data"]["result"]["raw_status"], 2);
+    }
+}
+
+#[test]
+fn bulletin_mutation_events_name_the_confirmed_outcome_and_action() {
+    let updates = [
+        (
+            BulletinUpdate::OperationResult {
+                state: bulletin_state(),
+                result: ModelBulletinOperationResult {
+                    operation: ModelBulletinOperation::PostArticle,
+                    raw_status: 1,
+                    message: Some("Your letter was sent.".into()),
+                },
+            },
+            "bulletin.submitted",
+            "bulletin_submitted",
+            "post_article",
+        ),
+        (
+            BulletinUpdate::OperationResult {
+                state: bulletin_state(),
+                result: ModelBulletinOperationResult {
+                    operation: ModelBulletinOperation::DeleteEntry,
+                    raw_status: 1,
+                    message: Some("The message was destroyed.".into()),
+                },
+            },
+            "bulletin.deleted",
+            "bulletin_deleted",
+            "delete_entry",
+        ),
+        (
+            BulletinUpdate::OperationResult {
+                state: bulletin_state(),
+                result: ModelBulletinOperationResult {
+                    operation: ModelBulletinOperation::SendMail,
+                    raw_status: 1,
+                    message: Some("There is no recipient for this message.".into()),
+                },
+            },
+            "bulletin.failed",
+            "bulletin_failed",
+            "send_mail",
+        ),
+    ];
+
+    for (sequence, (update, expected_name, expected_type, expected_action)) in
+        updates.into_iter().enumerate()
+    {
+        let events = expand(
+            42,
+            ClientIdentity {
+                pid: 42,
+                process_creation_time: 100,
+                dll_instance_id: [1; 16],
+            },
+            StateEvent {
+                sequence: sequence as u32 + 1,
+                revision: sequence as u32 + 1,
+                tick_ms: sequence as u32,
+                update: StateUpdate::Bulletin(update),
+            },
+            None,
+            None,
+            observed_at(),
+        );
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].name(), expected_name);
+        let event = serde_json::to_value(&events[0]).unwrap();
+        assert_eq!(event["type"], expected_type);
+        assert_eq!(event["data"]["action"], expected_action);
+        assert_eq!(event["data"]["raw_status"], 1);
+        assert_eq!(event["data"]["bulletin"]["revision"], 8);
+        if expected_name == "bulletin.failed" {
+            assert_eq!(
+                event["data"]["message"],
+                "There is no recipient for this message."
+            );
         }
     }
 }

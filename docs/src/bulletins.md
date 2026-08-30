@@ -207,11 +207,17 @@ bounds reflect the client protocol and native controls. Empty fields remain
 valid while a draft is being edited; server acceptance is reported separately.
 
 Deletion and highlighting are server-backed requests. An observed outgoing
-request becomes `pending`; a later server result clears it and sets
-`last_operation_result`. `raw_status` is preserved without assigning success
-or failure semantics that have not been confirmed. An optional server message
-is exposed verbatim as decoded text. A command submission therefore means the
-client performed the requested action, not that the game server accepted it.
+request becomes `pending` and is reported by `bulletin.changed`; a later server
+result clears it and sets `last_operation_result`. Confirmed article posts and
+mail sends emit `bulletin.submitted`, confirmed deletions emit
+`bulletin.deleted`, and rejected mutations emit `bulletin.failed`.
+
+Mutation events carry the complete `bulletin` state plus `action`, `raw_status`,
+and the optional decoded server `message`. In particular, `bulletin.failed`
+identifies whether posting, sending mail, deleting, or highlighting failed.
+The raw fields remain available because status-byte meaning varies by response
+shape. A command response means the client performed the requested action; the
+mutation event reports what the server subsequently confirmed.
 
 ## Live events
 
@@ -221,14 +227,14 @@ Subscribe through `GET /clients/{client}/events`:
 | --- | --- | --- |
 | `bulletin.opened` | `bulletin_opened` | A supported bulletin session became active. |
 | `bulletin.changed` | `bulletin_changed` | Its view, selection, page, viewport, draft, or navigation state changed. |
-| `bulletin.action_submitted` | `bulletin_action_submitted` | The client's outgoing bulletin request was observed. |
-| `bulletin.operation_result` | `bulletin_operation_result` | The server returned a status for a mutation. |
+| `bulletin.submitted` | `bulletin_submitted` | The server confirmed an article post, mail send, or highlight. |
+| `bulletin.deleted` | `bulletin_deleted` | The server confirmed entry deletion. |
+| `bulletin.failed` | `bulletin_failed` | The server rejected the named bulletin action. |
 | `bulletin.closed` | `bulletin_closed` | The native bulletin session closed. |
 
-Opened, changed, and operation-result events carry `bulletin`. Submitted events
-carry the operation and a nullable bulletin because an opening action may
-precede active UI state. Closed events carry the prior state as `previous`.
-After an event-stream resynchronization, reread
+Opened and changed events carry `bulletin`. Mutation events carry `bulletin`,
+`action`, `raw_status`, and `message`. Closed events carry the prior state as
+`previous`. After an event-stream resynchronization, reread
 `GET /clients/{client}/bulletin`.
 
 ## Ownership and observation boundaries

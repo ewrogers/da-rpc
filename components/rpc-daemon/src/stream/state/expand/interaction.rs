@@ -4,31 +4,45 @@ pub(super) fn expand(observation: EventObservation, update: StateUpdate) -> Vec<
     let mut events = Vec::with_capacity(1);
     match update {
         StateUpdate::Bulletin(update) => {
-            events.push(match update {
+            match update {
                 darpc_model::BulletinUpdate::Opened(state) => {
-                    ClientEvent::BulletinOpened(BulletinOpened::new(observation, state))
+                    events.push(ClientEvent::BulletinOpened(BulletinOpened::new(
+                        observation,
+                        state,
+                    )));
                 }
                 darpc_model::BulletinUpdate::Changed(state) => {
-                    ClientEvent::BulletinChanged(BulletinChanged::new(observation, state))
-                }
-                darpc_model::BulletinUpdate::ActionSubmitted { state, operation } => {
-                    ClientEvent::BulletinActionSubmitted(BulletinActionSubmitted::new(
+                    events.push(ClientEvent::BulletinChanged(BulletinChanged::new(
                         observation,
                         state,
-                        operation,
-                    ))
+                    )));
+                }
+                darpc_model::BulletinUpdate::ActionSubmitted { state, .. } => {
+                    if let Some(state) = state {
+                        events.push(ClientEvent::BulletinChanged(BulletinChanged::new(
+                            observation,
+                            state,
+                        )));
+                    }
                 }
                 darpc_model::BulletinUpdate::OperationResult { state, result } => {
-                    ClientEvent::BulletinOperationResult(BulletinOperationCompleted::new(
-                        observation,
-                        state,
-                        result,
-                    ))
+                    let outcome = mutation_outcome(&result);
+                    let mutation = BulletinMutation::new(observation, state, result);
+                    events.push(match outcome {
+                        BulletinMutationOutcome::Submitted => {
+                            ClientEvent::BulletinSubmitted(mutation)
+                        }
+                        BulletinMutationOutcome::Deleted => ClientEvent::BulletinDeleted(mutation),
+                        BulletinMutationOutcome::Failed => ClientEvent::BulletinFailed(mutation),
+                    });
                 }
                 darpc_model::BulletinUpdate::Closed { previous } => {
-                    ClientEvent::BulletinClosed(BulletinClosed::new(observation, previous))
+                    events.push(ClientEvent::BulletinClosed(BulletinClosed::new(
+                        observation,
+                        previous,
+                    )));
                 }
-            });
+            }
             events
         }
         StateUpdate::Dialog(update) => {

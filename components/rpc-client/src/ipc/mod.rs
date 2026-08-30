@@ -342,6 +342,12 @@ pub(crate) fn execute(pid: u32, operation: Operation) -> Result<CommandResult> {
             "field-map select",
             CommandKind::SelectFieldMapDestination(command),
         ),
+        Operation::Bulletin(command) => request_action(
+            &mut session,
+            pid,
+            "bulletin",
+            CommandKind::Bulletin(command),
+        ),
         Operation::MessageDialogDismiss(command) => request_action(
             &mut session,
             pid,

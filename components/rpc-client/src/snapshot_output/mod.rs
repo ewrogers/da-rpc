@@ -9,6 +9,7 @@ use std::fmt::Write as _;
 
 use crate::output::json_string;
 
+mod bulletin;
 mod collections;
 mod dialog;
 mod exchange;
@@ -46,6 +47,7 @@ pub(crate) fn render_human(
         render_group(&mut output, snapshot.group.as_ref());
         render_dialog(&mut output, snapshot.dialog.as_ref());
         render_field_map(&mut output, snapshot.active_field_map.as_ref());
+        bulletin::render_human(&mut output, snapshot.active_bulletin.as_ref());
         render_message_dialogs(&mut output, &snapshot.message_dialogs);
         render_exchange(&mut output, snapshot.exchange.as_ref());
         crate::object_output::render_human(&mut output, snapshot.objects.as_deref());
@@ -146,6 +148,7 @@ pub(crate) fn render_human(
     render_group(&mut output, snapshot.group.as_ref());
     render_dialog(&mut output, snapshot.dialog.as_ref());
     render_field_map(&mut output, snapshot.active_field_map.as_ref());
+    bulletin::render_human(&mut output, snapshot.active_bulletin.as_ref());
     render_message_dialogs(&mut output, &snapshot.message_dialogs);
     render_exchange(&mut output, snapshot.exchange.as_ref());
     crate::object_output::render_human(&mut output, snapshot.objects.as_deref());
@@ -184,6 +187,7 @@ fn snapshot_value(snapshot: &ClientSnapshot) -> serde_json::Value {
         }),
         "dialog": snapshot.dialog.as_ref().map(dialog_value),
         "active_field_map": snapshot.active_field_map.as_ref().map(field_map_value),
+        "active_bulletin": snapshot.active_bulletin.as_ref().map(bulletin::value),
         "message_dialogs": {
             "revision": snapshot.message_dialogs.revision,
             "dialogs": snapshot.message_dialogs.dialogs.iter().map(|dialog| json!({

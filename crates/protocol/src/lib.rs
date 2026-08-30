@@ -1,6 +1,7 @@
 //! Binary interprocess communication protocol for daRPC.
 
 mod action_source;
+mod bulletin;
 mod command;
 mod diagnostics;
 mod dialog;
@@ -17,18 +18,24 @@ mod player;
 mod session;
 mod snapshot;
 
+pub use bulletin::{
+    MAX_BULLETIN_BODY_LEN, MAX_BULLETIN_ENTRIES, MAX_BULLETIN_SECTIONS, MAX_BULLETIN_TEXT_LEN,
+};
 pub use command::{
-    ChantText, CharacterStat, CommandFailure, CommandKind, CommandOperation, CommandRequest,
-    CommandResponse, CommandResult, CommandState, CommandStatus, DEFAULT_COMMAND_TIMEOUT_MS,
-    DialogAction, DialogCommand, DialogText, ExactRouteInvalidState, ExactRouteInvalidStateReason,
-    ExchangeCommand, FieldMapSelectionCommand, GoldTransfer, GroupCommand, GroupInvitationAction,
-    GroupText, ItemSlot, ItemTransfer, LookTarget, MAX_CHANT_TEXT_LEN, MAX_COMMAND_TIMEOUT_MS,
-    MAX_COMMAND_WAIT_MS, MAX_DIALOG_INPUT_LEN, MAX_GROUP_NAME_LEN, MAX_ITEM_SLOT,
-    MAX_MESSAGE_CONTENT_LEN, MAX_MESSAGE_RECIPIENT_LEN, MAX_RAW_PACKET_PAYLOAD_LEN, MAX_SKILL_SLOT,
-    MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT, MAX_WALK_ROUTE_TILES, MAX_WHO_NAME_LEN, MAX_WHO_PLAYERS,
-    MAX_WHO_TITLE_LEN, MessageCommand, MessageContent, MessageDialogCommand, MessageRecipient,
-    RawPacket, RawPacketDirection, RouteTile, SkillSlot, SlotSwap, SpellArguments, SpellCast,
-    SpellInput, SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkRoute, WalkTarget,
+    BulletinAction, BulletinBody, BulletinCommand, BulletinComposeKind, BulletinNavigation,
+    BulletinOpen, BulletinRecipient, BulletinSubject, ChantText, CharacterStat, CommandFailure,
+    CommandKind, CommandOperation, CommandRequest, CommandResponse, CommandResult, CommandState,
+    CommandStatus, DEFAULT_COMMAND_TIMEOUT_MS, DialogAction, DialogCommand, DialogText,
+    ExactRouteInvalidState, ExactRouteInvalidStateReason, ExchangeCommand,
+    FieldMapSelectionCommand, GoldTransfer, GroupCommand, GroupInvitationAction, GroupText,
+    ItemSlot, ItemTransfer, LookTarget, MAX_BULLETIN_COMPOSE_BODY_LEN, MAX_BULLETIN_RECIPIENT_LEN,
+    MAX_BULLETIN_SUBJECT_LEN, MAX_CHANT_TEXT_LEN, MAX_COMMAND_TIMEOUT_MS, MAX_COMMAND_WAIT_MS,
+    MAX_DIALOG_INPUT_LEN, MAX_GROUP_NAME_LEN, MAX_ITEM_SLOT, MAX_MESSAGE_CONTENT_LEN,
+    MAX_MESSAGE_RECIPIENT_LEN, MAX_RAW_PACKET_PAYLOAD_LEN, MAX_SKILL_SLOT, MAX_SPELL_INPUT_LEN,
+    MAX_SPELL_SLOT, MAX_WALK_ROUTE_TILES, MAX_WHO_NAME_LEN, MAX_WHO_PLAYERS, MAX_WHO_TITLE_LEN,
+    MessageCommand, MessageContent, MessageDialogCommand, MessageRecipient, RawPacket,
+    RawPacketDirection, RouteTile, SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput,
+    SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkRoute, WalkTarget,
 };
 pub use diagnostics::{
     DiagnosticsMode, DiagnosticsOperation, HOOK_TIMING_STAGE_COUNT, HookTimingRecord,
@@ -50,9 +57,9 @@ pub use message::{
     Architecture, ComponentVersion, DiagnosticsRequest, DiagnosticsResponse, EchoRequest,
     EchoResponse, Hello, HelloAck, MAX_ECHO_TEXT_LEN, Message, MessageType, PROTOCOL_VERSION_1_0,
     PROTOCOL_VERSION_1_1, PROTOCOL_VERSION_1_2, PROTOCOL_VERSION_1_3, PROTOCOL_VERSION_1_4,
-    PROTOCOL_VERSION_1_5, PROTOCOL_VERSION_1_6, PROTOCOL_VERSION_1_7, PROTOCOL_VERSION_1_8, Ping,
-    Pong, SUPPORTED_VERSIONS, TickHealthRequest, TickHealthResponse, VersionRange,
-    protocol_version, protocol_version_major, protocol_version_minor,
+    PROTOCOL_VERSION_1_5, PROTOCOL_VERSION_1_6, PROTOCOL_VERSION_1_7, PROTOCOL_VERSION_1_8,
+    PROTOCOL_VERSION_1_9, Ping, Pong, SUPPORTED_VERSIONS, TickHealthRequest, TickHealthResponse,
+    VersionRange, protocol_version, protocol_version_major, protocol_version_minor,
 };
 pub use message_dialog::{MAX_MESSAGE_DIALOG_TEXT_LEN, MAX_MESSAGE_DIALOGS};
 pub use player::{MAX_PLAYER_EQUIPMENT_ITEMS, MAX_PLAYER_IDENTITY_TEXT_LEN};

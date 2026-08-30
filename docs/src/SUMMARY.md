@@ -26,6 +26,7 @@
   - [NPC dialogs](dialogs.md)
   - [Message dialogs](message-dialogs.md)
   - [Field maps](field-maps.md)
+  - [Bulletin boards and player mail](bulletins.md)
   - [Groups](groups.md)
   - [Exchange](exchanges.md)
   - [Online players](online.md)

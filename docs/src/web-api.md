@@ -82,6 +82,7 @@ they need:
 | `GET /clients/{client}/dialog` | [NPC dialogs](dialogs.md) |
 | `GET /clients/{client}/message-dialogs` | [Message dialogs](message-dialogs.md) |
 | `GET /clients/{client}/field-map` | [Field maps](field-maps.md) |
+| `GET /clients/{client}/bulletin` | [Bulletin boards and player mail](bulletins.md) |
 | `GET /clients/{client}/group` | [Groups](groups.md) |
 | `GET /clients/{client}/exchange` | [Exchange](exchanges.md) |
 | `GET /clients/{client}/who` | [Online players](online.md) |
@@ -162,6 +163,7 @@ request cannot select another file in or outside the configured directory.
 | `POST /clients/{client}/dialog/close` | Close the current NPC dialog. |
 | `POST /clients/{client}/message-dialogs/dismiss` | Dismiss one current [message dialog](message-dialogs.md). |
 | `POST /clients/{client}/field-map/select` | Select one destination from the active [field map](field-maps.md). |
+| `POST /clients/{client}/bulletin/actions` | Open, navigate, scroll, compose, or mutate [bulletin boards and player mail](bulletins.md). |
 | `POST /clients/{client}/group/toggle` | Toggle invitations, or leave the current group. |
 | `POST /clients/{client}/group/invite` | Invite a visible player. |
 | `POST /clients/{client}/group/invitations/{id}/accept` | Accept a pending invitation. |

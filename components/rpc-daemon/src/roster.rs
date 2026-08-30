@@ -317,6 +317,7 @@ mod tests {
             objects: None,
             dialog: None,
             message_dialogs: MessageDialogsState::default(),
+            active_bulletin: None,
             active_field_map: None,
             group: None,
             exchange: None,

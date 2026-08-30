@@ -241,6 +241,7 @@ fn snapshot() -> ClientSnapshot {
                 truncated: false,
             }],
         },
+        active_bulletin: None,
         group: Some(group_state()),
         exchange: Some(exchange_state()),
         legend: Some(vec![LegendMark {

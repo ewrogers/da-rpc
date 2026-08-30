@@ -30,6 +30,7 @@ use utoipa::ToSchema;
 
 pub(crate) mod ability;
 pub(crate) mod assail;
+pub(crate) mod bulletin;
 pub(crate) mod chant;
 pub(crate) mod dialog;
 pub(crate) mod exchange;
@@ -385,6 +386,7 @@ pub(crate) enum CommandKind {
     SelectFieldMapDestination,
     DismissMessageDialog,
     Look,
+    Bulletin,
 }
 
 #[derive(Debug, Eq, PartialEq, Serialize, ToSchema)]
@@ -953,6 +955,7 @@ impl From<ProtocolKind> for CommandKind {
             ProtocolKind::SelectFieldMapDestination(_) => Self::SelectFieldMapDestination,
             ProtocolKind::DismissMessageDialog(_) => Self::DismissMessageDialog,
             ProtocolKind::Look(_) => Self::Look,
+            ProtocolKind::Bulletin(_) => Self::Bulletin,
         }
     }
 }

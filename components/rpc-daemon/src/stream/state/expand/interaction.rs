@@ -3,6 +3,34 @@ use super::*;
 pub(super) fn expand(observation: EventObservation, update: StateUpdate) -> Vec<ClientEvent> {
     let mut events = Vec::with_capacity(1);
     match update {
+        StateUpdate::Bulletin(update) => {
+            events.push(match update {
+                darpc_model::BulletinUpdate::Opened(state) => {
+                    ClientEvent::BulletinOpened(BulletinOpened::new(observation, state))
+                }
+                darpc_model::BulletinUpdate::Changed(state) => {
+                    ClientEvent::BulletinChanged(BulletinChanged::new(observation, state))
+                }
+                darpc_model::BulletinUpdate::ActionSubmitted { state, operation } => {
+                    ClientEvent::BulletinActionSubmitted(BulletinActionSubmitted::new(
+                        observation,
+                        state,
+                        operation,
+                    ))
+                }
+                darpc_model::BulletinUpdate::OperationResult { state, result } => {
+                    ClientEvent::BulletinOperationResult(BulletinOperationCompleted::new(
+                        observation,
+                        state,
+                        result,
+                    ))
+                }
+                darpc_model::BulletinUpdate::Closed { previous } => {
+                    ClientEvent::BulletinClosed(BulletinClosed::new(observation, previous))
+                }
+            });
+            events
+        }
         StateUpdate::Dialog(update) => {
             events.push(match update {
                 darpc_model::DialogUpdate::Opened(dialog) => {

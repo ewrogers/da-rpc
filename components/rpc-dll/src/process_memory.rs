@@ -17,7 +17,11 @@ pub(crate) unsafe trait ProcessValue: Copy {}
 // SAFETY: every bit pattern is valid for these integer values.
 unsafe impl ProcessValue for u8 {}
 // SAFETY: every bit pattern is valid for these integer values.
+unsafe impl ProcessValue for i8 {}
+// SAFETY: every bit pattern is valid for these integer values.
 unsafe impl ProcessValue for u16 {}
+// SAFETY: every bit pattern is valid for these integer values.
+unsafe impl ProcessValue for i16 {}
 // SAFETY: every bit pattern is valid for these integer values.
 unsafe impl ProcessValue for u32 {}
 // SAFETY: every bit pattern is valid for these integer values.

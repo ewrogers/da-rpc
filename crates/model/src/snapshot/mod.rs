@@ -138,6 +138,7 @@ pub struct ClientSnapshot {
     pub dialog: Option<crate::DialogState>,
     pub message_dialogs: crate::MessageDialogsState,
     pub active_field_map: Option<crate::FieldMapState>,
+    pub active_bulletin: Option<crate::BulletinState>,
     pub group: Option<crate::GroupState>,
     pub exchange: Option<crate::ExchangeState>,
     pub legend: Option<Vec<crate::LegendMark>>,

@@ -83,6 +83,7 @@ pub(crate) fn encode(output: &mut Vec<u8>, snapshot: &ClientSnapshot) -> Result<
     encode_optional_planned_route(output, snapshot.planned_route.as_ref())?;
     crate::field_map::encode_optional_state(output, snapshot.active_field_map.as_ref())?;
     crate::message_dialog::encode_state(output, &snapshot.message_dialogs)?;
+    crate::bulletin::encode_optional_state(output, snapshot.active_bulletin.as_ref())?;
     Ok(())
 }
 
@@ -144,6 +145,11 @@ pub(crate) fn decode(reader: &mut PayloadReader<'_>) -> Result<ClientSnapshot, D
     } else {
         crate::message_dialog::decode_state(reader)?
     };
+    let active_bulletin = if reader.is_empty() {
+        None
+    } else {
+        crate::bulletin::decode_optional_state(reader)?
+    };
     let mut snapshot = ClientSnapshot {
         revision,
         event_sequence,
@@ -156,6 +162,7 @@ pub(crate) fn decode(reader: &mut PayloadReader<'_>) -> Result<ClientSnapshot, D
         objects,
         dialog,
         active_field_map,
+        active_bulletin,
         message_dialogs,
         group,
         exchange,

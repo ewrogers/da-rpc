@@ -105,6 +105,37 @@ pub const NPC_SESSION_COL_RVAS: [usize; 2] = [0x002A_0EF8, 0x002A_0F50];
 /// Complete Object Locator RVA for exact RTTI `FieldMapPane`.
 pub const FIELD_MAP_PANE_COL_RVA: usize = 0x0029_ADB8;
 
+/// Module-relative address of the live bulletin-session singleton pointer.
+pub const BULLETIN_SESSION_POINTER_RVA: usize = 0x002D_9254;
+
+/// Exact vtable RVAs for the seven bulletin dialog kinds.
+pub const BULLETIN_DIALOG_VTABLE_RVAS: [usize; 7] = [
+    0x0026_ECF4,
+    0x0026_EE4C,
+    0x0026_EFA4,
+    0x0026_F0D4,
+    0x0026_F204,
+    0x0026_F35C,
+    0x0026_F48C,
+];
+
+/// Native bulletin-session and control helpers used only from the client main thread.
+pub const BULLETIN_SESSION_CLOSE_RVA: usize = 0x0001_C530;
+pub const BULLETIN_SESSION_BACK_RVA: usize = 0x0001_C570;
+pub const BULLETIN_SESSION_FORWARD_RVA: usize = 0x0001_C610;
+pub const BULLETIN_OPEN_ARTICLE_COMPOSE_RVA: usize = 0x0001_C780;
+pub const BULLETIN_OPEN_MAIL_COMPOSE_RVA: usize = 0x0001_C840;
+pub const BULLETIN_TEXT_COPY_RVA: usize = 0x0003_B1F0;
+pub const BULLETIN_TEXT_SET_RVA: usize = 0x0003_B2D0;
+pub const BULLETIN_SCROLL_SET_RVA: usize = 0x0003_A900;
+pub const BULLETIN_SCROLL_MAX_RVA: usize = 0x0003_A930;
+pub const BULLETIN_SCROLL_POSITION_RVA: usize = 0x0003_A950;
+pub const BULLETIN_LIST_COUNT_RVA: usize = 0x000B_34E0;
+pub const BULLETIN_LIST_ITEM_RVA: usize = 0x000B_3710;
+pub const BULLETIN_LIST_SELECT_RVA: usize = 0x000B_40F0;
+pub const BULLETIN_TEXT_EDIT_VTABLE_RVA: usize = 0x0027_1EE4;
+pub const BULLETIN_STATIC_TEXT_VTABLE_RVA: usize = 0x0027_1F84;
+
 /// Module-relative address of the null-safe live lower-tray pane accessor.
 pub const GUI_BACK_PANE_GET_RVA: usize = 0x001A_9C40;
 

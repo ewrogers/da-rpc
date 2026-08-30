@@ -29,6 +29,7 @@ pub(crate) fn reset() {
     PROCESSED_GENERATION.store(0, Ordering::Release);
     publication::reset();
     crate::state::reset();
+    crate::bulletin::reset();
     crate::dialog::reset();
     crate::message_dialog::reset();
     crate::group::reset();

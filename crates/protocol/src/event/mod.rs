@@ -244,6 +244,10 @@ fn encode_event(output: &mut Vec<u8>, event: &StateEvent) -> Result<(), EncodeEr
             }
             encode_event_string(output, &result.text, MAX_LOOK_RESULT_TEXT_LEN)?;
         }
+        StateUpdate::Bulletin(update) => {
+            output.push(28);
+            crate::bulletin::encode_update(output, update)?;
+        }
         StateUpdate::Status(update) => {
             output.push(1);
             encode_status(output, *update);
@@ -419,6 +423,7 @@ fn decode_event(reader: &mut PayloadReader<'_>) -> Result<StateEvent, DecodeErro
                 text: decode_event_string(reader, MAX_LOOK_RESULT_TEXT_LEN)?,
             })
         }
+        28 => StateUpdate::Bulletin(crate::bulletin::decode_update(reader)?),
         1 => StateUpdate::Status(decode_status(reader)?),
         2 => StateUpdate::Location(decode_location(reader)?),
         3 => StateUpdate::Effect(decode_effect(reader)?),

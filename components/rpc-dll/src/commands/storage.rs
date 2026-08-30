@@ -12,6 +12,7 @@ pub(super) enum StoredInput {
     Raw(RawPacket),
     Message(StoredMessage),
     Tiles(StoredTiles),
+    Bulletin(StoredBulletin),
 }
 
 impl StoredInput {
@@ -24,6 +25,7 @@ impl StoredInput {
             Self::Raw(value) => value.payload(),
             Self::Message(value) => value.as_bytes(),
             Self::Tiles(value) => value.as_bytes(),
+            Self::Bulletin(value) => value.as_bytes(),
         }
     }
 }
@@ -31,12 +33,12 @@ impl StoredInput {
 #[derive(Clone, Copy)]
 pub(super) struct StoredTiles {
     length: u16,
-    bytes: [u8; MAX_COMMAND_TILE_BYTES],
+    bytes: [u8; MAX_COMMAND_INPUT_BYTES],
 }
 
 impl StoredTiles {
     fn new(tiles: &[RouteTile]) -> Self {
-        let mut bytes = [0; MAX_COMMAND_TILE_BYTES];
+        let mut bytes = [0; MAX_COMMAND_INPUT_BYTES];
         for (index, tile) in tiles.iter().enumerate() {
             let offset = index * 4;
             bytes[offset..offset + 2].copy_from_slice(&tile.x.to_le_bytes());
@@ -82,6 +84,125 @@ impl StoredMessage {
     fn as_bytes(&self) -> &[u8] {
         &self.bytes[..usize::from(self.length)]
     }
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct StoredBulletin {
+    length: u16,
+    bytes: [u8; MAX_BULLETIN_COMMAND_BYTES],
+}
+
+impl StoredBulletin {
+    fn new(action: BulletinAction) -> Self {
+        let mut bytes = [0; MAX_BULLETIN_COMMAND_BYTES];
+        let mut length = 1;
+        bytes[0] = match action {
+            BulletinAction::Open(BulletinOpen::ServerList) => 1,
+            BulletinAction::Open(BulletinOpen::WorldTile { x, y }) => {
+                bytes[1..3].copy_from_slice(&x.to_le_bytes());
+                bytes[3..5].copy_from_slice(&y.to_le_bytes());
+                length = 5;
+                2
+            }
+            BulletinAction::OpenSection { section_id } => {
+                bytes[1..3].copy_from_slice(&section_id.to_le_bytes());
+                length = 3;
+                3
+            }
+            BulletinAction::SelectSection { section_id } => {
+                bytes[1..3].copy_from_slice(&section_id.to_le_bytes());
+                length = 3;
+                4
+            }
+            BulletinAction::OpenEntry { entry_id } => {
+                bytes[1..3].copy_from_slice(&entry_id.to_le_bytes());
+                length = 3;
+                5
+            }
+            BulletinAction::SelectEntry { entry_id } => {
+                bytes[1..3].copy_from_slice(&entry_id.to_le_bytes());
+                length = 3;
+                6
+            }
+            BulletinAction::LoadOlder => 7,
+            BulletinAction::Scroll { position } => {
+                bytes[1..5].copy_from_slice(&position.to_le_bytes());
+                length = 5;
+                8
+            }
+            BulletinAction::Navigate(navigation) => {
+                bytes[1] = match navigation {
+                    BulletinNavigation::Back => 1,
+                    BulletinNavigation::Forward => 2,
+                    BulletinNavigation::PreviousEntry => 3,
+                    BulletinNavigation::NextEntry => 4,
+                };
+                length = 2;
+                9
+            }
+            BulletinAction::BeginCompose(kind) => {
+                bytes[1] = match kind {
+                    BulletinComposeKind::BoardPost => 1,
+                    BulletinComposeKind::PlayerMail => 2,
+                    BulletinComposeKind::Reply => 3,
+                };
+                length = 2;
+                10
+            }
+            BulletinAction::UpdateBoardPost { subject, body } => {
+                length = write_bulletin_text(&mut bytes, 1, subject.as_bytes());
+                length = write_bulletin_body(&mut bytes, length, body.as_bytes());
+                11
+            }
+            BulletinAction::UpdatePlayerMail {
+                recipient,
+                subject,
+                body,
+            } => {
+                length = write_bulletin_text(&mut bytes, 1, recipient.as_bytes());
+                length = write_bulletin_text(&mut bytes, length, subject.as_bytes());
+                length = write_bulletin_body(&mut bytes, length, body.as_bytes());
+                12
+            }
+            BulletinAction::SubmitCompose => 13,
+            BulletinAction::DeleteEntry { entry_id } => {
+                bytes[1..3].copy_from_slice(&entry_id.to_le_bytes());
+                length = 3;
+                14
+            }
+            BulletinAction::HighlightEntry { entry_id } => {
+                bytes[1..3].copy_from_slice(&entry_id.to_le_bytes());
+                length = 3;
+                15
+            }
+            BulletinAction::Close => 16,
+        };
+        Self {
+            length: u16::try_from(length).expect("bounded bulletin command fits u16"),
+            bytes,
+        }
+    }
+
+    fn as_bytes(&self) -> &[u8] {
+        &self.bytes[..usize::from(self.length)]
+    }
+}
+
+fn write_bulletin_text(output: &mut [u8], offset: usize, value: &[u8]) -> usize {
+    output[offset] = u8::try_from(value.len()).expect("bounded bulletin text fits u8");
+    let start = offset + 1;
+    let end = start + value.len();
+    output[start..end].copy_from_slice(value);
+    end
+}
+
+fn write_bulletin_body(output: &mut [u8], offset: usize, value: &[u8]) -> usize {
+    let length = u16::try_from(value.len()).expect("bounded bulletin body fits u16");
+    output[offset..offset + 2].copy_from_slice(&length.to_le_bytes());
+    let start = offset + 2;
+    let end = start + value.len();
+    output[start..end].copy_from_slice(value);
+    end
 }
 
 pub(super) fn stored_kind(kind: CommandKind) -> (u8, u32, u32, u32, Option<StoredInput>) {
@@ -248,6 +369,13 @@ pub(super) fn stored_kind(kind: CommandKind) -> (u8, u32, u32, u32, Option<Store
         CommandKind::DismissMessageDialog(command) => (53, command.revision, command.id, 0, None),
         CommandKind::Look(LookTarget::Ahead) => (54, 0, 0, 0, None),
         CommandKind::Look(LookTarget::Tile { x, y }) => (55, u32::from(x), u32::from(y), 0, None),
+        CommandKind::Bulletin(command) => (
+            56,
+            command.revision,
+            0,
+            0,
+            Some(StoredInput::Bulletin(StoredBulletin::new(command.action))),
+        ),
     }
 }
 
@@ -496,8 +624,95 @@ pub(super) fn kind_from_value(
             x: argument_x as u16,
             y: argument_y as u16,
         }),
+        56 => stored_bulletin(argument_x, input).unwrap_or(CommandKind::Diagnostic),
         _ => CommandKind::Diagnostic,
     }
+}
+
+fn stored_bulletin(revision: u32, input: &[u8]) -> Option<CommandKind> {
+    let (&tag, rest) = input.split_first()?;
+    let action = match tag {
+        1 if rest.is_empty() => BulletinAction::Open(BulletinOpen::ServerList),
+        2 if rest.len() == 4 => BulletinAction::Open(BulletinOpen::WorldTile {
+            x: u16::from_le_bytes(rest[..2].try_into().ok()?),
+            y: u16::from_le_bytes(rest[2..].try_into().ok()?),
+        }),
+        3 if rest.len() == 2 => BulletinAction::OpenSection {
+            section_id: u16::from_le_bytes(rest.try_into().ok()?),
+        },
+        4 if rest.len() == 2 => BulletinAction::SelectSection {
+            section_id: u16::from_le_bytes(rest.try_into().ok()?),
+        },
+        5 if rest.len() == 2 => BulletinAction::OpenEntry {
+            entry_id: i16::from_le_bytes(rest.try_into().ok()?),
+        },
+        6 if rest.len() == 2 => BulletinAction::SelectEntry {
+            entry_id: i16::from_le_bytes(rest.try_into().ok()?),
+        },
+        7 if rest.is_empty() => BulletinAction::LoadOlder,
+        8 if rest.len() == 4 => BulletinAction::Scroll {
+            position: i32::from_le_bytes(rest.try_into().ok()?),
+        },
+        9 if rest.len() == 1 => BulletinAction::Navigate(match rest[0] {
+            1 => BulletinNavigation::Back,
+            2 => BulletinNavigation::Forward,
+            3 => BulletinNavigation::PreviousEntry,
+            4 => BulletinNavigation::NextEntry,
+            _ => return None,
+        }),
+        10 if rest.len() == 1 => BulletinAction::BeginCompose(match rest[0] {
+            1 => BulletinComposeKind::BoardPost,
+            2 => BulletinComposeKind::PlayerMail,
+            3 => BulletinComposeKind::Reply,
+            _ => return None,
+        }),
+        11 => {
+            let (subject, rest) = read_bulletin_text(rest)?;
+            let (body, rest) = read_bulletin_body(rest)?;
+            if !rest.is_empty() {
+                return None;
+            }
+            BulletinAction::UpdateBoardPost {
+                subject: BulletinSubject::new(std::str::from_utf8(subject).ok()?)?,
+                body: BulletinBody::new(std::str::from_utf8(body).ok()?)?,
+            }
+        }
+        12 => {
+            let (recipient, rest) = read_bulletin_text(rest)?;
+            let (subject, rest) = read_bulletin_text(rest)?;
+            let (body, rest) = read_bulletin_body(rest)?;
+            if !rest.is_empty() {
+                return None;
+            }
+            BulletinAction::UpdatePlayerMail {
+                recipient: BulletinRecipient::new(std::str::from_utf8(recipient).ok()?)?,
+                subject: BulletinSubject::new(std::str::from_utf8(subject).ok()?)?,
+                body: BulletinBody::new(std::str::from_utf8(body).ok()?)?,
+            }
+        }
+        13 if rest.is_empty() => BulletinAction::SubmitCompose,
+        14 if rest.len() == 2 => BulletinAction::DeleteEntry {
+            entry_id: i16::from_le_bytes(rest.try_into().ok()?),
+        },
+        15 if rest.len() == 2 => BulletinAction::HighlightEntry {
+            entry_id: i16::from_le_bytes(rest.try_into().ok()?),
+        },
+        16 if rest.is_empty() => BulletinAction::Close,
+        _ => return None,
+    };
+    Some(CommandKind::Bulletin(BulletinCommand { revision, action }))
+}
+
+fn read_bulletin_text(input: &[u8]) -> Option<(&[u8], &[u8])> {
+    let length = usize::from(*input.first()?);
+    let end = 1_usize.checked_add(length)?;
+    Some((input.get(1..end)?, input.get(end..)?))
+}
+
+fn read_bulletin_body(input: &[u8]) -> Option<(&[u8], &[u8])> {
+    let length = usize::from(u16::from_le_bytes(input.get(..2)?.try_into().ok()?));
+    let end = 2_usize.checked_add(length)?;
+    Some((input.get(2..end)?, input.get(end..)?))
 }
 
 fn stored_tiles(count: u32, input: &[u8]) -> Option<([RouteTile; MAX_WALK_ROUTE_TILES], usize)> {

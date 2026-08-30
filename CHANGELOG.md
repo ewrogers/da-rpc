@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 1.8.4 - 2026-08-29
+
+### Changed
+
+- Coalesce field-map and message-dialog snapshot reads within a bounded 250-millisecond window to prevent repeated local UI polling from forcing full client captures. Revision-sensitive field-map selection and message-dialog dismissal still force a fresh snapshot.
+
 ## 1.8.3 - 2026-08-29
 
 ### Fixed

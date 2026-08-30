@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 1.9.0 - 2026-08-30
+
+### Added
+
+- Add bulletin boards, trade boards, guild boards, world boards, and player mail across injected state tracking, direct RPC, REST, Server-Sent Events, and the command-line interface. The API supports opening local and requested sources, paging, scrolling, entry navigation, composition, submission, deletion, highlighting, dismissal, and complete active UI state queries.
+- Add server-confirmed `bulletin.submitted`, `bulletin.deleted`, and `bulletin.failed` events. Mutation events include the attempted action, raw status, optional server message, and complete bulletin state.
+
 ## 1.8.4 - 2026-08-29
 
 ### Changed

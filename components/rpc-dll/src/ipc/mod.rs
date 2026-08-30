@@ -1,19 +1,18 @@
 use darpc_protocol::{
-    CommandResponse, CommandResult, EchoResponse, EndpointRole, EventPollResponse, Frame,
-    Handshake, Hello, MAX_EVENT_POLL_WAIT_MS, MAX_EVENTS_PER_POLL, Message, MessageDirection, Pong,
-    SequenceCounter, SnapshotResponse, SnapshotResult, SnapshotUnavailableReason,
-    TickHealthResponse,
+    CommandResponse, CommandResult, CommandState, EchoResponse, EndpointRole, EventPollResponse,
+    Frame, Handshake, Hello, MAX_EVENT_POLL_WAIT_MS, MAX_EVENTS_PER_POLL, Message,
+    MessageDirection, Pong, SequenceCounter, SnapshotResponse, SnapshotResult,
+    SnapshotUnavailableReason, TickHealthResponse,
 };
 use darpc_win32::pipe::{PipeServer, StopEvent, pipe_name, sender_tick_ms};
 use std::{
-    fs::File,
     io::{self, Write},
     sync::mpsc,
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
 
-use crate::{commands, diagnostics, hooks::tick, snapshot, state};
+use crate::{commands, diagnostics, hooks::tick, log_file::LogFile, snapshot, state};
 
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const SHUTDOWN_POLL_INTERVAL: Duration = Duration::from_millis(10);
@@ -25,7 +24,7 @@ pub(crate) struct IpcWorker {
 }
 
 impl IpcWorker {
-    pub(crate) fn start(hello: Hello, log: File) -> io::Result<Self> {
+    pub(crate) fn start(hello: Hello, log: LogFile) -> io::Result<Self> {
         let stop = StopEvent::new()?;
         let worker_stop = stop.clone();
         let (ready_sender, ready_receiver) = mpsc::sync_channel(1);
@@ -73,7 +72,7 @@ impl IpcWorker {
     }
 }
 
-fn run(stop: StopEvent, hello: Hello, mut log: File, ready: mpsc::SyncSender<io::Result<()>>) {
+fn run(stop: StopEvent, hello: Hello, mut log: LogFile, ready: mpsc::SyncSender<io::Result<()>>) {
     let server = match PipeServer::bind(hello.process_id, stop.clone()) {
         Ok(server) => {
             if ready.send(Ok(())).is_err() {
@@ -121,10 +120,12 @@ fn run(stop: StopEvent, hello: Hello, mut log: File, ready: mpsc::SyncSender<io:
     let _ = writeln!(log, "event=ipc_stopped pid={}", hello.process_id);
 }
 
-fn serve_connection(server: &PipeServer, hello: &Hello, log: &mut File) -> io::Result<()> {
+fn serve_connection(server: &PipeServer, hello: &Hello, log: &mut LogFile) -> io::Result<()> {
     let mut handshake = Handshake::new(EndpointRole::Dll);
     let mut incoming_sequence = SequenceCounter::new();
     let mut outgoing_sequence = SequenceCounter::new();
+    let mut logged_snapshot_state = None;
+    let mut logged_snapshot_failure = None;
 
     send(
         server,
@@ -164,32 +165,53 @@ fn serve_connection(server: &PipeServer, hello: &Hello, log: &mut File) -> io::R
             ),
             Message::SnapshotRequest(message) => {
                 let result = if !tick::health().installed {
+                    log_snapshot_failure(
+                        log,
+                        &mut logged_snapshot_failure,
+                        SnapshotUnavailableReason::HookUnavailable,
+                        "hook_unavailable",
+                    );
                     SnapshotResult::Unavailable(SnapshotUnavailableReason::HookUnavailable)
                 } else {
                     let generation = snapshot::request();
                     match snapshot::wait(generation, SNAPSHOT_TIMEOUT) {
                         Ok(snapshot) => {
                             state::rebase(snapshot.event_sequence);
-                            let _ = writeln!(
-                                log,
-                                concat!(
-                                    "event=snapshot_captured revision={} event_sequence={} ",
-                                    "lifecycle={:?} world_generation={} duration_us={}"
-                                ),
-                                snapshot.revision,
-                                snapshot.event_sequence,
-                                snapshot.lifecycle,
-                                snapshot.world_generation,
-                                snapshot.capture_duration_us
-                            );
+                            let current_state = (snapshot.lifecycle, snapshot.world_generation);
+                            if logged_snapshot_state != Some(current_state) {
+                                let _ = writeln!(
+                                    log,
+                                    concat!(
+                                        "event=snapshot_state revision={} event_sequence={} ",
+                                        "lifecycle={:?} world_generation={}"
+                                    ),
+                                    snapshot.revision,
+                                    snapshot.event_sequence,
+                                    snapshot.lifecycle,
+                                    snapshot.world_generation
+                                );
+                                logged_snapshot_state = Some(current_state);
+                            }
+                            logged_snapshot_failure = None;
                             SnapshotResult::Ready(Box::new(snapshot))
                         }
                         Err(snapshot::WaitError::TimedOut) => {
-                            let _ = writeln!(log, "event=snapshot_failed reason=capture_timed_out");
+                            log_snapshot_failure(
+                                log,
+                                &mut logged_snapshot_failure,
+                                SnapshotUnavailableReason::CaptureTimedOut,
+                                "capture_timed_out",
+                            );
                             SnapshotResult::Unavailable(SnapshotUnavailableReason::CaptureTimedOut)
                         }
                         Err(snapshot::WaitError::Capture(error)) => {
-                            let _ = writeln!(log, "event=snapshot_failed reason={error}");
+                            if logged_snapshot_failure
+                                != Some(SnapshotUnavailableReason::CaptureFailed)
+                            {
+                                let _ = writeln!(log, "event=snapshot_failed reason={error}");
+                                logged_snapshot_failure =
+                                    Some(SnapshotUnavailableReason::CaptureFailed);
+                            }
                             SnapshotResult::Unavailable(SnapshotUnavailableReason::CaptureFailed)
                         }
                     }
@@ -227,11 +249,13 @@ fn serve_connection(server: &PipeServer, hello: &Hello, log: &mut File) -> io::R
                 } else {
                     CommandResult::Unavailable
                 };
-                let _ = writeln!(
-                    log,
-                    "event=command request_id={} result={result:?}",
-                    message.request_id
-                );
+                if command_result_is_warning(&result) {
+                    let _ = writeln!(
+                        log,
+                        "event=command request_id={} result={result:?}",
+                        message.request_id
+                    );
+                }
                 Message::CommandResponse(CommandResponse {
                     request_id: message.request_id,
                     result,
@@ -247,6 +271,34 @@ fn serve_connection(server: &PipeServer, hello: &Hello, log: &mut File) -> io::R
 
         send(server, &mut handshake, &mut outgoing_sequence, response)?;
     }
+}
+
+fn log_snapshot_failure(
+    log: &mut LogFile,
+    logged_failure: &mut Option<SnapshotUnavailableReason>,
+    reason: SnapshotUnavailableReason,
+    reason_name: &str,
+) {
+    if *logged_failure != Some(reason) {
+        let _ = writeln!(log, "event=snapshot_failed reason={reason_name}");
+        *logged_failure = Some(reason);
+    }
+}
+
+fn command_result_is_warning(result: &CommandResult) -> bool {
+    let status = match result {
+        CommandResult::Status(status)
+        | CommandResult::ExactRouteInvalidState { status, .. }
+        | CommandResult::Who { status, .. }
+        | CommandResult::Legend { status, .. }
+        | CommandResult::Player { status, .. } => status,
+        CommandResult::Busy | CommandResult::NotFound | CommandResult::Unavailable => return true,
+    };
+
+    matches!(
+        status.state,
+        CommandState::Failed | CommandState::Cancelled | CommandState::TimedOut
+    )
 }
 
 fn receive(

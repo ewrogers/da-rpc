@@ -80,6 +80,20 @@ This state tracking is independent of `darpcd.exe`. If the daemon stops, the DLL
 continues to update its state and keeps its named-pipe server ready for a new
 connection.
 
+## Diagnostic logging
+
+The DLL writes one process-specific diagnostic log to
+`%USERPROFILE%\darpc\logs\pid-{pid}.log`. It records lifecycle and connection
+transitions, changed snapshot lifecycle or world state, warnings, and failures.
+Repeated successful snapshots and successful or accepted commands remain silent.
+Identical snapshot failures are recorded once until capture succeeds or the
+failure reason changes.
+
+Each log is limited to 1 MiB. After a complete record crosses that limit, the
+file is rewritten before the next record and starts with a `log_rotated` marker.
+This keeps the newest actionable records without allowing a long-running client
+to grow one log indefinitely.
+
 ## Command execution
 
 The IPC worker validates command fields and submits pointer-free entries to a

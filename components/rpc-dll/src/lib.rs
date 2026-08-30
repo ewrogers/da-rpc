@@ -39,6 +39,8 @@ mod legend;
 #[cfg(windows)]
 mod lifecycle;
 #[cfg(any(windows, test))]
+mod log_file;
+#[cfg(any(windows, test))]
 mod look;
 #[cfg(windows)]
 mod map_name;

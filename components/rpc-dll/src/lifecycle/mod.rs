@@ -1,8 +1,7 @@
 use std::{
     env,
     error::Error,
-    fmt,
-    fs::{self, File, OpenOptions},
+    fmt, fs,
     io::{self, Write},
     path::PathBuf,
     process,
@@ -20,12 +19,13 @@ use crate::{
     },
     identity,
     ipc::IpcWorker,
+    log_file::LogFile,
 };
 
 static LIFECYCLE: Mutex<Option<Lifecycle>> = Mutex::new(None);
 
 struct Lifecycle {
-    log: File,
+    log: LogFile,
     ipc: IpcWorker,
     event_hook: Option<EventHook>,
     outgoing_hook: Option<OutgoingHook>,
@@ -83,10 +83,7 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
 
     fs::create_dir_all(log_directory)?;
 
-    let mut log = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_path)?;
+    let mut log = LogFile::open(&log_path)?;
 
     let identity = match identity::current() {
         Ok(identity) => identity,
@@ -98,7 +95,7 @@ pub(crate) fn initialize() -> Result<(), InitializeError> {
             return Err(error.into());
         }
     };
-    let mut ipc = IpcWorker::start(identity.hello, log.try_clone()?)?;
+    let mut ipc = IpcWorker::start(identity.hello, log.clone())?;
     let mut hook_install_warning = None;
     let mut tick_hook = if identity.supported_client {
         match TickHook::install() {

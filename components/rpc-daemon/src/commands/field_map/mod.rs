@@ -34,7 +34,7 @@ pub(crate) async fn select(
     request: Result<Json<FieldMapSelectOptions>, JsonRejection>,
 ) -> Result<(StatusCode, Json<CommandStatus>), ApiError> {
     let Json(request) = action_request(request)?;
-    let (pid, identity, snapshot) = super::live_snapshot(&state, &identifier).await?;
+    let (pid, identity, snapshot) = super::fresh_snapshot(&state, &identifier).await?;
     if snapshot.lifecycle != ClientLifecycle::InGame {
         return Err(ApiError::new(
             StatusCode::CONFLICT,

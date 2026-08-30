@@ -40,11 +40,12 @@ FieldMapDestination {
 }
 ```
 
-This endpoint requests a fresh serialized snapshot from the injected DLL. It
-does not depend on the daemon having observed every earlier state event, which
-is important because the panel can open and close during unrelated movement
-resynchronization. The selection endpoint performs the same live refresh before
-validating its revision and destination index.
+The daemon may reuse a serialized snapshot for up to 250 milliseconds after it
+is received. This coalesces concurrent reads instead of repeatedly walking
+client state. The endpoint does not depend on the daemon having observed every
+earlier state event, which is important because the panel can open and close
+during unrelated movement resynchronization. The selection endpoint forces a
+fresh snapshot before validating its revision and destination index.
 
 `field_name` is the local asset stem, such as `field001`. The current node is
 nullable because a malformed or out-of-range server index does not identify a

@@ -254,7 +254,15 @@ pub(crate) struct CommandCall {
 pub(crate) enum ClientOperation {
     Command(CommandOperation),
     Diagnostics(darpc_protocol::DiagnosticsOperation),
-    Snapshot,
+    Snapshot(SnapshotFreshness),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SnapshotFreshness {
+    /// Reuse the worker's bounded recent snapshot when available.
+    Recent,
+    /// Require a new client capture for revision-sensitive validation.
+    Fresh,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -600,12 +608,27 @@ async fn route(
     }
 }
 
-pub(crate) async fn live_snapshot(
+pub(crate) async fn recent_snapshot(
     state: &ApiState,
     identifier: &str,
 ) -> Result<(u32, ClientIdentity, Box<GameSnapshot>), ApiError> {
+    snapshot(state, identifier, SnapshotFreshness::Recent).await
+}
+
+pub(crate) async fn fresh_snapshot(
+    state: &ApiState,
+    identifier: &str,
+) -> Result<(u32, ClientIdentity, Box<GameSnapshot>), ApiError> {
+    snapshot(state, identifier, SnapshotFreshness::Fresh).await
+}
+
+async fn snapshot(
+    state: &ApiState,
+    identifier: &str,
+    freshness: SnapshotFreshness,
+) -> Result<(u32, ClientIdentity, Box<GameSnapshot>), ApiError> {
     let (pid, identity) = connected_client(state, identifier)?;
-    let receiver = state.route_snapshot(pid, identity)?;
+    let receiver = state.route_snapshot(pid, identity, freshness)?;
     let reply = timeout(ROUTE_TIMEOUT, receiver)
         .await
         .map_err(|_| {

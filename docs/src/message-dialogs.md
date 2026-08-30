@@ -13,7 +13,8 @@ GET /clients/{client}/message-dialogs
 The response contains observation metadata and a state with a wrapping
 `revision` and a `dialogs` array. Each dialog has an opaque `id`, nullable
 `text`, and a `truncated` flag. IDs contain no client addresses. Text is
-capped at 4096 client bytes.
+capped at 4096 client bytes. The daemon coalesces concurrent reads and may
+reuse a serialized snapshot for up to 250 milliseconds after it is received.
 
 ## Dismissing a dialog
 
@@ -30,8 +31,9 @@ darpc message-dialog dismiss --pid 1234 7 3
 ```
 
 The DLL revalidates the revision, ID, pane type, registration, and visibility
-on the client main thread before calling the native close operation. A stale
-revision fails closed.
+on the client main thread before calling the native close operation. The
+dismissal path forces a fresh snapshot before submission, and a stale revision
+fails closed.
 
 ## Events
 

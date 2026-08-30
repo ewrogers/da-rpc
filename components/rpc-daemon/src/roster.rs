@@ -399,7 +399,7 @@ mod tests {
                 process_creation_time: 1,
                 dll_instance_id: [1; 16],
             },
-            operation: ClientOperation::Snapshot,
+            operation: ClientOperation::Snapshot(crate::commands::SnapshotFreshness::Recent),
             reply,
         });
         assert_eq!(response.try_recv().unwrap(), CommandReply::Unavailable);
@@ -413,7 +413,7 @@ mod tests {
                 process_creation_time: 1,
                 dll_instance_id: [1; 16],
             },
-            operation: ClientOperation::Snapshot,
+            operation: ClientOperation::Snapshot(crate::commands::SnapshotFreshness::Recent),
             reply,
         });
         let worker = Arc::clone(&state.workers.lock().unwrap()[&42]);

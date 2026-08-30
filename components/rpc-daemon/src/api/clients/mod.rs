@@ -79,7 +79,7 @@ pub(super) async fn client_field_map(
     Path(identifier): Path<String>,
     State(state): State<ApiState>,
 ) -> Result<Json<FieldMapSnapshot>, ApiError> {
-    let (pid, _, snapshot) = crate::commands::live_snapshot(&state, &identifier).await?;
+    let (pid, _, snapshot) = crate::commands::recent_snapshot(&state, &identifier).await?;
     Ok(Json(FieldMapSnapshot::from_model(pid, &snapshot)))
 }
 
@@ -100,7 +100,7 @@ pub(super) async fn client_message_dialogs(
     Path(identifier): Path<String>,
     State(state): State<ApiState>,
 ) -> Result<Json<MessageDialogsSnapshot>, ApiError> {
-    let (pid, _, snapshot) = crate::commands::live_snapshot(&state, &identifier).await?;
+    let (pid, _, snapshot) = crate::commands::recent_snapshot(&state, &identifier).await?;
     Ok(Json(MessageDialogsSnapshot::from_model(pid, &snapshot)))
 }
 

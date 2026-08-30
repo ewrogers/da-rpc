@@ -451,8 +451,9 @@ impl ApiState {
         &self,
         pid: u32,
         identity: RegistryClientIdentity,
+        freshness: crate::commands::SnapshotFreshness,
     ) -> Result<oneshot::Receiver<crate::commands::CommandReply>, ApiError> {
-        self.route_client(pid, identity, ClientOperation::Snapshot)
+        self.route_client(pid, identity, ClientOperation::Snapshot(freshness))
     }
 
     pub(crate) fn route_diagnostics(

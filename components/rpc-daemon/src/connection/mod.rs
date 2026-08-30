@@ -1,5 +1,5 @@
 use crate::{
-    commands::{ClientOperation, CommandCall, CommandReply, WORKER_CAPACITY},
+    commands::{ClientOperation, CommandCall, CommandReply, SnapshotFreshness, WORKER_CAPACITY},
     event::DaemonEvent,
     registry::{ClientIdentity, ConnectionEvent},
 };
@@ -36,6 +36,8 @@ const INITIALIZATION_GRACE: Duration = Duration::from_secs(1);
 const STOP_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const EVENT_POLL_WAIT_MS: u16 = 50;
 const SNAPSHOT_RETRY_INTERVAL: Duration = Duration::from_millis(500);
+// Local UI reads tolerate this bounded age; commands that validate a revision bypass it.
+const RECENT_SNAPSHOT_MAX_AGE: Duration = Duration::from_millis(250);
 
 #[derive(Default)]
 struct TickRateMonitor {
@@ -131,6 +133,45 @@ impl TickRateMonitor {
 
     fn reset(&mut self) {
         *self = Self::default();
+    }
+}
+
+#[derive(Default)]
+struct SnapshotCache {
+    retained: Option<RetainedSnapshot>,
+}
+
+struct RetainedSnapshot {
+    captured_at: Instant,
+    snapshot: Box<darpc_model::ClientSnapshot>,
+}
+
+impl SnapshotCache {
+    fn resolve(
+        &self,
+        freshness: SnapshotFreshness,
+        now: Instant,
+    ) -> Option<Box<darpc_model::ClientSnapshot>> {
+        if freshness == SnapshotFreshness::Fresh {
+            return None;
+        }
+        self.retained
+            .as_ref()
+            .filter(|retained| {
+                now.saturating_duration_since(retained.captured_at) <= RECENT_SNAPSHOT_MAX_AGE
+            })
+            .map(|retained| retained.snapshot.clone())
+    }
+
+    fn retain(&mut self, snapshot: Box<darpc_model::ClientSnapshot>, captured_at: Instant) {
+        self.retained = Some(RetainedSnapshot {
+            captured_at,
+            snapshot,
+        });
+    }
+
+    fn clear(&mut self) {
+        self.retained = None;
     }
 }
 
@@ -335,9 +376,13 @@ fn monitor(
     let mut last_health = Instant::now();
     let mut tick_rate = TickRateMonitor::default();
     let mut hook_timing = HookTimingMonitor::default();
+    let mut snapshots = SnapshotCache::default();
     while !control.is_stopped() {
         if control.take_refresh_observation() {
             boundary = None;
+        }
+        if boundary.is_none() {
+            snapshots.clear();
         }
         if let Some(call) = next_command(commands) {
             if call.identity != identity {
@@ -352,23 +397,30 @@ fn monitor(
                             .map(CommandReply::Diagnostics)
                     }
                     ClientOperation::Diagnostics(_) => Ok(CommandReply::Unavailable),
-                    ClientOperation::Snapshot => match request_snapshot(session, request_id) {
-                        Ok(SnapshotOutcome::Ready(snapshot)) => {
-                            boundary = Some((snapshot.event_sequence, snapshot.revision));
-                            let reply_snapshot = snapshot.clone();
-                            send_event(
-                                events,
-                                ConnectionEvent::Snapshot {
-                                    pid,
-                                    identity,
-                                    snapshot,
-                                },
-                            )?;
-                            Ok(CommandReply::Snapshot(reply_snapshot))
+                    ClientOperation::Snapshot(freshness) => {
+                        if let Some(snapshot) = snapshots.resolve(freshness, Instant::now()) {
+                            Ok(CommandReply::Snapshot(snapshot))
+                        } else {
+                            match request_snapshot(session, request_id) {
+                                Ok(SnapshotOutcome::Ready(snapshot)) => {
+                                    let reply_snapshot = snapshot.clone();
+                                    publish_snapshot(
+                                        events,
+                                        pid,
+                                        identity,
+                                        &mut boundary,
+                                        &mut snapshots,
+                                        snapshot,
+                                    )?;
+                                    Ok(CommandReply::Snapshot(reply_snapshot))
+                                }
+                                Ok(SnapshotOutcome::Unavailable(_)) => {
+                                    Ok(CommandReply::Unavailable)
+                                }
+                                Err(error) => Err(error),
+                            }
                         }
-                        Ok(SnapshotOutcome::Unavailable(_)) => Ok(CommandReply::Unavailable),
-                        Err(error) => Err(error),
-                    },
+                    }
                 };
                 request_id = SequenceNumber::new(request_id).next().get();
                 match result {
@@ -387,14 +439,13 @@ fn monitor(
         if boundary.is_none() {
             match request_snapshot(session, request_id)? {
                 SnapshotOutcome::Ready(snapshot) => {
-                    boundary = Some((snapshot.event_sequence, snapshot.revision));
-                    send_event(
+                    publish_snapshot(
                         events,
-                        ConnectionEvent::Snapshot {
-                            pid,
-                            identity,
-                            snapshot,
-                        },
+                        pid,
+                        identity,
+                        &mut boundary,
+                        &mut snapshots,
+                        snapshot,
                     )?;
                 }
                 SnapshotOutcome::Unavailable(reason) => {
@@ -462,6 +513,26 @@ fn monitor(
     }
     reject_pending_commands(commands);
     Ok(())
+}
+
+fn publish_snapshot(
+    events: &Sender<DaemonEvent>,
+    pid: u32,
+    identity: ClientIdentity,
+    boundary: &mut Option<(u32, u32)>,
+    snapshots: &mut SnapshotCache,
+    snapshot: Box<darpc_model::ClientSnapshot>,
+) -> Result<(), ControllerError> {
+    *boundary = Some((snapshot.event_sequence, snapshot.revision));
+    snapshots.retain(snapshot.clone(), Instant::now());
+    send_event(
+        events,
+        ConnectionEvent::Snapshot {
+            pid,
+            identity,
+            snapshot,
+        },
+    )
 }
 
 fn request_command(
@@ -700,16 +771,23 @@ fn emit(events: &Sender<DaemonEvent>, event: ConnectionEvent) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        HookTimingMonitor, TickRateChange, TickRateMonitor, validate_event_batch, validate_identity,
+        HookTimingMonitor, RECENT_SNAPSHOT_MAX_AGE, SnapshotCache, TickRateChange, TickRateMonitor,
+        validate_event_batch, validate_identity,
     };
+    use crate::commands::SnapshotFreshness;
     use crate::event::DaemonEvent;
     use darpc_game_client::{CLIENT_VERSION_CODE, EXECUTABLE_SHA256};
-    use darpc_model::{StateEvent, StateUpdate, StatusUpdate};
+    use darpc_model::{
+        ClientLifecycle, ClientSnapshot, MessageDialogsState, StateEvent, StateUpdate, StatusUpdate,
+    };
     use darpc_protocol::{
         Architecture, ComponentVersion, DiagnosticsMode, DiagnosticsResponse, Hello,
         HookTimingRecord, HookTimingStage, SUPPORTED_VERSIONS,
     };
-    use std::sync::mpsc;
+    use std::{
+        sync::mpsc,
+        time::{Duration, Instant},
+    };
 
     fn hello() -> Hello {
         Hello {
@@ -726,6 +804,64 @@ mod tests {
             executable_fingerprint: EXECUTABLE_SHA256,
             client_version: CLIENT_VERSION_CODE,
         }
+    }
+
+    fn snapshot(revision: u32) -> Box<ClientSnapshot> {
+        Box::new(ClientSnapshot {
+            revision,
+            event_sequence: revision,
+            captured_tick_ms: 0,
+            updated_tick_ms: 0,
+            capture_duration_us: 0,
+            world_generation: 0,
+            lifecycle: ClientLifecycle::InGame,
+            character: None,
+            objects: None,
+            dialog: None,
+            message_dialogs: MessageDialogsState::default(),
+            active_field_map: None,
+            group: None,
+            exchange: None,
+            legend: None,
+            planned_route: None,
+        })
+    }
+
+    #[test]
+    fn reuses_only_recent_snapshots_when_allowed() {
+        let captured_at = Instant::now();
+        let mut snapshots = SnapshotCache::default();
+        snapshots.retain(snapshot(7), captured_at);
+
+        assert_eq!(
+            snapshots
+                .resolve(
+                    SnapshotFreshness::Recent,
+                    captured_at + RECENT_SNAPSHOT_MAX_AGE,
+                )
+                .map(|snapshot| snapshot.revision),
+            Some(7)
+        );
+        assert!(
+            snapshots
+                .resolve(
+                    SnapshotFreshness::Recent,
+                    captured_at + RECENT_SNAPSHOT_MAX_AGE + Duration::from_millis(1),
+                )
+                .is_none()
+        );
+        assert!(
+            snapshots
+                .resolve(SnapshotFreshness::Fresh, captured_at)
+                .is_none()
+        );
+
+        snapshots.clear();
+        assert!(
+            snapshots
+                .resolve(SnapshotFreshness::Recent, captured_at)
+                .is_none()
+        );
     }
 
     #[test]

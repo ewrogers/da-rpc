@@ -78,7 +78,12 @@ fn assert_routes_action_sequence(
     let worker = std::thread::spawn(move || {
         for (index, expected_kind) in expected_kinds.into_iter().enumerate() {
             let mut call = command_receiver.recv().unwrap();
-            if matches!(&call.operation, crate::commands::ClientOperation::Snapshot) {
+            if matches!(
+                &call.operation,
+                crate::commands::ClientOperation::Snapshot(
+                    crate::commands::SnapshotFreshness::Fresh
+                )
+            ) {
                 call.reply
                     .send(CommandReply::Snapshot(Box::new(live_snapshot.clone())))
                     .unwrap();
@@ -1114,6 +1119,7 @@ fn serves_dialog_state_and_rejects_stale_actions() {
 
 fn state_with_live_snapshot_response(
     snapshot: ModelClientSnapshot,
+    expected_freshness: crate::commands::SnapshotFreshness,
 ) -> (ApiState, std::thread::JoinHandle<()>) {
     let mut registry = Registry::new();
     let hello = hello();
@@ -1140,7 +1146,10 @@ fn state_with_live_snapshot_response(
         let call = command_receiver.recv().unwrap();
         assert_eq!(call.pid, 42);
         assert_eq!(call.identity, identity);
-        assert_eq!(call.operation, crate::commands::ClientOperation::Snapshot);
+        assert_eq!(
+            call.operation,
+            crate::commands::ClientOperation::Snapshot(expected_freshness)
+        );
         call.reply
             .send(CommandReply::Snapshot(Box::new(snapshot)))
             .unwrap();
@@ -1150,14 +1159,20 @@ fn state_with_live_snapshot_response(
 
 #[test]
 fn serves_field_map_state_and_rejects_stale_actions() {
-    let (live_state, worker) = state_with_live_snapshot_response(game_snapshot());
+    let (live_state, worker) = state_with_live_snapshot_response(
+        game_snapshot(),
+        crate::commands::SnapshotFreshness::Recent,
+    );
     let body = json_with_state(live_state, "/clients/42/field-map");
     worker.join().unwrap();
     assert_eq!(body["field_map"]["revision"], 11);
     assert_eq!(body["field_map"]["field_name"], "field001");
     assert_eq!(body["field_map"]["destinations"][0]["name"], "Mileth");
 
-    let (live_state, worker) = state_with_live_snapshot_response(game_snapshot());
+    let (live_state, worker) = state_with_live_snapshot_response(
+        game_snapshot(),
+        crate::commands::SnapshotFreshness::Fresh,
+    );
     let response = post_json(
         live_state,
         "/clients/42/field-map/select",
@@ -1196,7 +1211,7 @@ fn routes_field_map_selection_from_a_live_snapshot() {
         let snapshot_call = command_receiver.recv().unwrap();
         assert_eq!(
             snapshot_call.operation,
-            crate::commands::ClientOperation::Snapshot
+            crate::commands::ClientOperation::Snapshot(crate::commands::SnapshotFreshness::Fresh)
         );
         snapshot_call
             .reply

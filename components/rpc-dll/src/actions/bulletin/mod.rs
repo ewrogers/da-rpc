@@ -105,11 +105,11 @@ pub(super) fn submit(command: BulletinCommand) -> Result<(), CommandFailure> {
                 Some(BulletinOperation::Forward)
             }
             BulletinNavigation::PreviousEntry => {
-                navigate_entry(0xFF)?;
+                navigate_entry(-1, 0xFF)?;
                 None
             }
             BulletinNavigation::NextEntry => {
-                navigate_entry(1)?;
+                navigate_entry(1, 1)?;
                 None
             }
         },
@@ -255,11 +255,18 @@ fn request_entry(section_id: u16, entry_id: i16, navigation: u8) -> Result<(), C
     network::submit(&packet)
 }
 
-fn navigate_entry(navigation: u8) -> Result<(), CommandFailure> {
+fn navigate_entry(entry_delta: i16, navigation: u8) -> Result<(), CommandFailure> {
     let (section, entry) = current_value(|state| {
-        (state.view() == VIEW_ENTRY).then_some((state.section_id(), state.entry_id()))
+        (state.view() == VIEW_ENTRY).then_some((
+            state.section_id(),
+            adjacent_entry_id(state.entry_id(), entry_delta),
+        ))
     })?;
     request_entry(section, entry, navigation)
+}
+
+fn adjacent_entry_id(entry_id: i16, delta: i16) -> i16 {
+    entry_id.saturating_add(delta).clamp(1, i16::MAX)
 }
 
 fn delete_entry(entry_id: i16) -> Result<(), CommandFailure> {
@@ -771,4 +778,21 @@ fn current_value<T>(
 unsafe fn function<T: Copy>(module_base: usize, rva: usize) -> T {
     // SAFETY: upheld by the caller and the supported-client fingerprint.
     unsafe { mem::transmute_copy(&(module_base + rva)) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::adjacent_entry_id;
+
+    #[test]
+    fn adjacent_entry_ids_follow_client_navigation_requests() {
+        assert_eq!(adjacent_entry_id(10, -1), 9);
+        assert_eq!(adjacent_entry_id(10, 1), 11);
+    }
+
+    #[test]
+    fn adjacent_entry_ids_stay_in_the_client_range() {
+        assert_eq!(adjacent_entry_id(1, -1), 1);
+        assert_eq!(adjacent_entry_id(i16::MAX, 1), i16::MAX);
+    }
 }

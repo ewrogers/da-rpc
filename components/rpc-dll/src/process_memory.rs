@@ -44,6 +44,12 @@ pub(crate) fn read<T: ProcessValue>(address: usize) -> Option<T> {
     })
 }
 
+pub(crate) fn read_pointer32(address: usize) -> Option<usize> {
+    read::<u32>(address)
+        .filter(|pointer| *pointer != 0)
+        .map(|pointer| pointer as usize)
+}
+
 pub(crate) fn read_exact(address: usize, output: &mut [u8]) -> bool {
     if output.is_empty() {
         return true;
@@ -69,5 +75,21 @@ pub(crate) struct ProcessMemory;
 impl MemoryReader for ProcessMemory {
     fn read(&self, address: u32, output: &mut [u8]) -> bool {
         read_exact(address as usize, output)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::read_pointer32;
+
+    #[test]
+    fn pointer_element_reads_the_stored_pointer_not_its_own_address() {
+        let element = 0x1234_5678_u32;
+        let empty = 0_u32;
+        let address = core::ptr::addr_of!(element) as usize;
+
+        assert_eq!(read_pointer32(address), Some(0x1234_5678));
+        assert_ne!(read_pointer32(address), Some(address));
+        assert_eq!(read_pointer32(core::ptr::addr_of!(empty) as usize), None);
     }
 }

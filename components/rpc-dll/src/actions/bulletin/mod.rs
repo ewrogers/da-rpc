@@ -2,13 +2,14 @@ use super::{module_base, network, read};
 use crate::bulletin::{
     RawBulletin, VIEW_BOARD_COMPOSE, VIEW_ENTRIES, VIEW_ENTRY, VIEW_MAIL_COMPOSE, VIEW_SECTIONS,
 };
+use crate::process_memory::read_pointer32;
 use darpc_game_client::{
-    BULLETIN_DIALOG_VTABLE_RVAS, BULLETIN_LIST_COUNT_RVA, BULLETIN_LIST_ITEM_RVA,
-    BULLETIN_LIST_SELECT_RVA, BULLETIN_OPEN_ARTICLE_COMPOSE_RVA, BULLETIN_OPEN_MAIL_COMPOSE_RVA,
-    BULLETIN_SCROLL_MAX_RVA, BULLETIN_SCROLL_POSITION_RVA, BULLETIN_SCROLL_SET_RVA,
-    BULLETIN_SESSION_BACK_RVA, BULLETIN_SESSION_CLOSE_RVA, BULLETIN_SESSION_FORWARD_RVA,
-    BULLETIN_SESSION_POINTER_RVA, BULLETIN_STATIC_TEXT_VTABLE_RVA, BULLETIN_TEXT_COPY_RVA,
-    BULLETIN_TEXT_EDIT_VTABLE_RVA, BULLETIN_TEXT_SET_RVA,
+    BULLETIN_DIALOG_VTABLE_RVAS, BULLETIN_LIST_ITEM_RVA, BULLETIN_LIST_SELECT_RVA,
+    BULLETIN_OPEN_ARTICLE_COMPOSE_RVA, BULLETIN_OPEN_MAIL_COMPOSE_RVA, BULLETIN_SCROLL_MAX_RVA,
+    BULLETIN_SCROLL_POSITION_RVA, BULLETIN_SCROLL_SET_RVA, BULLETIN_SESSION_BACK_RVA,
+    BULLETIN_SESSION_CLOSE_RVA, BULLETIN_SESSION_FORWARD_RVA, BULLETIN_SESSION_POINTER_RVA,
+    BULLETIN_STATIC_TEXT_VTABLE_RVA, BULLETIN_TEXT_COPY_RVA, BULLETIN_TEXT_EDIT_VTABLE_RVA,
+    BULLETIN_TEXT_SET_RVA,
 };
 use darpc_model::BulletinOperation;
 use darpc_protocol::{
@@ -22,15 +23,18 @@ const SESSION_INDEX_OFFSET: usize = 0x191;
 const SESSION_DIALOGS_OFFSET: usize = 0x194;
 const DIALOG_CONTROLS_OFFSET: usize = 0x594;
 const CONTROL_PANE_OFFSET: usize = 0x19C;
+const CONTROL_COLLECTION_COUNT_OFFSET: usize = 0x14;
+const LIST_MODEL_OFFSET: usize = 0x1BC;
+const LIST_MODEL_COUNT_OFFSET: usize = 0x14;
 const LIST_SELECTION_OFFSET: usize = 0x1C0;
 const CONTROL_GET_VTABLE_OFFSET: usize = 0x0C;
+const MAX_DIALOG_CONTROLS: i32 = 64;
 const SCROLL_AXIS: i32 = 0;
 
 type SessionFn = unsafe extern "thiscall" fn(*mut c_void) -> u32;
 type OpenArticleComposeFn = unsafe extern "thiscall" fn(*mut c_void) -> *mut c_void;
 type OpenMailComposeFn = unsafe extern "thiscall" fn(*mut c_void, *const u8) -> *mut c_void;
-type ControlGetFn = unsafe extern "thiscall" fn(*mut c_void, i32) -> *mut c_void;
-type ListCountFn = unsafe extern "thiscall" fn(*mut c_void) -> i32;
+type ControlGetFn = unsafe extern "thiscall" fn(*mut c_void, i32) -> *const u32;
 type ListItemFn = unsafe extern "thiscall" fn(*mut c_void, i32) -> *mut c_void;
 type ListSelectFn = unsafe extern "thiscall" fn(*mut c_void, i32) -> u32;
 type TextCopyFn = unsafe extern "thiscall" fn(*mut c_void, *mut u8, i16) -> i16;
@@ -394,7 +398,7 @@ fn select_id(kind: DialogKind, wanted: i16) -> Result<(), CommandFailure> {
     };
     let control = control(dialog.pointer, index)?;
     let pane = list_pane(control)?;
-    let count = list_count(dialog.module_base, pane)?;
+    let count = list_count(pane)?;
     for row in 0..count {
         let item = list_item(dialog.module_base, pane, row)?;
         if read::<i16>(item).ok_or(CommandFailure::InvalidState)? == wanted {
@@ -423,7 +427,7 @@ fn selected_id(control: usize) -> Option<i16> {
     let module_base = module_base().ok()?;
     let pane = list_pane(control).ok()?;
     let selected = read::<i32>(pane + LIST_SELECTION_OFFSET)?;
-    if selected < 0 || selected >= list_count(module_base, pane).ok()? {
+    if selected < 0 || selected >= list_count(pane).ok()? {
         return None;
     }
     read::<i16>(list_item(module_base, pane, selected).ok()?)
@@ -527,18 +531,27 @@ fn control(dialog: usize, index: i32) -> Result<usize, CommandFailure> {
     let collection = read::<u32>(dialog + DIALOG_CONTROLS_OFFSET)
         .filter(|pointer| *pointer != 0)
         .ok_or(CommandFailure::InvalidState)? as usize;
+    let count = read::<i32>(collection + CONTROL_COLLECTION_COUNT_OFFSET)
+        .filter(|count| (0..=MAX_DIALOG_CONTROLS).contains(count))
+        .ok_or(CommandFailure::InvalidState)?;
+    if index < 0 || index >= count {
+        return Err(CommandFailure::InvalidState);
+    }
     let vtable = read::<u32>(collection).ok_or(CommandFailure::InvalidState)? as usize;
     let function = read::<u32>(vtable + CONTROL_GET_VTABLE_OFFSET)
         .filter(|pointer| *pointer != 0)
         .ok_or(CommandFailure::InvalidState)? as usize;
-    // SAFETY: an exact live bulletin dialog owns this control collection, the
-    // supported fingerprint fixes its vtable, and commands run on the main thread.
-    let pointer = unsafe {
+    // SAFETY: an exact live bulletin dialog owns this bounded control
+    // collection, the supported fingerprint fixes its vtable, and commands run
+    // on the main thread. The native accessor returns the address of the
+    // collection element rather than the attached control itself.
+    let element = unsafe {
         let function: ControlGetFn = mem::transmute(function);
         function(collection as *mut c_void, index)
     };
-    (!pointer.is_null())
-        .then_some(pointer as usize)
+    (!element.is_null())
+        .then_some(element as usize)
+        .and_then(read_pointer32)
         .ok_or(CommandFailure::InvalidState)
 }
 
@@ -561,12 +574,11 @@ fn list_pane(control: usize) -> Result<usize, CommandFailure> {
         .ok_or(CommandFailure::InvalidState)
 }
 
-fn list_count(module_base: usize, pane: usize) -> Result<i32, CommandFailure> {
-    // SAFETY: the control lookup returned the inner pane of an exact bulletin
-    // list control and the supported fingerprint fixes this ABI.
-    let count = unsafe {
-        function::<ListCountFn>(module_base, BULLETIN_LIST_COUNT_RVA)(pane as *mut c_void)
-    };
+fn list_count(pane: usize) -> Result<i32, CommandFailure> {
+    let model = read::<u32>(pane + LIST_MODEL_OFFSET)
+        .filter(|pointer| *pointer != 0)
+        .ok_or(CommandFailure::InvalidState)? as usize;
+    let count = read::<i32>(model + LIST_MODEL_COUNT_OFFSET).ok_or(CommandFailure::InvalidState)?;
     (0..=crate::bulletin::MAX_BULLETIN_ENTRIES as i32)
         .contains(&count)
         .then_some(count)

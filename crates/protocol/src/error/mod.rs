@@ -320,6 +320,9 @@ pub enum DecodeError {
     InvalidFieldMapField {
         actual: u8,
     },
+    InvalidBulletinField {
+        actual: u8,
+    },
     InvalidFieldMapIndex {
         actual: u8,
         count: u8,
@@ -646,6 +649,9 @@ impl fmt::Display for DecodeError {
             }
             Self::InvalidFieldMapField { actual } => {
                 write!(formatter, "invalid field-map field value {actual}")
+            }
+            Self::InvalidBulletinField { actual } => {
+                write!(formatter, "invalid bulletin field value {actual}")
             }
             Self::InvalidFieldMapIndex { actual, count } => write!(
                 formatter,

@@ -58,6 +58,11 @@ pub(crate) fn observe_outgoing(body: &[u8], tick_ms: u32) {
     ability::observe_outgoing(body, tick_ms);
     action::observe_outgoing(body, tick_ms);
     crate::exchange::observe_outgoing(body, tick_ms);
+    if let Some(bulletin) = crate::bulletin::observe_outgoing(body)
+        && !push_event(QueuedStateUpdate::Bulletin(bulletin), tick_ms)
+    {
+        crate::bulletin::release(bulletin);
+    }
     if let Some(field_map) = crate::field_map::observe_outgoing(body)
         && !push_event(QueuedStateUpdate::FieldMap(field_map), tick_ms)
     {
@@ -136,6 +141,26 @@ pub(crate) fn observe_field_map(body: &[u8], tick_ms: u32) {
         && !push_event(QueuedStateUpdate::FieldMap(field_map), tick_ms)
     {
         crate::field_map::release(field_map);
+    }
+}
+
+pub(crate) fn observe_bulletin(body: &[u8], tick_ms: u32) {
+    if let Some(bulletin) = crate::bulletin::observe_server(body)
+        && !push_event(QueuedStateUpdate::Bulletin(bulletin), tick_ms)
+    {
+        crate::bulletin::release(bulletin);
+    }
+}
+
+#[cfg_attr(
+    test,
+    expect(dead_code, reason = "called by the production-only bulletin action")
+)]
+pub(crate) fn observe_bulletin_submission(operation: darpc_model::BulletinOperation, tick_ms: u32) {
+    if let Some(bulletin) = crate::bulletin::observe_local_submission(operation)
+        && !push_event(QueuedStateUpdate::Bulletin(bulletin), tick_ms)
+    {
+        crate::bulletin::release(bulletin);
     }
 }
 
@@ -538,6 +563,12 @@ pub(crate) fn observe_tick(tick_ms: u32) {
         && !push_event(QueuedStateUpdate::FieldMap(field_map), tick_ms)
     {
         crate::field_map::release(field_map);
+    }
+    #[cfg(all(windows, not(test)))]
+    if let Some(bulletin) = crate::bulletin::observe_pane(tick_ms)
+        && !push_event(QueuedStateUpdate::Bulletin(bulletin), tick_ms)
+    {
+        crate::bulletin::release(bulletin);
     }
     #[cfg(all(windows, not(test)))]
     if let Some(update) = crate::message_dialog::observe_tick(tick_ms) {

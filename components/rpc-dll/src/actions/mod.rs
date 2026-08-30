@@ -1,4 +1,5 @@
 mod ability;
+pub(crate) mod bulletin;
 mod chant;
 pub(crate) mod dialog;
 pub(crate) mod exchange;
@@ -59,6 +60,7 @@ pub(crate) fn execute(command: CommandKind) -> Result<(), CommandFailure> {
             }
             Ok(())
         }
+        CommandKind::Bulletin(command) => bulletin::submit(command),
     }
 }
 

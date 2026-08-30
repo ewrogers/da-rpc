@@ -54,6 +54,7 @@ const VERSION_1_5: u16 = 0x0105;
 const VERSION_1_6: u16 = 0x0106;
 const VERSION_1_7: u16 = 0x0107;
 const VERSION_1_8: u16 = 0x0108;
+const VERSION_1_9: u16 = 0x0109;
 ```
 
 The protocol number is a wire-schema revision, not a Semantic Versioning
@@ -61,14 +62,16 @@ compatibility promise. Each peer advertises an inclusive, continuous range of
 versions it can decode, and the controller selects the highest version in the
 overlap. No overlap rejects the connection.
 
-The only currently supported version is 1.8 (`0x0108`). Version 1.8 adds action
-source to character turns, walking lifecycle updates, planned routes, and
-active movement snapshots. Peers advertise only 1.8, so deploy the DLL and its
-controller or daemon together when adopting this change.
+The only currently supported version is 1.9 (`0x0109`). Version 1.9 adds
+bulletin-board and player-mail state, events, and main-thread commands. Peers
+advertise only 1.9, so deploy the DLL and its controller or daemon together
+when adopting this change.
 
-Protocol 1.7 added palette dye color, retired collection-wide object clearing,
-and later gained spell-result failures and Look updates. Those schemas are
-retained in repository history but are not accepted by protocol 1.8 peers.
+Protocol 1.8 added action source to character turns, walking lifecycle updates,
+planned routes, and active movement snapshots. Protocol 1.7 added palette dye
+color, retired collection-wide object clearing, and later gained spell-result
+failures and Look updates. Those schemas are retained in repository history but
+are not accepted by protocol 1.9 peers.
 
 ## Message types
 
@@ -257,6 +260,7 @@ struct ClientSnapshot {
     planned_route: Option<PlannedRoute>;
     active_field_map: Option<FieldMapState>;
     message_dialogs: MessageDialogsState;
+    active_bulletin: Option<BulletinState>;
 }
 
 struct FieldMapState {
@@ -578,7 +582,8 @@ The command and event additions documented below require protocol
 1.1. Total cooldown duration requires protocol 1.2. Local-character and
 player-object hidden-state fields require protocol 1.3. Player visual blocks
 require protocol 1.4. Character stat points and stat spending also require
-protocol 1.4. Field-map state and interaction require protocol 1.5.
+protocol 1.4. Field-map state and interaction require protocol 1.5. Bulletin
+state, updates, and commands require protocol 1.9.
 
 ## Event polling and state updates
 
@@ -643,6 +648,7 @@ enum StateUpdate: u8 {
     MessageDialogs(MessageDialogsState) = 25,
     MapDownload(MapDownloadUpdate) = 26,
     Look(LookResult) = 27,
+    Bulletin(BulletinUpdate) = 28,
 }
 
 struct LookResult {
@@ -683,11 +689,141 @@ struct MessageDialog {
     truncated: bool;
 }
 
+struct BulletinState {
+    revision: u32;
+    pending: Option<BulletinOperation>;
+    last_operation_result: Option<BulletinOperationResult>;
+    can_go_back: bool;
+    can_go_forward: bool;
+    view: BulletinView;
+}
+
+enum BulletinView: u8 {
+    Sections {
+        heading: string16;                    // maximum 255 UTF-8 bytes
+        sections: Vec<BulletinSection>;       // u8 count, maximum 64
+        selected_section_id: Option<u16>;
+        viewport: BulletinViewport;
+        truncated: bool;
+    } = 1,
+    Entries {
+        section: BulletinSection;
+        entries: Vec<BulletinEntrySummary>;  // u16 count, maximum 128
+        selected_entry_id: Option<i16>;
+        viewport: BulletinViewport;
+        pagination: BulletinPagination;
+        truncated: bool;
+    } = 2,
+    Entry {
+        section: BulletinSection;
+        entry: BulletinEntry;
+        viewport: BulletinViewport;
+    } = 3,
+    BoardPost {
+        section: BulletinSection;
+        author: string16;                     // maximum 255 UTF-8 bytes
+        subject: string16;                    // maximum 255 UTF-8 bytes
+        body: string16;                      // maximum 32,767 UTF-8 bytes
+    } = 4,
+    PlayerMail {
+        mailbox: BulletinSection;
+        recipient: string16;                  // maximum 255 UTF-8 bytes
+        recipient_editable: bool;
+        subject: string16;                    // maximum 255 UTF-8 bytes
+        body: string16;                      // maximum 32,767 UTF-8 bytes
+    } = 5,
+}
+
+struct BulletinSection {
+    id: u16;
+    kind: u8;       // unknown=0, board=1, mailbox=2
+    source: u8;     // global=1, clicked=2, mail=3, otherwise preserved
+    name: string16; // maximum 255 UTF-8 bytes
+}
+
+struct BulletinEntrySummary {
+    id: i16;
+    flags: u8;
+    month: u8;
+    day: u8;
+    author: string16;  // maximum 255 UTF-8 bytes
+    subject: string16; // maximum 255 UTF-8 bytes
+}
+
+struct BulletinEntry {
+    id: i16;
+    flags: Option<u8>;
+    month: u8;
+    day: u8;
+    navigation_flags: u8;
+    unknown_before_id: u8;
+    author: string16;  // maximum 255 UTF-8 bytes
+    subject: string16; // maximum 255 UTF-8 bytes
+    body: string16; // maximum 32,767 UTF-8 bytes
+}
+
+struct BulletinViewport {
+    position: i32;
+    maximum: i32;
+}
+
+enum BulletinPagination: u8 {
+    Unknown = 0,
+    Ready = 1,
+    Loading = 2,
+    Exhausted = 3,
+}
+
+struct BulletinOperationResult {
+    operation: BulletinOperation;
+    raw_status: u8;
+    message: Option<string16>; // maximum 255 UTF-8 bytes
+}
+
+enum BulletinOperation: u8 {
+    Unknown = 0,
+    OpenSections = 1,
+    OpenWorldBoard = 2,
+    OpenSection = 3,
+    LoadOlder = 4,
+    OpenEntry = 5,
+    PreviousEntry = 6,
+    NextEntry = 7,
+    PostArticle = 8,
+    DeleteEntry = 9,
+    SendMail = 10,
+    HighlightArticle = 11,
+    SelectSection = 12,
+    SelectEntry = 13,
+    Scroll = 14,
+    Back = 15,
+    Forward = 16,
+    BeginBoardPost = 17,
+    BeginPlayerMail = 18,
+    BeginReply = 19,
+    UpdateCompose = 20,
+    Close = 21,
+}
+
 enum FieldMapUpdate: u8 {
     Opened(FieldMapState) = 1,
     Changed(FieldMapState) = 2,
     SelectionSubmitted(FieldMapState) = 3,
     Closed { previous: FieldMapState } = 4,
+}
+
+enum BulletinUpdate: u8 {
+    Opened(BulletinState) = 1,
+    Changed(BulletinState) = 2,
+    ActionSubmitted {
+        operation: BulletinOperation,
+        state: Option<BulletinState>,
+    } = 3,
+    OperationResult {
+        state: BulletinState,
+        result: BulletinOperationResult,
+    } = 4,
+    Closed { previous: BulletinState } = 5,
 }
 
 struct ClientCommand {
@@ -1099,6 +1235,38 @@ enum CommandKind: u8 {
         id: u32;
     } = 31,
     Look(LookTarget) = 32,
+    Bulletin(BulletinCommand) = 33,
+}
+
+struct BulletinCommand {
+    revision: u32; // zero only for Open actions
+    action: BulletinAction;
+}
+
+enum BulletinAction: u8 {
+    OpenServerList = 1,
+    OpenWorldBoard { x: u16, y: u16 } = 2,
+    OpenSection { section_id: u16 } = 3,
+    SelectSection { section_id: u16 } = 4,
+    OpenEntry { entry_id: i16 } = 5,
+    SelectEntry { entry_id: i16 } = 6,
+    LoadOlder = 7,
+    Scroll { position: i32 } = 8,
+    Navigate { direction: u8 } = 9, // back=1, forward=2, previous=3, next=4
+    BeginCompose { kind: u8 } = 10, // board=1, mail=2, reply=3
+    UpdateBoardPost {
+        subject: string8; // maximum 60 ASCII bytes
+        body: string16;   // maximum 3,000 ASCII bytes
+    } = 11,
+    UpdatePlayerMail {
+        recipient: string8; // maximum 15 ASCII bytes
+        subject: string8;   // maximum 60 ASCII bytes
+        body: string16;     // maximum 3,000 ASCII bytes
+    } = 12,
+    SubmitCompose = 13,
+    DeleteEntry { entry_id: i16 } = 14,
+    HighlightEntry { entry_id: i16 } = 15,
+    Close = 16,
 }
 
 enum MessageCommand: u8 {
@@ -1141,6 +1309,17 @@ close the field map.
 `DismissMessageDialog` accepts only the current message-dialog revision and
 an opaque dialog ID. The DLL maps the ID to retained client-local state, then
 revalidates the live pane before invoking the native close operation.
+
+`Bulletin` accepts revision zero for open actions and otherwise requires the
+current bulletin revision. Server-list and world-tile open, section and entry
+requests, older-page loading, composition submission, deletion, and highlight
+actions construct the observed client packets. Selection, scrolling, history,
+composer opening and editing, and close revalidate the exact native bulletin
+dialog and controls before invoking their client functions. Bulletin text is
+fixed-capacity in command storage; no command or hook path allocates from the
+heap. Operation status bytes and currently unknown packet fields are preserved
+without inferred semantics.
+
 Guild and group use that same directed-message packet with fixed recipients `!`
 and `!!`.
 

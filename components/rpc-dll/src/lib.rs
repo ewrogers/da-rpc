@@ -5,6 +5,8 @@ mod actions;
 #[cfg(any(windows, test))]
 mod atomic_sequence;
 #[cfg(any(windows, test))]
+mod bulletin;
+#[cfg(any(windows, test))]
 mod client_text;
 #[cfg(any(windows, test))]
 mod collections;

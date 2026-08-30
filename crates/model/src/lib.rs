@@ -1,6 +1,7 @@
 //! Shared domain model for daRPC.
 
 mod action_source;
+mod bulletin;
 mod dialog;
 mod emote;
 mod entity;
@@ -18,6 +19,11 @@ mod snapshot;
 mod who;
 
 pub use action_source::ActionSource;
+pub use bulletin::{
+    BulletinCompose, BulletinEntry, BulletinEntrySummary, BulletinOperation,
+    BulletinOperationResult, BulletinPagination, BulletinSection, BulletinSectionKind,
+    BulletinSource, BulletinState, BulletinUpdate, BulletinView, BulletinViewport,
+};
 pub use event::{
     AbilityUpdate, ActionUpdate, ApplyEventError, AudioUpdate, ClientCommand, CollectionBatch,
     CollectionChange, CollectionKind, CoreStatus, CurrentVitals, EffectUpdate, InventoryUpdate,

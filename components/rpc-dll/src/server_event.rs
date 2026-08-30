@@ -124,6 +124,9 @@ impl ServerEventProcessor {
             packet::ServerUpdate::MapPart(update) => {
                 state::observe_map_part(update.row_index, update.body_length, tick_ms);
             }
+            packet::ServerUpdate::Bulletin(body) => {
+                state::observe_bulletin(body, tick_ms);
+            }
             packet::ServerUpdate::FieldMap(body) => {
                 state::observe_field_map(body, tick_ms);
             }

@@ -23,6 +23,9 @@ pub const MAX_WHO_NAME_LEN: usize = 24;
 pub const MAX_WHO_TITLE_LEN: usize = 48;
 pub const MAX_RAW_PACKET_PAYLOAD_LEN: usize = u8::MAX as usize;
 pub const MAX_WALK_ROUTE_TILES: usize = 256;
+pub const MAX_BULLETIN_RECIPIENT_LEN: usize = 15;
+pub const MAX_BULLETIN_SUBJECT_LEN: usize = 60;
+pub const MAX_BULLETIN_COMPOSE_BODY_LEN: usize = 3_000;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RawPacketDirection {
@@ -136,6 +139,156 @@ pub enum CommandKind {
     SelectFieldMapDestination(FieldMapSelectionCommand),
     DismissMessageDialog(MessageDialogCommand),
     Look(LookTarget),
+    Bulletin(BulletinCommand),
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BulletinCommand {
+    pub revision: u32,
+    pub action: BulletinAction,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[allow(clippy::large_enum_variant)]
+pub enum BulletinAction {
+    Open(BulletinOpen),
+    OpenSection {
+        section_id: u16,
+    },
+    SelectSection {
+        section_id: u16,
+    },
+    OpenEntry {
+        entry_id: i16,
+    },
+    SelectEntry {
+        entry_id: i16,
+    },
+    LoadOlder,
+    Scroll {
+        position: i32,
+    },
+    Navigate(BulletinNavigation),
+    BeginCompose(BulletinComposeKind),
+    UpdateBoardPost {
+        subject: BulletinSubject,
+        body: BulletinBody,
+    },
+    UpdatePlayerMail {
+        recipient: BulletinRecipient,
+        subject: BulletinSubject,
+        body: BulletinBody,
+    },
+    SubmitCompose,
+    DeleteEntry {
+        entry_id: i16,
+    },
+    HighlightEntry {
+        entry_id: i16,
+    },
+    Close,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BulletinOpen {
+    ServerList,
+    WorldTile { x: u16, y: u16 },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BulletinNavigation {
+    Back,
+    Forward,
+    PreviousEntry,
+    NextEntry,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BulletinComposeKind {
+    BoardPost,
+    PlayerMail,
+    Reply,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BulletinRecipient {
+    length: u8,
+    bytes: [u8; MAX_BULLETIN_RECIPIENT_LEN],
+}
+
+impl BulletinRecipient {
+    #[must_use]
+    pub fn new(value: &str) -> Option<Self> {
+        let value = value.as_bytes();
+        if value.len() > MAX_BULLETIN_RECIPIENT_LEN || !value.is_ascii() || value.contains(&0) {
+            return None;
+        }
+        let mut bytes = [0; MAX_BULLETIN_RECIPIENT_LEN];
+        bytes[..value.len()].copy_from_slice(value);
+        Some(Self {
+            length: value.len() as u8,
+            bytes,
+        })
+    }
+
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes[..usize::from(self.length)]
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BulletinSubject {
+    length: u8,
+    bytes: [u8; MAX_BULLETIN_SUBJECT_LEN],
+}
+
+impl BulletinSubject {
+    #[must_use]
+    pub fn new(value: &str) -> Option<Self> {
+        let value = value.as_bytes();
+        if value.len() > MAX_BULLETIN_SUBJECT_LEN || !value.is_ascii() || value.contains(&0) {
+            return None;
+        }
+        let mut bytes = [0; MAX_BULLETIN_SUBJECT_LEN];
+        bytes[..value.len()].copy_from_slice(value);
+        Some(Self {
+            length: value.len() as u8,
+            bytes,
+        })
+    }
+
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes[..usize::from(self.length)]
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct BulletinBody {
+    length: u16,
+    bytes: [u8; MAX_BULLETIN_COMPOSE_BODY_LEN],
+}
+
+impl BulletinBody {
+    #[must_use]
+    pub fn new(value: &str) -> Option<Self> {
+        let value = value.as_bytes();
+        if value.len() > MAX_BULLETIN_COMPOSE_BODY_LEN || !value.is_ascii() || value.contains(&0) {
+            return None;
+        }
+        let mut bytes = [0; MAX_BULLETIN_COMPOSE_BODY_LEN];
+        bytes[..value.len()].copy_from_slice(value);
+        Some(Self {
+            length: value.len() as u16,
+            bytes,
+        })
+    }
+
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes[..usize::from(self.length)]
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -857,6 +1010,11 @@ pub(super) fn encode_kind(output: &mut Vec<u8>, kind: CommandKind) {
                 }
             }
         }
+        CommandKind::Bulletin(command) => {
+            output.push(33);
+            push_u32(output, command.revision);
+            encode_bulletin_action(output, command.action);
+        }
     }
 }
 
@@ -1117,8 +1275,174 @@ pub(super) fn decode_kind(reader: &mut PayloadReader<'_>) -> Result<CommandKind,
             },
             actual => return Err(DecodeError::InvalidCommandKind { actual }),
         })),
+        33 => Ok(CommandKind::Bulletin(BulletinCommand {
+            revision: reader.read_u32()?,
+            action: decode_bulletin_action(reader)?,
+        })),
         actual => Err(DecodeError::InvalidCommandKind { actual }),
     }
+}
+
+fn encode_bulletin_action(output: &mut Vec<u8>, action: BulletinAction) {
+    match action {
+        BulletinAction::Open(BulletinOpen::ServerList) => output.push(1),
+        BulletinAction::Open(BulletinOpen::WorldTile { x, y }) => {
+            output.push(2);
+            push_u16(output, x);
+            push_u16(output, y);
+        }
+        BulletinAction::OpenSection { section_id } => {
+            output.push(3);
+            push_u16(output, section_id);
+        }
+        BulletinAction::SelectSection { section_id } => {
+            output.push(4);
+            push_u16(output, section_id);
+        }
+        BulletinAction::OpenEntry { entry_id } => {
+            output.push(5);
+            push_u16(output, entry_id as u16);
+        }
+        BulletinAction::SelectEntry { entry_id } => {
+            output.push(6);
+            push_u16(output, entry_id as u16);
+        }
+        BulletinAction::LoadOlder => output.push(7),
+        BulletinAction::Scroll { position } => {
+            output.push(8);
+            push_i32(output, position);
+        }
+        BulletinAction::Navigate(direction) => {
+            output.push(9);
+            output.push(match direction {
+                BulletinNavigation::Back => 1,
+                BulletinNavigation::Forward => 2,
+                BulletinNavigation::PreviousEntry => 3,
+                BulletinNavigation::NextEntry => 4,
+            });
+        }
+        BulletinAction::BeginCompose(kind) => {
+            output.push(10);
+            output.push(match kind {
+                BulletinComposeKind::BoardPost => 1,
+                BulletinComposeKind::PlayerMail => 2,
+                BulletinComposeKind::Reply => 3,
+            });
+        }
+        BulletinAction::UpdateBoardPost { subject, body } => {
+            output.push(11);
+            output.push(subject.length);
+            output.extend_from_slice(subject.as_bytes());
+            push_u16(output, body.length);
+            output.extend_from_slice(body.as_bytes());
+        }
+        BulletinAction::UpdatePlayerMail {
+            recipient,
+            subject,
+            body,
+        } => {
+            output.push(12);
+            output.push(recipient.length);
+            output.extend_from_slice(recipient.as_bytes());
+            output.push(subject.length);
+            output.extend_from_slice(subject.as_bytes());
+            push_u16(output, body.length);
+            output.extend_from_slice(body.as_bytes());
+        }
+        BulletinAction::SubmitCompose => output.push(13),
+        BulletinAction::DeleteEntry { entry_id } => {
+            output.push(14);
+            push_u16(output, entry_id as u16);
+        }
+        BulletinAction::HighlightEntry { entry_id } => {
+            output.push(15);
+            push_u16(output, entry_id as u16);
+        }
+        BulletinAction::Close => output.push(16),
+    }
+}
+
+fn decode_bulletin_action(reader: &mut PayloadReader<'_>) -> Result<BulletinAction, DecodeError> {
+    match reader.read_u8()? {
+        1 => Ok(BulletinAction::Open(BulletinOpen::ServerList)),
+        2 => Ok(BulletinAction::Open(BulletinOpen::WorldTile {
+            x: reader.read_u16()?,
+            y: reader.read_u16()?,
+        })),
+        3 => Ok(BulletinAction::OpenSection {
+            section_id: reader.read_u16()?,
+        }),
+        4 => Ok(BulletinAction::SelectSection {
+            section_id: reader.read_u16()?,
+        }),
+        5 => Ok(BulletinAction::OpenEntry {
+            entry_id: reader.read_u16()? as i16,
+        }),
+        6 => Ok(BulletinAction::SelectEntry {
+            entry_id: reader.read_u16()? as i16,
+        }),
+        7 => Ok(BulletinAction::LoadOlder),
+        8 => Ok(BulletinAction::Scroll {
+            position: reader.read_i32()?,
+        }),
+        9 => Ok(BulletinAction::Navigate(match reader.read_u8()? {
+            1 => BulletinNavigation::Back,
+            2 => BulletinNavigation::Forward,
+            3 => BulletinNavigation::PreviousEntry,
+            4 => BulletinNavigation::NextEntry,
+            actual => return Err(DecodeError::InvalidBulletinField { actual }),
+        })),
+        10 => Ok(BulletinAction::BeginCompose(match reader.read_u8()? {
+            1 => BulletinComposeKind::BoardPost,
+            2 => BulletinComposeKind::PlayerMail,
+            3 => BulletinComposeKind::Reply,
+            actual => return Err(DecodeError::InvalidBulletinField { actual }),
+        })),
+        11 => Ok(BulletinAction::UpdateBoardPost {
+            subject: decode_bulletin_subject(reader)?,
+            body: decode_bulletin_body(reader)?,
+        }),
+        12 => Ok(BulletinAction::UpdatePlayerMail {
+            recipient: decode_bulletin_recipient(reader)?,
+            subject: decode_bulletin_subject(reader)?,
+            body: decode_bulletin_body(reader)?,
+        }),
+        13 => Ok(BulletinAction::SubmitCompose),
+        14 => Ok(BulletinAction::DeleteEntry {
+            entry_id: reader.read_u16()? as i16,
+        }),
+        15 => Ok(BulletinAction::HighlightEntry {
+            entry_id: reader.read_u16()? as i16,
+        }),
+        16 => Ok(BulletinAction::Close),
+        actual => Err(DecodeError::InvalidBulletinField { actual }),
+    }
+}
+
+fn decode_bulletin_recipient(
+    reader: &mut PayloadReader<'_>,
+) -> Result<BulletinRecipient, DecodeError> {
+    let length = usize::from(reader.read_u8()?);
+    std::str::from_utf8(reader.take(length)?)
+        .ok()
+        .and_then(BulletinRecipient::new)
+        .ok_or(DecodeError::InvalidBulletinField { actual: 12 })
+}
+
+fn decode_bulletin_subject(reader: &mut PayloadReader<'_>) -> Result<BulletinSubject, DecodeError> {
+    let length = usize::from(reader.read_u8()?);
+    std::str::from_utf8(reader.take(length)?)
+        .ok()
+        .and_then(BulletinSubject::new)
+        .ok_or(DecodeError::InvalidBulletinField { actual: 11 })
+}
+
+fn decode_bulletin_body(reader: &mut PayloadReader<'_>) -> Result<BulletinBody, DecodeError> {
+    let length = usize::from(reader.read_u16()?);
+    std::str::from_utf8(reader.take(length)?)
+        .ok()
+        .and_then(BulletinBody::new)
+        .ok_or(DecodeError::InvalidBulletinField { actual: 13 })
 }
 
 fn encode_route_tiles(output: &mut Vec<u8>, map_id: u32, tiles: &[RouteTile]) {
@@ -1217,10 +1541,13 @@ fn decode_direction(reader: &mut PayloadReader<'_>) -> Result<Direction, DecodeE
 #[cfg(test)]
 mod tests {
     use super::{
-        ChantText, CharacterStat, CommandKind, ItemSlot, LookTarget, MAX_MESSAGE_CONTENT_LEN,
+        BulletinAction, BulletinBody, BulletinCommand, BulletinComposeKind, BulletinNavigation,
+        BulletinOpen, BulletinRecipient, BulletinSubject, ChantText, CharacterStat, CommandKind,
+        ItemSlot, LookTarget, MAX_BULLETIN_COMPOSE_BODY_LEN, MAX_MESSAGE_CONTENT_LEN,
         MAX_RAW_PACKET_PAYLOAD_LEN, MessageCommand, MessageContent, MessageRecipient, RawPacket,
-        RawPacketDirection, SkillSlot, SlotSwap, SpellSlot, encode_kind,
+        RawPacketDirection, SkillSlot, SlotSwap, SpellSlot, decode_kind, encode_kind,
     };
+    use crate::{MessageType, message::PayloadReader};
 
     #[test]
     fn npc_chants_preserve_verbatim_item_names() {
@@ -1256,6 +1583,72 @@ mod tests {
             encode_kind(&mut encoded, CommandKind::Look(target));
             assert_eq!(encoded, expected);
         }
+    }
+
+    #[test]
+    fn bulletin_commands_round_trip_with_stable_wire_values() {
+        let assert_round_trip = |action, action_discriminant| {
+            let command = CommandKind::Bulletin(BulletinCommand {
+                revision: 0x1122_3344,
+                action,
+            });
+            let mut encoded = Vec::new();
+            encode_kind(&mut encoded, command);
+            assert_eq!(
+                encoded[..6],
+                [33, 0x44, 0x33, 0x22, 0x11, action_discriminant]
+            );
+
+            let mut reader = PayloadReader::new(MessageType::CommandRequest, &encoded);
+            assert_eq!(decode_kind(&mut reader).unwrap(), command);
+            assert!(reader.is_empty());
+        };
+
+        assert_round_trip(BulletinAction::Open(BulletinOpen::ServerList), 1);
+        assert_round_trip(
+            BulletinAction::Open(BulletinOpen::WorldTile { x: 18, y: 9 }),
+            2,
+        );
+        assert_round_trip(BulletinAction::OpenSection { section_id: 7 }, 3);
+        assert_round_trip(BulletinAction::SelectSection { section_id: 8 }, 4);
+        assert_round_trip(BulletinAction::OpenEntry { entry_id: -1 }, 5);
+        assert_round_trip(BulletinAction::SelectEntry { entry_id: 9 }, 6);
+        assert_round_trip(BulletinAction::LoadOlder, 7);
+        assert_round_trip(BulletinAction::Scroll { position: -42 }, 8);
+        for direction in [
+            BulletinNavigation::Back,
+            BulletinNavigation::Forward,
+            BulletinNavigation::PreviousEntry,
+            BulletinNavigation::NextEntry,
+        ] {
+            assert_round_trip(BulletinAction::Navigate(direction), 9);
+        }
+        for kind in [
+            BulletinComposeKind::BoardPost,
+            BulletinComposeKind::PlayerMail,
+            BulletinComposeKind::Reply,
+        ] {
+            assert_round_trip(BulletinAction::BeginCompose(kind), 10);
+        }
+        assert_round_trip(
+            BulletinAction::UpdateBoardPost {
+                subject: BulletinSubject::new("Trade offer").unwrap(),
+                body: BulletinBody::new("Buying wolf skins").unwrap(),
+            },
+            11,
+        );
+        assert_round_trip(
+            BulletinAction::UpdatePlayerMail {
+                recipient: BulletinRecipient::new("Eidolon").unwrap(),
+                subject: BulletinSubject::new("Hello").unwrap(),
+                body: BulletinBody::new(&"x".repeat(MAX_BULLETIN_COMPOSE_BODY_LEN)).unwrap(),
+            },
+            12,
+        );
+        assert_round_trip(BulletinAction::SubmitCompose, 13);
+        assert_round_trip(BulletinAction::DeleteEntry { entry_id: -2 }, 14);
+        assert_round_trip(BulletinAction::HighlightEntry { entry_id: 10 }, 15);
+        assert_round_trip(BulletinAction::Close, 16);
     }
 
     #[test]

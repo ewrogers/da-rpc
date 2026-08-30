@@ -21,6 +21,31 @@ fn field_map_state() -> ModelFieldMapState {
     }
 }
 
+fn bulletin_state() -> ModelBulletinState {
+    ModelBulletinState {
+        revision: 8,
+        pending: Some(ModelBulletinOperation::OpenEntry),
+        last_operation_result: None,
+        can_go_back: true,
+        can_go_forward: false,
+        view: ModelBulletinView::Sections {
+            heading: "Boards".into(),
+            sections: vec![ModelBulletinSection {
+                id: 4,
+                name: "Mileth News".into(),
+                kind: ModelBulletinSectionKind::Board,
+                source: ModelBulletinSource::Global,
+            }],
+            selected_section_id: Some(4),
+            viewport: ModelBulletinViewport {
+                position: 1,
+                maximum: 3,
+            },
+            truncated: false,
+        },
+    }
+}
+
 #[test]
 fn field_map_updates_use_stable_public_event_names_and_full_state() {
     let updates = [
@@ -71,6 +96,139 @@ fn field_map_updates_use_stable_public_event_names_and_full_state() {
         };
         assert_eq!(state["field_name"], "field001");
         assert_eq!(state["selection"]["destination_index"], 0);
+    }
+}
+
+#[test]
+fn bulletin_updates_use_stable_public_event_names_and_full_state() {
+    let updates = [
+        (BulletinUpdate::Opened(bulletin_state()), "bulletin.opened"),
+        (
+            BulletinUpdate::Changed(bulletin_state()),
+            "bulletin.changed",
+        ),
+        (
+            BulletinUpdate::ActionSubmitted {
+                state: Some(bulletin_state()),
+                operation: ModelBulletinOperation::OpenEntry,
+            },
+            "bulletin.changed",
+        ),
+        (
+            BulletinUpdate::Closed {
+                previous: bulletin_state(),
+            },
+            "bulletin.closed",
+        ),
+    ];
+    for (sequence, (update, expected_name)) in updates.into_iter().enumerate() {
+        let events = expand(
+            42,
+            ClientIdentity {
+                pid: 42,
+                process_creation_time: 100,
+                dll_instance_id: [1; 16],
+            },
+            StateEvent {
+                sequence: sequence as u32 + 1,
+                revision: sequence as u32 + 1,
+                tick_ms: sequence as u32,
+                update: StateUpdate::Bulletin(update),
+            },
+            None,
+            None,
+            observed_at(),
+        );
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].name(), expected_name);
+        let event = serde_json::to_value(&events[0]).unwrap();
+        let state = if expected_name == "bulletin.closed" {
+            &event["data"]["previous"]
+        } else {
+            &event["data"]["bulletin"]
+        };
+        assert_eq!(state["revision"], 8);
+        assert_eq!(state["view"]["sections"][0]["name"], "Mileth News");
+    }
+}
+
+#[test]
+fn bulletin_mutation_events_name_the_confirmed_outcome_and_action() {
+    let updates = [
+        (
+            BulletinUpdate::OperationResult {
+                state: bulletin_state(),
+                result: ModelBulletinOperationResult {
+                    operation: ModelBulletinOperation::PostArticle,
+                    raw_status: 1,
+                    message: Some("Your letter was sent.".into()),
+                },
+            },
+            "bulletin.submitted",
+            "bulletin_submitted",
+            "post_article",
+        ),
+        (
+            BulletinUpdate::OperationResult {
+                state: bulletin_state(),
+                result: ModelBulletinOperationResult {
+                    operation: ModelBulletinOperation::DeleteEntry,
+                    raw_status: 1,
+                    message: Some("The message was destroyed.".into()),
+                },
+            },
+            "bulletin.deleted",
+            "bulletin_deleted",
+            "delete_entry",
+        ),
+        (
+            BulletinUpdate::OperationResult {
+                state: bulletin_state(),
+                result: ModelBulletinOperationResult {
+                    operation: ModelBulletinOperation::SendMail,
+                    raw_status: 1,
+                    message: Some("There is no recipient for this message.".into()),
+                },
+            },
+            "bulletin.failed",
+            "bulletin_failed",
+            "send_mail",
+        ),
+    ];
+
+    for (sequence, (update, expected_name, expected_type, expected_action)) in
+        updates.into_iter().enumerate()
+    {
+        let events = expand(
+            42,
+            ClientIdentity {
+                pid: 42,
+                process_creation_time: 100,
+                dll_instance_id: [1; 16],
+            },
+            StateEvent {
+                sequence: sequence as u32 + 1,
+                revision: sequence as u32 + 1,
+                tick_ms: sequence as u32,
+                update: StateUpdate::Bulletin(update),
+            },
+            None,
+            None,
+            observed_at(),
+        );
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].name(), expected_name);
+        let event = serde_json::to_value(&events[0]).unwrap();
+        assert_eq!(event["type"], expected_type);
+        assert_eq!(event["data"]["action"], expected_action);
+        assert_eq!(event["data"]["raw_status"], 1);
+        assert_eq!(event["data"]["bulletin"]["revision"], 8);
+        if expected_name == "bulletin.failed" {
+            assert_eq!(
+                event["data"]["message"],
+                "There is no recipient for this message."
+            );
+        }
     }
 }
 

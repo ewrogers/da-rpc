@@ -1,4 +1,8 @@
 use crate::{
+    bulletin::{
+        BulletinChanged, BulletinClosed, BulletinMutation, BulletinMutationOutcome, BulletinOpened,
+        mutation_outcome,
+    },
     commands::LegendMark,
     dialog::{DialogChanged, DialogClosed, DialogOpened, DialogSubmitted},
     exchange::{
@@ -188,6 +192,12 @@ pub(crate) enum ClientEvent {
     FieldMapChanged(FieldMapChanged),
     FieldMapSelectionSubmitted(FieldMapSelectionSubmitted),
     FieldMapClosed(FieldMapClosed),
+    BulletinOpened(BulletinOpened),
+    BulletinChanged(BulletinChanged),
+    BulletinSubmitted(BulletinMutation),
+    BulletinDeleted(BulletinMutation),
+    BulletinFailed(BulletinMutation),
+    BulletinClosed(BulletinClosed),
     MessageDialogsChanged(MessageDialogsChanged),
     GroupInvitationSent(GroupInvitationSent),
     GroupInvitationReceived(GroupInvitationReceived),
@@ -310,6 +320,12 @@ impl ClientEvent {
             Self::FieldMapChanged(_) => "field_map.changed",
             Self::FieldMapSelectionSubmitted(_) => "field_map.selection_submitted",
             Self::FieldMapClosed(_) => "field_map.closed",
+            Self::BulletinOpened(_) => "bulletin.opened",
+            Self::BulletinChanged(_) => "bulletin.changed",
+            Self::BulletinSubmitted(_) => "bulletin.submitted",
+            Self::BulletinDeleted(_) => "bulletin.deleted",
+            Self::BulletinFailed(_) => "bulletin.failed",
+            Self::BulletinClosed(_) => "bulletin.closed",
             Self::MessageDialogsChanged(_) => "message_dialogs.changed",
             Self::GroupInvitationSent(_) => "group.invitation_sent",
             Self::GroupInvitationReceived(_) => "group.invitation_received",
@@ -434,6 +450,12 @@ impl ClientEvent {
             Self::FieldMapChanged(value) => value.observation.event_sequence,
             Self::FieldMapSelectionSubmitted(value) => value.observation.event_sequence,
             Self::FieldMapClosed(value) => value.observation.event_sequence,
+            Self::BulletinOpened(value) => value.observation.event_sequence,
+            Self::BulletinChanged(value) => value.observation.event_sequence,
+            Self::BulletinSubmitted(value)
+            | Self::BulletinDeleted(value)
+            | Self::BulletinFailed(value) => value.observation.event_sequence,
+            Self::BulletinClosed(value) => value.observation.event_sequence,
             Self::MessageDialogsChanged(value) => value.observation.event_sequence,
             Self::GroupInvitationSent(value) => value.observation.event_sequence,
             Self::GroupInvitationReceived(value) => value.observation.event_sequence,

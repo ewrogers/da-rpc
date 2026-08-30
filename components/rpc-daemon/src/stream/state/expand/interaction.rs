@@ -3,6 +3,48 @@ use super::*;
 pub(super) fn expand(observation: EventObservation, update: StateUpdate) -> Vec<ClientEvent> {
     let mut events = Vec::with_capacity(1);
     match update {
+        StateUpdate::Bulletin(update) => {
+            match update {
+                darpc_model::BulletinUpdate::Opened(state) => {
+                    events.push(ClientEvent::BulletinOpened(BulletinOpened::new(
+                        observation,
+                        state,
+                    )));
+                }
+                darpc_model::BulletinUpdate::Changed(state) => {
+                    events.push(ClientEvent::BulletinChanged(BulletinChanged::new(
+                        observation,
+                        state,
+                    )));
+                }
+                darpc_model::BulletinUpdate::ActionSubmitted { state, .. } => {
+                    if let Some(state) = state {
+                        events.push(ClientEvent::BulletinChanged(BulletinChanged::new(
+                            observation,
+                            state,
+                        )));
+                    }
+                }
+                darpc_model::BulletinUpdate::OperationResult { state, result } => {
+                    let outcome = mutation_outcome(&result);
+                    let mutation = BulletinMutation::new(observation, state, result);
+                    events.push(match outcome {
+                        BulletinMutationOutcome::Submitted => {
+                            ClientEvent::BulletinSubmitted(mutation)
+                        }
+                        BulletinMutationOutcome::Deleted => ClientEvent::BulletinDeleted(mutation),
+                        BulletinMutationOutcome::Failed => ClientEvent::BulletinFailed(mutation),
+                    });
+                }
+                darpc_model::BulletinUpdate::Closed { previous } => {
+                    events.push(ClientEvent::BulletinClosed(BulletinClosed::new(
+                        observation,
+                        previous,
+                    )));
+                }
+            }
+            events
+        }
         StateUpdate::Dialog(update) => {
             events.push(match update {
                 darpc_model::DialogUpdate::Opened(dialog) => {

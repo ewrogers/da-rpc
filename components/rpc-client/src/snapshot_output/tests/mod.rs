@@ -1,8 +1,9 @@
 use super::{render_human, render_json};
 use darpc_model::{
-    ClientLifecycle, ClientSnapshot, DialogChoice, DialogInteraction, DialogKind, DialogNavigation,
-    DialogSpeaker, DialogSpriteType, DialogState, DialogTarget, ExchangeItem, ExchangeOffer,
-    ExchangeState, PlannedRoute, TilePosition,
+    BulletinEntrySummary, BulletinPagination, BulletinSection, BulletinSectionKind, BulletinSource,
+    BulletinState, BulletinView, BulletinViewport, ClientLifecycle, ClientSnapshot, DialogChoice,
+    DialogInteraction, DialogKind, DialogNavigation, DialogSpeaker, DialogSpriteType, DialogState,
+    DialogTarget, ExchangeItem, ExchangeOffer, ExchangeState, PlannedRoute, TilePosition,
 };
 
 fn snapshot() -> ClientSnapshot {
@@ -48,6 +49,36 @@ fn snapshot() -> ClientSnapshot {
                 truncated: false,
             }],
         },
+        active_bulletin: Some(BulletinState {
+            revision: 4,
+            pending: None,
+            last_operation_result: None,
+            can_go_back: true,
+            can_go_forward: false,
+            view: BulletinView::Entries {
+                section: BulletinSection {
+                    id: 2,
+                    name: "Mileth News".into(),
+                    kind: BulletinSectionKind::Board,
+                    source: BulletinSource::Global,
+                },
+                entries: vec![BulletinEntrySummary {
+                    id: 12,
+                    flags: 1,
+                    author: "Town Crier".into(),
+                    month: 8,
+                    day: 29,
+                    subject: "Festival".into(),
+                }],
+                selected_entry_id: Some(12),
+                viewport: BulletinViewport {
+                    position: 2,
+                    maximum: 9,
+                },
+                pagination: BulletinPagination::Ready,
+                truncated: false,
+            },
+        }),
         group: None,
         exchange: Some(ExchangeState {
             id: 9,
@@ -83,6 +114,8 @@ fn snapshot_output_keeps_dialog_without_character_state() {
     assert!(human.contains("dialog: revision=7"));
     assert!(human.contains("message_dialogs: revision=8 dialogs=1"));
     assert!(human.contains("message_dialog: id=3 text=\"You sense danger nearby.\""));
+    assert!(human.contains("bulletin: revision=4 pending=none"));
+    assert!(human.contains("bulletin_entry: id=12 flags=1 author=\"Town Crier\""));
     assert!(human.contains("exchange: id=9 partner=ZiLo"));
     assert!(human.contains("planned_route: source=client generation=8 tiles=2"));
     assert!(human.contains("planned_route_tile: index=1 x=3 y=3"));
@@ -94,6 +127,11 @@ fn snapshot_output_keeps_dialog_without_character_state() {
     assert_eq!(json["snapshot"]["updated_tick_ms"], 125);
     assert_eq!(json["snapshot"]["dialog"]["revision"], 7);
     assert_eq!(json["snapshot"]["message_dialogs"]["revision"], 8);
+    assert_eq!(json["snapshot"]["active_bulletin"]["revision"], 4);
+    assert_eq!(
+        json["snapshot"]["active_bulletin"]["view"]["entries"][0]["subject"],
+        "Festival"
+    );
     assert_eq!(
         json["snapshot"]["message_dialogs"]["dialogs"][0]["text"],
         "You sense danger nearby."

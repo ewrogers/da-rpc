@@ -32,6 +32,9 @@ const COMMIT_RETRY_INTERVAL: Duration = Duration::from_millis(1);
 const MESSAGE_OPCODE: u8 = 0x0E;
 const SAY_MODE: u8 = 0;
 const MAX_OUTGOING_BODY: usize = u8::MAX as usize + 3;
+const MAX_BULLETIN_OBSERVATION_BODY: usize = 7;
+const MAX_BOARD_POST_BODY: usize = 2 + 2 + 1 + 60 + 2 + 3_000;
+const MAX_PLAYER_MAIL_BODY: usize = 2 + 2 + 1 + 15 + 1 + 60 + 2 + 3_000;
 
 #[unsafe(no_mangle)]
 static OUTGOING_HOOK_ACTIVITY: DetourActivity = DetourActivity::new();
@@ -304,6 +307,7 @@ extern "C" fn observe_packet(body: *const u8, length: i16) {
                 | 0x2D
                 | 0x30
                 | 0x38
+                | 0x3B
                 | 0x3E
                 | 0x44
                 | 0x4A
@@ -316,6 +320,19 @@ extern "C" fn observe_packet(body: *const u8, length: i16) {
             return;
         }
         OUTGOING_OBSERVATION_COUNT.fetch_add(1, Ordering::Relaxed);
+        if prefix[0] == 0x3B {
+            if !valid_bulletin_length(prefix[1], length) {
+                return;
+            }
+            let observation_length = length.min(MAX_BULLETIN_OBSERVATION_BODY);
+            let mut packet = [0; MAX_BULLETIN_OBSERVATION_BODY];
+            if !read_exact(body as usize, &mut packet[..observation_length]) {
+                OUTGOING_READ_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed);
+                return;
+            }
+            crate::state::observe_outgoing(&packet[..observation_length], sender_tick_ms());
+            return;
+        }
         let Some(expected) = expected_body_length(prefix, length) else {
             return;
         };
@@ -352,7 +369,10 @@ fn expected_body_length(prefix: [u8; 2], variable_length: usize) -> Option<usize
     Some(match prefix[0] {
         0x18 | 0x2D | 0x38 => 1,
         0x30 => 4,
-        0x43 => 6,
+        0x43 => match prefix[1] {
+            0x03 => 7,
+            _ => 6,
+        },
         0x07 => 6,
         0x05 | 0x08 | 0x29 => 10,
         0x24 | 0x2A | 0x3F => 9,
@@ -366,6 +386,18 @@ fn expected_body_length(prefix: [u8; 2], variable_length: usize) -> Option<usize
         0x0F => variable_length,
         _ => 2,
     })
+}
+
+fn valid_bulletin_length(subtype: u8, length: usize) -> bool {
+    match subtype {
+        1 => length == 2,
+        2 | 3 => length == 7,
+        4 => (7..=MAX_BOARD_POST_BODY).contains(&length),
+        5 => matches!(length, 6 | 7),
+        6 => (8..=MAX_PLAYER_MAIL_BODY).contains(&length),
+        7 => length == 6,
+        _ => false,
+    }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -439,7 +471,9 @@ fn write_memory(address: usize, input: &[u8]) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{SayAction, escape_say, expected_body_length, say_action, support};
+    use super::{
+        SayAction, escape_say, expected_body_length, say_action, support, valid_bulletin_length,
+    };
     use darpc_game_client::CLIENT_PACKET_SUBMIT_ENTRY;
     use std::ptr::NonNull;
 
@@ -491,5 +525,21 @@ mod tests {
         assert_eq!(expected_body_length([0x4A, 0x04], 6), Some(6));
         assert_eq!(expected_body_length([0x4A, 0x05], 6), Some(6));
         assert_eq!(expected_body_length([0x4A, 0x06], 6), None);
+    }
+
+    #[test]
+    fn validates_bulletin_lengths_without_copying_compose_bodies() {
+        assert!(valid_bulletin_length(1, 2));
+        assert!(valid_bulletin_length(2, 7));
+        assert!(valid_bulletin_length(3, 7));
+        assert!(valid_bulletin_length(4, 3_067));
+        assert!(valid_bulletin_length(5, 6));
+        assert!(valid_bulletin_length(5, 7));
+        assert!(valid_bulletin_length(6, 3_083));
+        assert!(valid_bulletin_length(7, 6));
+        assert!(!valid_bulletin_length(1, 3));
+        assert!(!valid_bulletin_length(4, 3_068));
+        assert!(!valid_bulletin_length(6, 3_084));
+        assert!(!valid_bulletin_length(8, 2));
     }
 }

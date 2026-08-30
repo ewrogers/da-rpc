@@ -100,6 +100,27 @@ darpc dialog previous --pid <pid> <revision>
 darpc dialog next --pid <pid> <revision>
 darpc dialog close --pid <pid> <revision>
 darpc field-map select --pid <pid> <revision> <destination-index>
+darpc bulletin open --pid <pid>
+darpc bulletin world --pid <pid> <x> <y>
+darpc bulletin open-section --pid <pid> <revision> <section-id>
+darpc bulletin select-section --pid <pid> <revision> <section-id>
+darpc bulletin open-entry --pid <pid> <revision> <entry-id>
+darpc bulletin select-entry --pid <pid> <revision> <entry-id>
+darpc bulletin older --pid <pid> <revision>
+darpc bulletin scroll --pid <pid> <revision> <position>
+darpc bulletin back --pid <pid> <revision>
+darpc bulletin forward --pid <pid> <revision>
+darpc bulletin previous --pid <pid> <revision>
+darpc bulletin next --pid <pid> <revision>
+darpc bulletin compose-post --pid <pid> <revision>
+darpc bulletin compose-mail --pid <pid> <revision>
+darpc bulletin reply --pid <pid> <revision>
+darpc bulletin update-post --pid <pid> <revision> <subject> <body>
+darpc bulletin update-mail --pid <pid> <revision> <recipient> <subject> <body>
+darpc bulletin submit --pid <pid> <revision>
+darpc bulletin delete --pid <pid> <revision> <entry-id>
+darpc bulletin highlight --pid <pid> <revision> <entry-id>
+darpc bulletin close --pid <pid> <revision>
 darpc message-dialog dismiss --pid <pid> <revision> <id>
 darpc group toggle --pid <pid>
 darpc group invite --pid <pid> <player>
@@ -141,10 +162,10 @@ and connection lifecycle. Their behavior is:
   and reports installation metadata, both counter values, their wrapping
   difference, and whether the counter advanced.
 - `snapshot` schedules a bounded capture on the client main thread and reports
-  lifecycle, character, map, inventory, equipment, spellbook, skillbook, and
-  active spell-effect, dialog, field-map, group roster, invitation, and complete native
-  planned-route state plus event, capture timing, and request round-trip
-  metadata.
+  lifecycle, character, map, inventory, equipment, spellbook, skillbook,
+  active spell-effect, dialog, field-map, bulletin, group roster, invitation,
+  and complete native planned-route state plus event, capture timing, and
+  request round-trip metadata.
 - `diagnostic` submits a no-op command to the bounded main-thread queue, waits
   up to one second, and reports its state, queue delay, execution duration, and
   client main-thread ID.
@@ -194,6 +215,11 @@ and connection lifecycle. Their behavior is:
 - `field-map select` submits one zero-based destination from the active field
   map. It requires the current field-map revision and uses the retained
   checksum and travel coordinates. See [Field maps](field-maps.md).
+- `bulletin` commands open global or world-tile boards; select, open, page, and
+  scroll lists and entries; navigate native dialog history; compose board
+  articles or player mail; and submit deletion or highlight requests. Every
+  command except `open` and `world` requires the revision reported by the
+  active bulletin state. See [Bulletin boards and player mail](bulletins.md).
 - `message-dialog dismiss` closes one active native message dialog by the
   revision and opaque ID returned by current state. See
   [Message dialogs](message-dialogs.md).
@@ -243,6 +269,7 @@ darpc --output json spell cast --pid <pid> 7 --input "nothing"
 darpc --output json item swap --pid <pid> 1 2
 darpc --output json dialog select --pid <pid> 7 0
 darpc --output json field-map select --pid <pid> 11 1
+darpc --output json bulletin open-entry --pid <pid> 15 4280
 darpc --output json group invite --pid <pid> ZiLo
 darpc --output json who --pid <pid>
 darpc --output json legend --pid <pid>

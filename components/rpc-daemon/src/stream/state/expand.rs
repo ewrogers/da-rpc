@@ -283,6 +283,7 @@ pub(crate) fn expand(
             }
         }
         update @ (StateUpdate::Dialog(_)
+        | StateUpdate::Bulletin(_)
         | StateUpdate::FieldMap(_)
         | StateUpdate::MessageDialogs(_)
         | StateUpdate::Group(_)

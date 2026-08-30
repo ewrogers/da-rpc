@@ -4,9 +4,11 @@ use crate::{
 };
 use darpc_model::{Direction, EquipmentSlot, emote_code, is_client_emote_code};
 use darpc_protocol::{
-    ChantText, CharacterStat, DiagnosticsOperation, DialogAction, DialogCommand, DialogText,
-    ExchangeCommand, FieldMapSelectionCommand, GoldTransfer, GroupCommand, GroupInvitationAction,
-    GroupText, ItemSlot, ItemTransfer, MAX_DIALOG_INPUT_LEN, MAX_ECHO_TEXT_LEN, MAX_ITEM_SLOT,
+    BulletinAction, BulletinBody, BulletinCommand, BulletinComposeKind, BulletinNavigation,
+    BulletinOpen, BulletinRecipient, BulletinSubject, ChantText, CharacterStat,
+    DiagnosticsOperation, DialogAction, DialogCommand, DialogText, ExchangeCommand,
+    FieldMapSelectionCommand, GoldTransfer, GroupCommand, GroupInvitationAction, GroupText,
+    ItemSlot, ItemTransfer, MAX_DIALOG_INPUT_LEN, MAX_ECHO_TEXT_LEN, MAX_ITEM_SLOT,
     MAX_RAW_PACKET_PAYLOAD_LEN, MAX_SKILL_SLOT, MAX_SPELL_INPUT_LEN, MAX_SPELL_SLOT,
     MessageDialogCommand, RawPacket, RawPacketDirection, SkillSlot, SlotSwap, SpellArguments,
     SpellCast, SpellInput, SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkTarget,
@@ -59,6 +61,13 @@ usage:
     darpc [--output <table|json>] dialog next --pid <pid> <revision>
     darpc [--output <table|json>] dialog close --pid <pid> <revision>
     darpc [--output <table|json>] field-map select --pid <pid> <revision> <destination-index>
+    darpc [--output <table|json>] bulletin <open|world> --pid <pid> [x y]
+    darpc [--output <table|json>] bulletin <open-section|select-section> --pid <pid> <revision> <section-id>
+    darpc [--output <table|json>] bulletin <open-entry|select-entry|delete|highlight> --pid <pid> <revision> <entry-id>
+    darpc [--output <table|json>] bulletin <older|back|forward|previous|next|compose-post|compose-mail|reply|submit|close> --pid <pid> <revision>
+    darpc [--output <table|json>] bulletin scroll --pid <pid> <revision> <position>
+    darpc [--output <table|json>] bulletin update-post --pid <pid> <revision> <subject> <body>
+    darpc [--output <table|json>] bulletin update-mail --pid <pid> <revision> <recipient> <subject> <body>
     darpc [--output <table|json>] message-dialog dismiss --pid <pid> <revision> <id>
     darpc [--output <table|json>] group toggle --pid <pid>
     darpc [--output <table|json>] group invite --pid <pid> <player>
@@ -111,6 +120,7 @@ pub(crate) enum Operation {
     Interact(std::num::NonZeroU32),
     Dialog(DialogCommand),
     FieldMapSelect(FieldMapSelectionCommand),
+    Bulletin(BulletinCommand),
     MessageDialogDismiss(MessageDialogCommand),
     Group(GroupCommand),
     Exchange(ExchangeCommand),
@@ -203,6 +213,7 @@ impl Command {
                 ..
             }) => "dialog close",
             Operation::FieldMapSelect(_) => "field-map select",
+            Operation::Bulletin(_) => "bulletin",
             Operation::MessageDialogDismiss(_) => "message-dialog dismiss",
             Operation::Group(GroupCommand::Toggle) => "group toggle",
             Operation::Group(GroupCommand::Invite(_)) => "group invite",
@@ -352,6 +363,9 @@ pub(crate) fn parse_command(arguments: Vec<OsString>) -> Result<Command> {
             revision: parse_u32(arguments.next(), "field-map revision")?,
             destination_index: parse_u8(arguments.next(), "field-map destination index")?,
         }),
+        action if action.starts_with("bulletin ") => {
+            Operation::Bulletin(parse_bulletin(action, &mut arguments)?)
+        }
         "message-dialog dismiss" => Operation::MessageDialogDismiss(MessageDialogCommand {
             revision: parse_u32(arguments.next(), "message-dialog revision")?,
             id: parse_u32(arguments.next(), "message-dialog ID")?,
@@ -436,6 +450,29 @@ fn parse_action(arguments: &mut impl Iterator<Item = OsString>) -> Result<String
         "gold" => &["drop", "give"],
         "dialog" => &["select", "input", "previous", "next", "close"],
         "field-map" => &["select"],
+        "bulletin" => &[
+            "open",
+            "world",
+            "open-section",
+            "select-section",
+            "open-entry",
+            "select-entry",
+            "older",
+            "scroll",
+            "back",
+            "forward",
+            "previous",
+            "next",
+            "compose-post",
+            "compose-mail",
+            "reply",
+            "update-post",
+            "update-mail",
+            "submit",
+            "delete",
+            "highlight",
+            "close",
+        ],
         "message-dialog" => &["dismiss"],
         "group" => &["toggle", "invite", "accept", "decline"],
         "exchange" => &["item", "gold", "accept", "cancel"],
@@ -570,6 +607,121 @@ fn parse_coordinate(argument: Option<OsString>, name: &str) -> Result<i32> {
     argument.parse().map_err(|_| {
         invalid_arguments(format!("{name} coordinate must be a signed 32-bit integer"))
     })
+}
+
+fn parse_bulletin(
+    action: &str,
+    arguments: &mut impl Iterator<Item = OsString>,
+) -> Result<BulletinCommand> {
+    let (revision, action) = match action {
+        "bulletin open" => (0, BulletinAction::Open(BulletinOpen::ServerList)),
+        "bulletin world" => (
+            0,
+            BulletinAction::Open(BulletinOpen::WorldTile {
+                x: parse_u16(arguments.next(), "x coordinate")?,
+                y: parse_u16(arguments.next(), "y coordinate")?,
+            }),
+        ),
+        action => {
+            let revision = parse_u32(arguments.next(), "bulletin revision")?;
+            let action = match action {
+                "bulletin open-section" => BulletinAction::OpenSection {
+                    section_id: parse_u16(arguments.next(), "section ID")?,
+                },
+                "bulletin select-section" => BulletinAction::SelectSection {
+                    section_id: parse_u16(arguments.next(), "section ID")?,
+                },
+                "bulletin open-entry" => BulletinAction::OpenEntry {
+                    entry_id: parse_i16(arguments.next(), "entry ID")?,
+                },
+                "bulletin select-entry" => BulletinAction::SelectEntry {
+                    entry_id: parse_i16(arguments.next(), "entry ID")?,
+                },
+                "bulletin older" => BulletinAction::LoadOlder,
+                "bulletin scroll" => BulletinAction::Scroll {
+                    position: parse_i32(arguments.next(), "scroll position")?,
+                },
+                "bulletin back" => BulletinAction::Navigate(BulletinNavigation::Back),
+                "bulletin forward" => BulletinAction::Navigate(BulletinNavigation::Forward),
+                "bulletin previous" => BulletinAction::Navigate(BulletinNavigation::PreviousEntry),
+                "bulletin next" => BulletinAction::Navigate(BulletinNavigation::NextEntry),
+                "bulletin compose-post" => {
+                    BulletinAction::BeginCompose(BulletinComposeKind::BoardPost)
+                }
+                "bulletin compose-mail" => {
+                    BulletinAction::BeginCompose(BulletinComposeKind::PlayerMail)
+                }
+                "bulletin reply" => BulletinAction::BeginCompose(BulletinComposeKind::Reply),
+                "bulletin update-post" => BulletinAction::UpdateBoardPost {
+                    subject: parse_bulletin_subject(arguments.next())?,
+                    body: parse_bulletin_body(arguments.next())?,
+                },
+                "bulletin update-mail" => BulletinAction::UpdatePlayerMail {
+                    recipient: parse_bulletin_recipient(arguments.next())?,
+                    subject: parse_bulletin_subject(arguments.next())?,
+                    body: parse_bulletin_body(arguments.next())?,
+                },
+                "bulletin submit" => BulletinAction::SubmitCompose,
+                "bulletin delete" => BulletinAction::DeleteEntry {
+                    entry_id: parse_i16(arguments.next(), "entry ID")?,
+                },
+                "bulletin highlight" => BulletinAction::HighlightEntry {
+                    entry_id: parse_i16(arguments.next(), "entry ID")?,
+                },
+                "bulletin close" => BulletinAction::Close,
+                _ => return Err(invalid_arguments(format!("unknown command `{action}`"))),
+            };
+            (revision, action)
+        }
+    };
+
+    Ok(BulletinCommand { revision, action })
+}
+
+fn parse_i16(argument: Option<OsString>, name: &str) -> Result<i16> {
+    let argument = argument.ok_or_else(|| invalid_arguments(format!("{name} is required")))?;
+    argument
+        .to_str()
+        .ok_or_else(|| invalid_arguments(format!("{name} must be valid Unicode")))?
+        .parse()
+        .map_err(|_| invalid_arguments(format!("{name} must be a signed 16-bit integer")))
+}
+
+fn parse_i32(argument: Option<OsString>, name: &str) -> Result<i32> {
+    let argument = argument.ok_or_else(|| invalid_arguments(format!("{name} is required")))?;
+    argument
+        .to_str()
+        .ok_or_else(|| invalid_arguments(format!("{name} must be valid Unicode")))?
+        .parse()
+        .map_err(|_| invalid_arguments(format!("{name} must be a signed 32-bit integer")))
+}
+
+fn parse_bulletin_recipient(argument: Option<OsString>) -> Result<BulletinRecipient> {
+    let value = parse_utf8(argument, "mail recipient")?;
+    BulletinRecipient::new(&value).ok_or_else(|| {
+        invalid_arguments("mail recipient must be ASCII, contain no NUL, and be at most 15 bytes")
+    })
+}
+
+fn parse_bulletin_subject(argument: Option<OsString>) -> Result<BulletinSubject> {
+    let value = parse_utf8(argument, "bulletin subject")?;
+    BulletinSubject::new(&value).ok_or_else(|| {
+        invalid_arguments("bulletin subject must be ASCII, contain no NUL, and be at most 60 bytes")
+    })
+}
+
+fn parse_bulletin_body(argument: Option<OsString>) -> Result<BulletinBody> {
+    let value = parse_utf8(argument, "bulletin body")?;
+    BulletinBody::new(&value).ok_or_else(|| {
+        invalid_arguments("bulletin body must be ASCII, contain no NUL, and be at most 3000 bytes")
+    })
+}
+
+fn parse_utf8(argument: Option<OsString>, name: &str) -> Result<String> {
+    argument
+        .ok_or_else(|| invalid_arguments(format!("{name} is required")))?
+        .into_string()
+        .map_err(|_| invalid_arguments(format!("{name} must be valid Unicode")))
 }
 
 fn parse_item_slot(argument: Option<OsString>) -> Result<ItemSlot> {
@@ -865,7 +1017,8 @@ mod tests {
     use darpc_model::Direction;
     use darpc_protocol::DiagnosticsOperation;
     use darpc_protocol::{
-        ChantText, CharacterStat, DialogAction, DialogCommand, DialogText,
+        BulletinAction, BulletinBody, BulletinCommand, BulletinOpen, BulletinRecipient,
+        BulletinSubject, ChantText, CharacterStat, DialogAction, DialogCommand, DialogText,
         FieldMapSelectionCommand, GroupCommand, GroupInvitationAction, GroupText, ItemSlot,
         MessageDialogCommand, RawPacket, RawPacketDirection, SkillSlot, SlotSwap, SpellArguments,
         SpellCast, SpellInput, SpellSlot, SpellTarget, WalkTarget,
@@ -1402,6 +1555,71 @@ mod tests {
                 destination_index: 2,
             })
         );
+    }
+
+    #[test]
+    fn parses_bulletin_open_sources() {
+        let (_, command) = parse(arguments(&["bulletin", "open", "--pid", "42"])).unwrap();
+        assert_eq!(
+            command.operation,
+            Operation::Bulletin(BulletinCommand {
+                revision: 0,
+                action: BulletinAction::Open(BulletinOpen::ServerList),
+            })
+        );
+
+        let (_, command) =
+            parse(arguments(&["bulletin", "world", "--pid", "42", "18", "9"])).unwrap();
+        assert_eq!(
+            command.operation,
+            Operation::Bulletin(BulletinCommand {
+                revision: 0,
+                action: BulletinAction::Open(BulletinOpen::WorldTile { x: 18, y: 9 }),
+            })
+        );
+    }
+
+    #[test]
+    fn parses_bulletin_mail_update() {
+        let (_, command) = parse(arguments(&[
+            "bulletin",
+            "update-mail",
+            "--pid",
+            "42",
+            "7",
+            "Mileth",
+            "Hello",
+            "Meet me by the inn.",
+        ]))
+        .unwrap();
+        assert_eq!(
+            command.operation,
+            Operation::Bulletin(BulletinCommand {
+                revision: 7,
+                action: BulletinAction::UpdatePlayerMail {
+                    recipient: BulletinRecipient::new("Mileth").unwrap(),
+                    subject: BulletinSubject::new("Hello").unwrap(),
+                    body: BulletinBody::new("Meet me by the inn.").unwrap(),
+                },
+            })
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_bulletin_text_and_extra_arguments() {
+        assert!(
+            parse(arguments(&[
+                "bulletin",
+                "update-post",
+                "--pid",
+                "42",
+                "7",
+                "non-ASCII ☺",
+                "body",
+            ]))
+            .is_err()
+        );
+        assert!(parse(arguments(&["bulletin", "open", "--pid", "42", "extra",])).is_err());
     }
 
     #[test]

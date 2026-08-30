@@ -5,14 +5,16 @@ mod storage;
 use darpc_model::LookResultTarget;
 use darpc_model::{ActionSource, Direction, EquipmentSlot, LookTarget, MessageKind};
 use darpc_protocol::{
-    ChantText, CharacterStat, CommandFailure, CommandKind, CommandOperation, CommandResult,
-    CommandState, CommandStatus, DialogAction, DialogCommand, DialogText, ExactRouteInvalidState,
-    ExactRouteInvalidStateReason, ExchangeCommand, FieldMapSelectionCommand, GoldTransfer,
-    GroupCommand, GroupInvitationAction, GroupText, ItemSlot, ItemTransfer,
-    MAX_MESSAGE_CONTENT_LEN, MAX_MESSAGE_RECIPIENT_LEN, MAX_WALK_ROUTE_TILES, MessageCommand,
-    MessageContent, MessageDialogCommand, MessageRecipient, RawPacket, RawPacketDirection,
-    RouteTile, SkillSlot, SlotSwap, SpellArguments, SpellCast, SpellInput, SpellSlot, SpellTarget,
-    TilePosition, TransferTarget, WalkRoute, WalkTarget,
+    BulletinAction, BulletinBody, BulletinCommand, BulletinComposeKind, BulletinNavigation,
+    BulletinOpen, BulletinRecipient, BulletinSubject, ChantText, CharacterStat, CommandFailure,
+    CommandKind, CommandOperation, CommandResult, CommandState, CommandStatus, DialogAction,
+    DialogCommand, DialogText, ExactRouteInvalidState, ExactRouteInvalidStateReason,
+    ExchangeCommand, FieldMapSelectionCommand, GoldTransfer, GroupCommand, GroupInvitationAction,
+    GroupText, ItemSlot, ItemTransfer, MAX_BULLETIN_COMPOSE_BODY_LEN, MAX_BULLETIN_RECIPIENT_LEN,
+    MAX_BULLETIN_SUBJECT_LEN, MAX_MESSAGE_CONTENT_LEN, MAX_MESSAGE_RECIPIENT_LEN,
+    MAX_WALK_ROUTE_TILES, MessageCommand, MessageContent, MessageDialogCommand, MessageRecipient,
+    RawPacket, RawPacketDirection, RouteTile, SkillSlot, SlotSwap, SpellArguments, SpellCast,
+    SpellInput, SpellSlot, SpellTarget, TilePosition, TransferTarget, WalkRoute, WalkTarget,
 };
 use std::{
     cell::Cell,
@@ -33,7 +35,18 @@ use storage::{StoredInput, kind_from_value, stored_kind};
 
 pub(crate) const COMMAND_CAPACITY: usize = 64;
 pub(crate) const COMMANDS_PER_TICK: usize = 1;
-const MAX_COMMAND_TILE_BYTES: usize = MAX_WALK_ROUTE_TILES * 4;
+const MAX_BULLETIN_COMMAND_BYTES: usize = 1
+    + 1
+    + MAX_BULLETIN_RECIPIENT_LEN
+    + 1
+    + MAX_BULLETIN_SUBJECT_LEN
+    + 2
+    + MAX_BULLETIN_COMPOSE_BODY_LEN;
+const MAX_COMMAND_INPUT_BYTES: usize = if MAX_WALK_ROUTE_TILES * 4 > MAX_BULLETIN_COMMAND_BYTES {
+    MAX_WALK_ROUTE_TILES * 4
+} else {
+    MAX_BULLETIN_COMMAND_BYTES
+};
 
 const TERMINAL_RETENTION_MS: u32 = 30_000;
 const RESPONSE_COALESCE_MS: u32 = 1_000;
@@ -980,6 +993,31 @@ mod tests {
             MessageCommand::Group(content),
         ] {
             let expected = CommandKind::Message(message);
+            let (value, argument_x, argument_y, argument_z, input) = stored_kind(expected);
+            let input = input.as_ref().map_or(&[][..], StoredInput::as_bytes);
+            assert_eq!(
+                kind_from_value(value, argument_x, argument_y, argument_z, input),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn bulletin_actions_survive_bounded_queue_storage_verbatim() {
+        let body = "x".repeat(MAX_BULLETIN_COMPOSE_BODY_LEN);
+        for action in [
+            BulletinAction::Open(BulletinOpen::WorldTile { x: 18, y: 9 }),
+            BulletinAction::Navigate(BulletinNavigation::NextEntry),
+            BulletinAction::UpdatePlayerMail {
+                recipient: BulletinRecipient::new("Mileth").unwrap(),
+                subject: BulletinSubject::new("Hello").unwrap(),
+                body: BulletinBody::new(&body).unwrap(),
+            },
+        ] {
+            let expected = CommandKind::Bulletin(BulletinCommand {
+                revision: 12,
+                action,
+            });
             let (value, argument_x, argument_y, argument_z, input) = stored_kind(expected);
             let input = input.as_ref().map_or(&[][..], StoredInput::as_bytes);
             assert_eq!(

@@ -38,6 +38,7 @@ pub(super) fn snapshot(
         dialog: crate::dialog::decode_current(retained.dialog),
         active_field_map: crate::field_map::decode_current(retained.field_map),
         message_dialogs: crate::message_dialog::decode_current(retained.message_dialogs),
+        active_bulletin: crate::bulletin::decode_current(retained.bulletin),
         group: raw
             .group_available
             .then(|| crate::group::model_state(&raw.group)),
@@ -49,6 +50,7 @@ pub(super) fn snapshot(
 
 pub(super) struct RetainedState<'a> {
     pub(super) dialog: crate::dialog::RawDialog,
+    pub(super) bulletin: &'a crate::bulletin::RawBulletin,
     pub(super) field_map: &'a crate::field_map::RawFieldMap,
     pub(super) message_dialogs: &'a crate::message_dialog::RawMessageDialogs,
     pub(super) exchange: crate::exchange::RawExchange,

@@ -1,5 +1,40 @@
 use super::*;
 
+fn bulletin_snapshot() -> ModelClientSnapshot {
+    let mut snapshot = game_snapshot();
+    snapshot.active_bulletin = Some(ModelBulletinState {
+        revision: 12,
+        pending: None,
+        last_operation_result: None,
+        can_go_back: true,
+        can_go_forward: false,
+        view: ModelBulletinView::Entries {
+            section: ModelBulletinSection {
+                id: 4,
+                name: "Mileth News".into(),
+                kind: ModelBulletinSectionKind::Board,
+                source: ModelBulletinSource::Global,
+            },
+            entries: vec![ModelBulletinEntrySummary {
+                id: 4280,
+                flags: 1,
+                author: "Town Crier".into(),
+                month: 8,
+                day: 29,
+                subject: "Festival".into(),
+            }],
+            selected_entry_id: Some(4280),
+            viewport: ModelBulletinViewport {
+                position: 2,
+                maximum: 9,
+            },
+            pagination: ModelBulletinPagination::Ready,
+            truncated: false,
+        },
+    });
+    snapshot
+}
+
 fn assert_routes_action(path: &str, body: &str, expected_kind: CommandKind) {
     assert_routes_action_request(
         axum::http::Method::POST,
@@ -1258,6 +1293,73 @@ fn routes_field_map_selection_from_a_live_snapshot() {
     );
     worker.join().unwrap();
     assert_eq!(response.status(), StatusCode::OK);
+}
+
+#[test]
+fn serves_bulletin_state_and_rejects_stale_actions() {
+    let snapshot = bulletin_snapshot();
+    let (live_state, worker) = state_with_live_snapshot_response(
+        snapshot.clone(),
+        crate::commands::SnapshotFreshness::Recent,
+    );
+    let body = json_with_state(live_state, "/clients/42/bulletin");
+    worker.join().unwrap();
+    assert_eq!(body["bulletin"]["revision"], 12);
+    assert_eq!(body["bulletin"]["view"]["type"], "entries");
+    assert_eq!(body["bulletin"]["view"]["entries"][0]["id"], 4280);
+
+    let (live_state, worker) =
+        state_with_live_snapshot_response(snapshot, crate::commands::SnapshotFreshness::Fresh);
+    let response = post_json(
+        live_state,
+        "/clients/42/bulletin/actions",
+        r#"{"revision":11,"action":{"type":"open_entry","entry_id":4280}}"#,
+    );
+    worker.join().unwrap();
+    assert_eq!(response.status(), StatusCode::CONFLICT);
+    assert_eq!(response_json(response)["error"]["code"], "stale_bulletin");
+}
+
+#[test]
+fn routes_bulletin_open_read_and_mail_actions() {
+    assert_routes_action(
+        "/clients/42/bulletin/actions",
+        r#"{"revision":0,"action":{"type":"open_server_list"}}"#,
+        CommandKind::Bulletin(BulletinCommand {
+            revision: 0,
+            action: BulletinAction::Open(BulletinOpen::ServerList),
+        }),
+    );
+    assert_routes_action(
+        "/clients/42/bulletin/actions",
+        r#"{"revision":0,"action":{"type":"open_world_board","x":18,"y":9}}"#,
+        CommandKind::Bulletin(BulletinCommand {
+            revision: 0,
+            action: BulletinAction::Open(BulletinOpen::WorldTile { x: 18, y: 9 }),
+        }),
+    );
+    assert_routes_action_with_snapshot(
+        "/clients/42/bulletin/actions",
+        r#"{"revision":12,"action":{"type":"open_entry","entry_id":4280}}"#,
+        CommandKind::Bulletin(BulletinCommand {
+            revision: 12,
+            action: BulletinAction::OpenEntry { entry_id: 4280 },
+        }),
+        bulletin_snapshot(),
+    );
+    assert_routes_action_with_snapshot(
+        "/clients/42/bulletin/actions",
+        r#"{"revision":12,"action":{"type":"update_player_mail","recipient":"Mileth","subject":"Hello","body":"Meet me by the inn."}}"#,
+        CommandKind::Bulletin(BulletinCommand {
+            revision: 12,
+            action: BulletinAction::UpdatePlayerMail {
+                recipient: BulletinRecipient::new("Mileth").unwrap(),
+                subject: BulletinSubject::new("Hello").unwrap(),
+                body: BulletinBody::new("Meet me by the inn.").unwrap(),
+            },
+        }),
+        bulletin_snapshot(),
+    );
 }
 
 #[test]

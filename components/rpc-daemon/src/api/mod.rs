@@ -1,4 +1,10 @@
 use crate::{
+    bulletin::{
+        BulletinChanged, BulletinClosed, BulletinEntry, BulletinEntrySummary, BulletinMutation,
+        BulletinOpened, BulletinOperation, BulletinOperationResult, BulletinPagination,
+        BulletinSection, BulletinSectionKind, BulletinSnapshot, BulletinSource, BulletinSourceKind,
+        BulletinState, BulletinView, BulletinViewport,
+    },
     commands::{ClientOperation, CommandCall, ROUTER_CAPACITY},
     dialog::{
         DialogChanged, DialogChoice, DialogCloseReason, DialogClosed, DialogInput,
@@ -672,6 +678,11 @@ fn router_with_shutdown(state: ApiState, shutdown: Shutdown) -> Router {
         )
         .route("/clients/{client}/dialog", get(client_dialog))
         .route("/clients/{client}/field-map", get(client_field_map))
+        .route("/clients/{client}/bulletin", get(client_bulletin))
+        .route(
+            "/clients/{client}/bulletin/actions",
+            post(crate::commands::bulletin::action),
+        )
         .route(
             "/clients/{client}/message-dialogs",
             get(client_message_dialogs),
@@ -941,7 +952,8 @@ async fn reject_request_body(request: Request<Body>, next: Next) -> Response {
             || request.uri().path().ends_with("/dialog/next")
             || request.uri().path().ends_with("/dialog/close")
             || request.uri().path().ends_with("/message-dialogs/dismiss")
-            || request.uri().path().ends_with("/field-map/select")))
+            || request.uri().path().ends_with("/field-map/select")
+            || request.uri().path().ends_with("/bulletin/actions")))
         || (request.method() == Method::PUT && request.uri().path().ends_with("/diagnostics"))
     {
         return next.run(request).await;
@@ -981,6 +993,7 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         diagnostics::update,
         client_dialog,
         client_field_map,
+        client_bulletin,
         client_group,
         client_exchange,
         crate::commands::who::who,
@@ -1037,6 +1050,7 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         crate::commands::dialog::next,
         crate::commands::dialog::close,
         crate::commands::field_map::select,
+        crate::commands::bulletin::action,
         crate::commands::message_dialog::dismiss,
         crate::commands::group::invite,
         crate::commands::group::toggle,
@@ -1111,6 +1125,8 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         DialogSubmission,
         DialogCloseReason,
         crate::commands::field_map::FieldMapSelectOptions,
+        crate::commands::bulletin::BulletinActionRequest,
+        crate::commands::bulletin::BulletinActionOptions,
         crate::commands::message_dialog::MessageDialogDismissOptions,
         FieldMapSnapshot,
         FieldMapState,
@@ -1120,6 +1136,23 @@ pub(crate) fn openapi() -> utoipa::openapi::OpenApi {
         FieldMapChanged,
         FieldMapSelectionSubmitted,
         FieldMapClosed,
+        BulletinSnapshot,
+        BulletinState,
+        BulletinView,
+        BulletinSection,
+        BulletinSectionKind,
+        BulletinSource,
+        BulletinSourceKind,
+        BulletinEntrySummary,
+        BulletinEntry,
+        BulletinViewport,
+        BulletinPagination,
+        BulletinOperation,
+        BulletinOperationResult,
+        BulletinOpened,
+        BulletinChanged,
+        BulletinMutation,
+        BulletinClosed,
         MessageDialogsSnapshot,
         MessageDialogsState,
         MessageDialog,

@@ -1,8 +1,8 @@
 use crate::{
-    ActionSource, CharacterModifiers, CharacterProfileUpdate, CharacterStats, ClientLifecycle,
-    ClientMessage, ClientSnapshot, DialogUpdate, Direction, Effect, EntityUpdate, EquipmentSlot,
-    ExchangeUpdate, FieldMapUpdate, GroupUpdate, InventoryItem, LegendUpdate, MapLocation,
-    MessageDialogsState, ObjectUpdate, PlayerUpdate, SequenceNumber, Skill, Spell,
+    ActionSource, BulletinUpdate, CharacterModifiers, CharacterProfileUpdate, CharacterStats,
+    ClientLifecycle, ClientMessage, ClientSnapshot, DialogUpdate, Direction, Effect, EntityUpdate,
+    EquipmentSlot, ExchangeUpdate, FieldMapUpdate, GroupUpdate, InventoryItem, LegendUpdate,
+    MapLocation, MessageDialogsState, ObjectUpdate, PlayerUpdate, SequenceNumber, Skill, Spell,
 };
 use std::{error::Error, fmt};
 
@@ -38,6 +38,7 @@ pub enum StateUpdate {
     Dialog(DialogUpdate),
     MessageDialogs(MessageDialogsState),
     FieldMap(FieldMapUpdate),
+    Bulletin(BulletinUpdate),
     Group(GroupUpdate),
     Exchange(ExchangeUpdate),
     Legend(LegendUpdate),
@@ -710,6 +711,18 @@ impl ClientSnapshot {
                 | FieldMapUpdate::SelectionSubmitted(state) => self.active_field_map = Some(state),
                 FieldMapUpdate::Closed { .. } => self.active_field_map = None,
             },
+            StateUpdate::Bulletin(update) => match update {
+                BulletinUpdate::Opened(state) | BulletinUpdate::Changed(state) => {
+                    self.active_bulletin = Some(state)
+                }
+                BulletinUpdate::ActionSubmitted { state, .. } => {
+                    if let Some(state) = state {
+                        self.active_bulletin = Some(state);
+                    }
+                }
+                BulletinUpdate::OperationResult { state, .. } => self.active_bulletin = Some(state),
+                BulletinUpdate::Closed { .. } => self.active_bulletin = None,
+            },
             StateUpdate::Group(update) => {
                 if let Some(state) = update.state() {
                     self.group = Some(state.clone());
@@ -1088,6 +1101,7 @@ mod tests {
             dialog: None,
             active_field_map: None,
             message_dialogs: Default::default(),
+            active_bulletin: None,
             group: None,
             exchange: None,
             legend: None,

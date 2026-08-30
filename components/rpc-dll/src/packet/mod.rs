@@ -172,6 +172,7 @@ pub(crate) enum ServerUpdate<'a> {
     SpellCancelled,
     Visual(VisualUpdate),
     MapPart(MapPart),
+    Bulletin(&'a [u8]),
     FieldMap(&'a [u8]),
     Dialog(&'a [u8]),
     Group(&'a [u8]),
@@ -194,6 +195,9 @@ pub(crate) fn update<'a>(
     }
     if body.first() == Some(&0x2E) {
         return Ok(Some(ServerUpdate::FieldMap(body)));
+    }
+    if body.first() == Some(&0x31) {
+        return Ok(Some(ServerUpdate::Bulletin(body)));
     }
     if matches!(body.first(), Some(0x2F | 0x30)) {
         if body.len() < 2 {

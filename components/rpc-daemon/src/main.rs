@@ -7,6 +7,8 @@ mod api;
 #[cfg(any(windows, test))]
 mod auto_load;
 #[cfg(any(windows, test))]
+mod bulletin;
+#[cfg(any(windows, test))]
 mod commands;
 #[cfg(windows)]
 mod connection;

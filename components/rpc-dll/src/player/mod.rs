@@ -1083,24 +1083,23 @@ mod tests {
     }
 
     #[test]
-    fn slow_response_burst_preserves_oldest_internal_suppression() {
+    fn full_correlation_capacity_preserves_oldest_internal_suppression() {
         let _guard = TEST_LOCK
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         reset();
-        for offset in 0..25_u32 {
+        for offset in 0..128_u32 {
             push_origin(Origin {
                 kind: ORIGIN_DARPC,
                 response: ResponseKind::ObjectInfo,
                 id: 7 + offset,
                 trigger: PlayerInspectionTrigger::Appeared,
                 command_id: 0,
-                tick_ms: 10 + offset * IN_FLIGHT_TIMEOUT_MS,
+                tick_ms: 10,
             });
         }
 
-        let delayed_tick = 10 + 24 * IN_FLIGHT_TIMEOUT_MS;
-        assert!(intercept_response(&object_info(), delayed_tick));
+        assert!(intercept_response(&object_info(), 11));
         assert!(INTERCEPT_PENDING.load(Ordering::Acquire));
     }
 

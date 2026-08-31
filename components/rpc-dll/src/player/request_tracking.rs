@@ -1,9 +1,9 @@
 use super::*;
 
 const PENDING_CAPACITY: usize = 64;
-// The five-second release interval can leave 25 daRPC origins inside the
-// extended window; retain those plus a bounded margin for player requests.
-const ORIGIN_CAPACITY: usize = 32;
+// Retain dense, crowded-map response bursts without making correlation
+// storage or per-response matching unbounded.
+const ORIGIN_CAPACITY: usize = 128;
 pub(super) const IN_FLIGHT_TIMEOUT_MS: u32 = 5_000;
 pub(super) const USER_ORIGIN_TTL_MS: u32 = 30_000;
 pub(super) const DARPC_ORIGIN_TTL_MS: u32 = 120_000;

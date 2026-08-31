@@ -21,7 +21,7 @@ use crate::{inline_bytes::InlineBytes, transfer_slot::TransferSlot};
 use parse::{Sections, parse_profile, parse_self_identity, scan};
 use profile_cache::{clear_profile, copy_profile, previous_body, publish_profile};
 #[cfg(test)]
-use request_tracking::{IN_FLIGHT_TIMEOUT_MS, ORIGIN_TTL_MS};
+use request_tracking::{DARPC_ORIGIN_TTL_MS, IN_FLIGHT_TIMEOUT_MS, USER_ORIGIN_TTL_MS};
 use request_tracking::{
     ORIGIN_DARPC, ORIGIN_USER, Origin, Pending, ResponseKind, enqueue, pop_pending, prune_origins,
     push_origin, take_internal_origin, take_origin,
@@ -1001,7 +1001,40 @@ mod tests {
             command_id: 0,
             tick_ms: 10,
         });
-        assert!(!intercept_response(&object_info(), 10 + ORIGIN_TTL_MS + 1));
+        assert!(!intercept_response(
+            &object_info(),
+            10 + DARPC_ORIGIN_TTL_MS + 1
+        ));
+        assert!(!INTERCEPT_PENDING.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn player_origin_expires_before_extended_internal_origin() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset();
+        push_origin(Origin {
+            kind: ORIGIN_USER,
+            response: ResponseKind::ObjectInfo,
+            id: 8,
+            trigger: PlayerInspectionTrigger::User,
+            command_id: 0,
+            tick_ms: 10,
+        });
+        push_origin(Origin {
+            kind: ORIGIN_DARPC,
+            response: ResponseKind::ObjectInfo,
+            id: 7,
+            trigger: PlayerInspectionTrigger::Appeared,
+            command_id: 0,
+            tick_ms: 10,
+        });
+
+        let delayed_tick = 10 + USER_ORIGIN_TTL_MS + 1;
+        prune_origins(delayed_tick);
+        assert!(take_origin(ResponseKind::ObjectInfo, 8, delayed_tick).is_none());
+        assert!(intercept_response(&object_info(), delayed_tick));
         assert!(!INTERCEPT_PENDING.load(Ordering::Acquire));
     }
 
@@ -1026,6 +1059,49 @@ mod tests {
         assert!(INTERCEPT_PENDING.load(Ordering::Acquire));
         assert!(intercept_response(&object_info(), delayed_tick));
         assert!(!INTERCEPT_PENDING.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn minute_late_internal_response_stays_suppressed() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset();
+        push_origin(Origin {
+            kind: ORIGIN_DARPC,
+            response: ResponseKind::ObjectInfo,
+            id: 7,
+            trigger: PlayerInspectionTrigger::Appeared,
+            command_id: 0,
+            tick_ms: 10,
+        });
+
+        let delayed_tick = 10 + 60_000;
+        assert!(INTERCEPT_PENDING.load(Ordering::Acquire));
+        assert!(intercept_response(&object_info(), delayed_tick));
+        assert!(!INTERCEPT_PENDING.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn slow_response_burst_preserves_oldest_internal_suppression() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset();
+        for offset in 0..25_u32 {
+            push_origin(Origin {
+                kind: ORIGIN_DARPC,
+                response: ResponseKind::ObjectInfo,
+                id: 7 + offset,
+                trigger: PlayerInspectionTrigger::Appeared,
+                command_id: 0,
+                tick_ms: 10 + offset * IN_FLIGHT_TIMEOUT_MS,
+            });
+        }
+
+        let delayed_tick = 10 + 24 * IN_FLIGHT_TIMEOUT_MS;
+        assert!(intercept_response(&object_info(), delayed_tick));
+        assert!(INTERCEPT_PENDING.load(Ordering::Acquire));
     }
 
     #[test]

@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- Keep daRPC player-inspection response correlation through longer client or
+  server stalls so delayed responses do not open the stock other-player pane.
+
 ## 1.9.0 - 2026-08-30
 
 ### Added

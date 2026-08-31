@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 1.9.1 - 2026-08-31
+
 ### Fixed
 
 - Keep daRPC player-inspection response correlation through longer client or

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 1.9.2 - 2026-09-01
+
+### Changed
+
+- Allow targeted spell commands for any currently retained player or Mundane
+  and leave range validation to the game server.
+
 ## 1.9.1 - 2026-08-31
 
 ### Fixed

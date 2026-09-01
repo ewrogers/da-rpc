@@ -91,7 +91,6 @@ const SPELL_CAST_TIMEOUT_MS: u16 = DEFAULT_COMMAND_TIMEOUT_MS + DEFAULT_COMMAND_
 const LOOK_TIMEOUT_MS: u16 = MAX_COMMAND_TIMEOUT_MS;
 const MAX_SKILL_NAME_BYTES: usize = 128;
 const MAX_SPELL_NAME_BYTES: usize = 128;
-const SPELL_TARGET_DISTANCE: u32 = 14;
 
 #[derive(Debug, Deserialize, Eq, PartialEq, Serialize, ToSchema)]
 #[serde(deny_unknown_fields)]

@@ -786,14 +786,17 @@ fn routes_typed_actions() {
 }
 
 #[test]
-fn routes_casts_to_invisible_players_by_name_and_id() {
+fn routes_casts_to_invisible_out_of_range_players_by_name_and_id() {
     let mut snapshot = game_snapshot();
-    let ModelWorldObject::Player { is_hidden, .. } =
-        &mut snapshot.objects.as_mut().unwrap().first_mut().unwrap()
+    let ModelWorldObject::Player {
+        is_hidden, x, y, ..
+    } = &mut snapshot.objects.as_mut().unwrap().first_mut().unwrap()
     else {
         panic!("expected player fixture");
     };
     *is_hidden = true;
+    *x = 30;
+    *y = 40;
     let target = SpellTarget::Object(std::num::NonZeroU32::new(1).unwrap());
     let cast = SpellCast {
         slot: SpellSlot::new(2).unwrap(),

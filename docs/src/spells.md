@@ -91,11 +91,12 @@ curl --request POST --header "Content-Type: application/json" \
 ```
 
 A targeted spell with no target defaults to the casting character. A name
-search is case-insensitive and checks players within 14 tiles before visible
-Mundanes. Players remain valid targets while invisible when their latest
-observation, including object ID and position, is still retained. Object IDs
-must identify a current retained target within the same range. Tile coordinates
-are zero-based and must fit the current map.
+search is case-insensitive and checks retained players before visible Mundanes.
+Players remain valid targets while invisible when their latest observation,
+including object ID and position, is still retained. Object IDs must identify a
+current retained target. daRPC does not impose a distance limit; the game server
+validates whether the target is in range. Tile coordinates are zero-based and
+must fit the current map.
 For example, a named Mundane target could use `"target": "Beggar"`.
 
 Text-input spells use `input`:

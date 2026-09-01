@@ -373,8 +373,7 @@ fn resolve_spell_target(
                 )
             })?;
             object_target(snapshot, id.get())
-                .filter(|(_, distance)| *distance <= SPELL_TARGET_DISTANCE)
-                .map(|_| SpellTarget::Object(id))
+                .then_some(SpellTarget::Object(id))
                 .ok_or_else(|| target_not_found(pid))
         }
         SpellTargetOptions::Name(name) => {
@@ -420,7 +419,6 @@ fn named_target(snapshot: &GameSnapshot, requested: &str) -> Option<u32> {
                 .zip(character.name.as_deref())
                 .and_then(|(id, name)| name.eq_ignore_ascii_case(requested).then_some((id, 0))),
         )
-        .filter(|(_, distance)| *distance <= SPELL_TARGET_DISTANCE)
         .min_by_key(|(id, distance)| (*distance, *id));
     if let Some((id, _)) = player {
         return Some(id);
@@ -443,24 +441,21 @@ fn named_target(snapshot: &GameSnapshot, requested: &str) -> Option<u32> {
             }
             _ => None,
         })
-        .filter(|(_, distance)| *distance <= SPELL_TARGET_DISTANCE)
         .min_by_key(|(id, distance)| (*distance, *id))
         .map(|(id, _)| id)
 }
 
-fn object_target(snapshot: &GameSnapshot, requested_id: u32) -> Option<((i32, i32), u32)> {
-    let character = snapshot.character.as_ref()?;
-    let location = character.location.as_ref()?;
-    let (self_x, self_y) = location.x.zip(location.y)?;
+fn object_target(snapshot: &GameSnapshot, requested_id: u32) -> bool {
+    let Some(character) = snapshot.character.as_ref() else {
+        return false;
+    };
     if character.id == Some(requested_id) {
-        return Some(((self_x, self_y), 0));
+        return true;
     }
-    snapshot.objects.as_ref()?.iter().find_map(|object| {
-        (object.id() == requested_id).then(|| {
-            let (x, y) = object.position();
-            ((x, y), tile_distance(self_x, self_y, x, y))
-        })
-    })
+    snapshot
+        .objects
+        .as_ref()
+        .is_some_and(|objects| objects.iter().any(|object| object.id() == requested_id))
 }
 
 const fn tile_distance(left_x: i32, left_y: i32, right_x: i32, right_y: i32) -> u32 {
@@ -494,7 +489,7 @@ fn target_not_found(pid: u32) -> ApiError {
     ApiError::new(
         StatusCode::NOT_FOUND,
         "spell_target_not_found",
-        "the selected player or NPC is not currently available within 14 tiles",
+        "the selected player or NPC is not currently available",
         Some(pid),
     )
 }

@@ -676,9 +676,7 @@ const fn trigger_from_raw(value: u8) -> PlayerInspectionTrigger {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
+    use crate::state::TEST_LOCK;
 
     fn automatic_pending(id: u32) -> Pending {
         Pending {

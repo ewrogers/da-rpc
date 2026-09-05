@@ -115,6 +115,29 @@ fn look_results_round_trip_with_request_correlation() {
 }
 
 #[test]
+fn empty_look_result_round_trips_as_a_settled_miss() {
+    let event = StateEvent {
+        sequence: 1,
+        revision: 2,
+        tick_ms: 3,
+        update: StateUpdate::Look(LookResult {
+            command_id: 7,
+            target: LookResultTarget::Tile { x: 40, y: 19 },
+            text: String::new(),
+        }),
+    };
+    let message = Message::EventPollResponse(EventPollResponse {
+        request_id: 9,
+        result: EventPollResult::Events(vec![event]),
+    });
+    let payload = message.encode_payload().unwrap();
+    assert_eq!(
+        Message::decode_payload(MessageType::EventPollResponse, &payload),
+        Ok(message)
+    );
+}
+
+#[test]
 fn look_ahead_result_coordinates_round_trip() {
     let event = StateEvent {
         sequence: 1,

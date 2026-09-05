@@ -1281,8 +1281,12 @@ enum MessageCommand: u8 {
 `Look(Ahead)` submits the native client packet `0x09`. `Look(Tile)` submits
 `0x0A x:u16be y:u16be`; these coordinates use the game packet's network byte
 order even though the surrounding daRPC protocol remains little-endian. The
-response carries no request ID, so the DLL permits only one typed look request
-at a time and correlates the next bounded popup response with its command ID.
+response carries no request or entity ID. The DLL permits only one look owner
+at a time and requires the exact outgoing typed packet before attributing a
+bounded popup response. Submitted request expiry/cancellation and detected
+ambiguity quarantine later typed looks for the DLL lifetime; a late reply does
+not release the channel. See [Looking at tiles](looks.md) for correlation
+limits, manual-look behavior, and recovery using a fresh client process.
 
 enum ExchangeCommand: u8 {
     AddItem { slot: u8, quantity: u8 } = 1,

@@ -103,7 +103,10 @@ pub(crate) fn reset() {
     #[cfg(windows)]
     crate::who::reset();
     crate::state::refresh::reset();
+    #[cfg(not(test))]
     crate::look::reset();
+    #[cfg(test)]
+    crate::look::reset_for_test();
     QUEUE.reset();
     NEXT_COMMAND_ID.store(1, Ordering::Relaxed);
     SUBMITTING_RESYNC_COMMAND_ID.store(0, Ordering::Relaxed);
@@ -410,7 +413,17 @@ fn execute_look(command_id: u32, target: LookTarget) -> Result<(), CommandFailur
         LookTarget::Ahead => LookResultTarget::Ahead { x: 0, y: 0 },
         LookTarget::Tile { x, y } => LookResultTarget::Tile { x, y },
     };
-    crate::look::begin(command_id, target)
+    crate::look::begin(command_id, target)?;
+    let packet = match target {
+        LookResultTarget::Ahead { .. } => vec![0x09],
+        LookResultTarget::Tile { x, y } => {
+            let [xh, xl] = x.to_be_bytes();
+            let [yh, yl] = y.to_be_bytes();
+            vec![0x0a, xh, xl, yh, yl]
+        }
+    };
+    crate::look::observe_outgoing(&packet, action_source());
+    Ok(())
 }
 
 #[cfg(test)]
@@ -555,7 +568,7 @@ fn expire_if_due(slot: &CommandSlot, now: u32) {
 }
 
 fn expire_pending_look_if_due(now: u32) {
-    let command_id = crate::look::INTERCEPT_COMMAND_ID.load(Ordering::Acquire);
+    let command_id = crate::look::active_command_id();
     if command_id == 0 {
         return;
     }
@@ -809,9 +822,7 @@ static TEST_TICK_MS: AtomicU32 = AtomicU32::new(1);
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    static TEST_LOCK: Mutex<()> = Mutex::new(());
+    use crate::state::TEST_LOCK;
 
     #[test]
     fn correlates_command_and_physical_resync_ids() {
@@ -1132,16 +1143,57 @@ mod tests {
             wait_ms: 0,
         }));
         observe_tick();
-        assert_eq!(
-            crate::look::INTERCEPT_COMMAND_ID.load(Ordering::Acquire),
-            id
-        );
+        assert_eq!(crate::look::active_command_id(), id);
 
         TEST_TICK_MS.store(21, Ordering::Relaxed);
         observe_tick();
         let status = find_slot(id).unwrap().status(id).unwrap();
         assert_eq!(status.state, CommandState::TimedOut);
-        assert_eq!(crate::look::INTERCEPT_COMMAND_ID.load(Ordering::Acquire), 0);
+        assert_eq!(crate::look::active_command_id(), 0);
+        assert!(!crate::look::intercept_response(
+            b"\x0a\x09\x00\x04late",
+            22
+        ));
+        let second = submitted_id(handle(CommandOperation::Submit {
+            kind: CommandKind::Look(LookTarget::Tile { x: 41, y: 19 }),
+            timeout_ms: 100,
+            wait_ms: 0,
+        }));
+        observe_tick();
+        let status = find_slot(second).unwrap().status(second).unwrap();
+        assert_eq!(status.state, CommandState::Failed);
+        assert_eq!(status.failure, Some(CommandFailure::Rejected));
+    }
+
+    #[test]
+    fn competing_look_fails_the_active_command_and_keeps_diagnostics_usable() {
+        let _guard = TEST_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        reset();
+        TEST_TICK_MS.store(10, Ordering::Relaxed);
+        let look = submitted_id(handle(CommandOperation::Submit {
+            kind: CommandKind::Look(LookTarget::Tile { x: 40, y: 19 }),
+            timeout_ms: 100,
+            wait_ms: 0,
+        }));
+        observe_tick();
+        crate::look::observe_outgoing(&[0x09], ActionSource::Client);
+        let result = status(look);
+        assert_eq!(result.state, CommandState::Failed);
+        assert_eq!(result.failure, Some(CommandFailure::InvalidState));
+        assert!(!crate::look::intercept_response(
+            b"\x0a\x09\x00\x04late",
+            11
+        ));
+        let diagnostic = submitted_id(handle(CommandOperation::Submit {
+            kind: CommandKind::Diagnostic,
+            timeout_ms: 100,
+            wait_ms: 0,
+        }));
+        observe_tick();
+        assert_eq!(status(diagnostic).state, CommandState::Executed);
+        assert!(crate::look::begin(99, LookResultTarget::Tile { x: 41, y: 19 }).is_err());
     }
 
     #[test]

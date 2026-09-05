@@ -18,7 +18,7 @@ use crate::{
 
 pub(crate) const NAME: &str = "event_dispatch";
 
-const DETOUR_RANGE_LEN: usize = 128;
+const DETOUR_RANGE_LEN: usize = 256;
 const INSTALL_TIMEOUT: Duration = Duration::from_secs(5);
 const UNINSTALL_TIMEOUT: Duration = Duration::from_secs(5);
 const COMMIT_RETRY_INTERVAL: Duration = Duration::from_millis(1);
@@ -109,7 +109,7 @@ impl EventHook {
 
         // SAFETY: the supported executable fingerprint and exact target entry
         // bytes were validated. The detour preserves the target's thiscall ABI,
-        // suppresses only a correlated daRPC Who response, and otherwise calls
+        // suppresses only a correlated daRPC response, and otherwise calls
         // the original before observing bounded copied bytes.
         let mut prepared = unsafe {
             support::prepare_detour(
@@ -212,8 +212,10 @@ unsafe extern "thiscall" fn event_dispatch_detour(
         "jne 4f",
         "cmp byte ptr [{player_intercept_pending}], 0",
         "jne 4f",
-        "cmp dword ptr [{look_intercept_command_id}], 0",
+        "cmp dword ptr [{look_channel} + 4], 0",
         "je 3f",
+        "cmp dword ptr [{look_channel} + 4], {look_quarantined_phase}",
+        "jae 3f",
         "4:",
         "push eax",
         "push edx",
@@ -273,7 +275,8 @@ unsafe extern "thiscall" fn event_dispatch_detour(
         intercept_command_id = sym crate::who::INTERCEPT_COMMAND_ID,
         exchange_intercept_pending = sym crate::exchange::INTERCEPT_PENDING,
         player_intercept_pending = sym crate::player::INTERCEPT_PENDING,
-        look_intercept_command_id = sym crate::look::INTERCEPT_COMMAND_ID,
+        look_channel = sym crate::look::CHANNEL,
+        look_quarantined_phase = const (crate::look::QUARANTINED >> 32),
         event_type_offset = const EVENT_TYPE_OFFSET,
         server_event_type = const SERVER_EVENT_TYPE,
         event_body_offset = const EVENT_BODY_OFFSET,
@@ -293,7 +296,10 @@ extern "C" fn intercept_event(event: *const core::ffi::c_void) -> bool {
             intercept_event_inner(event)
         }
     })
-    .unwrap_or(false)
+    .unwrap_or_else(|_| {
+        crate::look::quarantine();
+        false
+    })
 }
 
 fn intercept_event_inner(event: *const core::ffi::c_void) -> bool {
@@ -304,7 +310,11 @@ fn intercept_event_inner(event: *const core::ffi::c_void) -> bool {
     let Some(address) = (event as usize).checked_add(EVENT_TYPE_OFFSET) else {
         return false;
     };
-    if !read_exact(address, &mut view) || view[0] != SERVER_EVENT_TYPE {
+    if !read_exact(address, &mut view) {
+        crate::look::quarantine();
+        return false;
+    }
+    if view[0] != SERVER_EVENT_TYPE {
         return false;
     }
     let body_address = u32::from_le_bytes(
@@ -319,18 +329,22 @@ fn intercept_event_inner(event: *const core::ffi::c_void) -> bool {
             .expect("event body length is four bytes"),
     ) as usize;
     if body_address == 0 || body_length == 0 || body_length > MAX_OBSERVED_BODY_LENGTH {
+        crate::look::quarantine();
         return false;
     }
     let mut opcode = [0];
-    if !read_exact(body_address as usize, &mut opcode)
-        || !matches!(opcode[0], 0x0a | 0x34 | 0x36 | 0x39 | 0x42)
-    {
+    if !read_exact(body_address as usize, &mut opcode) {
+        crate::look::quarantine();
+        return false;
+    }
+    if !matches!(opcode[0], 0x0a | 0x34 | 0x36 | 0x39 | 0x42) {
         return false;
     }
     if EVENT_SCRATCH_IN_USE
         .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
         .is_err()
     {
+        crate::look::quarantine();
         return false;
     }
     let _scratch_guard = EventScratchGuard;
@@ -338,6 +352,7 @@ fn intercept_event_inner(event: *const core::ffi::c_void) -> bool {
     let scratch = unsafe { &mut *EVENT_SCRATCH.0.get() };
     if !read_exact(body_address as usize, &mut scratch.body[..body_length]) {
         EVENT_READ_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed);
+        crate::look::quarantine();
         return false;
     }
     let body = &scratch.body[..body_length];

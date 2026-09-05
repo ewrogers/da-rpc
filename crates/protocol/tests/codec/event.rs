@@ -10,6 +10,8 @@ fn event_messages_require_bounded_utf8_fields() {
             tick_ms: 1,
             update: StateUpdate::Message(ClientMessage {
                 kind: MessageKind::System,
+                sender_id: None,
+                sender_type: None,
                 sender: None,
                 recipient: None,
                 text: "x".repeat(4 * 1024 + 1),

@@ -427,6 +427,8 @@ mod tests {
             tick_ms,
             update: StateUpdate::Message(ClientMessage {
                 kind: MessageKind::System,
+                sender_id: None,
+                sender_type: None,
                 sender: None,
                 recipient: None,
                 text: text.into(),

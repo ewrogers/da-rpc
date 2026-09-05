@@ -8,10 +8,10 @@ use darpc_model::{
     CharacterStats, ClientCommand, ClientMessage, CollectionChange, CoreStatus, CurrentVitals,
     Direction, Effect, EffectDuration, EffectUpdate, Element, EntityUpdate, EquipmentSlot,
     InventoryItem, LifecycleUpdate, LocationUpdate, LookResult, LookResultTarget, MapChange,
-    MapDownload, MapDownloadUpdate, MessageKind, MovementStopReason, MovementUpdate, ObjectUpdate,
-    PlayerInspectionChanges, PlayerInspectionTrigger, PlayerUpdate, ProgressionStatus, Skill,
-    SlotUpdate, Spell, SpellCancellationSource, SpellCastArguments, StateEvent, StateUpdate,
-    StatusUpdate, TilePosition, WalkMode,
+    MapDownload, MapDownloadUpdate, MessageKind, MessageSenderType, MovementStopReason,
+    MovementUpdate, ObjectUpdate, PlayerInspectionChanges, PlayerInspectionTrigger, PlayerUpdate,
+    ProgressionStatus, Skill, SlotUpdate, Spell, SpellCancellationSource, SpellCastArguments,
+    StateEvent, StateUpdate, StatusUpdate, TilePosition, WalkMode,
 };
 
 mod action;

@@ -20,8 +20,9 @@ use darpc_model::{
     ClientCommand, ClientLifecycle, ClientMessage, CollectionBatch, CollectionKind, CoreStatus,
     CurrentVitals, Direction, Effect, EffectDuration, EffectUpdate, Element, EntityUpdate,
     LifecycleUpdate, LocationUpdate, LookResult, LookResultTarget, MapChange, MapDownloadUpdate,
-    MessageKind, MovementStopReason, MovementUpdate, ProgressionStatus, SpellCancellationSource,
-    SpellCastArguments, StateEvent, StateUpdate, StatusUpdate, TilePosition,
+    MessageKind, MessageSenderType, MovementStopReason, MovementUpdate, ProgressionStatus,
+    SpellCancellationSource, SpellCastArguments, StateEvent, StateUpdate, StatusUpdate,
+    TilePosition,
 };
 use darpc_protocol::{EventPollResult, MAX_LOOK_RESULT_TEXT_LEN};
 use std::{
@@ -797,10 +798,30 @@ pub(crate) fn observe_message(message: ParsedMessage<'_>, tick_ms: u32) {
     crate::group::observe_message(message.kind, message.text, tick_ms);
     let sender = participant(message.sender, message.sender_id);
     let recipient = participant(message.recipient, None);
-    let Some(message) = QueuedMessage::new(message.kind, sender, recipient, message.text) else {
+    let sender_id = matches!(message.kind, MessageKind::Say | MessageKind::Shout)
+        .then_some(message.sender_id)
+        .flatten();
+    let sender_type = sender_id.and_then(|id| {
+        // SAFETY: packet observation runs on the client main thread, which owns both caches.
+        let object = unsafe { OBJECTS.get(id).or_else(|| CACHE.self_entity(id)) };
+        message_sender_type(object)
+    });
+    let Some(mut message) = QueuedMessage::new(message.kind, sender, recipient, message.text)
+    else {
         return;
     };
+    message.sender_id = sender_id;
+    message.sender_type = sender_type;
     push_event(QueuedStateUpdate::Message(message), tick_ms);
+}
+
+fn message_sender_type(object: Option<RawWorldObject>) -> Option<MessageSenderType> {
+    match object {
+        Some(RawWorldObject::Player { .. }) => Some(MessageSenderType::Player),
+        Some(RawWorldObject::Creature { is_npc: false, .. }) => Some(MessageSenderType::Monster),
+        Some(RawWorldObject::Creature { is_npc: true, .. }) => Some(MessageSenderType::Mundane),
+        _ => None,
+    }
 }
 
 pub(crate) fn observe_look(
@@ -897,6 +918,56 @@ pub(crate) fn rebase(snapshot_sequence: u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn captures_sender_category_in_queued_messages() {
+        let creature = |is_npc| RawWorldObject::Creature {
+            id: 42,
+            is_npc,
+            is_solid: true,
+            sprite: None,
+            name: [0; MAX_OBJECT_NAME_BYTES],
+            name_len: 0,
+            x: 0,
+            y: 0,
+            direction: 0,
+        };
+        let player = RawWorldObject::Player {
+            id: 42,
+            name: [0; MAX_OBJECT_NAME_BYTES],
+            name_len: 0,
+            x: 0,
+            y: 0,
+            direction: 0,
+            is_hidden: false,
+            visual: None,
+        };
+        let item = RawWorldObject::Item {
+            id: 42,
+            sprite: 0,
+            dye_color: 0,
+            x: 0,
+            y: 0,
+            z_index: 0,
+        };
+        for (object, expected) in [
+            (Some(player), Some(MessageSenderType::Player)),
+            (Some(creature(false)), Some(MessageSenderType::Monster)),
+            (Some(creature(true)), Some(MessageSenderType::Mundane)),
+            (Some(item), None),
+            (None, None),
+        ] {
+            for kind in [MessageKind::Say, MessageKind::Shout] {
+                let mut queued = QueuedMessage::new(kind, None, None, b"Hello").unwrap();
+                queued.sender_id = Some(42);
+                queued.sender_type = message_sender_type(object);
+                let message = queued.into_model();
+                assert_eq!(message.kind, kind);
+                assert_eq!(message.sender_id, Some(42));
+                assert_eq!(message.sender_type, expected);
+            }
+        }
+    }
 
     #[test]
     fn parses_collection_swaps_for_every_panel() {

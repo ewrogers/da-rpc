@@ -49,7 +49,7 @@ pub use entity::EntityUpdate;
 pub use exchange::{ExchangeItem, ExchangeOffer, ExchangeParty, ExchangeState, ExchangeUpdate};
 pub use field_map::{FieldMapDestination, FieldMapSelection, FieldMapState, FieldMapUpdate};
 
-pub use message::{ClientMessage, MessageKind};
+pub use message::{ClientMessage, MessageKind, MessageSenderType};
 pub use message_dialog::{MessageDialog, MessageDialogsState};
 
 pub use object::{

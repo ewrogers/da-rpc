@@ -9,6 +9,24 @@ use std::{
 };
 use utoipa::ToSchema;
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum MessageSenderType {
+    Player,
+    Monster,
+    Mundane,
+}
+
+impl From<darpc_model::MessageSenderType> for MessageSenderType {
+    fn from(value: darpc_model::MessageSenderType) -> Self {
+        match value {
+            darpc_model::MessageSenderType::Player => Self::Player,
+            darpc_model::MessageSenderType::Monster => Self::Monster,
+            darpc_model::MessageSenderType::Mundane => Self::Mundane,
+        }
+    }
+}
+
 pub(crate) const MAX_MESSAGES_PER_CLIENT: usize = 4_096;
 pub(crate) const MAX_MESSAGE_BYTES_PER_CLIENT: usize = 1024 * 1024;
 pub(crate) const DEFAULT_MESSAGE_COUNT: usize = 20;
@@ -92,6 +110,8 @@ pub(crate) struct Message {
     pub(crate) channel: MessageChannel,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) sender: Option<String>,
+    pub(crate) sender_id: Option<u32>,
+    pub(crate) sender_type: Option<MessageSenderType>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) recipient: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -114,6 +134,8 @@ impl Message {
             tick_ms: Some(tick_ms),
             channel: message.kind.into(),
             sender: message.sender,
+            sender_id: message.sender_id,
+            sender_type: message.sender_type.map(Into::into),
             recipient: message.recipient,
             text: Some(message.text),
             payload: None,
@@ -132,6 +154,8 @@ impl Message {
             tick_ms: None,
             channel: MessageChannel::Internal,
             sender: None,
+            sender_id: None,
+            sender_type: None,
             recipient,
             text: None,
             payload: Some(payload),
@@ -175,6 +199,8 @@ struct StoredMessage {
     observed_at_utc: DateTime<Utc>,
     channel: MessageChannel,
     sender: Option<String>,
+    sender_id: Option<u32>,
+    sender_type: Option<MessageSenderType>,
     recipient: Option<String>,
     text: Option<String>,
     payload: Option<Map<String, Value>>,
@@ -195,6 +221,8 @@ impl StoredMessage {
             observed_at_utc,
             channel: message.kind.into(),
             sender: message.sender.clone(),
+            sender_id: message.sender_id,
+            sender_type: message.sender_type.map(Into::into),
             recipient: message.recipient.clone(),
             text: Some(message.text.clone()),
             payload: None,
@@ -213,6 +241,8 @@ impl StoredMessage {
             observed_at_utc,
             channel: MessageChannel::Internal,
             sender: None,
+            sender_id: None,
+            sender_type: None,
             recipient,
             text: None,
             payload: Some(payload),
@@ -226,6 +256,8 @@ impl StoredMessage {
             tick_ms: self.tick_ms,
             channel: self.channel,
             sender: self.sender.clone(),
+            sender_id: self.sender_id,
+            sender_type: self.sender_type,
             recipient: self.recipient.clone(),
             text: self.text.clone(),
             payload: self.payload.clone(),
@@ -427,10 +459,61 @@ mod tests {
             tick_ms: sequence * 10,
             update: StateUpdate::Message(ClientMessage {
                 kind,
+                sender_id: None,
+                sender_type: None,
                 sender: Some("Aisling".into()),
                 recipient: None,
                 text: text.into(),
             }),
+        }
+    }
+
+    #[test]
+    fn preserves_sender_metadata_in_live_and_retained_messages() {
+        for kind in [MessageKind::Say, MessageKind::Shout] {
+            for (sender_type, label) in [
+                (Some(darpc_model::MessageSenderType::Player), Some("player")),
+                (
+                    Some(darpc_model::MessageSenderType::Monster),
+                    Some("monster"),
+                ),
+                (
+                    Some(darpc_model::MessageSenderType::Mundane),
+                    Some("mundane"),
+                ),
+                (None, None),
+            ] {
+                let mut event = event_on(1, kind, "Hello");
+                let StateUpdate::Message(message) = &mut event.update else {
+                    unreachable!()
+                };
+                message.sender_id = Some(42);
+                message.sender_type = sender_type;
+                let live = Message::new(1, 10, observed_at(1), message.clone());
+                let retained = StoredMessage::new(
+                    &event,
+                    observed_at(1),
+                    match &event.update {
+                        StateUpdate::Message(message) => message,
+                        _ => unreachable!(),
+                    },
+                )
+                .unwrap()
+                .to_api();
+                for message in [live, retained] {
+                    let json = serde_json::to_value(message).unwrap();
+                    assert_eq!(json["sender_id"], 42);
+                    assert_eq!(json["sender_type"], serde_json::to_value(label).unwrap());
+                    assert_eq!(
+                        json["channel"],
+                        if kind == MessageKind::Say {
+                            "say"
+                        } else {
+                            "shout"
+                        }
+                    );
+                }
+            }
         }
     }
 

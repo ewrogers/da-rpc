@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 1.10.0 - 2026-09-05
+
+### Added
+
+- Include sender IDs and receipt-time sender types in Say and Shout history
+  and events. Distinguish players, monsters, and Mundanes without guessing names.
+
+### Changed
+
+- Require binary protocol 1.10 for the expanded message schema. Upgrade the DLL,
+  direct controller, and daemon together.
+
 ## 1.9.2 - 2026-09-01
 
 ### Changed

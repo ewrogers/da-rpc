@@ -194,6 +194,8 @@ fn event_messages_round_trip() {
                     tick_ms: 129,
                     update: StateUpdate::Message(ClientMessage {
                         kind: MessageKind::Whisper,
+                        sender_id: None,
+                        sender_type: None,
                         sender: Some("Eidolon".into()),
                         recipient: Some("Monitor".into()),
                         text: "hello".into(),
@@ -205,6 +207,8 @@ fn event_messages_round_trip() {
                     tick_ms: 129,
                     update: StateUpdate::Message(ClientMessage {
                         kind: MessageKind::Chant,
+                        sender_id: None,
+                        sender_type: None,
                         sender: Some("Eidolon".into()),
                         recipient: None,
                         text: "ard cradh".into(),

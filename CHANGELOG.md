@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+## 1.10.1 - 2026-09-05
+
+### Fixed
+
+- Require exact outgoing look ownership before correlating popup responses.
+  Prevent delayed replies after cancellation or expiry from taking a newer
+  command ID, and detect competing manual/raw look requests.
+- Quarantine look inspection after detected ambiguity, malformed replies, or
+  failed observation/publication. Other commands remain available. Recovery
+  requires a fresh game process with the DLL loaded at startup.
+- Publish empty look replies as completed misses instead of leaving inspection
+  pending. Preserve manual popups and replies that cannot be published.
+
+### Compatibility
+
+- Keep binary protocol 1.10 unchanged. The server provides no request or entity
+  ID; an otherwise identical unsolicited popup remains indistinguishable from
+  a look response. See the look documentation for attribution limits.
+
 ## 1.10.0 - 2026-09-05
 
 ### Added

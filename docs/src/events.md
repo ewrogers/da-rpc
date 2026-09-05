@@ -819,6 +819,11 @@ These transient events have no REST recovery route and are not replayed.
 
 ## Message events
 
+Say and Shout include nullable `sender_id` and `sender_type` captured when the
+message arrived. Types are `player`, `monster`, or `mundane` (NPC); unknown
+senders have null type. See [Messages](messages.md) for history semantics.
+
+
 Read recent retained messages from `GET /clients/{client}/messages`. See
 [Messages](messages.md) for channel parsing, filtering, paging, retention, and
 privacy.

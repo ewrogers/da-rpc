@@ -55,6 +55,7 @@ const VERSION_1_6: u16 = 0x0106;
 const VERSION_1_7: u16 = 0x0107;
 const VERSION_1_8: u16 = 0x0108;
 const VERSION_1_9: u16 = 0x0109;
+const VERSION_1_10: u16 = 0x010a;
 ```
 
 The protocol number is a wire-schema revision, not a Semantic Versioning
@@ -62,16 +63,14 @@ compatibility promise. Each peer advertises an inclusive, continuous range of
 versions it can decode, and the controller selects the highest version in the
 overlap. No overlap rejects the connection.
 
-The only currently supported version is 1.9 (`0x0109`). Version 1.9 adds
-bulletin-board and player-mail state, events, and main-thread commands. Peers
-advertise only 1.9, so deploy the DLL and its controller or daemon together
-when adopting this change.
+The only currently supported version is 1.10 (`0x010a`). Version 1.10 adds
+sender identity and object category to client messages. Peers advertise only
+1.10, so deploy the DLL and its controller or daemon together. Older peers
+are rejected during negotiation before events are decoded.
 
-Protocol 1.8 added action source to character turns, walking lifecycle updates,
-planned routes, and active movement snapshots. Protocol 1.7 added palette dye
-color, retired collection-wide object clearing, and later gained spell-result
-failures and Look updates. Those schemas are retained in repository history but
-are not accepted by protocol 1.9 peers.
+Protocol 1.9 added bulletin-board and player-mail state, events, and main-thread
+commands. Protocol 1.8 added action source to movement. Older schemas remain
+in repository history.
 
 ## Message types
 
@@ -938,6 +937,8 @@ enum MessageKind: u8 {
 
 struct ClientMessage {
     kind: MessageKind;
+    sender_id: Option<u32>;     // presence byte, then little-endian u32
+    sender_type: u8;            // 0 unknown, 1 player, 2 monster, 3 mundane
     sender: Option<String>;     // presence byte, then bounded u16 UTF-8 string
     recipient: Option<String>;  // presence byte, then bounded u16 UTF-8 string
     text: String;               // bounded u16 UTF-8 string

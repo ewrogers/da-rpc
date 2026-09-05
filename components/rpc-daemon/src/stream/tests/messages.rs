@@ -26,6 +26,8 @@ fn message_types_have_distinct_public_event_names() {
                 tick_ms: sequence,
                 update: StateUpdate::Message(ClientMessage {
                     kind,
+                    sender_id: None,
+                    sender_type: None,
                     sender: None,
                     recipient: None,
                     text: "hello".into(),
@@ -138,6 +140,8 @@ fn empty_messages_do_not_become_public_events() {
                 tick_ms: 1,
                 update: StateUpdate::Message(ClientMessage {
                     kind: MessageKind::System,
+                    sender_id: None,
+                    sender_type: None,
                     sender: None,
                     recipient: None,
                     text: text.into(),

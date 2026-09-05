@@ -328,3 +328,16 @@ fn serves_the_openapi_contract_and_vendored_swagger_ui() {
     assert!(theme.contains(".swagger-ui .opblock-summary-control:focus"));
     assert!(theme.contains(".swagger-ui .opblock .opblock-section-header h4"));
 }
+
+#[test]
+fn message_schema_exposes_nullable_sender_metadata() {
+    let openapi = json("/openapi.json");
+    let schemas = &openapi["components"]["schemas"];
+    assert_eq!(
+        schemas["MessageSenderType"]["enum"],
+        serde_json::json!(["player", "monster", "mundane"])
+    );
+    let properties = &schemas["Message"]["properties"];
+    assert!(properties["sender_id"].is_object());
+    assert!(properties["sender_type"].is_object());
+}

@@ -54,6 +54,8 @@ fn rejected_observations_make_rest_and_new_streams_unavailable() {
                 tick_ms: 600,
                 update: StateUpdate::Message(ModelClientMessage {
                     kind: ModelMessageKind::System,
+                    sender_id: None,
+                    sender_type: None,
                     sender: None,
                     recipient: None,
                     text: "rejected observation".into(),
@@ -105,7 +107,7 @@ fn serves_health_and_client_resources() {
     );
     assert_eq!(
         clients["clients"][0]["connection"]["protocol_version"],
-        "1.9"
+        "1.10"
     );
     assert_eq!(
         clients["clients"][0]["connection"]["client_version"],
@@ -208,6 +210,8 @@ fn serves_normalized_message_history() {
                 tick_ms: 520,
                 update: StateUpdate::Message(ModelClientMessage {
                     kind: ModelMessageKind::Whisper,
+                    sender_id: None,
+                    sender_type: None,
                     sender: Some("Eidolon".into()),
                     recipient: Some("SiLo".into()),
                     text: "hello".into(),
@@ -304,6 +308,8 @@ fn correlates_spell_feedback_before_broadcasting_to_subscribers() {
                     tick_ms: 545,
                     update: StateUpdate::Message(ModelClientMessage {
                         kind: ModelMessageKind::System,
+                        sender_id: None,
+                        sender_type: None,
                         sender: None,
                         recipient: None,
                         text: "You cast Mist.".into(),

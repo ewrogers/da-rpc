@@ -23,6 +23,7 @@ Each message contains:
 - Optional `tick_ms`, the client's wrapping Windows millisecond tick
 - `channel`
 - Optional `sender` and `recipient`
+- Nullable `sender_id` and `sender_type` captured for Say and Shout
 - Cleaned game message `text`, or an internal message `payload` object
 
 ```text
@@ -35,11 +36,22 @@ Message {
     tick_ms: u32?,
     channel: MessageChannel,
     sender: string?,
+    sender_id: u32?,
+    sender_type: "player" | "monster" | "mundane" | null,
     recipient: string?,
     text: string?,
     payload: object?,
 }
 ```
+
+For Say and Shout, `sender_id` is the sender ID from the incoming packet.
+`sender_type` is resolved from the DLL's world cache at receipt time: `player`,
+`monster`, or `mundane` (NPC). Missing objects and unsupported object categories
+produce null without discarding a known ID. Other channels have null sender
+metadata. The captured values are preserved in both history and SSE, even after
+the sender leaves view. Names, text, sprites, and numeric ID ranges are not used
+to guess the category. The original channel is preserved so consumers can choose
+how to filter NPC and monster speech.
 
 Retained history uses one of these channels:
 

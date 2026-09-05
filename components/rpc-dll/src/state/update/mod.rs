@@ -245,6 +245,8 @@ impl QueuedEntityUpdate {
 
 pub(super) struct QueuedMessage {
     pub(super) kind: MessageKind,
+    pub(super) sender_id: Option<u32>,
+    pub(super) sender_type: Option<MessageSenderType>,
     pub(super) sender: Option<QueuedClientText<MAX_EVENT_MESSAGE_NAME_BYTES>>,
     pub(super) recipient: Option<QueuedClientText<MAX_EVENT_MESSAGE_NAME_BYTES>>,
     pub(super) text: QueuedClientText<MAX_EVENT_MESSAGE_TEXT_BYTES>,
@@ -259,6 +261,8 @@ impl QueuedMessage {
     ) -> Option<Self> {
         Some(Self {
             kind,
+            sender_id: None,
+            sender_type: None,
             sender,
             recipient,
             text: QueuedClientText::try_nonempty(text)?,
@@ -268,6 +272,8 @@ impl QueuedMessage {
     pub(super) fn into_model(self) -> ClientMessage {
         ClientMessage {
             kind: self.kind,
+            sender_id: self.sender_id,
+            sender_type: self.sender_type,
             sender: self
                 .sender
                 .and_then(|text| decode_client_text(text.as_bytes())),

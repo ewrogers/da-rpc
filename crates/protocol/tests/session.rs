@@ -1,14 +1,14 @@
 use darpc_protocol::{
     Architecture, ComponentVersion, EndpointRole, Handshake, HandshakePhase, Hello, Message,
-    MessageDirection, PROTOCOL_VERSION_1_0, PROTOCOL_VERSION_1_1, PROTOCOL_VERSION_1_9, Ping,
+    MessageDirection, PROTOCOL_VERSION_1_0, PROTOCOL_VERSION_1_1, PROTOCOL_VERSION_1_10, Ping,
     SequenceCounter, SequenceError, SessionError, VersionRange, elapsed_tick_ms, negotiate_version,
 };
 
 fn hello() -> Hello {
     Hello {
         protocol_versions: VersionRange {
-            min: PROTOCOL_VERSION_1_9,
-            max: PROTOCOL_VERSION_1_9,
+            min: PROTOCOL_VERSION_1_10,
+            max: PROTOCOL_VERSION_1_10,
         },
         dll_instance_id: [0x5a; 16],
         process_id: 42,
@@ -43,7 +43,7 @@ fn dll_and_controller_complete_the_same_handshake() {
 
     assert!(dll.is_ready());
     assert!(controller.is_ready());
-    assert_eq!(dll.selected_version(), Some(PROTOCOL_VERSION_1_9));
+    assert_eq!(dll.selected_version(), Some(PROTOCOL_VERSION_1_10));
     assert_eq!(dll.dll_instance_id(), Some([0x5a; 16]));
 
     let ping = Message::Ping(Ping { request_id: 7 });
@@ -104,12 +104,12 @@ fn invalid_and_unsupported_versions_are_distinct() {
     );
     assert_eq!(
         negotiate_version(VersionRange {
-            min: 0x010a,
-            max: 0x010b,
+            min: 0x010b,
+            max: 0x010c,
         }),
         Err(SessionError::UnsupportedVersionRange {
-            min: 0x010a,
-            max: 0x010b,
+            min: 0x010b,
+            max: 0x010c,
         })
     );
 
@@ -143,7 +143,7 @@ fn dll_rejects_an_acknowledgement_for_the_wrong_offer() {
     );
 
     let wrong_instance = Message::HelloAck(darpc_protocol::HelloAck {
-        selected_version: PROTOCOL_VERSION_1_9,
+        selected_version: PROTOCOL_VERSION_1_10,
         dll_instance_id: [0x6b; 16],
     });
     assert_eq!(
@@ -161,7 +161,7 @@ fn controller_must_send_the_exact_acknowledgement() {
         .unwrap();
 
     let wrong = Message::HelloAck(darpc_protocol::HelloAck {
-        selected_version: PROTOCOL_VERSION_1_9,
+        selected_version: PROTOCOL_VERSION_1_10,
         dll_instance_id: [0x6b; 16],
     });
     assert!(matches!(
@@ -196,4 +196,15 @@ fn sequence_counters_wrap_and_do_not_advance_on_mismatch() {
 #[test]
 fn sender_tick_elapsed_time_uses_wrapping_subtraction() {
     assert_eq!(elapsed_tick_ms(0xffff_fffa, 3), 9);
+}
+
+#[test]
+fn rejects_peers_without_sender_metadata_protocol() {
+    assert!(matches!(
+        negotiate_version(VersionRange {
+            min: darpc_protocol::PROTOCOL_VERSION_1_9,
+            max: darpc_protocol::PROTOCOL_VERSION_1_9
+        }),
+        Err(SessionError::UnsupportedVersionRange { .. })
+    ));
 }

@@ -281,6 +281,9 @@ pub enum DecodeError {
     InvalidHealthPercent {
         actual: u8,
     },
+    InvalidMessageSenderType {
+        actual: u8,
+    },
     InvalidMessageKind {
         actual: u8,
     },
@@ -606,6 +609,9 @@ impl fmt::Display for DecodeError {
             }
             Self::InvalidHealthPercent { actual } => {
                 write!(formatter, "health percentage {actual} is outside 0..=100")
+            }
+            Self::InvalidMessageSenderType { actual } => {
+                write!(formatter, "invalid message sender type {actual}")
             }
             Self::InvalidMessageKind { actual } => {
                 write!(formatter, "invalid client message kind {actual}")

@@ -149,7 +149,7 @@ impl QueuedLookResult {
         Some(Self {
             command_id: (command_id != 0).then_some(command_id)?,
             target,
-            text: QueuedClientText::try_nonempty(text)?,
+            text: QueuedClientText::try_from_bytes(text)?,
         })
     }
 

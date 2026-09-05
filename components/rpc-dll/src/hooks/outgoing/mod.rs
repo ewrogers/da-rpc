@@ -238,14 +238,26 @@ extern "C" fn intercept_packet(body: *mut u8, length: i16) -> i32 {
         if body.is_null() || length == 0 {
             return original_length;
         }
-        if !is_client_main_thread() {
-            return original_length;
-        }
         let mut prefix = [0; 3];
         let prefix_length = length.min(prefix.len());
         if !read_exact(body as usize, &mut prefix[..prefix_length]) {
             OUTGOING_READ_FAILURE_COUNT.fetch_add(1, Ordering::Relaxed);
+            crate::look::quarantine();
             return original_length;
+        }
+        if !is_client_main_thread() {
+            if matches!(prefix[0], 0x09 | 0x0a) {
+                crate::look::quarantine();
+            }
+            return original_length;
+        }
+        if matches!(prefix[0], 0x09 | 0x0a) {
+            let mut packet = [0; 5];
+            if length > packet.len() || !read_exact(body as usize, &mut packet[..length]) {
+                crate::look::quarantine();
+                return original_length;
+            }
+            crate::look::observe_outgoing(&packet[..length], crate::commands::action_source());
         }
         if prefix_length == 3 && prefix[0] == MESSAGE_OPCODE && prefix[1] == SAY_MODE {
             let expected = usize::from(prefix[2]) + 3;

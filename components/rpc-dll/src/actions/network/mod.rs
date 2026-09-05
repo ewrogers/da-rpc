@@ -81,6 +81,9 @@ fn dispatch(body: &[u8]) -> Result<(), CommandFailure> {
         body: body.as_ptr(),
         body_length,
     };
+    if body.len() >= 2 && body[0] == 0x0a && matches!(body[1], 8..=10) {
+        crate::look::quarantine();
+    }
     // SAFETY: client validation fixes the RVA, ABI, and server-event layout.
     // The dispatcher and body are resolved immediately before this main-thread
     // call, and both stack-backed values remain alive until it returns.

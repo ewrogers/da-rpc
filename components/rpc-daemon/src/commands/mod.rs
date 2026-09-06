@@ -88,7 +88,7 @@ pub(crate) const WORKER_CAPACITY: usize = 16;
 
 const ROUTE_TIMEOUT: Duration = Duration::from_secs(2);
 const SPELL_CAST_TIMEOUT_MS: u16 = DEFAULT_COMMAND_TIMEOUT_MS + DEFAULT_COMMAND_TIMEOUT_MS / 10;
-const LOOK_TIMEOUT_MS: u16 = MAX_COMMAND_TIMEOUT_MS;
+const LOOK_TIMEOUT_MS: u16 = 2_000;
 const MAX_SKILL_NAME_BYTES: usize = 128;
 const MAX_SPELL_NAME_BYTES: usize = 128;
 

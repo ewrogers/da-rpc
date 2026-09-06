@@ -13,6 +13,11 @@ const PENDING: u64 = 2 << 32;
 const MANUAL: u64 = 3 << 32;
 pub(crate) const QUARANTINED: u64 = 4 << 32;
 const RESOLVING: u64 = 5 << 32;
+// A cancelled request still owns its one reply. Drain it without publishing a
+// name, then reopen the lane. Cancellation before send retains the same owner
+// until the outgoing hook or a definitive send failure resolves that race.
+const DRAINING: u64 = 6 << 32;
+const CANCELLED_ARMED: u64 = 7 << 32;
 const PHASE_MASK: u64 = u64::MAX << 32;
 // The x86 event detour reads the high word only as an advisory fast-path gate.
 // intercept_response always acquires and validates the complete atomic state.
@@ -28,14 +33,20 @@ pub(crate) fn request(command_id: u32, target: LookTarget) -> Result<(), Command
     let result = crate::actions::network::submit(&body[..length]);
     if result.is_err() {
         // submit returns an error only before calling the native sender.
+        release_unsent(command_id);
+    }
+    result
+}
+
+fn release_unsent(command_id: u32) {
+    for phase in [ARMED, CANCELLED_ARMED] {
         let _ = CHANNEL.compare_exchange(
-            ARMED | u64::from(command_id),
+            phase | u64::from(command_id),
             IDLE,
             Ordering::AcqRel,
             Ordering::Acquire,
         );
     }
-    result
 }
 
 fn resolve_target(
@@ -115,15 +126,27 @@ pub(crate) fn observe_outgoing(body: &[u8], source: darpc_model::ActionSource) {
     };
     let (packet, length) = encode_request(expected);
     let owner = command_id(current);
-    if current & PHASE_MASK == ARMED
+    if matches!(current & PHASE_MASK, ARMED | CANCELLED_ARMED)
         && owner != 0
         && source == (darpc_model::ActionSource::Command { command_id: owner })
         && body == &packet[..length]
     {
-        // Cancellation may already have quarantined the lane. Never overwrite it.
+        let next = if current & PHASE_MASK == CANCELLED_ARMED {
+            DRAINING
+        } else {
+            PENDING
+        };
+        // A concurrent cancellation must still retain this exact outgoing
+        // request's owner, even if it wins between our load and exchange.
         let _ = CHANNEL.compare_exchange(
             current,
-            PENDING | u64::from(owner),
+            next | u64::from(owner),
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+        let _ = CHANNEL.compare_exchange(
+            CANCELLED_ARMED | u64::from(owner),
+            DRAINING | u64::from(owner),
             Ordering::AcqRel,
             Ordering::Acquire,
         );
@@ -179,16 +202,27 @@ pub(crate) fn intercept_response(body: &[u8], tick_ms: u32) -> bool {
         let _ = CHANNEL.compare_exchange(MANUAL, IDLE, Ordering::AcqRel, Ordering::Acquire);
         return false;
     }
+    if current & PHASE_MASK == DRAINING {
+        // Exact framing still matters for a discarded reply. A malformed or
+        // competing response must not erase a concurrent quarantine.
+        return CHANNEL
+            .compare_exchange(current, IDLE, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok();
+    }
     if current & PHASE_MASK != PENDING {
         quarantine();
         return false;
     }
     let resolving = RESOLVING | u64::from(command_id(current));
-    if CHANNEL
-        .compare_exchange(current, resolving, Ordering::AcqRel, Ordering::Acquire)
-        .is_err()
+    if let Err(actual) =
+        CHANNEL.compare_exchange(current, resolving, Ordering::AcqRel, Ordering::Acquire)
     {
-        return false;
+        // Cancellation may win after we read PENDING. This same reply still
+        // drains that owner; waiting for another reply would strand the lane.
+        return actual == (DRAINING | u64::from(command_id(current)))
+            && CHANNEL
+                .compare_exchange(actual, IDLE, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok();
     }
     let published = crate::state::observe_look(command_id(current), target(), text, tick_ms);
     crate::commands::complete_look(
@@ -196,8 +230,9 @@ pub(crate) fn intercept_response(body: &[u8], tick_ms: u32) -> bool {
         published.then_some(()).ok_or(CommandFailure::Internal),
     );
     // Do not erase quarantine from a concurrent reset or observation failure.
-    let next = if published { IDLE } else { QUARANTINED };
-    let _ = CHANNEL.compare_exchange(resolving, next, Ordering::AcqRel, Ordering::Acquire);
+    // Publication failure loses the event, not wire ownership: this response
+    // was consumed. Preserve any concurrent quarantine, otherwise recover.
+    let _ = CHANNEL.compare_exchange(resolving, IDLE, Ordering::AcqRel, Ordering::Acquire);
     published
 }
 
@@ -227,10 +262,10 @@ pub(crate) fn cancel(command_id: u32) {
     if command_id == 0 {
         return;
     }
-    for phase in [ARMED, PENDING] {
+    for (phase, next) in [(ARMED, CANCELLED_ARMED), (PENDING, DRAINING)] {
         let _ = CHANNEL.compare_exchange(
             phase | u64::from(command_id),
-            QUARANTINED,
+            next | u64::from(command_id),
             Ordering::AcqRel,
             Ordering::Acquire,
         );
@@ -370,19 +405,18 @@ mod tests {
         clear();
         arm(7);
         cancel(7);
-        for _ in 0..3 {
-            assert_eq!(
-                begin(8, LookResultTarget::Tile { x: 41, y: 19 }),
-                Err(CommandFailure::Rejected)
-            );
-            assert!(!intercept_response(b"\x0a\x09\x00\x04name", 90));
-            reset();
-        }
-        assert_eq!(CHANNEL.load(Ordering::Acquire), QUARANTINED);
+        assert_eq!(
+            begin(8, LookResultTarget::Tile { x: 41, y: 19 }),
+            Err(CommandFailure::Rejected)
+        );
+        assert!(intercept_response(b"\x0a\x09\x00\x04name", 90));
+        assert_eq!(CHANNEL.load(Ordering::Acquire), IDLE);
         assert!(matches!(
             crate::state::poll(0, 8, std::time::Duration::ZERO),
             darpc_protocol::EventPollResult::Events(events) if events.is_empty()
         ));
+        arm(8);
+        assert!(intercept_response(b"\x0a\x09\x00\x00", 91));
     }
 
     #[test]
@@ -421,7 +455,7 @@ mod tests {
         for _ in 0..100 {
             clear();
             arm(7);
-            let published = std::thread::scope(|scope| {
+            let suppressed = std::thread::scope(|scope| {
                 let cancel = scope.spawn(|| cancel(7));
                 let published = intercept_response(b"\x0a\x09\x00\x04name", 90);
                 cancel.join().unwrap();
@@ -432,18 +466,17 @@ mod tests {
             else {
                 panic!("look events");
             };
-            assert_eq!(events.len(), usize::from(published));
+            assert!(suppressed);
+            assert!(events.len() <= 1);
             for event in events {
                 let darpc_model::StateUpdate::Look(result) = event.update else {
                     panic!("look update");
                 };
                 assert_eq!(result.command_id, 7);
             }
-            // Response acquisition and cancellation have one atomic winner.
-            assert_eq!(
-                begin(8, LookResultTarget::Tile { x: 41, y: 19 }).is_ok(),
-                published
-            );
+            // Either publish to the original owner or discard its late reply.
+            // In both orders the consumed reply releases the lane.
+            assert!(begin(8, LookResultTarget::Tile { x: 41, y: 19 }).is_ok());
         }
     }
 
@@ -504,7 +537,7 @@ mod tests {
     }
 
     #[test]
-    fn malformed_popup_or_publication_loss_keeps_the_lane_quarantined() {
+    fn malformed_popup_quarantines_but_publication_loss_releases_consumed_reply() {
         let _guard = crate::state::TEST_LOCK.lock().unwrap();
         for body in [
             b"\x0a\x09".as_slice(),
@@ -527,7 +560,66 @@ mod tests {
         }
         assert!(full);
         assert!(!intercept_response(b"\x0a\x09\x00\x04name", 90));
-        assert_eq!(CHANNEL.load(Ordering::Acquire), QUARANTINED);
+        assert_eq!(CHANNEL.load(Ordering::Acquire), IDLE);
+        assert!(begin(8, LookResultTarget::Tile { x: 41, y: 19 }).is_ok());
+    }
+
+    #[test]
+    fn cancellation_racing_outgoing_submission_drains_one_reply() {
+        let _guard = crate::state::TEST_LOCK.lock().unwrap();
+        for _ in 0..100 {
+            clear();
+            begin(7, LookResultTarget::Tile { x: 40, y: 19 }).unwrap();
+            std::thread::scope(|scope| {
+                let cancel = scope.spawn(|| cancel(7));
+                observe_outgoing(
+                    &[0x0a, 0, 40, 0, 19],
+                    darpc_model::ActionSource::Command { command_id: 7 },
+                );
+                cancel.join().unwrap();
+            });
+            assert_eq!(CHANNEL.load(Ordering::Acquire), DRAINING | 7);
+            assert!(intercept_response(b"\x0a\x09\x00\x00", 90));
+            assert_eq!(CHANNEL.load(Ordering::Acquire), IDLE);
+        }
+    }
+
+    #[test]
+    fn failed_unsent_request_releases_only_its_original_owner() {
+        let _guard = crate::state::TEST_LOCK.lock().unwrap();
+        for cancelled in [false, true] {
+            clear();
+            begin(7, LookResultTarget::Tile { x: 40, y: 19 }).unwrap();
+            if cancelled {
+                cancel(7);
+            }
+            release_unsent(8);
+            assert_ne!(CHANNEL.load(Ordering::Acquire), IDLE);
+            release_unsent(7);
+            assert_eq!(CHANNEL.load(Ordering::Acquire), IDLE);
+        }
+        arm(8);
+        release_unsent(8);
+        assert_eq!(active_command_id(), 8);
+    }
+
+    #[test]
+    fn uncertainty_while_draining_does_not_release_the_lane() {
+        let _guard = crate::state::TEST_LOCK.lock().unwrap();
+        for uncertainty in [0, 1, 2] {
+            clear();
+            arm(7);
+            cancel(7);
+            match uncertainty {
+                0 => observe_outgoing(&[0x09], darpc_model::ActionSource::Client),
+                1 => {
+                    assert!(!intercept_response(b"\x0a\x09\x00\x05four", 90));
+                }
+                _ => reset(),
+            }
+            assert!(!intercept_response(b"\x0a\x09\x00\x04late", 91));
+            assert_eq!(CHANNEL.load(Ordering::Acquire), QUARANTINED);
+        }
     }
 
     #[test]

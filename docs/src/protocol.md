@@ -1283,9 +1283,11 @@ enum MessageCommand: u8 {
 order even though the surrounding daRPC protocol remains little-endian. The
 response carries no request or entity ID. The DLL permits only one look owner
 at a time and requires the exact outgoing typed packet before attributing a
-bounded popup response. Submitted request expiry/cancellation and detected
-ambiguity quarantine later typed looks for the DLL lifetime; a late reply does
-not release the channel. See [Looking at tiles](looks.md) for correlation
+bounded popup response. Submitted request expiry/cancellation keeps ownership
+until its one late reply is discarded, then releases the channel. Failed event
+publication also releases an already-consumed reply. Detected ambiguity still
+quarantines later typed looks for the DLL lifetime. See
+[Looking at tiles](looks.md) for the daemon's two-second deadline, correlation
 limits, manual-look behavior, and recovery using a fresh client process.
 
 enum ExchangeCommand: u8 {

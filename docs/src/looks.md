@@ -50,19 +50,31 @@ fails with `rejected` while a typed or manually initiated look is pending. A
 single manual or raw look retains its normal popup behavior and releases the
 channel when its response arrives.
 
-Once a submitted typed request expires or is cancelled, the channel stays
-quarantined. Overlapping manual/raw looks, duplicate or mismatched outgoing
-requests, synthetic popup injection, malformed responses, failed packet
-observation, and failed result publication also quarantine it. An active typed
-request fails with `invalid_state` when ambiguity is detected, or `internal`
-when publication fails. Later typed looks fail with `rejected`. Late replies
-pass through to the game and cannot acquire a newer command's ID.
+The daemon gives Look and FarLook a two-second command deadline. Once a
+submitted typed request expires or is cancelled, it retains ownership of its
+one outstanding reply. Later typed looks fail with `rejected` until that reply
+arrives. The DLL suppresses and discards the late reply without publishing a
+name or changing the command's terminal status, then releases the channel.
+An empty reply drains it in the same way. A definitive failure before sending
+also releases the channel. Failed result publication completes the command
+with `internal` and leaves the popup visible, but releases the channel because
+its wire reply has already been consumed.
+
+Overlapping manual/raw looks, duplicate or mismatched outgoing requests,
+synthetic popup injection, malformed responses, and failed packet observation
+still quarantine the channel. An active typed request fails with `invalid_state`
+when ambiguity is detected. Later typed looks fail with `rejected`; ambiguous
+replies pass through to the game and cannot acquire a newer command's ID.
 
 Neither a timer, a late reply, IPC reconnection, nor hook reinitialization
-clears quarantine. Recovery requires a fresh game process with the DLL loaded
-at startup. Unloading and reloading the DLL in a running process loses its
+clears this ambiguity quarantine. Recovery requires a fresh game process with
+the DLL loaded at startup. Unloading and reloading the DLL in a running process loses its
 memory but does not prove that old server replies have drained. Attaching to
 an already running client likewise cannot account for earlier look requests.
+
+The two-second deadline bounds the command, not the arrival of its wire reply.
+If the server never replies, safe reuse still requires a fresh game connection;
+a timer cannot establish that an uncorrelated reply will never arrive.
 
 The game popup contains neither a request ID nor an entity ID. daRPC's
 `command_id` and `target` are local correlation metadata, not server-confirmed

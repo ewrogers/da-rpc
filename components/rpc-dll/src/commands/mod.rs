@@ -1150,19 +1150,21 @@ mod tests {
         let status = find_slot(id).unwrap().status(id).unwrap();
         assert_eq!(status.state, CommandState::TimedOut);
         assert_eq!(crate::look::active_command_id(), 0);
-        assert!(!crate::look::intercept_response(
-            b"\x0a\x09\x00\x04late",
-            22
-        ));
+        assert!(crate::look::intercept_response(b"\x0a\x09\x00\x04late", 22));
         let second = submitted_id(handle(CommandOperation::Submit {
             kind: CommandKind::Look(LookTarget::Tile { x: 41, y: 19 }),
             timeout_ms: 100,
             wait_ms: 0,
         }));
         observe_tick();
+        assert_eq!(crate::look::active_command_id(), second);
+        assert!(crate::look::intercept_response(b"\x0a\x09\x00\x00", 23));
         let status = find_slot(second).unwrap().status(second).unwrap();
-        assert_eq!(status.state, CommandState::Failed);
-        assert_eq!(status.failure, Some(CommandFailure::Rejected));
+        assert_eq!(status.state, CommandState::Executed);
+        assert_eq!(
+            find_slot(id).unwrap().status(id).unwrap().state,
+            CommandState::TimedOut
+        );
     }
 
     #[test]

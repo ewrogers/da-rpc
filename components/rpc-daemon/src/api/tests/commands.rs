@@ -128,7 +128,7 @@ fn assert_routes_action_sequence(
             assert_eq!(call.identity, identity);
             let expected_timeout_ms = match expected_kind {
                 CommandKind::CastSpell(_) => 1_100,
-                CommandKind::Look(_) => 5_000,
+                CommandKind::Look(_) => 2_000,
                 _ => 1_000,
             };
             assert!(matches!(

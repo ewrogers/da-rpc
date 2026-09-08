@@ -23,10 +23,10 @@ pub(crate) struct DialogSelectOptions {
     /// Revision from the current dialog state.
     #[schema(example = 7)]
     revision: u32,
-    /// Zero-based displayed row index.
+    /// Row index from the current interaction. Item indexes span all categories and pages.
     #[schema(example = 0)]
     index: u16,
-    /// Item quantity. Defaults to one.
+    /// Item quantity. Defaults to one; larger values require available_quantity.
     #[schema(example = 1)]
     #[serde(default = "one")]
     quantity: u8,
@@ -251,7 +251,7 @@ fn valid_selection(interaction: &DialogInteraction, index: u16, quantity: u8) ->
             .is_some_and(|value| {
                 value
                     .available_quantity
-                    .is_none_or(|available| quantity <= available)
+                    .map_or(quantity == 1, |available| quantity <= available)
             }),
         DialogInteraction::Inventory(values)
         | DialogInteraction::Spells(values)
@@ -287,4 +287,30 @@ fn conflict(pid: u32, code: &'static str, message: &str) -> ApiError {
 }
 const fn one() -> u8 {
     1
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn item_selection_uses_original_indexes_and_only_accepts_supported_quantities() {
+        let mut item = darpc_model::DialogItem {
+            index: 299,
+            sprite: 1,
+            color: 0,
+            name: Some("Item".into()),
+            description: None,
+            value: None,
+            available_quantity: None,
+        };
+        let ordinary = DialogInteraction::Items(vec![item.clone()]);
+        assert!(valid_selection(&ordinary, 299, 1));
+        assert!(!valid_selection(&ordinary, 0, 1));
+        assert!(!valid_selection(&ordinary, 299, 2));
+        item.available_quantity = Some(3);
+        let extended = DialogInteraction::Items(vec![item]);
+        assert!(valid_selection(&extended, 299, 3));
+        assert!(!valid_selection(&extended, 299, 4));
+    }
 }

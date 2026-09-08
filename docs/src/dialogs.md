@@ -2,7 +2,8 @@
 
 daRPC can observe and interact with the merchant and pursuit windows used by
 Mundanes. This includes ordinary conversation choices, text prompts, shop
-lists, inventory pickers, and spell or skill pickers.
+lists, categorized bank withdrawal lists, inventory pickers, and spell or
+skill pickers.
 
 Dialog actions use the same native client methods as the game interface. They
 run on the client main thread, update the visible window normally, and preserve
@@ -85,8 +86,25 @@ current page accepts:
 | `unsupported` | The page is retained for observation, but daRPC does not know how to answer it. |
 
 The fields in a row depend on what the server supplied. Optional values can be
-missing. A `slot` is one-based when present, while a displayed `index` is
-always zero-based.
+missing. A `slot` is one-based when present, while `index` is always zero-based.
+For items, it is the original server model row across all categories and pages.
+
+## Select items across tabs and pages
+
+Banking and other categorized lists use the existing `items` interaction and
+`/dialog/select` action. All rows are returned, including those outside the
+visible category tabs and item pages. Selection calls the native response
+producer directly, so scrolling and switching tabs are unnecessary.
+
+Use the returned item `index`, never its position within a filtered list or
+its visible screen position. For example, an item with `index: 299` is selected
+with `index: 299` even when it is outside the current tab and page. The
+implementation retains up to 512 rows in an observed packet of at most 8 KiB.
+
+Opening a bank's Withdraw choice follows the same conversation flow as Buy.
+Use the current choice text to find it; choice indexes vary by menu. Category
+labels are not part of the RPC state, and no category-tab action is needed.
+Version 1.10.2 keeps binary protocol 1.10 and the dialog HTTP schema unchanged.
 
 ## Start a conversation
 
@@ -126,8 +144,18 @@ curl --request POST \
   "http://127.0.0.1:2626/clients/ZiLo/dialog/select"
 ```
 
-`quantity` defaults to `1`. It is checked against the current row when the
-server supplied a limit.
+`quantity` defaults to `1` and must be nonzero. For item rows with
+`available_quantity`, it must not exceed that value. Item rows without an
+available quantity accept only `1`. The DLL rechecks the live model, original
+row, and quantity on the main thread before calling the client's item producer.
+
+Ordinary item menus send the item's name in `CMerchant` (`0x39`). The extended
+item menu with pursuit ID `0x004B` sends the selected record ID and quantity.
+The native client supplies the target and pursuit fields, dialog wrapping,
+encryption, and transport framing. Categories, page numbers, and RPC row indexes
+are not sent to the game server. Ordinary bank withdrawals can lead to a
+separate server text prompt for the amount; answer that new revision with
+`/dialog/input`.
 
 Submit an input prompt:
 
@@ -174,7 +202,7 @@ A typical purchase works like this:
 
 1. Start the conversation with `/interact`.
 2. Select the Buy choice from the returned `choices` page.
-3. Read the new `items` page. Each row identifies its displayed `index` and
+3. Read the new `items` page. Each row identifies its original `index` and
    can include its name, description, price in `value`, and available quantity.
 4. Submit the chosen row with its current revision and desired quantity.
 5. Confirm the result through `/items`, `/status`, and the event stream.

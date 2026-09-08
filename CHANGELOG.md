@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+## 1.10.2 - 2026-09-08
+
+### Fixed
+
+- Select merchant item rows by their original 16-bit model index, including
+  rows above 255. Bank withdrawal and other item lists do not require scrolling
+  or switching category tabs before selection.
+- Revalidate the active item dialog, target, model, row bounds, and quantity
+  on the client main thread before calling the native response producer.
+  Item menus without an explicit available quantity accept only quantity one.
+
+### Compatibility
+
+- Keep binary protocol 1.10 and the existing dialog HTTP schema unchanged.
+  Use the returned item index and current dialog revision with `/dialog/select`.
+
 ## 1.10.1 - 2026-09-05
 
 ### Fixed

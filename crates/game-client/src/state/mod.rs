@@ -1,5 +1,6 @@
 mod abilities;
 mod collections;
+mod dialog;
 mod effects;
 mod groups;
 mod objects;

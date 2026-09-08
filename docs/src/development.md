@@ -85,6 +85,25 @@ hook as not installed. Its DLL log must contain the skipped-hook and health
 sample records. The bypass is unavailable in release builds and is never a
 substitute for validation against the supported client.
 
+For categorized NPC item menus, `tools/test-dialog-items.ps1` opens the
+specified merchant's item-list choice three times and samples 60 no-op commands.
+Run it against an unchanged release build, then the candidate release build
+under the same conditions:
+
+```powershell
+& .\tools\test-dialog-items.ps1 `
+    -Client <character-name> -Merchant <merchant-name> `
+    -Choice 'Withdraw Item'
+```
+
+Use `-BaseUrl` if the test daemon uses another local port. The script reports
+queue delay p50, p95, and maximum, nonexecuted command count, tick and event
+timings, process CPU time, log growth, and item count. It opens menus
+but never selects an item. Compare item selection separately on a consenting
+test character, using the returned original row index, and cancel any quantity
+prompt when a transfer is unnecessary. Synthetic tests cover rows above 255,
+invalid item models, and the extended record-ID/quantity selection path.
+
 The daemon registry integration test uses two controlled targets and both
 runtime architectures:
 

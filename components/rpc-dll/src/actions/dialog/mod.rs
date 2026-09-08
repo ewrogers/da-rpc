@@ -1,4 +1,6 @@
 use super::{module_base, read};
+use crate::{dialog::ItemMenu, process_memory::ProcessMemory};
+use darpc_game_client::StateWalker;
 use darpc_game_client::{EVENT_DISPATCHER_POINTER_RVA, NPC_SESSION_COL_RVAS};
 use darpc_model::{DialogCloseReason, DialogSubmission};
 use darpc_protocol::{CommandFailure, DialogAction, DialogCommand};
@@ -37,7 +39,7 @@ const PURSUIT_INPUT_RVA: usize = 0x0013_E070;
 const PURSUIT_SAY_INPUT_RVA: usize = 0x0013_E270;
 
 type SelectFn = unsafe extern "thiscall" fn(*mut c_void, u8) -> u32;
-type ItemSelectFn = unsafe extern "thiscall" fn(*mut c_void, u8, u8) -> u32;
+type ItemSelectFn = unsafe extern "thiscall" fn(*mut c_void, u16, u8) -> u32;
 type InputFn = unsafe extern "thiscall" fn(*mut c_void, *const u8) -> u32;
 type OuterFn = unsafe extern "thiscall" fn(*mut c_void, i32, u8) -> u32;
 type NavigateFn = unsafe extern "thiscall" fn(*mut c_void) -> u32;
@@ -89,6 +91,7 @@ pub(crate) fn is_open() -> bool {
 
 struct DialogContext {
     module_base: usize,
+    session: usize,
     state: u32,
     subtype: u8,
     previous: bool,
@@ -155,6 +158,7 @@ impl DialogContext {
                 .and_then(|value| NonNull::new(value as *mut c_void));
             return Ok(Self {
                 module_base,
+                session: pane,
                 state,
                 subtype,
                 previous: state == 2 && read::<u8>(pane + PURSUIT_PREVIOUS_OFFSET) == Some(1),
@@ -169,25 +173,42 @@ impl DialogContext {
 
     fn select(&self, index: u16, quantity: u8) -> Result<(), CommandFailure> {
         let model = self.response_model()?;
+        if matches!((self.state, self.subtype), (1, 4 | 10)) {
+            let menu = crate::dialog::current_item_menu().ok_or(CommandFailure::InvalidState)?;
+            if !self.matches_item_menu(menu) {
+                return Err(CommandFailure::InvalidState);
+            }
+            let answer = self.answer.ok_or(CommandFailure::InvalidState)?;
+            let walker = StateWalker::new(&ProcessMemory, self.module_base as u32);
+            let valid = walker
+                .dialog_item_selection_is_valid(
+                    answer.as_ptr() as u32,
+                    model.as_ptr() as u32,
+                    index,
+                    quantity,
+                )
+                .map_err(|_| CommandFailure::InvalidState)?;
+            if !valid {
+                return Err(CommandFailure::InvalidArguments);
+            }
+            // SAFETY: the complete answer pane, model association, row, quantity,
+            // and current packet identity were revalidated on the main thread.
+            // The native producer takes a u16 original model row, not a tab row.
+            unsafe {
+                self.function::<ItemSelectFn>(MERCHANT_ITEM_SELECT_RVA)(
+                    model.as_ptr(),
+                    index,
+                    quantity,
+                )
+            };
+            return Ok(());
+        }
         let row = u8::try_from(index).map_err(|_| CommandFailure::InvalidArguments)?;
         if u32::from(row) >= self.row_count(model)? {
             return Err(CommandFailure::InvalidArguments);
         }
         match (self.state, self.subtype) {
             (1, 0 | 1) => self.call_select(MERCHANT_TEXT_SELECT_RVA, model, row),
-            (1, 4 | 10) => {
-                if quantity == 0 {
-                    return Err(CommandFailure::InvalidArguments);
-                }
-                // SAFETY: the live model and native ABI were validated above.
-                unsafe {
-                    self.function::<ItemSelectFn>(MERCHANT_ITEM_SELECT_RVA)(
-                        model.as_ptr(),
-                        row,
-                        quantity,
-                    )
-                };
-            }
             (1, 5 | 11) => self.call_select(MERCHANT_INVENTORY_SELECT_RVA, model, row),
             (1, 6 | 7) => self.call_select(MERCHANT_ABILITY_SELECT_RVA, model, row),
             (1, 8 | 9) => self.call_select(MERCHANT_BOOK_SELECT_RVA, model, row),
@@ -196,6 +217,19 @@ impl DialogContext {
             _ => return Err(CommandFailure::InvalidArguments),
         }
         Ok(())
+    }
+
+    fn matches_item_menu(&self, menu: ItemMenu) -> bool {
+        let Some(model) = self.model.map(|value| value.as_ptr() as usize) else {
+            return false;
+        };
+        self.state == 1
+            && self.subtype == menu.subtype
+            && read::<u32>(model + 4) == Some(self.session as u32)
+            && read::<u8>(self.session + 0x195) == Some(menu.target_type)
+            && read::<u32>(self.session + 0x198) == Some(menu.target_id)
+            && read::<u16>(model + 0x10) == Some(menu.pursuit)
+            && read::<u16>(model + 0x12) == Some(menu.count)
     }
 
     fn input(&self, input: &[u8]) -> Result<(), CommandFailure> {

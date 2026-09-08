@@ -249,6 +249,38 @@ fn current_mut() -> &'static mut RawDialog {
     unsafe { &mut *CURRENT.0.get() }
 }
 
+#[derive(Clone, Copy)]
+pub(crate) struct ItemMenu {
+    pub subtype: u8,
+    pub target_type: u8,
+    pub target_id: u32,
+    pub pursuit: u16,
+    pub count: u16,
+}
+
+pub(crate) fn current_item_menu() -> Option<ItemMenu> {
+    let current = current_mut();
+    item_menu(&current.bytes[..usize::from(current.length)])
+}
+
+// Read only the bounded header here. Text decoding and item allocation remain
+// on the IPC worker.
+fn item_menu(body: &[u8]) -> Option<ItemMenu> {
+    if body.first() != Some(&0x2F) || !matches!(body.get(1), Some(4 | 10)) {
+        return None;
+    }
+    let mut offset = 17 + usize::from(*body.get(16)?);
+    let length = u16::from_be_bytes(body.get(offset..offset + 2)?.try_into().ok()?);
+    offset += 2 + usize::from(length);
+    Some(ItemMenu {
+        subtype: body[1],
+        target_type: body[2],
+        target_id: u32::from_be_bytes(body.get(3..7)?.try_into().ok()?),
+        pursuit: u16::from_be_bytes(body.get(offset..offset + 2)?.try_into().ok()?),
+        count: u16::from_be_bytes(body.get(offset + 2..offset + 4)?.try_into().ok()?),
+    })
+}
+
 fn raw(body: &[u8], revision: u32, response_pending: bool) -> Option<RawDialog> {
     let length = u16::try_from(body.len()).ok()?;
     let mut raw = RawDialog::empty();
@@ -349,5 +381,56 @@ mod tests {
             0x2F, 4, 1, 0, 0, 0, 7, 0, 0x40, 0x1E, 2, 0, 0, 0, 0, 0, 0, 0, 1, 0xFF, 0xFF,
         ];
         assert!(decode(raw(&body, 1, false).unwrap()).is_err());
+    }
+
+    #[test]
+    fn item_menu_headers_and_large_original_row_indexes_survive_decoding() {
+        for subtype in [4, 10] {
+            for pursuit in [0x1234_u16, 0x004B] {
+                let mut body = vec![
+                    0x2F, subtype, 1, 0, 0, 0, 7, 0, 0x40, 0x1E, 2, 0, 0, 0, 0, 0, 0, 0, 0,
+                ];
+                body.extend_from_slice(&pursuit.to_be_bytes());
+                body.extend_from_slice(&300_u16.to_be_bytes());
+                for row in 0..300_u32 {
+                    if pursuit == 0x004B {
+                        body.extend_from_slice(&(1000 + row).to_be_bytes());
+                    }
+                    body.extend_from_slice(&[0x80, 2, 3, 0, 0, 0, 9]);
+                    if pursuit == 0x004B {
+                        body.push(5);
+                    }
+                    body.extend_from_slice(&[1, b'A', 0]);
+                    if pursuit == 0x004B {
+                        body.extend_from_slice(&[0; 8]);
+                    }
+                }
+                let menu = item_menu(&body).unwrap();
+                assert_eq!(
+                    (
+                        menu.subtype,
+                        menu.target_type,
+                        menu.target_id,
+                        menu.pursuit,
+                        menu.count
+                    ),
+                    (subtype, 1, 7, pursuit, 300)
+                );
+                let state = decode(raw(&body, 8, false).unwrap()).unwrap();
+                let DialogInteraction::Items(items) = state.interaction else {
+                    panic!("items")
+                };
+                assert_eq!(items.len(), 300);
+                assert_eq!(items[299].index, 299);
+                assert_eq!(items[299].name.as_deref(), Some("A"));
+                assert_eq!(
+                    items[299].available_quantity,
+                    (pursuit == 0x004B).then_some(5)
+                );
+                assert_eq!(items[299].description, None);
+                body.pop();
+                assert!(decode(raw(&body, 8, false).unwrap()).is_err());
+            }
+        }
     }
 }

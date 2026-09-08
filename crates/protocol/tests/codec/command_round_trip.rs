@@ -408,7 +408,7 @@ fn command_messages_round_trip() {
                 kind: CommandKind::Dialog(DialogCommand {
                     revision: 7,
                     action: DialogAction::Select {
-                        index: 0,
+                        index: 299,
                         quantity: 1,
                     },
                 }),

@@ -12,15 +12,16 @@ The [daRPC Book](https://ewrogers.github.io/da-rpc/) is the complete user and
 developer reference. This README covers the project at a glance and the
 shortest path to a working installation.
 
-> daRPC 1.0 supports one exact 7.41 client build. It validates that build before
+> daRPC v1.0.0 supports one exact 7.41 client build. It validates that build before
 > using version-specific addresses or installing hooks.
 
 ## Overview
 
 daRPC provides typed access to character state, inventory, equipment, skills,
-spells, effects, world objects, dialogs, field maps, groups, exchanges, online players,
-legend marks, chat, movement, and supported client actions. Applications can
-use a direct command-line interface or a local REST and Server-Sent Events API.
+spells, effects, world objects, dialogs, field maps, groups, exchanges, online
+players, legend marks, chat, bulletin boards, player mail, movement, and supported
+client actions. Applications can use a direct command-line interface or a local
+REST and Server-Sent Events API.
 
 The daemon publishes an OpenAPI 3.1 document and hosts a vendored Swagger UI at
 `http://127.0.0.1:2626/docs`. The documentation UI works without an internet
@@ -191,6 +192,11 @@ Detailed references:
 - [Safety and security](https://ewrogers.github.io/da-rpc/safety.html)
 
 ## Version support
+
+v1.0.0 is the project's first release and establishes the complete current
+feature set as the starting point. All four runtime components ship together
+and use binary protocol 1.0. Keep the DLL, loader, direct client, and daemon
+from the same release. See the [changelog](CHANGELOG.md) for release notes.
 
 Version-specific memory layouts and hooks are deliberate safety boundaries.
 daRPC refuses unsupported executables instead of guessing. See [runtime hooks

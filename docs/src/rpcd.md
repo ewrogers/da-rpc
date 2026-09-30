@@ -205,19 +205,50 @@ sequence, suppress terminal exchange alerts, and optionally select a server
 endpoint. The API never accepts arbitrary process arguments or request-selected
 loader and DLL paths.
 
-The current console output reports transitions such as:
+## Logging
 
-```text
-HTTP API listening on http://127.0.0.1:2626
-client pid=3780 status=connecting
-client pid=3780 status=not_loaded
-client pid=3780 status=initializing
-client pid=3780 status=connected creation_time=... instance=... protocol=1.0 ...
-client pid=3780 status=disconnected instance=... reason="..."
-client pid=3780 status=busy
-client pid=3780 status=incompatible instance=... reason="..."
-client pid=3780 status=removed
+The daemon uses `tracing` and the standard `tracing-subscriber` text formatter.
+Each diagnostic line includes a UTC timestamp, severity, module target,
+message, and named fields. Diagnostics go to standard error; standard output
+remains available for `--print-openapi` JSON export.
+
+The default level is `INFO`:
+
+| Level | Messages |
+|---|---|
+| `ERROR` | Startup, HTTP server, connection-worker startup, and automatic loading failures. |
+| `WARN` | Unavailable or incompatible observations, event continuity loss, required resynchronization, degraded tick health, exceeded hook budgets, and discovery failures. |
+| `INFO` | Listener startup, connection and target transitions, the first accepted baseline, lifecycle changes, successful automatic loading, recovered tick health, and managed shutdown. |
+| `DEBUG` | Connection attempts and busy pipes, runtime paths, handshake details, snapshot request reasons, subsequent snapshot commits, and event batch summaries. |
+
+Registry diagnostics are emitted only for accepted transitions. Repeated
+identical target or snapshot-unavailable statuses are suppressed. Routine
+snapshots and event batches do not produce default-level output, even when
+their observation revisions advance.
+
+Set `RUST_LOG` before starting the daemon to select a different level or
+filter individual modules. For example, in PowerShell:
+
+```powershell
+$env:RUST_LOG = "info,darpcd=debug"
+darpcd.exe
 ```
+
+To focus on capture requests and recovery:
+
+```powershell
+$env:RUST_LOG = "info,darpcd::connection=debug"
+darpcd.exe
+```
+
+Remove the override to restore the default:
+
+```powershell
+Remove-Item Env:RUST_LOG -ErrorAction SilentlyContinue
+```
+
+An invalid filter is a startup error. Logging adds no work to injected game
+hooks; formatting and output occur in the daemon.
 
 After the handshake, each worker requests a fresh snapshot and stores it with
 that client's identity and connection metadata. Reconnecting after a daemon
@@ -263,12 +294,13 @@ main-thread ID.
 
 Each connected worker also samples the existing tick-hook health counter once
 per second. Three consecutive samples below 60 ticks per second produce one
-`tick_rate_degraded` daemon log entry. The next healthy sample produces one
-`tick_rate_recovered` entry, avoiding continuous warnings during one incident.
+`tick rate degraded` warning. The next healthy sample produces one
+`tick rate recovered` information entry, avoiding continuous warnings during
+one incident.
 
 The worker also queries hook timing once per
 second. Disabled responses are silent. When an over-budget counter advances,
-the daemon writes one `hook_budget_exceeded` entry with the client PID, stage,
+the daemon writes one `hook budget exceeded` warning with the client PID, stage,
 budget, delta, total, maximum, and last duration. HTTP callers can query,
 enable, disable, or reset the same counters without reconnecting the client.
 

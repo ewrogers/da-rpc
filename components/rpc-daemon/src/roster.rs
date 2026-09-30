@@ -133,7 +133,7 @@ impl ClientRoster {
                 worker.stop();
             }
             changed |= self.registry.remove(pid);
-            println!("client pid={pid} status=removed");
+            tracing::info!(pid, "client removed");
         }
 
         ReconcileOutcome { changed, removed }
@@ -185,7 +185,7 @@ impl ClientRoster {
                     reason: format!("failed to start connection worker: {error}"),
                 };
                 changed |= !matches!(self.registry.commit(event.clone()), CommitOutcome::Ignored);
-                eprintln!("darpcd: {}", crate::registry::render_event(&event));
+                tracing::error!(pid, %error, "connection worker failed to start");
             }
         }
         changed

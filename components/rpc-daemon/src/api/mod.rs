@@ -636,7 +636,7 @@ pub(crate) fn start(address: SocketAddrV4, state: ApiState) -> io::Result<ApiWor
                     }
                 };
                 if let Err(error) = &result {
-                    eprintln!("darpcd: HTTP server failed: {error}");
+                    tracing::error!(%error, "HTTP server failed");
                 }
                 result
             })

@@ -32,6 +32,8 @@ darpc-win32 = { path = "crates/win32" }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 sha2 = { version = "0.11", default-features = false }
 serde_json = "1"
+tracing = { version = "0.1", default-features = false, features = ["std"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["env-filter", "fmt"] }
 windows-sys = { version = "0.61", default-features = false }
 
 [workspace.lints.rust]

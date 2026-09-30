@@ -125,6 +125,7 @@ function Start-Daemon {
     $StartInfo.CreateNoWindow = $true
     $StartInfo.RedirectStandardOutput = $true
     $StartInfo.RedirectStandardError = $true
+    $StartInfo.EnvironmentVariables["RUST_LOG"] = "info"
 
     $Process = [System.Diagnostics.Process]::new()
     $Process.StartInfo = $StartInfo
@@ -354,10 +355,14 @@ function Stop-Daemon {
     $Output = $Process.StandardOutput.ReadToEnd()
     $ErrorOutput = $Process.StandardError.ReadToEnd()
     $Process.Dispose()
-    if ($ErrorOutput) {
+    if ($ErrorOutput -match '(?m)^\S+\s+ERROR\s') {
         throw "darpcd.exe wrote an error: $ErrorOutput"
     }
-    return $Output
+    Assert-True ([string]::IsNullOrWhiteSpace($Output)) "daemon diagnostics leaked onto stdout"
+    Assert-True `
+        ($ErrorOutput -notmatch '(?m)^\S+\s+(DEBUG|TRACE)\s') `
+        "INFO logging included routine debug diagnostics"
+    return "$Output`n$ErrorOutput"
 }
 
 function Wait-ForDaemonOwnership {
@@ -412,7 +417,7 @@ function Connected-Instances {
         [int] $ProcessId
     )
 
-    $Pattern = "client pid=$ProcessId status=connected [^`r`n]* instance=([0-9a-f]{32})"
+    $Pattern = "client connected pid=$ProcessId instance=([0-9a-f]{32})"
     return @([regex]::Matches($Output, $Pattern) | ForEach-Object { $_.Groups[1].Value })
 }
 
@@ -482,7 +487,7 @@ try {
     $RestartOutput = Stop-Daemon $DaemonProcess
     $DaemonProcess = $null
     Assert-True `
-        ($RestartOutput -match "client pid=$($First.Id) status=disconnected") `
+        ($RestartOutput -match "client disconnected pid=$($First.Id)\b") `
         "first target disconnect was not visible"
     $FirstRestartInstances = Connected-Instances $RestartOutput $First.Id
     $SecondRestartInstances = Connected-Instances $RestartOutput $Second.Id
@@ -593,10 +598,10 @@ try {
     $DaemonProcess = $null
     foreach ($Process in @($ExistingTarget, $FutureTarget)) {
         Assert-True `
-            ($AutoLoadOutput -match "client pid=$($Process.Id) auto-load=loaded") `
+            ($AutoLoadErrors -match "auto-load completed pid=$($Process.Id) changed=true") `
             "PID $($Process.Id) did not report one automatic load"
     }
-    $FailurePattern = "client pid=$MissingProcessId auto-load failed"
+    $FailurePattern = "auto-load failed pid=$MissingProcessId\b"
     Assert-True `
         ([regex]::Matches($AutoLoadErrors, $FailurePattern).Count -eq 1) `
         "the missing candidate did not fail automatic loading exactly once"

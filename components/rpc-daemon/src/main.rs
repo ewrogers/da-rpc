@@ -26,6 +26,7 @@ mod field_map;
 mod group;
 #[cfg(any(windows, test))]
 mod lifecycle;
+mod logging;
 #[cfg(any(windows, test))]
 mod managed;
 #[cfg(any(windows, test))]
@@ -53,10 +54,15 @@ use std::{env, process::ExitCode};
 use options::{Options, USAGE, parse_options};
 
 fn main() -> ExitCode {
+    if let Err(error) = logging::init() {
+        eprintln!("darpcd: {error}");
+        return ExitCode::from(2);
+    }
     let options = match parse_options(env::args_os().skip(1)) {
         Ok(options) => options,
         Err(error) => {
-            eprintln!("darpcd: {error}\n{USAGE}");
+            tracing::error!(%error, "invalid command line");
+            eprintln!("{USAGE}");
             return ExitCode::from(2);
         }
     };
@@ -69,7 +75,7 @@ fn main() -> ExitCode {
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
-            eprintln!("darpcd: {error}");
+            tracing::error!(%error, "daemon failed");
             ExitCode::from(1)
         }
     }
@@ -98,7 +104,6 @@ fn run(options: Options) -> Result<(), String> {
     use managed::ManagedLifetime;
     use roster::ClientRoster;
     use std::{
-        io::Write as _,
         sync::{Arc, mpsc},
         time::{Duration, Instant},
     };
@@ -156,33 +161,22 @@ fn run(options: Options) -> Result<(), String> {
     let api_worker = api::start(options.listen, api_state.clone())
         .map_err(|error| format!("failed to listen on {}: {error}", options.listen))?;
     if !options.listen.ip().is_loopback() {
-        eprintln!(
-            "darpcd: warning: the HTTP API has no authentication or transport encryption; \
+        tracing::warn!(
+            "the HTTP API has no authentication or transport encryption; \
              restrict non-loopback access with a trusted network and Windows Firewall"
         );
     }
-    println!("HTTP API listening on http://{}", api_worker.address());
-    println!("loader path: {}", loader_path.display());
-    println!("DLL path: {}", dll_path.display());
-    println!(
-        "maps path: {}",
-        api_state.maps_directory().as_deref().map_or_else(
+    tracing::info!(address = %api_worker.address(), auto_load = options.auto_load,
+        managed = options.managed, "HTTP API listening");
+    tracing::debug!(loader_path = %loader_path.display(), dll_path = %dll_path.display(),
+        "runtime paths resolved");
+    tracing::debug!(maps_path = %api_state.maps_directory().as_deref().map_or_else(
             || "automatic discovery pending".into(),
             |path| path.display().to_string()
-        )
-    );
-    println!(
-        "auto-load: {}",
-        if options.auto_load {
-            "enabled"
-        } else {
-            "disabled"
-        }
-    );
+        ), "maps path resolved");
     for client in roster.snapshot().clients {
-        println!("client pid={} status=connecting", client.pid);
+        tracing::debug!(pid = client.pid, "client connecting");
     }
-    let _ = std::io::stdout().flush();
 
     let mut next_discovery = Instant::now() + DISCOVERY_INTERVAL;
     let mut auto_load = AutoLoadPolicy::new(options.auto_load);
@@ -211,9 +205,7 @@ fn run(options: Options) -> Result<(), String> {
                                 sender.clone(),
                             ) {
                                 auto_load.finish(pid, attempt);
-                                eprintln!(
-                                    "darpcd: client pid={pid} auto-load failed to start: {error}"
-                                );
+                                tracing::error!(pid, %error, "auto-load failed to start");
                                 publish_event(
                                     &mut roster,
                                     &api_state,
@@ -224,9 +216,39 @@ fn run(options: Options) -> Result<(), String> {
                     }
                 }
             }
-            Ok(DaemonEvent::Timing(message)) => {
-                println!("{message}");
-                let _ = std::io::Write::flush(&mut std::io::stdout());
+            Ok(DaemonEvent::HookBudgetExceeded { pid, timing, delta }) => {
+                tracing::warn!(pid, stage = ?timing.stage, budget_us = timing.budget_us,
+                    over_budget_delta = delta, over_budget_total = timing.over_budget_count,
+                    maximum_duration_us = timing.maximum_duration_us,
+                    last_duration_us = timing.last_duration_us, "hook budget exceeded");
+            }
+            Ok(DaemonEvent::TickRateChanged {
+                pid,
+                degraded,
+                tick_delta,
+                sample_ms,
+                rate_hz,
+                threshold_hz,
+            }) => {
+                if degraded {
+                    tracing::warn!(
+                        pid,
+                        rate_hz,
+                        threshold_hz,
+                        tick_delta,
+                        sample_ms,
+                        "tick rate degraded"
+                    );
+                } else {
+                    tracing::info!(
+                        pid,
+                        rate_hz,
+                        threshold_hz,
+                        tick_delta,
+                        sample_ms,
+                        "tick rate recovered"
+                    );
+                }
             }
             Ok(DaemonEvent::Status(event)) => {
                 if roster.contains(event.pid()) {
@@ -246,14 +268,7 @@ fn run(options: Options) -> Result<(), String> {
                 }
                 match result {
                     Ok(outcome) if outcome.pid == pid && outcome.darpc_loaded => {
-                        println!(
-                            "client pid={pid} auto-load={}",
-                            if outcome.changed {
-                                "loaded"
-                            } else {
-                                "already_loaded"
-                            }
-                        );
+                        tracing::info!(pid, changed = outcome.changed, "auto-load completed");
                         publish_event(
                             &mut roster,
                             &api_state,
@@ -261,12 +276,11 @@ fn run(options: Options) -> Result<(), String> {
                         );
                     }
                     Ok(outcome) => {
-                        eprintln!(
-                            concat!(
-                                "darpcd: client pid={} auto-load returned invalid state ",
-                                "result_pid={} darpc_loaded={}"
-                            ),
-                            pid, outcome.pid, outcome.darpc_loaded
+                        tracing::error!(
+                            pid,
+                            result_pid = outcome.pid,
+                            darpc_loaded = outcome.darpc_loaded,
+                            "auto-load returned invalid state"
                         );
                         publish_event(
                             &mut roster,
@@ -275,10 +289,7 @@ fn run(options: Options) -> Result<(), String> {
                         );
                     }
                     Err(error) => {
-                        eprintln!(
-                            "darpcd: client pid={pid} auto-load failed code={} message={:?}",
-                            error.code, error.message
-                        );
+                        tracing::error!(pid, code = error.code, message = %error.message, "auto-load failed");
                         publish_event(
                             &mut roster,
                             &api_state,
@@ -305,6 +316,7 @@ fn run(options: Options) -> Result<(), String> {
                     .shutdown()
                     .map_err(|error| format!("failed to stop HTTP worker: {error}"))?;
                 result.map_err(|error| format!("managed lifetime pipe failed: {error}"))?;
+                tracing::info!("daemon stopped");
                 return Ok(());
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {}
@@ -320,7 +332,7 @@ fn run(options: Options) -> Result<(), String> {
         let discovered = match discovery::client_pids() {
             Ok(discovered) => discovered,
             Err(error) => {
-                eprintln!("darpcd: client discovery failed: {error}");
+                tracing::warn!(%error, "client discovery failed");
                 continue;
             }
         };
@@ -333,7 +345,6 @@ fn run(options: Options) -> Result<(), String> {
         }
         if outcome.changed {
             api_state.publish(roster.snapshot());
-            let _ = std::io::stdout().flush();
         }
     }
 }
@@ -350,7 +361,7 @@ fn discover_maps_directory(state: &api::ApiState, pid: u32) {
         return;
     };
     if directory.is_dir() && state.set_maps_directory_if_unset(directory.clone()) {
-        println!("maps path: auto-detected {}", directory.display());
+        tracing::info!(path = %directory.display(), "maps directory discovered");
     }
 }
 
@@ -360,13 +371,12 @@ fn publish_event(
     api_state: &api::ApiState,
     event: registry::ConnectionEvent,
 ) {
-    let rendered = registry::render_event(&event);
     match roster.commit(event) {
-        registry::CommitOutcome::Ignored => return,
+        registry::CommitOutcome::Ignored => {}
         registry::CommitOutcome::Applied(change) => {
+            logging::committed(&change);
             api_state.publish(roster.snapshot());
             api_state.publish_committed(change);
-            println!("{rendered}");
         }
         registry::CommitOutcome::ObservationRejected {
             pid,
@@ -375,10 +385,9 @@ fn publish_event(
         } => {
             api_state.publish(roster.snapshot());
             api_state.reject_observation(pid, identity);
-            eprintln!("darpcd: client pid={pid} observation rejected: {reason}");
+            tracing::warn!(pid, %reason, "observation rejected; requesting a fresh baseline");
         }
     }
-    let _ = std::io::Write::flush(&mut std::io::stdout());
 }
 
 #[cfg(not(windows))]

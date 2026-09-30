@@ -71,14 +71,13 @@ impl HookTimingMonitor {
             };
             self.over_budget_counts[index] = timing.over_budget_count;
             if delta != 0 {
-                events.send(DaemonEvent::Timing(format!(
-                    concat!(
-                        "client pid={} timing=hook_budget_exceeded stage={:?} budget_us={} ",
-                        "over_budget_delta={} over_budget_total={} maximum_duration_us={} last_duration_us={}"
-                    ),
-                    pid, timing.stage, timing.budget_us, delta, timing.over_budget_count,
-                    timing.maximum_duration_us, timing.last_duration_us,
-                ))).map_err(|_| ControllerError::Protocol("daemon event channel closed".into()))?;
+                events
+                    .send(DaemonEvent::HookBudgetExceeded {
+                        pid,
+                        timing: *timing,
+                        delta,
+                    })
+                    .map_err(|_| ControllerError::Protocol("daemon event channel closed".into()))?;
             }
         }
         Ok(())
@@ -360,6 +359,7 @@ fn monitor(
 ) -> Result<(), ControllerError> {
     let mut request_id = 1_u32;
     let mut boundary = None;
+    let mut baseline_reason = "initial_connection";
     let mut last_health = Instant::now();
     let mut tick_rate = TickRateMonitor::default();
     let mut hook_timing = HookTimingMonitor::default();
@@ -367,6 +367,7 @@ fn monitor(
     while !control.is_stopped() {
         if control.take_refresh_observation() {
             boundary = None;
+            baseline_reason = "observation_rejected";
         }
         if boundary.is_none() {
             snapshots.clear();
@@ -387,6 +388,7 @@ fn monitor(
                         if let Some(snapshot) = snapshots.resolve(freshness, Instant::now()) {
                             Ok(CommandReply::Snapshot(snapshot))
                         } else {
+                            tracing::debug!(pid, reason = ?freshness, "API snapshot requested");
                             match request_snapshot(session, request_id) {
                                 Ok(SnapshotOutcome::Ready(snapshot)) => {
                                     let reply_snapshot = snapshot.clone();
@@ -423,6 +425,7 @@ fn monitor(
         }
 
         if boundary.is_none() {
+            tracing::debug!(pid, reason = baseline_reason, "baseline snapshot requested");
             match request_snapshot(session, request_id)? {
                 SnapshotOutcome::Ready(snapshot) => {
                     publish_snapshot(
@@ -469,11 +472,31 @@ fn monitor(
                             },
                         )?;
                     } else {
+                        tracing::warn!(
+                            pid,
+                            after_sequence,
+                            after_revision,
+                            reason = "sequence_or_revision_gap",
+                            "event continuity lost; requesting a fresh baseline"
+                        );
                         boundary = None;
+                        baseline_reason = "sequence_or_revision_gap";
                     }
                 }
             }
-            EventPollResult::ResyncRequired { .. } => boundary = None,
+            EventPollResult::ResyncRequired {
+                missing_sequence,
+                latest_sequence,
+            } => {
+                tracing::warn!(
+                    pid,
+                    missing_sequence,
+                    latest_sequence,
+                    "event history unavailable; requesting a fresh baseline"
+                );
+                boundary = None;
+                baseline_reason = "event_history_unavailable";
+            }
         }
         request_id = SequenceNumber::new(request_id).next().get();
 
@@ -652,26 +675,27 @@ fn send_tick_rate_change(
     pid: u32,
     change: TickRateChange,
 ) -> Result<(), ControllerError> {
-    let (state, tick_delta, sample_ms, rate_hz) = match change {
+    let (degraded, tick_delta, sample_ms, rate_hz) = match change {
         TickRateChange::Degraded {
             tick_delta,
             sample_ms,
             rate_hz,
-        } => ("degraded", tick_delta, sample_ms, rate_hz),
+        } => (true, tick_delta, sample_ms, rate_hz),
         TickRateChange::Recovered {
             tick_delta,
             sample_ms,
             rate_hz,
-        } => ("recovered", tick_delta, sample_ms, rate_hz),
+        } => (false, tick_delta, sample_ms, rate_hz),
     };
     events
-        .send(DaemonEvent::Timing(format!(
-            concat!(
-                "client pid={} timing=tick_rate_{} rate_hz={} ",
-                "threshold_hz={} tick_delta={} sample_ms={}"
-            ),
-            pid, state, rate_hz, MIN_TICK_RATE_HZ, tick_delta, sample_ms
-        )))
+        .send(DaemonEvent::TickRateChanged {
+            pid,
+            degraded,
+            tick_delta,
+            sample_ms,
+            rate_hz,
+            threshold_hz: MIN_TICK_RATE_HZ,
+        })
         .map_err(|_| ControllerError::Protocol("daemon event channel closed".into()))
 }
 
@@ -952,7 +976,7 @@ mod tests {
         assert_eq!(messages.len(), 2);
         assert!(matches!(
             &messages[1],
-            DaemonEvent::Timing(message) if message.contains("over_budget_delta=2")
+            DaemonEvent::HookBudgetExceeded { delta: 2, .. }
         ));
     }
 }

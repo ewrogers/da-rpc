@@ -107,7 +107,7 @@ fn serves_health_and_client_resources() {
     );
     assert_eq!(
         clients["clients"][0]["connection"]["protocol_version"],
-        "1.10"
+        "1.0"
     );
     assert_eq!(
         clients["clients"][0]["connection"]["client_version"],

@@ -212,7 +212,7 @@ HTTP API listening on http://127.0.0.1:2626
 client pid=3780 status=connecting
 client pid=3780 status=not_loaded
 client pid=3780 status=initializing
-client pid=3780 status=connected creation_time=... instance=... protocol=1.3 ...
+client pid=3780 status=connected creation_time=... instance=... protocol=1.0 ...
 client pid=3780 status=disconnected instance=... reason="..."
 client pid=3780 status=busy
 client pid=3780 status=incompatible instance=... reason="..."
@@ -266,7 +266,7 @@ per second. Three consecutive samples below 60 ticks per second produce one
 `tick_rate_degraded` daemon log entry. The next healthy sample produces one
 `tick_rate_recovered` entry, avoiding continuous warnings during one incident.
 
-For DLL component 1.5.2 and later, the worker also queries hook timing once per
+The worker also queries hook timing once per
 second. Disabled responses are silent. When an over-budget counter advances,
 the daemon writes one `hook_budget_exceeded` entry with the client PID, stage,
 budget, delta, total, maximum, and last duration. HTTP callers can query,

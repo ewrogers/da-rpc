@@ -196,7 +196,7 @@ are documented in [Groups](groups.md). Player offers, constraints, and exchange
 completion are documented in [Exchange](exchanges.md).
 Raw packet syntax and crash risks are documented in [Raw packets](raw.md).
 
-Runtime hook diagnostics require DLL component 1.5.2 or later. The mode is
+Runtime hook diagnostics are included in the first release. The mode is
 disabled by default. A successful query returns the stage budget, call count,
 total, average, maximum, over-budget count, and last duration in microseconds.
 Reset clears counters but the request's `mode` remains authoritative for the
@@ -227,7 +227,7 @@ The response describes the one active refresh:
 
 `coalesced: true` means another F5 or HTTP request already owns the returned
 `resync_id`; daRPC did not send a second packet. `pending_count` is always zero
-in 1.7.0. The HTTP response does not mean the server redraw is finished. Follow
+because refresh requests coalesce. The HTTP response does not mean the server redraw is finished. Follow
 `client.resync` and `client.resync_completed` on the event stream.
 
 See [Refresh and resynchronization](resync.md) for movement safety, the

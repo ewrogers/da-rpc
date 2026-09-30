@@ -28,7 +28,7 @@ An HTTP request that joins active work returns the active `resync_id` and sets
 }
 ```
 
-`pending_count` is always zero in 1.7.0 because daRPC does not queue a second
+`pending_count` is always zero because daRPC does not queue a second
 refresh. `waiting_to_send` covers movement settling and packet submission.
 `awaiting_response` begins after daRPC observes the outgoing `0x38` packet.
 `client.resync` always carries a nonzero `resync_id`. HTTP refreshes use the

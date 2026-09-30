@@ -48,15 +48,17 @@ fn snapshot_movement_source_follows_walking_state() {
 }
 
 #[test]
-fn snapshot_decoder_accepts_the_pre_dialog_protocol_1_0_tail() {
+fn snapshot_decoder_rejects_truncated_tail_fields() {
     let mut snapshot = snapshot();
     snapshot.dialog = None;
     snapshot.active_field_map = None;
+    snapshot.active_bulletin = None;
     snapshot.message_dialogs = Default::default();
     snapshot.group = None;
     snapshot.exchange = None;
     snapshot.legend = None;
     snapshot.planned_route = None;
+    snapshot.character.as_mut().unwrap().identity = None;
     let frame = Frame::new(
         7,
         123,
@@ -65,31 +67,18 @@ fn snapshot_decoder_accepts_the_pre_dialog_protocol_1_0_tail() {
             result: SnapshotResult::Ready(Box::new(snapshot)),
         }),
     );
-    let mut bytes = encode_frame(&frame).unwrap();
-    assert_eq!(bytes.pop(), Some(0));
-    assert_eq!(bytes.pop(), Some(0));
-    assert_eq!(bytes.pop(), Some(0));
-    assert_eq!(bytes.pop(), Some(0));
-    assert_eq!(bytes.pop(), Some(0));
-    assert_eq!(bytes.pop(), Some(0));
-    assert_eq!(bytes.pop(), Some(0));
-    assert_eq!(bytes.pop(), Some(0));
-    assert_eq!(bytes.pop(), Some(0));
-    assert_eq!(bytes.pop(), Some(0));
-    assert_eq!(bytes.pop(), Some(0));
-    assert_eq!(bytes.pop(), Some(0));
-    assert_eq!(bytes.pop(), Some(0));
-    let payload_len = u32::from_le_bytes(bytes[16..20].try_into().unwrap()) - 13;
-    bytes[16..20].copy_from_slice(&payload_len.to_le_bytes());
-
-    let decoded = decode_frame(&bytes).unwrap();
-    let Message::SnapshotResponse(response) = decoded.message else {
-        panic!("expected snapshot response");
-    };
-    let SnapshotResult::Ready(snapshot) = response.result else {
-        panic!("expected ready snapshot");
-    };
-    assert_eq!(snapshot.dialog, None);
+    let bytes = encode_frame(&frame).unwrap();
+    // Include truncation at the historical optional-tail boundaries, while
+    // keeping the frame length valid so the snapshot decoder checks the fields.
+    for omitted in 1..=13 {
+        let mut truncated = bytes[..bytes.len() - omitted].to_vec();
+        let payload_len = u32::try_from(truncated.len() - FRAME_HEADER_LEN).unwrap();
+        truncated[16..20].copy_from_slice(&payload_len.to_le_bytes());
+        assert!(matches!(
+            decode_frame(&truncated),
+            Err(DecodeError::TruncatedMessage { .. })
+        ));
+    }
 }
 
 #[test]

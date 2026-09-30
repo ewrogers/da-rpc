@@ -1,5 +1,5 @@
 use darpc_model::{ClientSnapshot as GameSnapshot, StateEvent, WorldObject};
-use darpc_protocol::{Architecture, Hello, protocol_version_major, protocol_version_minor};
+use darpc_protocol::{Architecture, Hello};
 use std::{collections::BTreeMap, fmt::Write as _, sync::Arc};
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -495,76 +495,6 @@ fn validate_collection_batches(events: &[StateEvent]) -> Result<(), String> {
     Ok(())
 }
 
-pub(crate) fn render_event(event: &ConnectionEvent) -> String {
-    match event {
-        ConnectionEvent::Connecting { pid } => format!("client pid={pid} status=connecting"),
-        ConnectionEvent::Initializing { pid } => {
-            format!("client pid={pid} status=initializing")
-        }
-        ConnectionEvent::NotLoaded { pid } => format!("client pid={pid} status=not_loaded"),
-        ConnectionEvent::Busy { pid } => format!("client pid={pid} status=busy"),
-        ConnectionEvent::Connected {
-            pid,
-            hello,
-            selected_version,
-        } => format!(
-            concat!(
-                "client pid={} status=connected creation_time={} instance={} protocol={}.{} ",
-                "architecture={} dll_version={}.{}.{} fingerprint={} client_version={}"
-            ),
-            pid,
-            hello.process_creation_time,
-            hex(&hello.dll_instance_id),
-            protocol_version_major(*selected_version),
-            protocol_version_minor(*selected_version),
-            architecture(hello.architecture),
-            hello.dll_version.major,
-            hello.dll_version.minor,
-            hello.dll_version.patch,
-            hex(&hello.executable_fingerprint),
-            hello.client_version,
-        ),
-        ConnectionEvent::Snapshot { pid, snapshot, .. } => format!(
-            "client pid={pid} snapshot=ready revision={} lifecycle={:?} duration_us={}",
-            snapshot.revision, snapshot.lifecycle, snapshot.capture_duration_us
-        ),
-        ConnectionEvent::SnapshotUnavailable { pid, reason, .. } => {
-            format!("client pid={pid} snapshot=unavailable reason={reason:?}")
-        }
-        ConnectionEvent::StateEvents { pid, events, .. } => {
-            let first = events.first().map_or(0, |event| event.sequence);
-            let last = events.last().map_or(0, |event| event.sequence);
-            format!(
-                "client pid={pid} events={} sequence={first}..={last}",
-                events.len()
-            )
-        }
-        ConnectionEvent::Disconnected {
-            pid,
-            identity,
-            reason,
-        } => format!(
-            "client pid={pid} status=disconnected instance={} reason={reason:?}",
-            optional_instance(*identity)
-        ),
-        ConnectionEvent::Incompatible {
-            pid,
-            identity,
-            reason,
-        } => format!(
-            "client pid={pid} status=incompatible instance={} reason={reason:?}",
-            optional_instance(*identity)
-        ),
-    }
-}
-
-fn optional_instance(identity: Option<ClientIdentity>) -> String {
-    identity.map_or_else(
-        || "unknown".into(),
-        |identity| hex(&identity.dll_instance_id),
-    )
-}
-
 pub(crate) fn architecture(architecture: Architecture) -> &'static str {
     match architecture {
         Architecture::X86 => "x86",
@@ -584,7 +514,7 @@ pub(crate) fn hex(bytes: &[u8]) -> String {
 mod tests {
     use super::{
         ClientIdentity, ClientSnapshotStatus, CommitOutcome, CommittedChange, ConnectionEvent,
-        Registry, TargetStatus, hex, render_event, validate_collection_batches,
+        Registry, TargetStatus, hex, validate_collection_batches,
     };
     use darpc_model::{
         CharacterClass, CharacterProgression, CharacterSnapshot, CharacterStats, CharacterVitals,
@@ -781,7 +711,7 @@ mod tests {
     }
 
     #[test]
-    fn snapshots_and_renders_unavailable_targets() {
+    fn snapshots_unavailable_targets() {
         let mut registry = Registry::new();
         for event in [
             ConnectionEvent::Connecting { pid: 1 },
@@ -793,7 +723,6 @@ mod tests {
                 registry.commit(event.clone()),
                 CommitOutcome::Applied(_)
             ));
-            assert!(render_event(&event).contains("status="));
         }
         let disconnected = ConnectionEvent::Disconnected {
             pid: 5,
@@ -804,7 +733,6 @@ mod tests {
             registry.commit(disconnected.clone()),
             CommitOutcome::Applied(_)
         ));
-        assert!(render_event(&disconnected).contains("instance=unknown"));
 
         let snapshot = registry.snapshot();
         assert_eq!(snapshot.clients.len(), 5);

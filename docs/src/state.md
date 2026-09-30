@@ -83,7 +83,10 @@ source process and helps consumers understand how fresh related resources are.
 Important fields include:
 
 - `pid` identifies the source game process.
-- `revision` advances when retained state changes.
+- `revision` advances on every full snapshot capture and every queued state
+  event, including captures whose game-state contents are unchanged. Together
+  with `event_sequence`, it detects missing snapshot boundaries or incremental
+  updates. It identifies an observation, not a count of meaningful game changes.
 - `event_sequence` orders incremental changes.
 - `captured_tick_ms` is the client tick of the last full baseline.
 - `updated_tick_ms` advances when a later event changes the state.
@@ -105,9 +108,11 @@ ObservationMetadata {
 SSE event observations also carry `instance_id`, which identifies one loaded
 DLL lifetime. See [Common observation metadata](events.md#common-observation-metadata).
 
-Two separate REST requests can have different revisions if the client changes
-between them. Read the revision when several resources must be compared as one
-view.
+Two separate REST requests can have different revisions because of a new
+capture or an intervening event. Equal revisions within the same DLL lifetime
+identify the same observation; differing revisions do not prove that the
+resource's contents changed. Read the revision when several resources must be
+compared as one view.
 
 ## Missing and empty values
 

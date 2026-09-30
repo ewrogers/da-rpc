@@ -10,19 +10,9 @@ use crate::{
 
 pub const MAX_ECHO_TEXT_LEN: usize = 4 * 1024;
 pub const PROTOCOL_VERSION_1_0: u16 = protocol_version(1, 0);
-pub const PROTOCOL_VERSION_1_1: u16 = protocol_version(1, 1);
-pub const PROTOCOL_VERSION_1_2: u16 = protocol_version(1, 2);
-pub const PROTOCOL_VERSION_1_3: u16 = protocol_version(1, 3);
-pub const PROTOCOL_VERSION_1_4: u16 = protocol_version(1, 4);
-pub const PROTOCOL_VERSION_1_5: u16 = protocol_version(1, 5);
-pub const PROTOCOL_VERSION_1_6: u16 = protocol_version(1, 6);
-pub const PROTOCOL_VERSION_1_7: u16 = protocol_version(1, 7);
-pub const PROTOCOL_VERSION_1_8: u16 = protocol_version(1, 8);
-pub const PROTOCOL_VERSION_1_9: u16 = protocol_version(1, 9);
-pub const PROTOCOL_VERSION_1_10: u16 = protocol_version(1, 10);
 pub const SUPPORTED_VERSIONS: VersionRange = VersionRange {
-    min: PROTOCOL_VERSION_1_10,
-    max: PROTOCOL_VERSION_1_10,
+    min: PROTOCOL_VERSION_1_0,
+    max: PROTOCOL_VERSION_1_0,
 };
 
 #[must_use]
@@ -552,6 +542,7 @@ impl<'a> PayloadReader<'a> {
         Ok(bytes)
     }
 
+    #[cfg(test)]
     pub(crate) fn is_empty(&self) -> bool {
         self.offset == self.bytes.len()
     }

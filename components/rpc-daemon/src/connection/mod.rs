@@ -289,16 +289,8 @@ fn run(
                     return;
                 }
 
-                let diagnostics_supported = supports_diagnostics(hello.dll_version);
-                if let Err(error) = monitor(
-                    &mut session,
-                    commands,
-                    control,
-                    &events,
-                    pid,
-                    identity,
-                    diagnostics_supported,
-                ) && !control.is_stopped()
+                if let Err(error) = monitor(&mut session, commands, control, &events, pid, identity)
+                    && !control.is_stopped()
                     && !emit(
                         &events,
                         ConnectionEvent::Disconnected {
@@ -358,10 +350,6 @@ fn validate_identity(hello: Hello) -> Result<(), String> {
     Ok(())
 }
 
-fn supports_diagnostics(version: darpc_protocol::ComponentVersion) -> bool {
-    (version.major, version.minor, version.patch) >= (1, 5, 2)
-}
-
 fn monitor(
     session: &mut ControllerSession,
     commands: &Receiver<CommandCall>,
@@ -369,7 +357,6 @@ fn monitor(
     events: &Sender<DaemonEvent>,
     pid: u32,
     identity: ClientIdentity,
-    diagnostics_supported: bool,
 ) -> Result<(), ControllerError> {
     let mut request_id = 1_u32;
     let mut boundary = None;
@@ -392,11 +379,10 @@ fn monitor(
                     ClientOperation::Command(operation) => {
                         request_command(session, request_id, operation).map(CommandReply::Result)
                     }
-                    ClientOperation::Diagnostics(operation) if diagnostics_supported => {
+                    ClientOperation::Diagnostics(operation) => {
                         request_diagnostics(session, request_id, operation)
                             .map(CommandReply::Diagnostics)
                     }
-                    ClientOperation::Diagnostics(_) => Ok(CommandReply::Unavailable),
                     ClientOperation::Snapshot(freshness) => {
                         if let Some(snapshot) = snapshots.resolve(freshness, Instant::now()) {
                             Ok(CommandReply::Snapshot(snapshot))
@@ -503,12 +489,10 @@ fn monitor(
             } else {
                 tick_rate.reset();
             }
-            if diagnostics_supported {
-                let diagnostics =
-                    request_diagnostics(session, request_id, DiagnosticsOperation::Query)?;
-                request_id = SequenceNumber::new(request_id).next().get();
-                hook_timing.observe(pid, &diagnostics, events)?;
-            }
+            let diagnostics =
+                request_diagnostics(session, request_id, DiagnosticsOperation::Query)?;
+            request_id = SequenceNumber::new(request_id).next().get();
+            hook_timing.observe(pid, &diagnostics, events)?;
         }
     }
     reject_pending_commands(commands);

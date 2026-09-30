@@ -101,55 +101,17 @@ pub(crate) fn decode(reader: &mut PayloadReader<'_>) -> Result<ClientSnapshot, D
         None
     };
     let objects = objects::decode(reader)?;
-    let dialog = if reader.is_empty() {
-        None
-    } else {
-        crate::dialog::decode_optional_state(reader)?
-    };
-    let group = if reader.is_empty() {
-        None
-    } else {
-        crate::group::decode_optional_state(reader)?
-    };
-    let exchange = if reader.is_empty() {
-        None
-    } else {
-        crate::exchange::decode_optional_state(reader)?
-    };
-    let legend = if reader.is_empty() {
-        None
-    } else {
-        crate::legend::decode_optional(reader)?
-    };
-    let identity = if reader.is_empty() {
-        None
-    } else {
-        crate::player::decode_optional_identity(reader)?
-    };
+    let dialog = crate::dialog::decode_optional_state(reader)?;
+    let group = crate::group::decode_optional_state(reader)?;
+    let exchange = crate::exchange::decode_optional_state(reader)?;
+    let legend = crate::legend::decode_optional(reader)?;
+    let identity = crate::player::decode_optional_identity(reader)?;
     let mut objects = objects;
-    if !reader.is_empty() {
-        decode_player_profiles(reader, objects.as_deref_mut())?;
-    }
-    let planned_route = if reader.is_empty() {
-        None
-    } else {
-        decode_optional_planned_route(reader)?
-    };
-    let active_field_map = if reader.is_empty() {
-        None
-    } else {
-        crate::field_map::decode_optional_state(reader)?
-    };
-    let message_dialogs = if reader.is_empty() {
-        Default::default()
-    } else {
-        crate::message_dialog::decode_state(reader)?
-    };
-    let active_bulletin = if reader.is_empty() {
-        None
-    } else {
-        crate::bulletin::decode_optional_state(reader)?
-    };
+    decode_player_profiles(reader, objects.as_deref_mut())?;
+    let planned_route = decode_optional_planned_route(reader)?;
+    let active_field_map = crate::field_map::decode_optional_state(reader)?;
+    let message_dialogs = crate::message_dialog::decode_state(reader)?;
+    let active_bulletin = crate::bulletin::decode_optional_state(reader)?;
     let mut snapshot = ClientSnapshot {
         revision,
         event_sequence,

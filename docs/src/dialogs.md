@@ -104,7 +104,6 @@ implementation retains up to 512 rows in an observed packet of at most 8 KiB.
 Opening a bank's Withdraw choice follows the same conversation flow as Buy.
 Use the current choice text to find it; choice indexes vary by menu. Category
 labels are not part of the RPC state, and no category-tab action is needed.
-Version 1.10.2 keeps binary protocol 1.10 and the dialog HTTP schema unchanged.
 
 ## Start a conversation
 

@@ -73,10 +73,6 @@ impl ResyncTracker {
         self.finish(resync_id);
     }
 
-    fn timed_out(&mut self, resync_id: u32) {
-        self.finish(resync_id);
-    }
-
     fn finish(&mut self, resync_id: u32) {
         if !self.terminal.contains(&resync_id) {
             if self.terminal.len() == TERMINAL_RESYNC_RETENTION {
@@ -127,13 +123,6 @@ impl ResyncTrackers {
             .entry(identity)
             .or_default()
             .completed(resync_id);
-    }
-
-    pub(crate) fn timed_out(&mut self, identity: ClientIdentity, resync_id: u32) {
-        self.clients
-            .entry(identity)
-            .or_default()
-            .timed_out(resync_id);
     }
 
     pub(crate) fn status(&self, identity: ClientIdentity) -> ResyncSchedulerStatus {
@@ -208,14 +197,14 @@ mod tests {
     }
 
     #[test]
-    fn timeout_is_terminal_without_queueing_a_follow_up() {
+    fn completion_is_terminal_without_queueing_a_follow_up() {
         let mut trackers = ResyncTrackers::default();
         let identity = identity();
 
         trackers.accepted(identity, 7);
         trackers.accepted(identity, 9);
         trackers.outgoing(identity, 7);
-        trackers.timed_out(identity, 7);
+        trackers.completed(identity, 7);
         trackers.accepted(identity, 7);
 
         assert_eq!(

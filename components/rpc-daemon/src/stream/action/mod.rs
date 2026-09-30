@@ -141,11 +141,5 @@ pub(super) fn expand_action(observation: EventObservation, update: ActionUpdate)
                 resync_id,
             })
         }
-        ActionUpdate::ResyncTimedOut { resync_id } => {
-            ClientEvent::ClientResyncCompleted(ClientResyncCompleted {
-                observation,
-                resync_id,
-            })
-        }
     }
 }

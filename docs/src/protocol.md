@@ -46,16 +46,6 @@ A negotiated protocol version is one `u16` split into major and minor bytes:
 let version: u16 = ((major as u16) << 8) | minor as u16;
 
 const VERSION_1_0: u16 = 0x0100;
-const VERSION_1_1: u16 = 0x0101;
-const VERSION_1_2: u16 = 0x0102;
-const VERSION_1_3: u16 = 0x0103;
-const VERSION_1_4: u16 = 0x0104;
-const VERSION_1_5: u16 = 0x0105;
-const VERSION_1_6: u16 = 0x0106;
-const VERSION_1_7: u16 = 0x0107;
-const VERSION_1_8: u16 = 0x0108;
-const VERSION_1_9: u16 = 0x0109;
-const VERSION_1_10: u16 = 0x010a;
 ```
 
 The protocol number is a wire-schema revision, not a Semantic Versioning
@@ -63,14 +53,15 @@ compatibility promise. Each peer advertises an inclusive, continuous range of
 versions it can decode, and the controller selects the highest version in the
 overlap. No overlap rejects the connection.
 
-The only currently supported version is 1.10 (`0x010a`). Version 1.10 adds
-sender identity and object category to client messages. Peers advertise only
-1.10, so deploy the DLL and its controller or daemon together. Older peers
-are rejected during negotiation before events are decoded.
+The only supported version is 1.0 (`0x0100`). It includes the complete snapshot,
+event, command, and diagnostics schemas documented here. Peers advertise only
+1.0, so deploy the DLL and its controller or daemon together. There are no
+feature gates based on component patch or minor versions.
 
-Protocol 1.9 added bulletin-board and player-mail state, events, and main-thread
-commands. Protocol 1.8 added action source to movement. Older schemas remain
-in repository history.
+The first release establishes this schema as the baseline. Development builds
+published before this baseline are unsupported, including builds that used the
+same 1.0 number for an incomplete schema. Replace all components together;
+version negotiation alone cannot distinguish those early builds.
 
 ## Message types
 
@@ -99,9 +90,7 @@ The normal request direction is controller to DLL. Responses travel from DLL to
 controller. `Hello` starts in the opposite direction because the DLL announces
 its identity and capabilities immediately after a connection is established.
 
-Diagnostics messages are an additive protocol 1.5 capability implemented by
-components version 1.5.2 and later. A 1.5 controller checks the DLL component
-version before sending them, preserving compatibility with earlier 1.5 DLLs.
+Diagnostics messages are part of the protocol 1.0 baseline.
 
 ## Hello and HelloAck
 
@@ -214,8 +203,7 @@ stage, `u32` budget in microseconds, `u64` call count, `u64` total duration,
 fixed record count keeps decoding and allocation bounded.
 
 Counters are atomic snapshots and may change while the IPC worker serializes a
-response. Timing is disabled by default. Component 1.5.2 controllers do not
-send these messages to older protocol 1.5 DLL components.
+response. Timing is disabled by default.
 
 ## Client snapshot
 
@@ -545,11 +533,11 @@ enum EffectDuration: u8 {
 always carries a source; `Unknown` represents an origin unavailable at snapshot
 time. An idle character has no movement source on the wire.
 
-The dialog, group, exchange, legend, local identity, and visible-player profile
-fields were appended during protocol 1.0 development. A 1.0 decoder accepts an
-older snapshot ending at any supported tail boundary and treats missing values
-as unavailable. New encoders append local identity and a profile table keyed by
-visible player ID after the original object records.
+All snapshot fields are part of the protocol 1.0 baseline. Optional values
+still require their presence markers, and empty collections require their
+counts. A payload ending before the final bulletin field is truncated and
+rejected. Local identity and the profile table keyed by visible player ID
+follow the object records.
 
 Optional values begin with a strict boolean byte. Strings use a `u16` UTF-8
 byte length. Character collections use a `u8` count followed by occupied
@@ -576,13 +564,6 @@ timeout, and a failed state walk. A ready response may still contain absent
 groups when the client lifecycle or validated pointers do not expose them.
 `Disconnected` means that the client has an active reconnect dialog. It may
 still contain character state when the underlying world remains valid.
-Earlier snapshot-tail additions remain decodable when absent from old payloads.
-The command and event additions documented below require protocol
-1.1. Total cooldown duration requires protocol 1.2. Local-character and
-player-object hidden-state fields require protocol 1.3. Player visual blocks
-require protocol 1.4. Character stat points and stat spending also require
-protocol 1.4. Field-map state and interaction require protocol 1.5. Bulletin
-state, updates, and commands require protocol 1.9.
 
 ## Event polling and state updates
 
@@ -989,7 +970,6 @@ enum ActionUpdate: u8 {
     Turned { source: ActionSource, direction: Direction } = 9,
     Resync { resync_id: u32 } = 10,
     ResyncCompleted { resync_id: u32 } = 11,
-    ResyncTimedOut { resync_id: u32 } = 12,
 }
 
 enum SpellCastArguments: u8 {
@@ -1352,9 +1332,7 @@ identifier. An HTTP-triggered refresh uses its command ID as the resync ID. A
 payload-free server `0x22` `RefreshUserOK` packet publishes `ResyncCompleted`
 with the matching identifier after authoritative refresh activity. If that
 packet is absent, the DLL publishes `ResyncCompleted` after the one-second
-refresh window instead. The `ResyncTimedOut` wire discriminant remains reserved
-for 1.7 compatibility, but the 1.7.0 DLL does not emit it. The daemon maps that
-legacy update to the public completion event.
+refresh window instead.
 
 Only one refresh can be active. Physical and command requests received during
 that transaction are coalesced and do not create another packet. See

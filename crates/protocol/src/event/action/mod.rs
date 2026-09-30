@@ -58,10 +58,6 @@ pub(super) fn encode_action(output: &mut Vec<u8>, update: ActionUpdate) -> Resul
             output.push(11);
             push_u32(output, resync_id);
         }
-        ActionUpdate::ResyncTimedOut { resync_id } => {
-            output.push(12);
-            push_u32(output, resync_id);
-        }
     }
     Ok(())
 }
@@ -122,9 +118,6 @@ pub(super) fn decode_action(reader: &mut PayloadReader<'_>) -> Result<ActionUpda
             resync_id: decode_resync_id(reader)?,
         }),
         11 => Ok(ActionUpdate::ResyncCompleted {
-            resync_id: decode_resync_id(reader)?,
-        }),
-        12 => Ok(ActionUpdate::ResyncTimedOut {
             resync_id: decode_resync_id(reader)?,
         }),
         actual => Err(DecodeError::InvalidStateUpdateType { actual }),
@@ -326,4 +319,19 @@ fn validate_spell_progress_decode(line: u8, total: u8) -> Result<(), DecodeError
         return Err(DecodeError::InvalidSpellProgress { line, total });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::MessageType;
+
+    #[test]
+    fn rejects_the_removed_resync_timeout_discriminant() {
+        let mut reader = PayloadReader::new(MessageType::EventPollResponse, &[12, 1, 0, 0, 0]);
+        assert_eq!(
+            decode_action(&mut reader),
+            Err(DecodeError::InvalidStateUpdateType { actual: 12 })
+        );
+    }
 }
